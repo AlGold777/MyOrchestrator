@@ -1,6 +1,7 @@
 // Application-level sequencing for the Triad topology.
 (function initTriadRunner(root) {
   'use strict';
+  const Participants = root.DebateParticipantRegistry || (typeof require === 'function' ? require('./debate-participant-registry') : null);
 
   function createTriadRunner(deps = {}) {
     const acceptance = deps.acceptResponse || ((text) => ({ ok: Boolean(String(text || '').trim()) && !deps.isErrorOutput?.(String(text || '').trim()), reason: '' }));
@@ -61,6 +62,7 @@
         state.sessionId = input.runContext?.sessionId;
         state.moderatorMessage = input.moderatorEntryText;
         state.models = selected;
+        Participants.initialize(state, selected);
         state.role = input.role || '';
         state.topic = input.pipelineNameText;
         state.maxWords = input.maxWords;
@@ -107,6 +109,7 @@
       async dispatchWave(state, kind = 'init', options = {}) {
         const api = deps.templates;
         if (!state?.active || !api) return false;
+        if (!Array.isArray(state.configuredParticipants)) Participants.initialize(state, state.models);
         const isInit = kind === 'init';
         const waveNumber = isInit ? 0 : Number(state.wave || 0) + 1;
         const protocolRound = isInit ? 1 : waveNumber + 1;
@@ -230,18 +233,27 @@
           },
           signal: options.signal || null
         });
+        const terminalFailures = Participants.terminalFailures(result, { stageId, attemptId: stageAttemptId })
+          .filter((failure) => models.includes(failure.modelId));
+        const failedModels = terminalFailures.map((failure) => failure.modelId);
         let usableCount = 0;
         const waveTurns = [];
         models.forEach((modelName) => {
           const answer = String(result?.responses?.[modelName] || '').trim();
           const correlation = deps.validateCorrelation?.(result?.contexts?.[modelName] || result?.pipelineContext || {}, { pipelineRunId: state.runId, pipelineStageId: stageId, stageAttemptId }) || { ok: true };
           const accepted = deps.acceptResponse?.(answer, { kind: 'participant', taskClass: state.taskContract?.taskClass, maxWords: state.maxWords, allowShort: state.taskContract?.taskClass === 'direct_answer', isErrorOutput: deps.isErrorOutput }) || { ok: Boolean(answer) && !deps.isErrorOutput?.(answer) };
-          if (correlation.ok && accepted.ok) {
+          if (failedModels.includes(modelName)) {
+            stageEvent('BARRIER_PARTICIPANT_FAILED', stageId, {
+              model: modelName, terminal: true,
+              reason: terminalFailures.find((failure) => failure.modelId === modelName)?.reasonCode || 'terminal_transport_failure'
+            });
+            timeline('Error', { model: modelName, note: isInit ? 'terminal init failure' : 'terminal triad wave failure' });
+          } else if (correlation.ok && accepted.ok) {
             stageEvent('BARRIER_PARTICIPANT_READY', stageId, { model: modelName, answerLength: answer.length });
             usableCount += 1;
             waveTurns.push({ turnId: deps.makeTurnId?.(waveKey, modelName), model: modelName, text: answer });
           } else {
-            stageEvent(correlation.ok ? 'BARRIER_PARTICIPANT_FAILED' : 'CORRELATION_REJECTED', stageId, { model: modelName, reason: correlation.ok ? (accepted.reason || 'no_usable_response') : correlation.reason });
+            stageEvent(correlation.ok ? 'ANSWER_REJECTED' : 'CORRELATION_REJECTED', stageId, { model: modelName, reasonCode: correlation.ok ? (accepted.reason || 'no_usable_response') : correlation.reason });
             timeline('Error', { model: modelName, note: isInit ? 'no usable init response' : 'triad wave skipped by model' });
             if (!isInit) {
               deps.notify?.(`Triad: ${modelName} пропустила волну ${waveNumber}.`, 'warn');
@@ -250,7 +262,6 @@
           }
         });
         const successfulModels = waveTurns.map((turn) => turn.model);
-        const failedModels = models.filter((modelName) => !successfulModels.includes(modelName));
         if (failedModels.length) {
           const remainingModels = state.models.filter((modelName) => !failedModels.includes(modelName));
           stageEvent('DROPOUT_DECISION_REQUESTED', stageId, { failedModels, remainingModels });
@@ -264,7 +275,9 @@
             return runner.dispatchWave(state, kind, { ...options, stageAttemptNumber: attemptNumber + 1 });
           }
           if (decision !== 'continue') return stopAfterDropout(state, failedModels, isInit ? 'opening' : `wave_${waveNumber}`);
+          Participants.markDropped(state, terminalFailures);
           deps.fsm?.retainParticipants?.(state, remainingModels);
+          state.activeParticipants = state.models.slice();
           deps.syncState?.(state, 'TRIAD_PARTICIPANTS_REDUCED');
           deps.notify?.(`Triad продолжен без: ${failedModels.join(', ')}.`, 'warn');
         }
@@ -321,6 +334,7 @@
 
       async finalize(state, options = {}) {
         if (!state?.active || state.finalWordsRequested) return true;
+        if (!Array.isArray(state.configuredParticipants)) Participants.initialize(state, state.models);
         state.finalWordsRequested = true;
         const api = deps.templates;
         if (api?.buildTriadFinalWordPrompt) {
@@ -362,6 +376,9 @@
             context: { ...(deps.makeBatchContext?.(state, 'triad-final') || {}), pipelineStageId: 'final:words' },
             signal: options.signal || null
           });
+          const finalFailures = new Map(Participants.terminalFailures(result, {
+            stageId: 'final:words', attemptId: 'final:words:a1'
+          }).map((failure) => [failure.modelId, failure]));
           const successfulFinalModels = [];
           for (const modelName of state.models) {
             let answer = String(result?.responses?.[modelName] || '').trim();
@@ -374,12 +391,16 @@
                 useApiFallback: options.useApiFallback !== false, generationProfile: 'long',
                 context: { ...(deps.makeBatchContext?.(state, 'triad-final-repair') || {}), pipelineStageId: 'final:words', stageAttemptId: 'final:words:a2' }, signal: options.signal || null
               });
+              const repairFailure = Participants.terminalFailures(repair, {
+                stageId: 'final:words', attemptId: 'final:words:a2'
+              }).find((failure) => failure.modelId === modelName);
+              if (repairFailure) finalFailures.set(modelName, repairFailure);
               answer = String(repair?.responses?.[modelName] || '').trim();
               finalWordAttemptId = 'final:words:a2';
               if (deps.validateRequiredSections?.(answer, ['Эволюция позиции'])?.length) stageEvent('MISSING_REQUIRED_ARTIFACT', 'final:words', { model: modelName, sections: ['Эволюция позиции'] });
             }
             const accepted = acceptance(answer, { kind: 'final_word', taskClass: state.taskContract?.taskClass, maxWords: state.maxWords });
-            if (accepted.ok) {
+            if (accepted.ok && !finalFailures.has(modelName)) {
               deps.recordAcceptedResponse?.({ stageId: 'final:words', participant: modelName, attemptId: finalWordAttemptId, text: answer });
               stageEvent('BARRIER_PARTICIPANT_READY', 'final:words', { model: modelName, answerLength: answer.length });
               successfulFinalModels.push(modelName);
@@ -391,22 +412,28 @@
               });
               timeline('Response', { from: modelName, to: 'Moderator', note: 'финальное слово' });
             }
-            if (!accepted.ok) stageEvent('BARRIER_PARTICIPANT_FAILED', 'final:words', { model: modelName, reason: accepted.reason || 'no_usable_response' });
+            if (finalFailures.has(modelName)) stageEvent('BARRIER_PARTICIPANT_FAILED', 'final:words', {
+              model: modelName, terminal: true, reason: finalFailures.get(modelName).reasonCode
+            });
+            else if (!accepted.ok) stageEvent('ANSWER_REJECTED', 'final:words', { model: modelName, reasonCode: accepted.reason || 'no_usable_response' });
           }
-          const failedFinalModels = state.models.filter((modelName) => !successfulFinalModels.includes(modelName));
+          const failedFinalModels = Array.from(finalFailures.keys()).filter((modelName) => state.models.includes(modelName));
           if (failedFinalModels.length) {
-            stageEvent('DROPOUT_DECISION_REQUESTED', 'final:words', { failedModels: failedFinalModels, remainingModels: successfulFinalModels });
+            const remainingModels = state.models.filter((modelName) => !failedFinalModels.includes(modelName));
+            stageEvent('DROPOUT_DECISION_REQUESTED', 'final:words', { failedModels: failedFinalModels, remainingModels });
             const decision = await resolveDropout(state, 'final:words', {
               topology: 'triad', stage: 'final_words', failedModels: failedFinalModels,
-              remainingModels: successfulFinalModels
+              remainingModels
             }) || 'stop';
-            stageEvent(decision === 'retry' ? 'DROPOUT_RETRY_SELECTED' : (decision === 'continue' ? 'DROPOUT_CONTINUE_SELECTED' : 'DROPOUT_STOP_SELECTED'), 'final:words', { failedModels: failedFinalModels, remainingModels: successfulFinalModels });
+            stageEvent(decision === 'retry' ? 'DROPOUT_RETRY_SELECTED' : (decision === 'continue' ? 'DROPOUT_CONTINUE_SELECTED' : 'DROPOUT_STOP_SELECTED'), 'final:words', { failedModels: failedFinalModels, remainingModels });
             if (decision === 'retry') {
               state.finalWordsRequested = false;
               return runner.finalize(state, options);
             }
             if (decision !== 'continue') return stopAfterDropout(state, failedFinalModels, 'final_words');
-            deps.fsm?.retainParticipants?.(state, successfulFinalModels);
+            Participants.markDropped(state, Array.from(finalFailures.values()));
+            deps.fsm?.retainParticipants?.(state, remainingModels);
+            state.activeParticipants = state.models.slice();
             deps.syncState?.(state, 'TRIAD_PARTICIPANTS_REDUCED');
             deps.notify?.(`Triad продолжен без: ${failedFinalModels.join(', ')}${state.synthesizer ? '; затем будет выполнен синтез' : ''}.`, 'warn');
           }
@@ -451,7 +478,7 @@
               timeline('Dispatch', { from: 'Moderator', to: synthesizer, note: 'триада: синтез итогов' });
               deps.renderCards?.('synthesizer', [synthesizer], { approvalSelectable: false });
               deps.tagWaveCards?.(state, 'synthesis', [synthesizer]);
-              const result = await deps.runModelBatch({
+              let result = await deps.runModelBatch({
                 prompt,
                 models: [synthesizer],
                 attachments: [],
@@ -461,6 +488,9 @@
                 context: { ...(deps.makeBatchContext?.(state, 'triad-synthesis') || {}), pipelineStageId: 'final:synthesis', stageAttemptId: synthesisAttemptId },
                 signal: options.signal || null
               });
+              let synthesisFailure = Participants.terminalFailures(result, {
+                stageId: 'final:synthesis', attemptId: synthesisAttemptId
+              }).find((failure) => failure.modelId === synthesizer) || null;
               let answer = String(result?.responses?.[synthesizer] || '').trim();
               let accepted = acceptance(answer, { kind: 'synthesis', taskClass: state.taskContract?.taskClass, maxWords: state.maxWords });
               let missing = deps.validateSynthesisSections?.(answer) || [];
@@ -474,18 +504,33 @@
                   context: { ...(deps.makeBatchContext?.(state, 'triad-synthesis-format-repair') || {}), pipelineStageId: 'final:synthesis', stageAttemptId: synthesisAttemptId },
                   signal: options.signal || null
                 });
+                result = repair;
+                synthesisFailure = Participants.terminalFailures(repair, {
+                  stageId: 'final:synthesis', attemptId: synthesisAttemptId
+                }).find((failure) => failure.modelId === synthesizer) || null;
                 answer = String(repair?.responses?.[synthesizer] || '').trim();
                 accepted = acceptance(answer, { kind: 'synthesis', taskClass: state.taskContract?.taskClass, maxWords: state.maxWords });
                 missing = deps.validateSynthesisSections?.(answer) || [];
                 if (missing.length) stageEvent('MISSING_REQUIRED_ARTIFACT', 'final:synthesis', { sections: missing });
               }
-              if (accepted.ok) {
+              if (accepted.ok && !synthesisFailure) {
                 state.synthesisText = answer;
                 deps.recordAcceptedResponse?.({ stageId: 'final:synthesis', participant: synthesizer, attemptId: synthesisAttemptId, text: answer });
                 stageEvent('STAGE_COMPLETED', 'final:synthesis');
                 timeline('Response', { from: synthesizer, to: 'Moderator', note: 'синтез итогов' });
                 break;
               }
+              if (!synthesisFailure) {
+                stageEvent('SYNTHESIS_RESPONSE_REJECTED', 'final:synthesis', { model: synthesizer, reasonCode: accepted.reason || 'no_usable_response' });
+                transition(state, 'FAILED', { reason: 'synthesis_response_rejected' });
+                deps.recordRunFailure?.('synthesis_response_rejected');
+                await deps.notifyControl?.('FAILED', { stage: 'failed', reason: 'synthesis_response_rejected' });
+                deps.finalizeRuntime?.();
+                return false;
+              }
+              stageEvent('BARRIER_PARTICIPANT_FAILED', 'final:synthesis', {
+                model: synthesizer, terminal: true, reason: synthesisFailure.reasonCode
+              });
               const alternatives = state.models.filter((model) => model !== synthesizer && !attemptedSynthesizers.has(model));
               const decision = await resolveDropout(state, 'final:synthesis', {
                 topology: 'triad', stage: 'final_synthesis', failedModels: [synthesizer], remainingModels: alternatives
@@ -496,7 +541,7 @@
                 continue;
               }
               if (decision !== 'continue') return stopAfterDropout(state, [synthesizer], 'final_synthesis');
-              state.droppedModels = Array.from(new Set([...(state.droppedModels || []), synthesizer]));
+              Participants.markDropped(state, [synthesisFailure]);
               stageEvent('STAGE_SKIPPED', 'final:synthesis', { reasonCode: 'selected_synthesizer_unavailable', participant: synthesizer });
               synthesizer = '';
               state.synthesizer = '';
@@ -518,7 +563,12 @@
           return true;
         }
         if (!state.synthesisText) {
-          return stopAfterDropout(state, [synthesizer].filter(Boolean), 'final_synthesis');
+          stageEvent('STAGE_FAILED', 'final:synthesis', { reasonCode: 'synthesis_unavailable' });
+          transition(state, 'FAILED', { reason: 'synthesis_unavailable' });
+          deps.recordRunFailure?.('synthesis_unavailable');
+          await deps.notifyControl?.('FAILED', { stage: 'failed', reason: 'synthesis_unavailable' });
+          deps.finalizeRuntime?.();
+          return false;
         }
         if (state.auditRequired && deps.runSynthesisAudit) {
           const auditor = state.serviceRoles?.auditor && state.serviceRoles.auditor !== synthesizer

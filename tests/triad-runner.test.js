@@ -21,18 +21,19 @@ describe('TriadRunner', () => {
     expect(dispatchWave).toHaveBeenCalledWith('wave');
   });
 
-  test('stops when mandatory synthesis is unavailable and continuation is rejected', async () => {
+  test('fails mandatory synthesis configuration without misclassifying participant dropout', async () => {
     const transition = jest.fn();
     const finalizeRuntime = jest.fn();
     const runner = TriadRunner.createTriadRunner({
       templates: {}, transition, finalizeRuntime, notifyControl: jest.fn(),
-      resolveParticipantDropout: async () => 'stop'
+      resolveParticipantDropout: jest.fn()
     });
     const state = {
       active: true, models: ['A', 'B', 'C'], positions: {}, finalWords: {}, roundFilters: [], synthesizer: 'C'
     };
     await expect(runner.finalize(state)).resolves.toBe(false);
-    expect(transition).toHaveBeenCalledWith(state, { type: 'CANCELLED', payload: { reason: 'participant_dropout:final_synthesis' } });
+    expect(transition).toHaveBeenCalledWith(state, { type: 'FAILED', payload: { reason: 'synthesis_unavailable' } });
+    expect(state.droppedParticipants).toEqual([]);
     expect(finalizeRuntime).toHaveBeenCalled();
   });
 
@@ -48,7 +49,7 @@ describe('TriadRunner', () => {
         if (event.type === 'TRIAD_INIT_ANSWER') TriadFSM.recordInitAnswer(state, event.payload.model, event.payload.text);
         return state;
       },
-      runModelBatch: async () => ({ responses: { A: 'answer A', C: 'answer C' } }),
+      runModelBatch: async () => ({ responses: { A: 'answer A', C: 'answer C' }, failed: { B: 'ERROR' } }),
       isErrorOutput: () => false,
       resolveParticipantDropout: resolver,
       runRoundFilter: async () => null,
@@ -63,7 +64,34 @@ describe('TriadRunner', () => {
     await expect(runner.dispatchWave(state, 'init', { auto: false })).resolves.toBe(true);
     expect(resolver).toHaveBeenCalledWith(expect.objectContaining({ failedModels: ['B'], remainingModels: ['A', 'C'] }));
     expect(state.models).toEqual(['A', 'C']);
+    expect(state.configuredParticipants).toEqual(['A', 'B', 'C']);
+    expect(state.activeParticipants).toEqual(['A', 'C']);
+    expect(state.droppedParticipants).toEqual([expect.objectContaining({ modelId: 'B', terminal: true, stageId: 'r1:wave' })]);
     expect(state.phase).toBe(TriadFSM.PHASES.PUBLIC);
+  });
+
+  test('an unusable init answer without terminal evidence remains an active participant', async () => {
+    const resolver = jest.fn();
+    const events = [];
+    const runner = TriadRunner.createTriadRunner({
+      templates: { buildTriadInitPrompt: ({ topic }) => `init:${topic}` },
+      fsm: TriadFSM,
+      transition: (state, event) => state,
+      runModelBatch: async () => ({ responses: { A: 'answer A', B: '', C: 'answer C' }, failed: {} }),
+      acceptResponse: (text) => ({ ok: Boolean(text), reason: 'no_usable_response' }),
+      resolveParticipantDropout: resolver,
+      recordStageEvent: (type, payload) => events.push({ type, ...payload }),
+      sanitizePromptsByModel: (prompts) => prompts,
+      finalizeRuntime: jest.fn()
+    });
+    const state = TriadFSM.createState({ active: true, models: ['A', 'B', 'C'], topic: 'T', presetConfigSnapshot: {}, roundFilters: [] });
+    TriadFSM.beginInitWave(state);
+    await expect(runner.dispatchWave(state, 'init', { auto: false })).resolves.toBe(false);
+    expect(resolver).not.toHaveBeenCalled();
+    expect(state.activeParticipants).toEqual(['A', 'B', 'C']);
+    expect(state.droppedParticipants).toEqual([]);
+    expect(events).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'ANSWER_REJECTED', model: 'B' })]));
+    expect(events.filter((event) => event.type === 'BARRIER_PARTICIPANT_FAILED')).toHaveLength(0);
   });
 
   test('retries the same wave after the dropout dialog returns retry', async () => {
@@ -76,7 +104,10 @@ describe('TriadRunner', () => {
       transition: jest.fn(),
       runModelBatch: async () => {
         attempts += 1;
-        return { responses: attempts === 1 ? { A: 'a', C: 'c' } : { A: 'a', B: 'b', C: 'c' } };
+        return {
+          responses: attempts === 1 ? { A: 'a', C: 'c' } : { A: 'a', B: 'b', C: 'c' },
+          failed: attempts === 1 ? { B: 'ERROR' } : {}
+        };
       },
       acceptResponse: (text) => ({ ok: Boolean(text), reason: '' }),
       resolveParticipantDropout: resolver,
