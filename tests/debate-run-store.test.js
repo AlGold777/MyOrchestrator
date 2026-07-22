@@ -60,6 +60,21 @@ describe('DebateRunStore', () => {
     });
   });
 
+  test('protocol synchronization rejects a stale expected revision without changing state', () => {
+    const store = RunStore.createStore();
+    store.dispatch({ type: RunStore.EVENTS.START_REQUESTED, payload: { runId: 'r-cas', protocolState: { status: 'running' } } });
+    store.dispatch({
+      type: RunStore.EVENTS.PROTOCOL_STATE_SYNCED,
+      payload: { protocolState: { status: 'paused' }, expectedProtocolRevision: 0 }
+    });
+    const before = RunStore.serialize(store.getState());
+    expect(() => store.dispatch({
+      type: RunStore.EVENTS.PROTOCOL_STATE_SYNCED,
+      payload: { protocolState: { status: 'completed' }, expectedProtocolRevision: 0 }
+    })).toThrow('PROTOCOL_REVISION_STALE');
+    expect(RunStore.serialize(store.getState())).toBe(before);
+  });
+
   test('terminal protocol synchronization also terminates the aggregate run', () => {
     const store = RunStore.createStore();
     store.dispatch({ type: RunStore.EVENTS.START_REQUESTED, payload: { runId: 'r-cancel' } });

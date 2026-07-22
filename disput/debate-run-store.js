@@ -112,6 +112,16 @@
   function transition(current, input = {}) {
     const state = input.type === EVENTS.START_REQUESTED ? createState() : createState(current);
     if (!input.type) return state;
+    if (input.type === EVENTS.PROTOCOL_STATE_SYNCED && input.payload?.expectedProtocolRevision != null) {
+      const expected = Number(input.payload.expectedProtocolRevision);
+      if (!Number.isFinite(expected) || expected !== state.protocolRevision) {
+        const error = new Error(`PROTOCOL_REVISION_STALE: expected ${expected}, actual ${state.protocolRevision}`);
+        error.code = 'PROTOCOL_REVISION_STALE';
+        error.expectedProtocolRevision = expected;
+        error.actualProtocolRevision = state.protocolRevision;
+        throw error;
+      }
+    }
     if (input.type === EVENTS.MODEL_RESPONSE_RECEIVED && input.payload?.accepted === true) {
       const payload = input.payload || {};
       const stageId = String(payload.stageId || '').trim();

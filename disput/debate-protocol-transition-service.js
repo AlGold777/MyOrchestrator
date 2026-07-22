@@ -63,9 +63,10 @@
       throw new TypeError('PROTOCOL_TRANSITION_SYNC_MISSING');
     }
 
-    const expectedProtocolRevision = typeof input.getProtocolRevision === 'function'
-      ? Number(input.getProtocolRevision())
+    const revisionValue = typeof input.getProtocolRevision === 'function'
+      ? input.getProtocolRevision()
       : null;
+    const expectedProtocolRevision = revisionValue == null ? null : Number(revisionValue);
     const draft = cloneProtocolState(protocolState);
     const reduced = protocol.reduce(draft, event) || draft;
     const synchronized = input.syncState(

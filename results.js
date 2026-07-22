@@ -4701,20 +4701,31 @@ document.addEventListener('click', (event) => {
             dispatchDebateRunEvent(window.DebateRunStore.EVENTS.PROTOCOL_STATE_REPLACED, { protocolState });
             return debateAggregateStore.getState().protocolState;
         };
-        const syncAggregateProtocolState = (protocolState, reason = 'protocol_transition') => {
+        const syncAggregateProtocolState = (protocolState, reason = 'protocol_transition', options = {}) => {
             if (!debateAggregateStore || !protocolState) return protocolState;
             dispatchDebateRunEvent(window.DebateRunStore.EVENTS.PROTOCOL_STATE_SYNCED, {
                 protocolState,
                 reason,
-                protocolStatus: String(protocolState.status || '')
+                protocolStatus: String(protocolState.status || ''),
+                ...(options.expectedProtocolRevision == null
+                    ? {}
+                    : { expectedProtocolRevision: Number(options.expectedProtocolRevision) })
             });
             return debateAggregateStore.getState().protocolState;
         };
         const transitionDebateProtocol = (topology, protocolState, event) => {
             const protocol = window.DebateProtocols?.getProtocol?.(topology);
-            const next = protocol?.reduce?.(protocolState, event) || protocolState;
-            syncAggregateProtocolState(next, String(event?.type || 'protocol_transition'));
-            return next;
+            const service = window.DebateProtocolTransitionService;
+            if (!service?.applyProtocolTransition) {
+                throw new Error('PROTOCOL_TRANSITION_SERVICE_UNAVAILABLE');
+            }
+            return service.applyProtocolTransition({
+                protocol,
+                protocolState,
+                event,
+                syncState: syncAggregateProtocolState,
+                getProtocolRevision: () => debateAggregateStore?.getState?.().protocolRevision ?? null
+            });
         };
         const getDebateAggregateState = () => debateAggregateStore?.getState?.() || null;
         const getTopologyProtocolState = (topology) => {

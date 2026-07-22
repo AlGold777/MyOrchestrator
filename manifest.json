@@ -248,6 +248,7 @@
         "disput/debate-protocols.js",
         "disput/debate-version-manifest.js",
         "disput/debate-run-store.js",
+        "disput/debate-protocol-transition-service.js",
         "disput/debate-decision-request.js",
         "disput/debate-rule-engine.js",
         "disput/debate-rule-history.js",
