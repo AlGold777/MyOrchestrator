@@ -67,7 +67,9 @@
     function normalizeParticipants(config = {}) {
       const source = Array.isArray(config.participants) && config.participants.length
         ? config.participants
-        : (Array.isArray(config.models) ? config.models : []);
+        : (Array.isArray(config.models) && config.models.length
+          ? config.models
+          : (Array.isArray(config.selectedModels) ? config.selectedModels : []));
       return source.map((entry) => typeof entry === 'string'
         ? { participantId: entry, type: 'llm', model: entry, capabilities: ['position', 'critique', 'response', 'verification', 'synthesis', 'audit'] }
         : { type: 'llm', capabilities: ['position', 'critique', 'response', 'verification', 'synthesis', 'audit'], ...entry, participantId: entry.participantId || entry.model });
@@ -115,7 +117,10 @@
         caseId: runId,
         version: 1,
         topic: { title: String(config.topic || config.pipelineNameText || '') },
+        problemSpec: config.problemSpec || null,
+        taskContract: config.taskContract || null,
         constraints: Array.isArray(config.constraints) ? config.constraints.slice() : [],
+        attachments: Array.isArray(config.attachments || config.attachmentsPayload) ? (config.attachments || config.attachmentsPayload).slice() : [],
         participants,
         artifacts: [], relations: [],
         openGoals: Array.isArray(config.openGoals) ? config.openGoals.slice() : participants.map((p, index) => ({
@@ -184,9 +189,10 @@
       async startUniversal(config = {}) {
         const created = createUniversalRun(config);
         if (!created.ok) return created;
+        const maxSteps = config.maxSteps ?? created.debateCase.policies?.budgets?.maxTotalStages;
         const started = await created.orchestrator.startRun({
           runId: created.runId, debateCase: created.debateCase,
-          stateMap: config.stateMap, deferExecution: config.deferExecution, maxSteps: config.maxSteps
+          stateMap: config.stateMap, deferExecution: config.deferExecution, maxSteps
         });
         return { ...started, validation: created.validation, orchestrator: created.orchestrator };
       },

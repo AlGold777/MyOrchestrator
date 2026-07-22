@@ -5,6 +5,7 @@
 // instead of silently degrading to built-in fallbacks (empty artifacts,
 // no-op state deltas reported as applied=true).
 const Application = require('../disput/debate-application');
+const ArtifactPipeline = require('../disput/debate-artifact-pipeline');
 
 const FULL_PORTS = {
   runModelBatch: async ({ models }) => ({ responses: Object.fromEntries(models.map((m) => [m, `answer:${m}`])) }),
@@ -15,6 +16,22 @@ const FULL_PORTS = {
   commitStateDelta: ({ state }) => ({ applied: true, stateMap: state.stateMap }),
   projectStateMap: (state) => state.stateMap
 };
+
+test('canonical artifact pipeline satisfies the semantic production ports', async () => {
+  const app = Application.createApplication({
+    universalEngine: true,
+    deps: {
+      ...FULL_PORTS,
+      extractArtifacts: ArtifactPipeline.extractArtifacts,
+      proposeStateDelta: ArtifactPipeline.proposeStateDelta,
+      commitStateDelta: ArtifactPipeline.commitStateDelta,
+      projectStateMap: ArtifactPipeline.projectStateMap
+    },
+    exposeInternals: true
+  });
+  const result = await app.start(config({ deferExecution: true }));
+  expect(result.ok).toBe(true);
+});
 
 const config = (overrides = {}) => ({
   runId: 'run-wiring-1',

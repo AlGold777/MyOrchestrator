@@ -64,7 +64,7 @@
     policyId: 'budgets.default.v1',
     maxStagesPerTick: 2,
     maxConcurrentStages: 4,
-    maxTotalStages: null,
+    maxTotalStages: 50,
     maxModelCalls: null,
     maxHumanWaits: null,
     maxContextTokens: null,

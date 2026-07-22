@@ -177,7 +177,7 @@
           if (verdict.ok) {
             emit('PARTICIPANT_RESPONSE_ACCEPTED', { stageInstanceId: stage.stageInstanceId, participantId: participant.participantId, attempt });
             const artifacts = extractArtifacts({ stage, participant, text: responseText }) || [];
-            const stateDelta = proposeStateDelta({ stage, participant, text: responseText, artifacts });
+            const stateDelta = proposeStateDelta({ stage, participant, text: responseText, artifacts, context });
             return {
               participantId: participant.participantId, status: 'accepted',
               text: responseText, artifacts, proposedStateDelta: stateDelta, attempts: attempt

@@ -45,6 +45,19 @@ describe('DebateApplication — universal engine path', () => {
     expect(orchestratorState.runId).toBe('run-universal-1');
   });
 
+  test('selectedModels from the production page are accepted as universal participants', async () => {
+    const app = makeApp();
+    const result = await app.start({
+      runId: 'run-selected-models', pipelineNameText: 'Production-shaped input',
+      selectedModels: ['alpha', 'beta', 'gamma'], deferExecution: true
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  test('default step budget is an explicit policy value', () => {
+    expect(Policies.resolve().budgets.maxTotalStages).toBe(50);
+  });
+
   test('UI and runtime reject with the same traceable policy error', () => {
     const app = makeApp();
     const invalid = { models: [], policies: {} };

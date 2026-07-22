@@ -3966,6 +3966,17 @@ document.addEventListener('click', (event) => {
                     length: definition.length,
                     roundLimit: definition.roundLimit,
                     selectedModels,
+                    models: selectedModels,
+                    policies: window.DebatePolicies?.resolve?.({
+                        finalization: {
+                            mode: compiledRunPolicy === 'auto' ? 'after_required_goals' : 'manual',
+                            synthesis: synthesizer ? 'optional' : 'none',
+                            audit: presetConfig.synthesisAudit === 'required' ? 'required' : 'optional'
+                        },
+                        budgets: {
+                            maxTotalStages: Number(presetConfig.resourceBudget?.limit || presetConfig.turnLimit || presetConfig.waveLimit || 50)
+                        }
+                    }),
                     synthesizer: definition.synthesizer || definition.triadSynthesizer || definition.multiSynthesizer || '',
                     reasoningBudget: definition.reasoningBudget,
                     roundPlan: definition.roundPlan || [],
@@ -7129,6 +7140,7 @@ document.addEventListener('click', (event) => {
             return true;
         };
         const debateApplication = window.DebateApplication?.createApplication?.({
+            universalEngine: true,
             store: debateAggregateStore,
             protocols: window.DebateProtocols,
             execution: debateExecutionContext,
@@ -7141,6 +7153,30 @@ document.addEventListener('click', (event) => {
             deps: {
                 startFromPage: startDebateFromPage,
                 createId: makePipelineRunId,
+                runModelBatch,
+                acceptResponse: (text, meta) => window.DebateResponseAcceptance?.evaluate?.({
+                    text, meta: { ...(meta || {}), isErrorOutput }
+                }) || { ok: Boolean(String(text || '').trim()), reason: '' },
+                compilePrompt: ({ stage, participant, context }) => window.DebatePromptCompiler?.compile?.({
+                    task: context?.debateCase?.taskContract || {
+                        objective: context?.debateCase?.topic?.title || 'Discussion',
+                        maxWords: getDebateMaxWords()
+                    },
+                    stage: {
+                        stageId: stage.stageInstanceId,
+                        operation: window.DebateArtifactPipeline.operationForPurpose(stage.purpose),
+                        role: stage.purpose === 'synthesis' ? 'synthesizer' : stage.purpose === 'audit' ? 'auditor' : 'participant',
+                        expectedArtifactTypes: stage.expectedOutputs || [],
+                        outputContract: { maxWords: getDebateMaxWords() }
+                    },
+                    model: participant.model || participant.participantId,
+                    map: context?.stateMap || {}
+                })?.prompt || '',
+                repairPrompt: ({ prompt, reason }) => `${prompt}\n\nИсправь нарушение контракта: ${reason || 'invalid_response'}. Верни полный исправленный ответ.`,
+                extractArtifacts: (input) => window.DebateArtifactPipeline.extractArtifacts(input),
+                proposeStateDelta: (input) => window.DebateArtifactPipeline.proposeStateDelta(input),
+                commitStateDelta: (input) => window.DebateArtifactPipeline.commitStateDelta(input),
+                projectStateMap: (input) => window.DebateArtifactPipeline.projectStateMap(input),
                 cancelTransport: async (runId) => {
                     try {
                         if (typeof debateTransportPort?.cancelRun === 'function') {
