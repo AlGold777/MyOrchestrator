@@ -12,6 +12,26 @@ describe('DebateArtifactPipeline', () => {
     expect(first[0].provenance).toMatchObject({ runId: 'run-1', stageInstanceId: 'stage-1', participantId: 'alpha' });
   });
 
+  test('imports multiple linked artifacts from a topology-neutral artifact delta', () => {
+    const artifacts = Pipeline.extractArtifacts({
+      stage: { ...stage, inputArtifactIds: ['claim-existing'] }, participant,
+      text: '```json\n{"artifacts":[{"type":"claim","title":"New claim"},{"type":"objection","title":"Counterexample","targetId":"claim-existing"},{"type":"revision","title":"Revised claim"}]}\n```'
+    });
+    expect(artifacts).toHaveLength(3);
+    expect(artifacts[1]).toMatchObject({ type: 'objection', targetId: 'claim-existing', owner: 'alpha' });
+    expect(artifacts[2]).toMatchObject({ type: 'revision', targetId: 'claim-existing' });
+    expect(artifacts.every((artifact) => artifact.provenance.responseHash)).toBe(true);
+  });
+
+  test('rejects malformed linked entries without discarding valid structured artifacts', () => {
+    const artifacts = Pipeline.extractArtifacts({
+      stage, participant,
+      text: '{"artifacts":[{"type":"objection","title":"Orphan"},{"type":"claim","title":"Valid"},{"type":"unknown","title":"Ignored"}]}'
+    });
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0]).toMatchObject({ type: 'claim', title: 'Valid' });
+  });
+
   test('maps planner purposes to valid prompt operations', () => {
     expect(Pipeline.operationForPurpose('position')).toBe('opening');
     expect(Pipeline.operationForPurpose('evidence_review')).toBe('verification');

@@ -7,6 +7,11 @@
   const ResponseAcceptance = root.DebateResponseAcceptance || (typeof require === 'function' ? require('./debate-response-acceptance') : null);
   const text = (value) => String(value == null ? '' : value).trim();
   const list = (value) => Array.isArray(value) ? value : [];
+  const STRUCTURED_TYPES = new Set([
+    'claim', 'assumption', 'objection', 'evidence', 'revision', 'dissent',
+    'contradiction', 'open_question', 'decision_criterion', 'limitation', 'evidence_gap', 'axis_verdict'
+  ]);
+  const TARGET_REQUIRED = new Set(['objection', 'revision', 'dissent', 'contradiction', 'evidence_gap']);
   const stableHash = (value) => {
     const source = text(value); let hash = 2166136261;
     for (let index = 0; index < source.length; index += 1) {
@@ -31,10 +36,52 @@
     dissent: 'recorded', synthesis_conclusion: 'accepted', human_decision: 'accepted'
   }[type] || 'recorded');
 
+  function parseStructuredArtifacts(value) {
+    const source = text(value);
+    const candidates = [source];
+    const tagged = source.match(/<artifact_delta>\s*([\s\S]*?)\s*<\/artifact_delta>/i);
+    const fenced = source.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    if (tagged) candidates.unshift(tagged[1]);
+    if (fenced) candidates.unshift(fenced[1]);
+    for (const candidate of candidates) {
+      try {
+        const parsed = JSON.parse(candidate);
+        if (Array.isArray(parsed?.artifacts)) return parsed.artifacts;
+      } catch (_) {}
+    }
+    return [];
+  }
+
+  function normalizeStructuredArtifact(raw, { stage, participantId, body, index }) {
+    const type = text(raw?.type || raw?.artifactType).toLowerCase();
+    if (!STRUCTURED_TYPES.has(type)) return null;
+    const title = text(raw.title || raw.formulation || raw.text || raw.description);
+    if (!title) return null;
+    const targetId = text(raw.targetId || raw.target || list(stage.inputArtifactIds)[0]);
+    if (TARGET_REQUIRED.has(type) && !targetId) return null;
+    const id = text(raw.id) || `artifact-${stableHash(`${stage.runId}|${stage.stageInstanceId}|${participantId}|${type}|${index}|${title}|${targetId}`)}`;
+    return Object.freeze({
+      id, type, status: text(raw.status) || statusFor(type), title,
+      text: text(raw.text || raw.formulation || raw.description || title),
+      owner: participantId, ...(targetId ? { targetId } : {}),
+      ...(raw.severity ? { severity: text(raw.severity) } : {}),
+      ...(raw.tier ? { tier: text(raw.tier) } : {}),
+      extractionConfidence: Number.isFinite(Number(raw.extractionConfidence)) ? Number(raw.extractionConfidence) : 1,
+      provenance: Object.freeze({
+        runId: text(stage.runId), stageInstanceId: text(stage.stageInstanceId),
+        participantId, responseHash: stableHash(body), structuredIndex: index
+      })
+    });
+  }
+
   function extractArtifacts({ stage = {}, participant = {}, text: responseText } = {}) {
     const body = text(responseText);
     if (!body) return [];
     const participantId = text(participant.participantId || participant.model || 'unknown');
+    const structured = parseStructuredArtifacts(body)
+      .map((raw, index) => normalizeStructuredArtifact(raw, { stage, participantId, body, index }))
+      .filter(Boolean);
+    if (structured.length) return Object.freeze(structured);
     const type = artifactTypeFor(stage.purpose);
     const audit = type === 'audit' ? ResponseAcceptance?.parseAuditVerdict?.(body) : null;
     const targetId = type === 'audit' ? text(list(stage.inputArtifactIds)[0]) : '';
@@ -110,7 +157,7 @@
     return { applied: true, appliedArtifactIds: additions.map((artifact) => artifact.id), stateMap: projectStateMap(state) };
   }
 
-  const api = Object.freeze({ stableHash, artifactTypeFor, operationForPurpose, extractArtifacts, proposeStateDelta, commitStateDelta, projectStateMap });
+  const api = Object.freeze({ stableHash, artifactTypeFor, operationForPurpose, parseStructuredArtifacts, extractArtifacts, proposeStateDelta, commitStateDelta, projectStateMap });
   root.DebateArtifactPipeline = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this));
