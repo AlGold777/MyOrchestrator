@@ -64,6 +64,36 @@ describe('StageExecutor — dispatch and completion modes', () => {
     await executor.execute(stage({ dispatchMode: 'sequential' }));
     expect(calls.map((c) => c.participantId)).toEqual(['alpha', 'beta']);
   });
+
+  test('parallel LLM participants use one native batch dispatch', async () => {
+    const runModelBatch = jest.fn(async ({ models, promptsByModel }) => ({
+      responses: Object.fromEntries(models.map((model) => [model, `answer:${model}:${promptsByModel[model]}`])), failed: {}
+    }));
+    const executor = Executor.createStageExecutor({
+      adapters: Executor.createAdapterRegistry({ llm: Executor.createLlmAdapter({ runModelBatch }) }),
+      compilePrompt: ({ participant }) => `prompt:${participant.participantId}`,
+      retryPolicy: { maxAttempts: 2, delayMs: 0 }
+    });
+    const result = await executor.execute(stage());
+    expect(result.executionStatus).toBe('completed');
+    expect(runModelBatch).toHaveBeenCalledTimes(1);
+    expect(runModelBatch.mock.calls[0][0]).toMatchObject({
+      models: ['alpha', 'beta'], promptsByModel: { alpha: 'prompt:alpha', beta: 'prompt:beta' }
+    });
+  });
+
+  test('native batch releases the barrier with accepted peers and canonical terminal failure', async () => {
+    const runModelBatch = jest.fn(async () => ({ responses: { alpha: 'good' }, failed: { beta: 'TIMEOUT' } }));
+    const executor = Executor.createStageExecutor({
+      adapters: Executor.createAdapterRegistry({ llm: Executor.createLlmAdapter({ runModelBatch }) }),
+      retryPolicy: { maxAttempts: 3, delayMs: 0 }
+    });
+    const result = await executor.execute(stage());
+    expect(result.executionStatus).toBe('partial');
+    expect(result.acceptedResponses.map((entry) => entry.participantId)).toEqual(['alpha']);
+    expect(result.terminalFailures).toEqual([expect.objectContaining({ participantId: 'beta', reasonCode: 'TIMEOUT' })]);
+    expect(runModelBatch).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('StageExecutor — retry, repair, idempotency, cancellation', () => {

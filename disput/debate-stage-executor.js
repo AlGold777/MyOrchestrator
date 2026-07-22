@@ -37,6 +37,15 @@
 
   function createLlmAdapter(deps = {}) {
     if (typeof deps.runModelBatch !== 'function') throw new Error('LLM adapter requires runModelBatch');
+    const outcomeFor = (result, participant, stage, attempt) => {
+      const modelId = participant.model || participant.participantId;
+      const terminalFailure = Participants?.terminalFailures?.(result, {
+        stageId: stage.stageInstanceId,
+        attemptId: `${stage.stageInstanceId}:a${attempt}`
+      }).find((failure) => failure.modelId === modelId);
+      if (terminalFailure) return { status: 'terminal_failure', failure: terminalFailure, raw: result };
+      return { status: 'received', text: text(result?.responses?.[modelId]), raw: result };
+    };
     return Object.freeze({
       type: 'llm',
       async dispatch({ participant, prompt, stage, attempt, signal, context }) {
@@ -53,13 +62,30 @@
           },
           signal
         });
-        const modelId = participant.model || participant.participantId;
-        const terminalFailure = Participants?.terminalFailures?.(result, {
-          stageId: stage.stageInstanceId,
-          attemptId: `${stage.stageInstanceId}:a${attempt}`
-        }).find((failure) => failure.modelId === modelId);
-        if (terminalFailure) return { status: 'terminal_failure', failure: terminalFailure, raw: result };
-        return { status: 'received', text: text(result?.responses?.[modelId]), raw: result };
+        return outcomeFor(result, participant, stage, attempt);
+      },
+      async dispatchBatch({ participants, promptsByParticipantId, stage, attempt, signal, context }) {
+        const models = participants.map((participant) => participant.model || participant.participantId);
+        const promptsByModel = Object.fromEntries(participants.map((participant) => [
+          participant.model || participant.participantId,
+          promptsByParticipantId[participant.participantId]
+        ]));
+        const result = await deps.runModelBatch({
+          prompt: promptsByModel[models[0]], promptsByModel, models,
+          attachments: context?.attachments || [], useApiFallback: context?.useApiFallback !== false,
+          context: {
+            pipelineRunId: stage.runId,
+            pipelineStageId: stage.stageInstanceId,
+            stageAttemptId: `${stage.stageInstanceId}:a${attempt}`,
+            idempotencyKeys: Object.fromEntries(participants.map((participant) => [
+              participant.participantId, idempotencyKey(stage, attempt, participant.participantId)
+            ]))
+          },
+          signal
+        });
+        return Object.fromEntries(participants.map((participant) => [
+          participant.participantId, outcomeFor(result, participant, stage, attempt)
+        ]));
       }
     });
   }
@@ -88,7 +114,7 @@
       ]);
     };
 
-    async function executeParticipant(stage, participant, signal, context) {
+    async function executeParticipant(stage, participant, signal, context, initial = null) {
       const adapter = adapters.get(participant.type || 'llm');
       if (!adapter) {
         return { participantId: participant.participantId, status: 'failed', reason: `adapter_missing:${participant.type}`, attempts: 0 };
@@ -97,18 +123,27 @@
       let lastReason = '';
       for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
         if (signal?.aborted) return { participantId: participant.participantId, status: 'cancelled', reason: 'aborted', attempts: attempt - 1 };
+        const usesInitialBatchOutcome = attempt === 1 && initial;
         const key = idempotencyKey(stage, attempt, participant.participantId);
-        if (seenIdempotencyKeys.has(key)) {
-          return { participantId: participant.participantId, status: 'failed', reason: 'duplicate_dispatch', attempts: attempt - 1 };
+        if (!usesInitialBatchOutcome) {
+          if (seenIdempotencyKeys.has(key)) {
+            return { participantId: participant.participantId, status: 'failed', reason: 'duplicate_dispatch', attempts: attempt - 1 };
+          }
+          seenIdempotencyKeys.add(key);
+          emit('STAGE_DISPATCH_STARTED', { stageInstanceId: stage.stageInstanceId, participantId: participant.participantId, attempt, idempotencyKey: key });
         }
-        seenIdempotencyKeys.add(key);
-        emit('STAGE_DISPATCH_STARTED', { stageInstanceId: stage.stageInstanceId, participantId: participant.participantId, attempt, idempotencyKey: key });
         try {
-          const prompt = compilePrompt({ stage, participant, attempt, context });
-          const outcome = await withTimeout(adapter.dispatch({ participant, prompt, stage, attempt, signal, context }), signal);
+          const prompt = usesInitialBatchOutcome ? initial.prompt : compilePrompt({ stage, participant, attempt, context });
+          const outcome = usesInitialBatchOutcome
+            ? initial.outcome
+            : await withTimeout(adapter.dispatch({ participant, prompt, stage, attempt, signal, context }), signal);
+          if (outcome?.status === 'dispatch_error') throw outcome.error;
           if (outcome?.status === 'awaiting_participant') {
             emit('PARTICIPANT_TASK_ASSIGNED', { stageInstanceId: stage.stageInstanceId, participantId: participant.participantId });
             return { participantId: participant.participantId, status: 'awaiting_participant', attempts: attempt };
+          }
+          if (outcome?.status === 'cancelled') {
+            return { participantId: participant.participantId, status: 'cancelled', reason: 'aborted', attempts: attempt };
           }
           if (outcome?.status === 'terminal_failure') {
             const failure = outcome.failure || {
@@ -162,6 +197,37 @@
       return { participantId: participant.participantId, status: 'failed', reason: lastReason || 'no_usable_response', attempts: maxAttempts };
     }
 
+    async function executeParallelBatch(stage, participants, adapter, signal, context) {
+      const attempt = 1;
+      const promptsByParticipantId = {};
+      for (const participant of participants) {
+        const key = idempotencyKey(stage, attempt, participant.participantId);
+        if (seenIdempotencyKeys.has(key)) return null;
+        seenIdempotencyKeys.add(key);
+        promptsByParticipantId[participant.participantId] = compilePrompt({ stage, participant, attempt, context });
+        emit('STAGE_DISPATCH_STARTED', {
+          stageInstanceId: stage.stageInstanceId, participantId: participant.participantId,
+          attempt, idempotencyKey: key, batch: true
+        });
+      }
+      let outcomes;
+      try {
+        outcomes = await withTimeout(adapter.dispatchBatch({
+          participants, promptsByParticipantId, stage, attempt, signal, context
+        }), signal);
+      } catch (error) {
+        if (error?.name === 'AbortError' || signal?.aborted) {
+          outcomes = Object.fromEntries(participants.map((participant) => [participant.participantId, { status: 'cancelled' }]));
+        } else {
+          outcomes = Object.fromEntries(participants.map((participant) => [participant.participantId, { status: 'dispatch_error', error }]));
+        }
+      }
+      return Promise.all(participants.map((participant) => executeParticipant(stage, participant, signal, context, {
+        prompt: promptsByParticipantId[participant.participantId],
+        outcome: outcomes?.[participant.participantId] || { status: 'received', text: '' }
+      })));
+    }
+
     function summarize(stage, results) {
       const accepted = results.filter((r) => r.status === 'accepted');
       const awaiting = results.filter((r) => r.status === 'awaiting_participant');
@@ -205,7 +271,12 @@
         emit('STAGE_EXECUTION_STARTED', { stageInstanceId: stage.stageInstanceId, dispatchMode: mode, participants: participants.map((p) => p.participantId) });
         let results = [];
         if (mode === 'parallel' && participants.length > 1) {
-          results = await Promise.all(participants.map((p) => executeParticipant(stage, p, signal, executionContext)));
+          const participantTypes = new Set(participants.map((participant) => participant.type || 'llm'));
+          const batchAdapter = participantTypes.size === 1 ? adapters.get(participants[0].type || 'llm') : null;
+          results = typeof batchAdapter?.dispatchBatch === 'function'
+            ? await executeParallelBatch(stage, participants, batchAdapter, signal, executionContext)
+            : null;
+          if (!results) results = await Promise.all(participants.map((p) => executeParticipant(stage, p, signal, executionContext)));
         } else {
           for (const participant of participants) {
             const result = await executeParticipant(stage, participant, signal, executionContext);
