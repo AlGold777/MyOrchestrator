@@ -143,4 +143,54 @@ describe('DuelRunner finalization', () => {
       droppedModels: ['Judge']
     });
   });
+
+  test('AbortError bypasses retry and participant-dropout handling', async () => {
+    const abort = new Error('cancelled');
+    abort.name = 'AbortError';
+    const runModelBatch = jest.fn().mockRejectedValue(abort);
+    const resolver = jest.fn();
+    const runner = DuelRunner.createDuelRunner({
+      runModelBatch,
+      resolveParticipantDropout: resolver,
+      autoRetryLimit: 3,
+      transition: jest.fn()
+    });
+    const state = { ...makeState(), autoMode: true, round: 1, turns: { publicTurnsDispatched: 0 } };
+
+    await expect(runner.runTurnWithRetry({ state, targetModel: 'Claude', prompt: 'next' })).rejects.toBe(abort);
+    expect(runModelBatch).toHaveBeenCalledTimes(1);
+    expect(resolver).not.toHaveBeenCalled();
+  });
+
+  test('AbortError from a routed turn is propagated instead of becoming dropout', async () => {
+    const abort = new Error('cancelled');
+    abort.name = 'AbortError';
+    const resolver = jest.fn();
+    const state = {
+      ...makeState(),
+      autoMode: true,
+      round: 1,
+      waitingApprovalModel: 'GPT',
+      turns: { publicTurnsDispatched: 0 },
+      publicTurnsDispatched: 0,
+      roundFilters: []
+    };
+    const runner = DuelRunner.createDuelRunner({
+      getState: () => state,
+      fsm: {
+        canRoutePublic: () => true,
+        hasReachedTurnLimit: () => false
+      },
+      prepareRoute: () => ({ targetModel: 'Claude', prompt: 'route', targetIsA: false, protocolRound: 1, contextParts: [] }),
+      runModelBatch: jest.fn().mockRejectedValue(abort),
+      resolveParticipantDropout: resolver,
+      transition: jest.fn(),
+      recordRoute: jest.fn(),
+      renderCards: jest.fn(),
+      syncVisualState: jest.fn()
+    });
+
+    await expect(runner.routeApprovedTurn({ llmName: 'GPT', text: 'approved' })).rejects.toBe(abort);
+    expect(resolver).not.toHaveBeenCalled();
+  });
 });

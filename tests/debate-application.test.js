@@ -68,4 +68,46 @@ describe('DebateApplication', () => {
       protocolState: { active: false, status: 'error', stopReason: 'runner_failed' }
     });
   });
+
+  test('runner AbortError resolves as one canonical cancelled result', async () => {
+    const store = RunStore.createStore();
+    const protocol = {
+      createState: () => ({ active: true, status: 'running' }),
+      reduce: (state, event) => event.type === 'CANCELLED'
+        ? { ...state, active: false, status: 'cancelled', stopReason: event.payload.reason }
+        : state
+    };
+    const abort = new Error('user_cancelled');
+    abort.name = 'AbortError';
+    const application = DebateApplication.createApplication({
+      store,
+      protocols: { topologyOf: () => 'duel', getProtocol: () => protocol },
+      runners: { duel: { start: jest.fn().mockRejectedValue(abort) } }
+    });
+
+    await expect(application.start(duelInput({ runId: 'run-cancel', protocolState: protocol.createState() })))
+      .resolves.toEqual(expect.objectContaining({ ok: false, cancelled: true, runId: 'run-cancel', status: 'cancelled' }));
+    expect(store.getState()).toMatchObject({ status: 'cancelled', protocolState: { status: 'cancelled' } });
+    expect(store.getState().events.filter((item) => item.type === RunStore.EVENTS.PROTOCOL_STATE_SYNCED)).toHaveLength(1);
+    expect(store.getState().events.some((item) => item.type === RunStore.EVENTS.RUN_FAILED)).toBe(false);
+  });
+
+  test('an aborted run signal is secondary cancellation evidence', async () => {
+    const store = RunStore.createStore();
+    const controller = new AbortController();
+    const protocol = {
+      createState: () => ({ active: true, status: 'running' }),
+      reduce: (state, event) => event.type === 'CANCELLED' ? { ...state, active: false, status: 'cancelled' } : state
+    };
+    const runner = { start: jest.fn(async () => { controller.abort('cancel'); throw new Error('transport interrupted'); }) };
+    const application = DebateApplication.createApplication({
+      store,
+      protocols: { topologyOf: () => 'duel', getProtocol: () => protocol },
+      runners: { duel: runner }
+    });
+
+    const result = await application.start(duelInput({ runId: 'run-signal-cancel', protocolState: protocol.createState(), signal: controller.signal }));
+    expect(result).toMatchObject({ cancelled: true, status: 'cancelled' });
+    expect(store.getState().status).toBe('cancelled');
+  });
 });

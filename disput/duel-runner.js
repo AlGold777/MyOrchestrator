@@ -415,6 +415,7 @@
             lastError = new Error(accepted.reason || 'empty_response');
             stageEvent('ANSWER_REJECTED', `r${state.round}:turn`, { model: targetModel, reasonCode: accepted.reason });
           } catch (error) {
+            if (error?.name === 'AbortError' || signal?.aborted) throw error;
             lastError = error;
           }
           if (attempt > 1) stageEvent('RECOVERY_ATTEMPT_FAILED', `r${state.round}:turn`, { model: targetModel, attempt, strategy: 'auto_retry', reason: lastError?.message || 'no_usable_response' });
@@ -529,6 +530,7 @@
             }
             return true;
           } catch (error) {
+            if (error?.name === 'AbortError' || options.signal?.aborted) throw error;
             timeline('Error', { model: route.targetModel, note: error?.message || 'dispatch failed' });
             const decision = await resolveDropout(state, stageId, {
               topology: 'duel', stage: `round_${route.protocolRound}`,

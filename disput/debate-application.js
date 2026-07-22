@@ -4,6 +4,7 @@
 
   const RunStore = root.DebateRunStore || (typeof require === 'function' ? require('./debate-run-store') : null);
   const Protocols = root.DebateProtocols || (typeof require === 'function' ? require('./debate-protocols') : null);
+  const ProtocolTransitionService = root.DebateProtocolTransitionService || (typeof require === 'function' ? require('./debate-protocol-transition-service') : null);
   const ExecutionContext = root.DebateExecutionContext || (typeof require === 'function' ? require('./debate-execution-context') : null);
   const PlanCompiler = root.DebatePlanCompiler || (typeof require === 'function' ? require('./debate-plan-compiler') : null);
   const EvolutionFlags = root.DisputEvolutionFlags || (typeof require === 'function' ? require('./disput-evolution-flags') : null);
@@ -29,6 +30,33 @@
     const topologyOf = (value) => protocols?.topologyOf?.(value) || String(value || 'duel');
     const dispatch = (type, payload = {}) => store.dispatch({ type, payload });
     const event = RunStore?.EVENTS || {};
+    const isCancellation = (error, signal) => error?.name === 'AbortError'
+      || signal?.aborted === true
+      || execution?.signal?.()?.aborted === true;
+    const syncProtocolTransition = (topology, protocolState, type, reason) => {
+      if (!protocolState || RunStore?.isTerminal?.(store.getState())) return protocolState;
+      if (!ProtocolTransitionService?.applyProtocolTransition) {
+        throw new Error('PROTOCOL_TRANSITION_SERVICE_UNAVAILABLE');
+      }
+      return ProtocolTransitionService.applyProtocolTransition({
+        protocol: protocols?.getProtocol?.(topology),
+        protocolState,
+        event: { type, payload: { reason } },
+        getProtocolRevision: () => store.getState()?.protocolRevision ?? null,
+        syncState: (next, transitionReason, syncOptions = {}) => {
+          dispatch(event.PROTOCOL_STATE_SYNCED, {
+            protocolState: next,
+            reason: transitionReason,
+            protocolStatus: String(next.status || ''),
+            ...(syncOptions.expectedProtocolRevision == null
+              ? {}
+              : { expectedProtocolRevision: Number(syncOptions.expectedProtocolRevision) })
+          });
+          return store.getState().protocolState;
+        },
+        reason: `APPLICATION_${type}`
+      });
+    };
 
     // --- Universal engine path (Roadmap Slices B–H, behind flags; legacy stays primary) ---
     let universal = null;
@@ -220,24 +248,17 @@
             deps
           });
         } catch (error) {
+          const cancelled = isCancellation(error, config.signal);
           const failedState = store.getState();
           const protocolState = failedState?.protocolState;
-          if (protocolState) {
-            const protocolEvent = error?.name === 'AbortError' ? 'CANCELLED' : 'FAILED';
-            const next = protocols?.getProtocol?.(topology)?.reduce?.(protocolState, {
-              type: protocolEvent,
-              payload: { reason: error?.message || String(error || 'debate_failed') }
-            }) || protocolState;
-            dispatch(event.PROTOCOL_STATE_SYNCED, {
-              protocolState: next,
-              reason: `APPLICATION_${protocolEvent}`,
-              protocolStatus: String(next.status || '')
-            });
-          }
+          const protocolEvent = cancelled ? 'CANCELLED' : 'FAILED';
+          const reason = error?.message || String(error || (cancelled ? 'cancelled' : 'debate_failed'));
+          if (protocolState) syncProtocolTransition(topology, protocolState, protocolEvent, reason);
           if (!RunStore?.isTerminal?.(store.getState())) {
-            dispatch(error?.name === 'AbortError' ? event.CANCEL_REQUESTED : event.RUN_FAILED, {
-              reason: error?.message || String(error || 'debate_failed')
-            });
+            dispatch(cancelled ? event.CANCEL_REQUESTED : event.RUN_FAILED, { reason });
+          }
+          if (cancelled) {
+            return Object.freeze({ ok: false, cancelled: true, runId, status: 'cancelled', reason });
           }
           throw error;
         }
@@ -274,17 +295,7 @@
         execution.abort(reason);
         await runner?.cancel?.({ reason, state, store, execution, deps });
         const protocolState = store.getState()?.protocolState;
-        if (protocolState) {
-          const next = protocols?.getProtocol?.(topology)?.reduce?.(protocolState, {
-            type: 'CANCELLED',
-            payload: { reason }
-          }) || protocolState;
-          dispatch(event.PROTOCOL_STATE_SYNCED, {
-            protocolState: next,
-            reason: 'APPLICATION_CANCELLED',
-            protocolStatus: String(next.status || '')
-          });
-        }
+        if (protocolState) syncProtocolTransition(topology, protocolState, 'CANCELLED', reason);
         if (!RunStore?.isTerminal?.(store.getState())) dispatch(event.CANCEL_REQUESTED, { reason });
         await deps.cancelTransport?.(state?.runId, reason);
         return store.getState();
