@@ -89,7 +89,7 @@ describe('Disput prompt runtime v3', () => {
   });
 
   test('migrates profiles to the executable prompt pack', () => {
-    const migrated = Profiles.migrate({ ...Profiles.BUILTIN_PROFILES.FREE_TALK_MVP, schemaVersion: 1, promptPack: { id: 'disput-core', version: '2.0.0' } });
+    const migrated = Profiles.migrate({ ...Profiles.BUILTIN_PROFILES.UNIVERSAL_STANDARD, schemaVersion: 1, promptPack: { id: 'disput-core', version: '2.0.0' } });
     expect(migrated.schemaVersion).toBe(Profiles.VERSION);
     expect(migrated.promptPack.version).toBe(Pack.VERSION);
     expect(Profiles.validate(migrated).ok).toBe(true);

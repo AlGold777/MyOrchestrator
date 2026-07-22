@@ -4106,9 +4106,7 @@ document.addEventListener('click', (event) => {
             }
             Object.entries(pipelineStore.pipelines).forEach(([name, config]) => {
                 if (!config?.protocol || defaultNames.includes(name)) return;
-                const scheme = String(config.protocol.scheme || '2');
-                const inferredProfileId = scheme === '3' ? 'TRIAD_STANDARD' : scheme === 'many' ? 'MULTI_STANDARD' : scheme === 'free' ? 'FREE_TALK_MVP' : 'DUEL_STANDARD';
-                if (!config.protocol.profileId) { config.protocol.profileId = inferredProfileId; changed = true; }
+                if (!config.protocol.profileId) { config.protocol.profileId = 'UNIVERSAL_STANDARD'; changed = true; }
                 if (!config.protocol.profileVersion) { config.protocol.profileVersion = window.DebateProfileSchema?.BUILTIN_PROFILES?.[config.protocol.profileId]?.version || '1.0.0'; changed = true; }
             });
             if (pipelineStore.version !== PIPELINE_STORE_VERSION) {
@@ -4861,28 +4859,18 @@ document.addEventListener('click', (event) => {
         }
         function getSelectedPipelinePresetId() {
             const api = window.PipelinePresets;
-            const fallback = api?.DEFAULT_PRESET_ID || 'DUEL_STANDARD';
+            const fallback = api?.DEFAULT_PRESET_ID || 'UNIVERSAL_STANDARD';
             const activeName = String(pipelineStore?.active || pipelineName?.textContent || '').trim();
             const activeConfig = activeName ? getPipelineConfigByName(activeName) : null;
             const configured = String(activeConfig?.protocol?.presetId || '').trim();
             if (configured && api?.getPipelinePreset?.(configured)) return configured;
-            const currentScheme = String(getDebateScheme() || '2').trim();
-            const scheme = String(currentScheme || activeConfig?.protocol?.scheme || '2').trim();
-            if (scheme === '3') return 'TRIAD_STANDARD';
-            if (scheme === 'many') return 'MULTI_STANDARD';
             return fallback;
         }
         window.getSelectedPipelinePresetId = getSelectedPipelinePresetId;
         function getSelectedPipelinePresetMeta() {
-            return window.PipelinePresets?.getPipelinePreset?.(getSelectedPipelinePresetId()) || { duration: 'fixed', topology: 'duel' };
+            return window.PipelinePresets?.getPipelinePreset?.(getSelectedPipelinePresetId()) || { duration: 'goal_driven' };
         }
-        function getPresetScheme(presetConfigOrPreset = null) {
-            const topology = String(presetConfigOrPreset?.topology || '').trim();
-            if (topology === 'triad') return '3';
-            if (topology === 'multi') return 'many';
-            if (topology === 'free_talk') return 'free';
-            return '2';
-        }
+        function getPresetScheme() { return 'universal'; }
         function buildPipelinePresetRuntimeConfig(presetId = getSelectedPipelinePresetId()) {
             const api = window.PipelinePresets;
             const activeName = String(pipelineStore?.active || pipelineName?.textContent || '').trim();
@@ -4904,26 +4892,16 @@ document.addEventListener('click', (event) => {
                 })
                 : null;
             const effectiveRoundLimit = runtimeLimits ? runtimeLimits.roundLimit : getDebateRoundLimit();
-            const effectiveWaveLimit = runtimeLimits
-                ? (runtimeLimits.waveLimit ?? (getDebateScheme() === 'many' ? getMultiWaveLimit() : getTriadWaveLimit()))
-                : (getDebateScheme() === 'many' ? getMultiWaveLimit() : getTriadWaveLimit());
-            const effectiveTurnLimit = runtimeLimits
-                ? (runtimeLimits.turnLimit ?? getDebateMaxTurns())
-                : getDebateMaxTurns();
+            const maxTotalStages = runtimeLimits?.maxTotalStages || getSelectedPipelinePresetMeta()?.reasoningBudget?.maxTotalStages || 50;
             const selectedProfileId = String(protocol.profileId || getSelectedPipelinePresetMeta()?.profileId || presetId || '');
             const selectedProfile = pipelineProfileView?.store?.get?.(selectedProfileId)
                 || window.DebateProfileSchema?.BUILTIN_PROFILES?.[selectedProfileId]
                 || null;
             if (!api?.normalizePipelinePreset) {
-                const scheme = getDebateScheme();
                 return Object.freeze({
-                    presetId: 'DUEL_STANDARD',
-                    topology: scheme === '3' ? 'triad' : scheme === 'many' ? 'multi' : 'duel',
-                    duration: 'fixed',
-                    terminationOwner: 'runtime',
-                    finalizationPolicy: 'auto_after_limit',
-                    turnLimit: effectiveTurnLimit,
-                    waveLimit: scheme === 'many' ? getMultiWaveLimit() : effectiveWaveLimit,
+                    presetId: 'UNIVERSAL_STANDARD', duration: 'goal_driven',
+                    terminationOwner: 'planner_and_moderator', finalizationPolicy: 'after_required_goals',
+                    maxTotalStages,
                     checkpointPolicy: { enabled: false },
                     roundPlan,
                     safetyPolicy: { canPause: true, canRecover: true, canError: true, canCancel: true }
@@ -4935,11 +4913,7 @@ document.addEventListener('click', (event) => {
                 manualApproval: !isDebateAutoPolicy(),
                 attachments: [],
                 currentUiLimits: {
-                    roundLimit: effectiveRoundLimit,
-                    turnLimit: effectiveTurnLimit,
-                    maxTurns: effectiveTurnLimit,
-                    waveLimit: effectiveWaveLimit,
-                    maxWaves: effectiveWaveLimit
+                    maxTotalStages
                 }
                 }),
                 roundPlan,
@@ -6793,21 +6767,16 @@ document.addEventListener('click', (event) => {
             }
         };
 
-        const buildDebateTerminalResult = (state, topology = 'duel') => {
+        const handledTerminalOutputRuns = new Set();
+        const buildDebateTerminalResult = (state) => {
             const finalOutputs = {};
-            if (topology === 'duel') {
-                if (state?.finalWordA) finalOutputs[`${state.modelA || 'Model A'} — Final word`] = state.finalWordA;
-                if (state?.finalWordB) finalOutputs[`${state.modelB || 'Model B'} — Final word`] = state.finalWordB;
-            } else if (topology === 'triad') {
-                Object.entries(state?.finalWords || {}).forEach(([model, text]) => {
-                    if (String(text || '').trim()) finalOutputs[`${model} — Final word`] = text;
-                });
-            }
-            const synthesis = String(state?.synthesisText || state?.synthesis || '').trim();
+            const artifacts = Object.values(state?.stateMap?.artifacts || {});
+            const synthesisArtifact = artifacts.slice().reverse().find((artifact) => artifact.type === 'synthesis_conclusion');
+            const synthesis = String(synthesisArtifact?.text || synthesisArtifact?.title || state?.synthesisText || '').trim();
             if (synthesis) finalOutputs['Final Synthesis'] = synthesis;
-            if (!Object.keys(finalOutputs).length && Array.isArray(state?.eventLog)) {
-                state.eventLog.filter((event) => String(event?.text || '').trim()).forEach((event, index) => {
-                    finalOutputs[`${event.model || event.slot || 'Model'} — ${index + 1}`] = event.text;
+            if (!Object.keys(finalOutputs).length) {
+                artifacts.filter((artifact) => String(artifact?.text || artifact?.title || '').trim()).forEach((artifact, index) => {
+                    finalOutputs[`${artifact.type || 'Artifact'} — ${index + 1}`] = artifact.text || artifact.title;
                 });
             }
             return {
@@ -6818,15 +6787,12 @@ document.addEventListener('click', (event) => {
                 pipelineConfig: state?.presetConfigSnapshot || window.__activePipelinePresetConfig || null
             };
         };
-        const handleDebateTerminalOutputs = async (state, topology = 'duel') => {
+        const handleDebateTerminalOutputs = async (state) => {
             const runId = String(state?.runId || activePipelineRunContext?.pipelineRunId || '').trim();
-            return debateRunServices.handleTerminalOutputs({
-                runId,
-                state,
-                topology,
-                buildResult: buildDebateTerminalResult,
-                selection: getPipelineOutputSelection()
-            });
+            if (!runId || handledTerminalOutputRuns.has(runId)) return false;
+            handledTerminalOutputRuns.add(runId);
+            await handlePipelineOutputs(buildDebateTerminalResult(state), getPipelineOutputSelection());
+            return true;
         };
         window.__handleDebateTerminalOutputs = handleDebateTerminalOutputs;
 
@@ -6870,13 +6836,9 @@ document.addEventListener('click', (event) => {
                 return false;
             }
             const presetId = getSelectedPipelinePresetId();
-            if (presetId === 'FREE_TALK_MVP' && window.DisputEvolutionFlags?.enabled?.('freeTalkMvp') === false) {
-                showNotification('FreeTalk отключён feature flag; остальные pipelines продолжают работать.', 'warn');
-                return false;
-            }
             const selectedPreset = window.PipelinePresets?.getPipelinePreset?.(presetId) || null;
             if (selectedPreset && window.PipelinePresets?.isPresetEnabled && !window.PipelinePresets.isPresetEnabled(presetId)) {
-                showNotification('Multi Long будет доступен позже.', 'warn');
+                showNotification('Этот профиль пока недоступен.', 'warn');
                 return false;
             }
             const presetConfig = buildPipelinePresetRuntimeConfig(presetId);
@@ -6996,6 +6958,9 @@ document.addEventListener('click', (event) => {
                     isPaused: () => debatePaused,
                     makeBatchContext
                 });
+                if (started?.lifecycle === 'COMPLETED') {
+                    await handleDebateTerminalOutputs(debateApplication.getOrchestrator()?.getState?.() || {});
+                }
                 if (started === false && !window.DebateRunStore.isTerminal(getDebateAggregateState())) {
                     dispatchDebateRunEvent(window.DebateRunStore.EVENTS.RUN_FAILED, {
                         reason: 'universal_start_rejected'
@@ -7947,14 +7912,6 @@ document.addEventListener('click', (event) => {
             }
             resetPipelineStatusIndicators();
             syncPipelineChromeControls();
-            const isFreeTalkSelection = config?.protocol?.presetId === 'FREE_TALK_MVP' || config?.protocol?.scheme === 'free';
-            document.body?.classList?.toggle('scheme-free-talk', isFreeTalkSelection);
-            if (isFreeTalkSelection) {
-                const selectedSynthesisColumn = synthesisColumn || document.getElementById('synthesisColumn');
-                const selectedSynthesisConnector = connectorToSynthesis || document.getElementById('connectorToSynthesis');
-                if (selectedSynthesisColumn) { selectedSynthesisColumn.hidden = false; selectedSynthesisColumn.setAttribute('aria-hidden', 'false'); }
-                if (selectedSynthesisConnector) { selectedSynthesisConnector.hidden = false; selectedSynthesisConnector.setAttribute('aria-hidden', 'false'); }
-            }
         };
 
         window.addEventListener('disput:profile-apply', (event) => {

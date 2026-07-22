@@ -385,16 +385,13 @@ async function loadResultsScript() {
   window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-trace-projections.js'), 'utf8'));
   window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-execution-context.js'), 'utf8'));
   window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-stage-types.js'), 'utf8'));
-  window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-plan-validator.js'), 'utf8'));
   window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-policies.js'), 'utf8'));
   window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-plan-revision.js'), 'utf8'));
   window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-planner.js'), 'utf8'));
   window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-participant-registry.js'), 'utf8'));
   window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-stage-executor.js'), 'utf8'));
   window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-orchestrator.js'), 'utf8'));
-  window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-plan-compiler.js'), 'utf8'));
   window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-application.js'), 'utf8'));
-  window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-run-services.js'), 'utf8'));
   window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-state-map.js'), 'utf8'));
   window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-artifact-pipeline.js'), 'utf8'));
   window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-projections.js'), 'utf8'));
@@ -1040,15 +1037,11 @@ describe('Pipeline debate favorites view', () => {
       runId: 'terminal-output-test',
       topic: 'Output ownership',
       moderatorMessage: 'Review this architecture',
-      modelA: 'GPT',
-      modelB: 'Claude',
-      finalWordA: 'A final',
-      finalWordB: 'B final',
-      synthesisText: 'Canonical synthesis'
+      stateMap: { artifacts: { synthesis: { id: 'synthesis', type: 'synthesis_conclusion', text: 'Canonical synthesis' } } }
     };
 
-    await debug.handleDebateTerminalOutputs(state, 'duel');
-    await debug.handleDebateTerminalOutputs(state, 'duel');
+    await debug.handleDebateTerminalOutputs(state);
+    await debug.handleDebateTerminalOutputs(state);
 
     expect(window.PipelineNotes.savePipelineRun).toHaveBeenCalledTimes(1);
     expect(window.PipelineNotes.savePipelineRun).toHaveBeenCalledWith(expect.objectContaining({
