@@ -186,10 +186,6 @@ function renderDebateDom() {
       <div id="mod-message-body"></div>
       <div id="mod-mini-prompts"></div>
       <button type="button" id="debate-run-toggle-btn" aria-label="Run debate">Run</button>
-      <label class="top-new-pages-toggle registry-capable" id="triad-registry-toggle" hidden aria-hidden="true">
-        <span class="top-new-pages-text">Реестр</span>
-        <input type="checkbox" id="triad-registry-checkbox" class="top-new-pages-checkbox">
-      </label>
       <label class="debate-select-wrap" id="debate-round-limit-wrap">
         <select id="debate-round-limit-select">
           <option value="1">1 round</option>
@@ -376,15 +372,11 @@ async function loadResultsScript() {
   const pipelineRuntime = fs.readFileSync(path.join(__dirname, '..', 'pipeline', 'pipeline-runtime.js'), 'utf8');
   window.eval(pipelineRuntime);
   window.eval(fs.readFileSync(path.join(__dirname, '..', 'shared', 'transport-policy.js'), 'utf8'));
-  const disputMessages = fs.readFileSync(path.join(__dirname, '..', 'disput', 'disput-massage.js'), 'utf8');
-  window.eval(disputMessages);
   const debateEngine = fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-engine.js'), 'utf8');
   window.eval(debateEngine);
   window.eval(fs.readFileSync(path.join(__dirname, '..', 'shared', 'debate-schema.js'), 'utf8'));
   // DebateFSM is the explicit serial-debate state machine results.js init depends on.
   window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-runtime.js'), 'utf8'));
-  window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'triad-runtime.js'), 'utf8'));
-  window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'multi-runtime.js'), 'utf8'));
   window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-protocols.js'), 'utf8'));
   window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-run-store.js'), 'utf8'));
   window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-protocol-transition-service.js'), 'utf8'));
@@ -406,8 +398,6 @@ async function loadResultsScript() {
   window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-state-map.js'), 'utf8'));
   window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-artifact-pipeline.js'), 'utf8'));
   window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-projections.js'), 'utf8'));
-  window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'triad-registry.js'), 'utf8'));
-  window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-registry.js'), 'utf8'));
   window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-prompt-catalog.js'), 'utf8'));
   window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'pipeline-presets.js'), 'utf8'));
   ['boot-utils', 'dom-utils', 'attachments', 'tooltips', 'debate-ui', 'debate-transport', 'debate-controller', 'debate-renderer', 'debate-sessions-store', 'debate-export', 'debate-plan-view-model', 'debate-telemetry-view'].forEach((mod) => { window.eval(fs.readFileSync(path.join(__dirname, '..', 'results', `${mod}.js`), 'utf8')); });
@@ -1090,241 +1080,25 @@ describe('Pipeline debate favorites view', () => {
     });
   });
 
-  test('pipeline runtime snapshot stores runnable debate protocol', () => {
-    try {
-      window.setDebateSchemeValue?.('3');
-      document.getElementById('debate-run-policy-select').value = 'auto';
-      document.getElementById('debate-length-select').value = '700';
-      document.getElementById('debate-round-limit-select').value = '5';
-      document.getElementById('debate-synthesizer-select').value = 'Claude';
-      document.querySelectorAll('.llm-button').forEach((button) => {
-        button.classList.toggle('active', ['llm-gpt', 'llm-claude', 'llm-gemini'].includes(button.id));
-      });
-
-      const snapshot = window.__pipelineLifecycleDebug.buildPipelineRuntimeSnapshot();
-
-      expect(snapshot.config.protocol).toMatchObject({
-        type: 'triad',
-        scheme: '3',
-        runPolicy: 'auto',
-        length: '700',
-        roundLimit: '5',
-        synthesizer: 'Claude',
-        selectedModels: ['GPT', 'Gemini', 'Claude']
-      });
-    } finally {
-      window.setDebateSchemeValue?.('2');
-      document.getElementById('debate-run-policy-select').value = 'manual';
-      document.getElementById('debate-length-select').value = '500';
-      document.getElementById('debate-round-limit-select').value = '3';
-      document.getElementById('debate-synthesizer-select').value = '';
-    }
+  test('pipeline runtime snapshot stores universal configuration', () => {
+    document.getElementById('debate-run-policy-select').value = 'auto';
+    document.getElementById('debate-synthesizer-select').value = 'Claude';
+    document.querySelectorAll('.llm-button').forEach((button) => {
+      button.classList.toggle('active', ['llm-gpt', 'llm-claude', 'llm-gemini'].includes(button.id));
+    });
+    const snapshot = window.__pipelineLifecycleDebug.buildPipelineRuntimeSnapshot();
+    expect(snapshot.config.protocol).toMatchObject({
+      type: 'universal', runPolicy: 'auto', synthesizer: 'Claude',
+      selectedModels: ['GPT', 'Gemini', 'Claude']
+    });
   });
-
-  test('default pipeline list uses real runnable presets instead of examples', () => {
+  test('default pipeline list exposes only universal purpose profiles', () => {
     const names = Array.from(document.querySelectorAll('#pipelineItems .pipeline-item'))
       .map((item) => item.dataset.name);
-
     expect(names).toEqual(['Universal', 'Research', 'Red Team']);
-    expect(names).not.toEqual(expect.arrayContaining([
-      'Research & Analysis',
-      'Content Gen',
-      'Idea Validation',
-      'Duel',
-      'Triad',
-      'Multi Models'
-    ]));
     expect(document.querySelectorAll('#pipelineItems .pipeline-item-delete')).toHaveLength(0);
-    expect(document.querySelectorAll('#customerPipelineItems .pipeline-item')).toHaveLength(0);
-
-    // The remaining legacy topology assertions below are retained as migration
-    // fixtures, but they do not apply to the current three-profile list.
-    return;
-
-    const multiItem = Array.from(document.querySelectorAll('#pipelineItems .pipeline-item'))
-      .find((item) => item.dataset.name === 'Multi Verdict');
-    const staleCard = document.createElement('div');
-    staleCard.className = 'debate-model-card';
-    staleCard.dataset.sessionId = '1';
-    staleCard.dataset.messageId = 'stale-before-multi';
-    staleCard.textContent = 'stale debate content';
-    document.getElementById('debate-model-cards').appendChild(staleCard);
-    multiItem.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-
-    expect(window.__debateSchemeValue).toBe('many');
-    expect(document.getElementById('debate-model-cards').textContent).not.toContain('stale debate content');
-    expect(window.ResultsShared.getSelectedLLMs()).toEqual([]);
-    expect(document.querySelectorAll('#r1-models .model-block')).toHaveLength(1);
-    expect(document.querySelectorAll('#r1-models .pipeline-empty-slot')).toHaveLength(1);
-    expect(document.querySelectorAll('#r1-models .model-name')).toHaveLength(0);
-    expect(document.querySelectorAll('#r1-models .model-input-checkbox:checked')).toHaveLength(0);
-    expect(document.querySelectorAll('#r2-models .model-block')).toHaveLength(1);
-    expect(document.querySelectorAll('#r2-models .pipeline-empty-slot')).toHaveLength(1);
-    expect(document.getElementById('round2')).toBeTruthy();
-    expect(document.getElementById('svg-r1-r2')).toBeTruthy();
-    expect(document.querySelectorAll('#r3-models .model-block')).toHaveLength(1);
-    expect(document.querySelectorAll('#r3-models .pipeline-empty-slot')).toHaveLength(1);
-    expect(document.getElementById('debate-round-limit-select').hidden).toBe(true);
-    expect(document.getElementById('debate-round-limit-select').disabled).toBe(true);
-    expect(document.getElementById('triad-registry-toggle').hidden).toBe(false);
-    expect(document.getElementById('triad-registry-toggle').getAttribute('aria-hidden')).toBe('false');
-    expect(document.getElementById('synthesisColumn').hidden).toBe(false);
-    expect(document.getElementById('debate-synthesizer-select').hidden).toBe(false);
-    expect(document.getElementById('multi-final-synthesis-flow-select').value).toBe('Claude');
-    expect(Number(document.getElementById('svg-r-last-synthesis').getAttribute('height'))).toBeLessThan(240);
-    expect(Number(document.getElementById('svg-stage-output').getAttribute('height'))).toBeLessThan(240);
-    expect(window.__pipelineLifecycleDebug.buildPipelineRuntimeSnapshot().config.protocol).toMatchObject({
-      type: 'multi',
-      scheme: 'many',
-      presetId: 'MULTI_STANDARD',
-      selectedModels: [],
-      synthesizer: 'Claude'
-    });
-    expect(window.__pipelineLifecycleDebug.buildPipelineRuntimeSnapshot().config.roundCounter).toBe(4);
-
-    document.getElementById('llm-grok').click();
-    expect(window.__debateSchemeValue).toBe('many');
-    expect(window.ResultsShared.getSelectedLLMs()).toEqual(['Grok']);
-    expect(document.getElementById('debate-round-limit-select').hidden).toBe(true);
-    expect(document.getElementById('debate-round-limit-select').disabled).toBe(true);
-    const stalePipelineIndicator = document.querySelector('#r1-models .status-indicator');
-    stalePipelineIndicator.className = 'status-indicator success';
-    stalePipelineIndicator.title = 'stale success';
-
-    const triadItem = Array.from(document.querySelectorAll('#pipelineItems .pipeline-item'))
-      .find((item) => item.dataset.name === 'Triad Verdict');
-    const staleTriadCard = document.createElement('div');
-    staleTriadCard.className = 'debate-model-card';
-    staleTriadCard.dataset.sessionId = '1';
-    staleTriadCard.dataset.messageId = 'stale-before-triad';
-    staleTriadCard.textContent = 'stale before triad';
-    document.getElementById('debate-model-cards').appendChild(staleTriadCard);
-    triadItem.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-
-    expect(window.__debateSchemeValue).toBe('3');
-    expect(document.getElementById('debate-model-cards').textContent).not.toContain('stale before triad');
-    expect(document.querySelector('.model-block .status-indicator.success')).toBeNull();
-    expect(window.__pipelineLifecycleDebug.buildPipelineRuntimeSnapshot().config.protocol).toMatchObject({
-      type: 'triad',
-      scheme: '3'
-    });
-    expect(document.getElementById('debate-round-limit-select').hidden).toBe(true);
-    expect(document.getElementById('debate-round-limit-select').disabled).toBe(true);
-    expect(document.getElementById('triad-registry-toggle').hidden).toBe(false);
-    expect(document.getElementById('triad-registry-toggle').getAttribute('aria-hidden')).toBe('false');
-    expect(document.getElementById('debate-run-policy-select').value).toBe('auto');
-    expect(document.getElementById('debate-round-limit-select').value).toBe('3');
-    expect(window.ResultsShared.getSelectedLLMs()).toEqual([]);
-    expect(window.__pipelineLifecycleDebug.buildPipelineRuntimeSnapshot().config.roundCounter).toBe(3);
-    expect(document.querySelectorAll('#r1-models .pipeline-empty-slot')).toHaveLength(3);
-    expect(document.querySelectorAll('#r2-models .pipeline-empty-slot')).toHaveLength(3);
-    expect(document.querySelectorAll('#r2-models .role-selector')).toHaveLength(0);
-    expect(document.getElementById('debate-synthesizer-select').value).toBe('Claude');
-    expect(document.getElementById('triad-synthesizer-flow-select').value).toBe('Claude');
-    expect(document.getElementById('triad-synthesizer-flow-name').textContent).toBe('Claude');
-    expect(document.getElementById('synthesisColumn').hidden).toBe(false);
-    expect(Array.from(document.querySelectorAll('.model-block.triad-synthesizer .model-name')).map((el) => el.textContent.trim()))
-      .toEqual(expect.arrayContaining(['Claude']));
-
-    const flowSynthSelect = document.getElementById('triad-synthesizer-flow-select');
-    flowSynthSelect.value = 'Grok';
-    flowSynthSelect.dispatchEvent(new Event('change', { bubbles: true }));
-    expect(document.getElementById('debate-synthesizer-select').value).toBe('Grok');
-    expect(document.getElementById('triad-synthesizer-flow-name').textContent).toBe('Grok');
-    expect(document.getElementById('synthesisColumn').querySelector('.pipeline-synthesis-block').classList.contains('triad-synthesizer')).toBe(true);
-
-    const duelItem = Array.from(document.querySelectorAll('#pipelineItems .pipeline-item'))
-      .find((item) => item.dataset.name === 'Duel Verdict');
-    duelItem.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    expect(window.__debateSchemeValue).toBe('2');
-    expect(window.__pipelineLifecycleDebug.buildPipelineRuntimeSnapshot().config.protocol).toMatchObject({
-      type: 'duel',
-      scheme: '2'
-    });
-    expect(document.getElementById('debate-round-limit-select').hidden).toBe(true);
-    expect(document.getElementById('debate-round-limit-select').disabled).toBe(true);
-    expect(document.getElementById('triad-registry-toggle').hidden).toBe(true);
-    expect(document.getElementById('triad-registry-toggle').getAttribute('aria-hidden')).toBe('true');
-    const triadLongItem = Array.from(document.querySelectorAll('#pipelineItems .pipeline-item'))
-      .find((item) => item.dataset.name === 'Triad Long');
-    triadLongItem.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    expect(window.__debateSchemeValue).toBe('3');
-    expect(document.getElementById('debate-round-limit-wrap').hidden).toBe(false);
-    expect(document.getElementById('debate-round-limit-wrap').getAttribute('aria-hidden')).toBe('false');
-    expect(document.getElementById('debate-round-limit-select').hidden).toBe(false);
-    expect(document.getElementById('debate-round-limit-select').disabled).toBe(false);
-    expect(document.getElementById('debate-round-limit-select').value).toBe('infinite');
-    expect(window.__pipelineLifecycleDebug.buildPipelineRuntimeSnapshot().config.roundCounter).toBe(1);
-    expect(document.getElementById('synthesisColumn').hidden).toBe(true);
-    document.getElementById('debate-round-limit-select').value = '3';
-    document.getElementById('debate-round-limit-select').dispatchEvent(new Event('change', { bubbles: true }));
-    expect(window.__pipelineLifecycleDebug.buildPipelineRuntimeSnapshot().config.roundCounter).toBe(3);
-    expect(window.__pipelineLifecycleDebug.getPipelineStoreSnapshot().overrides.longRoundLimits['Triad Long']).toBe('3');
-    expect(document.getElementById('synthesisColumn').hidden).toBe(false);
-
-    const multiLongItem = Array.from(document.querySelectorAll('#pipelineItems .pipeline-item'))
-      .find((item) => item.dataset.name === 'Multi Long — later');
-    expect(multiLongItem).toBeTruthy();
-    expect(multiLongItem.classList.contains('pipeline-item-disabled')).toBe(true);
-    multiLongItem.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    expect(window.__debateSchemeValue).toBe('3');
-    const triadItemAgain = Array.from(document.querySelectorAll('#pipelineItems .pipeline-item'))
-      .find((item) => item.dataset.name === 'Triad Verdict');
-    triadItemAgain.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    expect(document.getElementById('debate-synthesizer-select').value).toBe('Grok');
   });
 
-  test('one synthesizer select controls every topology and extractor is absent from the top panel', () => {
-    const html = fs.readFileSync(path.join(__dirname, '..', 'pipeline_panel.html'), 'utf8');
-    expect(html).not.toContain('id="debate-scheme-select"');
-    expect(html).toContain('id="debate-synthesizer-select"');
-    expect(html).toContain('Synthesizer: None');
-    expect(html).not.toContain('Synthesizer: auto');
-    expect(html).not.toContain('debate-extractor-select');
-    expect(html).not.toContain('triad-synthesizer-select');
-    expect(html).not.toContain('multi-final-synthesizer-select');
-    expect(html).toContain('id="pipeline-add-round-btn"');
-    expect(html).toContain('id="customerPipelineItems"');
-  });
-
-  test('saved scheme value limits header model selection and renders empty pipeline slots', () => {
-    document.querySelectorAll('.llm-button').forEach((button) => button.classList.remove('active'));
-    window.setDebateSchemeValue?.('3');
-    document.dispatchEvent(new CustomEvent('llm-selection-change', { detail: { selected: [] } }));
-
-    expect(document.querySelectorAll('#r1-models .model-block')).toHaveLength(3);
-    expect(document.querySelectorAll('#r1-models .pipeline-empty-slot')).toHaveLength(3);
-
-    window.setDebateSchemeValue?.('2');
-    document.getElementById('llm-gpt').click();
-    document.getElementById('llm-claude').click();
-    document.getElementById('llm-gemini').click();
-
-    let selected = window.ResultsShared.getSelectedLLMs();
-    expect(selected).toHaveLength(2);
-    expect(selected).toEqual(expect.arrayContaining(['GPT', 'Gemini']));
-    expect(selected).not.toContain('Claude');
-    expect(document.querySelectorAll('#r1-models .model-block')).toHaveLength(2);
-    expect(document.querySelectorAll('#r1-models .pipeline-empty-slot')).toHaveLength(0);
-
-    document.getElementById('llm-claude').click();
-    selected = window.ResultsShared.getSelectedLLMs();
-    expect(selected).toHaveLength(2);
-    expect(selected).toEqual(expect.arrayContaining(['GPT', 'Claude']));
-    expect(selected).not.toContain('Gemini');
-
-    window.setDebateSchemeValue?.('many');
-    document.getElementById('llm-grok').click();
-    document.getElementById('llm-perplexity').click();
-    document.getElementById('llm-deepseek').click();
-    document.getElementById('llm-grok').click();
-
-    selected = window.ResultsShared.getSelectedLLMs();
-    expect(window.__debateSchemeValue).toBe('many');
-    expect(selected.length).toBeGreaterThan(3);
-    expect(selected).toEqual(expect.arrayContaining(['GPT', 'Claude', 'Perplexity', 'DeepSeek']));
-    expect(selected).not.toContain('Grok');
-  });
 
   test('pipeline R1 mirrors selected top models before run when R1 is still default', () => {
     document.getElementById('pipeline-panel').insertAdjacentHTML('beforeend', `
@@ -1355,8 +1129,8 @@ describe('Pipeline debate favorites view', () => {
     blocks.forEach((block) => {
       const name = block.querySelector('.model-name')?.textContent?.trim();
       const isDefault = ['Claude', 'GPT', 'Gemini'].includes(name);
-      block.querySelector('.model-input-checkbox').checked = isDefault;
-      block.querySelector('.model-send-checkbox').checked = isDefault;
+      if (block.querySelector('.model-input-checkbox')) block.querySelector('.model-input-checkbox').checked = isDefault;
+      if (block.querySelector('.model-send-checkbox')) block.querySelector('.model-send-checkbox').checked = isDefault;
     });
 
     document.querySelectorAll('.llm-button').forEach((button) => {

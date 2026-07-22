@@ -1863,11 +1863,6 @@ document.addEventListener('click', (event) => {
     const proSection = document.getElementById('pro-section');
     const newPagesCheckbox = document.getElementById('new-pages-checkbox');
     const apiModeCheckbox = document.getElementById('api-mode-checkbox');
-    // Debate registry opt-in: when ON and a synthesizer is chosen, a C-analyzer
-    // extracts evidence-anchored artifacts and triggers for supported topologies.
-    const triadRegistryCheckbox = document.getElementById('triad-registry-checkbox');
-    const DEBATE_REGISTRY_STORAGE_KEY = 'llmCodexDebateRegistry.v1';
-    const LEGACY_TRIAD_REGISTRY_STORAGE_KEY = 'llmCodexTriadRegistry.v1';
     // Long generation mode (main page): a shared flag read by each model tab's
     // content script (pipeline-config.js) to switch the answer-wait timing
     // profile from Short to the patient Long profile. Default OFF every load.
@@ -3505,7 +3500,6 @@ document.addEventListener('click', (event) => {
         const getPipelineProtocolConfig = () => {
             const lengthSelect = document.getElementById('debate-length-select');
             const synthesizerSelect = document.getElementById('debate-synthesizer-select');
-            const scheme = getDebateScheme();
             const presetId = getSelectedPipelinePresetId();
             const presetMeta = window.PipelinePresets?.getPipelinePreset?.(presetId) || null;
             const activeName = String(pipelineStore.active || pipelineName?.textContent || '').trim();
@@ -3518,12 +3512,11 @@ document.addEventListener('click', (event) => {
                 }))
                 : [];
             return {
-                type: scheme === '3' ? 'triad' : scheme === '2' ? 'duel' : scheme === 'many' ? 'multi' : presetMeta?.topology === 'free_talk' ? 'free_talk' : 'custom',
-                scheme,
+                type: 'universal',
                 runPolicy: debateRunPolicySelect?.value === 'auto' ? 'auto' : 'manual',
                 presetId,
-                profileId: String(activeProtocol.profileId || presetMeta?.profileId || (scheme === '3' ? 'TRIAD_STANDARD' : scheme === 'many' ? 'MULTI_STANDARD' : scheme === 'free' ? 'FREE_TALK_MVP' : 'DUEL_STANDARD')),
-                profileVersion: String(activeProtocol.profileVersion || window.DebateProfileSchema?.BUILTIN_PROFILES?.[activeProtocol.profileId || presetMeta?.profileId || (scheme === '3' ? 'TRIAD_STANDARD' : scheme === 'many' ? 'MULTI_STANDARD' : scheme === 'free' ? 'FREE_TALK_MVP' : 'DUEL_STANDARD')]?.version || ''),
+                profileId: String(activeProtocol.profileId || presetMeta?.profileId || 'UNIVERSAL_STANDARD'),
+                profileVersion: String(activeProtocol.profileVersion || window.DebateProfileSchema?.BUILTIN_PROFILES?.[activeProtocol.profileId || presetMeta?.profileId || 'UNIVERSAL_STANDARD']?.version || ''),
                 length: String(lengthSelect?.value || '300'),
                 roundLimit: String(debateRoundLimitSelect?.value || '3'),
                 maxTurns: String(debateMaxTurnsInput?.value || ''),
@@ -4786,7 +4779,7 @@ document.addEventListener('click', (event) => {
             window.DebateFSM?.normalizeTurns?.(serialState);
             if (!Array.isArray(serialState.eventLog)) serialState.eventLog = [];
             try {
-                window.DebateSchema?.validateSerialState?.(serialState, {
+                window.DebateSchema?.validateState?.(serialState, {
                     requireParticipants: window.DebateFSM?.canRoutePublic?.(serialState) === true
                 });
             } catch (err) {
@@ -16170,18 +16163,6 @@ document.addEventListener('click', (event) => {
         });
     }
 
-    if (triadRegistryCheckbox) {
-        chrome.storage.local.get([DEBATE_REGISTRY_STORAGE_KEY, LEGACY_TRIAD_REGISTRY_STORAGE_KEY], (data) => {
-            const stored = data?.[DEBATE_REGISTRY_STORAGE_KEY] ?? data?.[LEGACY_TRIAD_REGISTRY_STORAGE_KEY];
-            if (typeof stored === 'boolean') triadRegistryCheckbox.checked = stored;
-            if (data?.[DEBATE_REGISTRY_STORAGE_KEY] == null && typeof data?.[LEGACY_TRIAD_REGISTRY_STORAGE_KEY] === 'boolean') {
-                chrome.storage.local.set({ [DEBATE_REGISTRY_STORAGE_KEY]: stored });
-            }
-        });
-        triadRegistryCheckbox.addEventListener('change', () => {
-            chrome.storage.local.set({ [DEBATE_REGISTRY_STORAGE_KEY]: triadRegistryCheckbox.checked });
-        });
-    }
 
     const updateDevToolsStatus = (message, tone = 'info') => {
         if (!devToolsStatus) return;
@@ -19655,7 +19636,6 @@ function checkCompareButtonState() {
         if (debateSynthesizerSelect) {
             debateSynthesizerSelect.disabled = runActive;
         }
-        if (triadRegistryCheckbox) triadRegistryCheckbox.disabled = runActive;
         const roundLimitControl = debateRoundLimitSelect?.closest?.('.debate-select-wrap') || debateRoundLimitSelect || null;
         const showRoundLimitControl = shouldShowDebateRoundLimitControl();
         if (roundLimitControl) {
