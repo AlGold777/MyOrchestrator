@@ -1125,7 +1125,7 @@ describe('Pipeline debate favorites view', () => {
     const names = Array.from(document.querySelectorAll('#pipelineItems .pipeline-item'))
       .map((item) => item.dataset.name);
 
-    expect(names).toEqual(['FreeTalk', 'Research', 'Specialized profile']);
+    expect(names).toEqual(['Universal', 'Research', 'Red Team']);
     expect(names).not.toEqual(expect.arrayContaining([
       'Research & Analysis',
       'Content Gen',
@@ -1272,98 +1272,6 @@ describe('Pipeline debate favorites view', () => {
       .find((item) => item.dataset.name === 'Triad Verdict');
     triadItemAgain.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(document.getElementById('debate-synthesizer-select').value).toBe('Grok');
-  });
-
-  test('built-in pipeline order is normalized into the three visible profiles', () => {
-    const shuffledStoredOrder = [
-      'Triad Verdict',
-      'Duel Verdict',
-      'Duel Red Team',
-      'Multi Models',
-      'Multi Verdict',
-      'Custom Saved Flow',
-      'Duel Long',
-      'Triad Red Team',
-      'Triad Long',
-      'Multi Red Team',
-      'Multi Long — later'
-    ];
-
-    expect(window.__pipelineLifecycleDebug.normalizePipelineOrder(shuffledStoredOrder)).toEqual([
-      'FreeTalk', 'Research', 'Specialized profile', 'Custom Saved Flow'
-    ]);
-    expect(window.__pipelineLifecycleDebug.normalizePipelineOrder(shuffledStoredOrder))
-      .not.toEqual(expect.arrayContaining(['Multi Models']));
-  });
-
-  test('built-in profile migration removes obsolete pipeline definitions', () => {
-    const debug = window.__pipelineLifecycleDebug;
-    const originalStore = debug.getPipelineStoreSnapshot();
-    try {
-      const staleStore = JSON.parse(JSON.stringify(originalStore));
-      staleStore.version = 4;
-      staleStore.active = 'Duel Verdict';
-      staleStore.order.push('Duel Verdict', 'Triad Verdict', 'Multi Verdict');
-      staleStore.pipelines['Duel Verdict'] = { protocol: { scheme: '2' } };
-      staleStore.pipelines['Triad Verdict'] = { protocol: { scheme: '3' } };
-      staleStore.pipelines['Multi Verdict'] = { protocol: { scheme: 'many' } };
-
-      debug.setPipelineStoreForTest(staleStore);
-      expect(debug.ensureDefaultPipelinePresets()).toBe(true);
-
-      const migratedStore = debug.getPipelineStoreSnapshot();
-      expect(migratedStore.version).toBe(7);
-      expect(migratedStore.order).toEqual(['FreeTalk', 'Research', 'Specialized profile']);
-      expect(migratedStore.active).toBe('FreeTalk');
-      expect(migratedStore.pipelines['Duel Verdict']).toBeUndefined();
-      expect(migratedStore.pipelines['Triad Verdict']).toBeUndefined();
-      expect(migratedStore.pipelines['Multi Verdict']).toBeUndefined();
-    } finally {
-      debug.setPipelineStoreForTest(originalStore);
-    }
-  });
-
-  test('New pipeline opens a guided creator and saves a runnable Triad config', async () => {
-    document.getElementById('pipeline-add-btn').dispatchEvent(new MouseEvent('click', { bubbles: true }));
-
-    const modal = document.getElementById('pipeline-builder-modal');
-    expect(modal).toBeTruthy();
-    expect(modal.style.display).toBe('flex');
-
-    modal.querySelector('#pipeline-builder-name').value = 'Custom Triad Test';
-    const scheme = modal.querySelector('#pipeline-builder-scheme');
-    scheme.value = '3';
-    scheme.dispatchEvent(new Event('change', { bubbles: true }));
-    modal.querySelector('#pipeline-builder-policy').value = 'auto';
-    modal.querySelector('#pipeline-builder-rounds').value = '2';
-    expect(modal.querySelector('#pipeline-builder-prompts')).toBeNull();
-    const schemeValues = Array.from(scheme.options).map((option) => option.value);
-    expect(schemeValues[0]).toBe('many');
-    expect(schemeValues).toEqual(expect.arrayContaining(['2', '3']));
-    expect(Number(schemeValues[schemeValues.length - 1])).toBeGreaterThanOrEqual(3);
-    expect(modal.querySelector('#pipeline-builder-synth').value).toBe('');
-
-    modal.querySelector('#pipeline-builder-save').dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    const item = Array.from(document.querySelectorAll('#customerPipelineItems .pipeline-item'))
-      .find((node) => node.dataset.name === 'Custom Triad Test');
-    expect(item).toBeTruthy();
-    expect(item.querySelector('.pipeline-item-name').title).toContain('3 LLM');
-    expect(window.__debateSchemeValue).toBe('3');
-    expect(document.getElementById('debate-run-policy-select').value).toBe('auto');
-    expect(document.getElementById('debate-round-limit-select').value).toBe('2');
-    expect(window.ResultsShared.getSelectedLLMs()).toEqual(['GPT', 'Gemini', 'Claude']);
-    expect(document.getElementById('debate-synthesizer-select').value).toBe('');
-    expect(document.getElementById('triad-synthesizer-flow-select').value).toBe('');
-    expect(document.getElementById('pipeline-add-round-btn').hidden).toBe(false);
-    expect(document.querySelectorAll('#customerPipelineItems .pipeline-item-delete')).toHaveLength(1);
-
-    item.querySelector('.pipeline-item-info').dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    expect(document.getElementById('pipeline-info-modal').style.display).toBe('flex');
-    expect(document.getElementById('pipeline-info-document').textContent).toContain('Custom Triad Test');
-    expect(document.getElementById('pipeline-info-document').textContent).toContain('3 LLM Triad');
-    expect(document.getElementById('pipelineActiveSummary').textContent).toContain('completion without synthesis');
   });
 
   test('one synthesizer select controls every topology and extractor is absent from the top panel', () => {

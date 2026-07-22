@@ -3884,7 +3884,6 @@ document.addEventListener('click', (event) => {
             };
         };
         const buildPresetPipelineConfig = ({
-            scheme = '2',
             presetId = '',
             runPolicy = 'auto',
             length = '700',
@@ -3913,8 +3912,7 @@ document.addEventListener('click', (event) => {
             return {
                 version: 3,
                 protocol: {
-                    type: scheme === '3' ? 'triad' : scheme === '2' ? 'duel' : scheme === 'many' ? 'multi' : scheme === 'free' ? 'free_talk' : 'custom',
-                    scheme,
+                    type: 'universal',
                     runPolicy,
                     presetId,
                     length,
@@ -3944,15 +3942,8 @@ document.addEventListener('click', (event) => {
                 outputStack
             };
         };
-        const SAVED_PIPELINE_TEMPLATE_DEFINITIONS = Object.freeze([
-            Object.freeze({ name: 'Research', scheme: 'free', presetId: 'FREE_TALK_MVP', profileId: 'DEEP_RESEARCH_ALPHA', contextPolicy: 'filtered', runPolicy: 'auto', length: '1000', roundLimit: 'infinite', reasoningBudget: window.PipelinePresets?.REASONING_BUDGETS?.LONG_INFINITE || {}, roundPlan: [], roles: ['researcher', 'critic', 'verifier', 'synthesizer'], defaultModelCount: 1 }),
-            Object.freeze({ name: 'Specialized profile', scheme: 'free', presetId: 'FREE_TALK_MVP', profileId: 'FREE_TALK_MVP', contextPolicy: 'filtered', runPolicy: 'auto', length: '1000', roundLimit: 'infinite', reasoningBudget: window.PipelinePresets?.REASONING_BUDGETS?.LONG_INFINITE || {}, roundPlan: [], roles: ['participant', 'critic', 'verifier', 'synthesizer'], defaultModelCount: 1 })
-        ]);
         const buildDefaultPipelinePresets = () => Object.fromEntries(
-            [
-                ...(window.PipelinePresets?.BUILTIN_PIPELINE_DEFINITIONS || []).filter((definition) => definition.name === 'FreeTalk'),
-                ...SAVED_PIPELINE_TEMPLATE_DEFINITIONS
-            ].map((definition) => {
+            (window.PipelinePresets?.BUILTIN_PIPELINE_DEFINITIONS || []).map((definition) => {
                 const availableModels = getAllPipelineModelNames();
                 const selectedModels = definition.selectAllModels
                     ? availableModels
@@ -3960,14 +3951,13 @@ document.addEventListener('click', (event) => {
                         ? availableModels.slice(0, Math.max(1, Number(definition.defaultModelCount) || 1))
                         : [];
                 const config = buildPresetPipelineConfig({
-                    scheme: definition.scheme,
                     presetId: definition.presetId,
                     runPolicy: definition.runPolicy,
                     length: definition.length,
                     roundLimit: definition.roundLimit,
                     selectedModels,
                     models: selectedModels,
-                    synthesizer: definition.synthesizer || definition.triadSynthesizer || definition.multiSynthesizer || '',
+                    synthesizer: definition.synthesizer || '',
                     reasoningBudget: definition.reasoningBudget,
                     roundPlan: definition.roundPlan || [],
                     roles: definition.roles || ['critical', 'meta'],
@@ -3975,8 +3965,8 @@ document.addEventListener('click', (event) => {
                     stageRoles: definition.stageRoles || null,
                     acceptSelfRetest: Boolean(definition.acceptSelfRetest),
                     anonymizeParticipants: definition.anonymizeParticipants !== false,
-                    profileId: definition.profileId || (definition.scheme === '3' ? 'TRIAD_STANDARD' : definition.scheme === 'many' ? 'MULTI_STANDARD' : definition.scheme === 'free' ? 'FREE_TALK_MVP' : 'DUEL_STANDARD'),
-                    profileVersion: window.DebateProfileSchema?.BUILTIN_PROFILES?.[definition.profileId || (definition.scheme === '3' ? 'TRIAD_STANDARD' : definition.scheme === 'many' ? 'MULTI_STANDARD' : definition.scheme === 'free' ? 'FREE_TALK_MVP' : 'DUEL_STANDARD')]?.version || '',
+                    profileId: definition.profileId || 'UNIVERSAL_STANDARD',
+                    profileVersion: window.DebateProfileSchema?.BUILTIN_PROFILES?.[definition.profileId || 'UNIVERSAL_STANDARD']?.version || '',
                     resourceBudget: definition.resourceBudget || null
                 });
                 return [definition.name, definition.disabled ? { ...config, disabled: true } : config];
@@ -3984,12 +3974,6 @@ document.addEventListener('click', (event) => {
         );
         const getDefaultPipelinePresetNames = () => Object.keys(buildDefaultPipelinePresets());
         const isDefaultPipelineName = (name) => getDefaultPipelinePresetNames().includes(String(name || '').trim());
-        const OBSOLETE_DEFAULT_PIPELINE_NAMES = Object.freeze([
-            'Duel', 'Triad', 'Multi Models',
-            'Duel Verdict', 'Duel Red Team', 'Duel Long',
-            'Triad Verdict', 'Triad Red Team', 'Triad Long',
-            'Multi Verdict', 'Multi Red Team', 'Multi Long — later'
-        ]);
         const getPresetMetaForConfig = (config = {}) => {
             const presetId = String(config?.protocol?.presetId || '').trim();
             return window.PipelinePresets?.getPipelinePreset?.(presetId) || null;
@@ -4041,12 +4025,13 @@ document.addEventListener('click', (event) => {
         };
         const normalizePipelineOrder = (names = []) => {
             const defaults = getDefaultPipelinePresetNames();
-            const obsolete = new Set(OBSOLETE_DEFAULT_PIPELINE_NAMES);
             const seen = new Set();
             const customNames = [];
             names.forEach((name) => {
                 const clean = String(name || '').trim();
-                if (!clean || seen.has(clean) || defaults.includes(clean) || obsolete.has(clean)) return;
+                const stored = pipelineStore.pipelines?.[clean];
+                const supported = defaults.includes(clean) || stored?.protocol?.type === 'universal';
+                if (!clean || !supported || seen.has(clean) || defaults.includes(clean)) return;
                 seen.add(clean);
                 customNames.push(clean);
             });
@@ -4063,28 +4048,20 @@ document.addEventListener('click', (event) => {
             if (!pipelineStore.order.length || onlyLegacyExamples) {
                 pipelineStore.pipelines = clonePipelineConfig(defaults);
                 pipelineStore.order = defaultNames.slice();
-                pipelineStore.active = 'FreeTalk';
-                pipelineStore.lastSaved = 'FreeTalk';
+                pipelineStore.active = 'Universal';
+                pipelineStore.lastSaved = 'Universal';
                 pipelineStore.overrides = { longRoundLimits: {}, synthesizers: {}, profiles: {} };
                 pipelineStore.version = PIPELINE_STORE_VERSION;
                 return true;
             }
-            OBSOLETE_DEFAULT_PIPELINE_NAMES.forEach((name) => {
-                if (pipelineStore.pipelines[name]) {
-                    delete pipelineStore.pipelines[name];
-                    changed = true;
-                }
-                const before = pipelineStore.order.length;
+            Object.keys(pipelineStore.pipelines).forEach((name) => {
+                const config = pipelineStore.pipelines[name];
+                if (defaultNames.includes(name) || config?.protocol?.type === 'universal') return;
+                delete pipelineStore.pipelines[name];
                 pipelineStore.order = pipelineStore.order.filter((item) => item !== name);
-                if (pipelineStore.order.length !== before) changed = true;
-                if (pipelineStore.active === name) {
-                    pipelineStore.active = '';
-                    changed = true;
-                }
-                if (pipelineStore.lastSaved === name) {
-                    pipelineStore.lastSaved = '';
-                    changed = true;
-                }
+                if (pipelineStore.active === name) pipelineStore.active = '';
+                if (pipelineStore.lastSaved === name) pipelineStore.lastSaved = '';
+                changed = true;
             });
             pipelineStore.order = pipelineStore.order.filter((name) => {
                 const shouldKeep = !legacy.has(name) || !!pipelineStore.pipelines[name];
@@ -4115,7 +4092,7 @@ document.addEventListener('click', (event) => {
                 changed = true;
             }
             if (!pipelineStore.active || !pipelineStore.order.includes(pipelineStore.active)) {
-                pipelineStore.active = pipelineStore.order[0] || 'FreeTalk';
+                pipelineStore.active = pipelineStore.order[0] || 'Universal';
                 changed = true;
             }
             if (!pipelineStore.overrides || typeof pipelineStore.overrides !== 'object') {
