@@ -11,7 +11,7 @@
   const GOAL_TYPES = Object.freeze([
     'establish_position', 'verify_claim', 'verify_evidence', 'resolve_objection',
     'resolve_contradiction', 'answer_open_question', 'examine_dissent', 'test_revision',
-    'recheck_conclusion', 'compact_context', 'produce_synthesis', 'audit_output',
+    'recheck_conclusion', 'compact_context', 'produce_synthesis', 'correct_synthesis', 'audit_output',
     'request_human_judgment'
   ]);
 
@@ -35,6 +35,7 @@
     recheck_conclusion: 'verification',
     compact_context: 'context_compaction',
     produce_synthesis: 'synthesis',
+    correct_synthesis: 'synthesis',
     audit_output: 'audit',
     request_human_judgment: 'human_judgment'
   });
@@ -84,7 +85,11 @@
       push('produce_synthesis', [], 40, 'synthesis_readiness');
     }
     if (finalization.audit === 'required' && map.synthesisArtifactId && !map.validAuditArtifactId) {
-      push('audit_output', [map.synthesisArtifactId], 65, map.synthesisArtifactId);
+      if (map.currentSynthesisAuditVerdict === 'issues_found') {
+        push('correct_synthesis', [map.synthesisArtifactId, map.currentSynthesisAuditId].filter(Boolean), 90, map.currentSynthesisAuditId);
+      } else {
+        push('audit_output', [map.synthesisArtifactId], 65, map.synthesisArtifactId);
+      }
     }
     return derived;
   }
@@ -304,7 +309,7 @@
         suppress(goal, 'DEPENDENCY_NOT_READY', ruleId);
         continue;
       }
-      if (goal.type === 'produce_synthesis') {
+      if (['produce_synthesis', 'correct_synthesis'].includes(goal.type)) {
         if (finalizationPolicy.synthesis === 'none') { suppress(goal, 'POLICY_FORBIDS', ruleId); continue; }
         if (revisionMeta.synthesisForbidden || input.humanForbidsSynthesis) { suppress(goal, 'POLICY_FORBIDS', ruleId); continue; }
       }

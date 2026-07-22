@@ -4,6 +4,7 @@
   'use strict';
 
   const StateMap = root.DebateStateMap || (typeof require === 'function' ? require('./debate-state-map') : null);
+  const ResponseAcceptance = root.DebateResponseAcceptance || (typeof require === 'function' ? require('./debate-response-acceptance') : null);
   const text = (value) => String(value == null ? '' : value).trim();
   const list = (value) => Array.isArray(value) ? value : [];
   const stableHash = (value) => {
@@ -27,7 +28,7 @@
   }[text(purpose)] || 'opening');
   const statusFor = (type) => ({
     claim: 'asserted', objection: 'raised', evidence: 'supported', revision: 'proposed',
-    dissent: 'recorded', synthesis_conclusion: 'accepted', audit: 'verified', human_decision: 'accepted'
+    dissent: 'recorded', synthesis_conclusion: 'accepted', human_decision: 'accepted'
   }[type] || 'recorded');
 
   function extractArtifacts({ stage = {}, participant = {}, text: responseText } = {}) {
@@ -35,14 +36,18 @@
     if (!body) return [];
     const participantId = text(participant.participantId || participant.model || 'unknown');
     const type = artifactTypeFor(stage.purpose);
+    const audit = type === 'audit' ? ResponseAcceptance?.parseAuditVerdict?.(body) : null;
+    const targetId = type === 'audit' ? text(list(stage.inputArtifactIds)[0]) : '';
     const fingerprint = stableHash(`${stage.runId}|${stage.stageInstanceId}|${participantId}|${type}|${body}`);
     return [Object.freeze({
       id: `artifact-${fingerprint}`,
       type,
-      status: statusFor(type),
+      status: type === 'audit' ? (audit?.verdict === 'pass' ? 'verified' : 'contested') : statusFor(type),
       title: body,
       text: body,
       owner: participantId,
+      ...(targetId ? { targetId } : {}),
+      ...(audit?.ok ? { auditVerdict: audit.verdict, issues: Object.freeze(audit.issues.slice()) } : {}),
       extractionConfidence: 1,
       provenance: Object.freeze({
         runId: text(stage.runId), stageInstanceId: text(stage.stageInstanceId),
@@ -78,13 +83,16 @@
     }) || { artifacts: artifactRecord };
     const synthesis = artifacts.findLast?.((artifact) => artifact.type === 'synthesis_conclusion')
       || artifacts.slice().reverse().find((artifact) => artifact.type === 'synthesis_conclusion');
-    const audit = artifacts.findLast?.((artifact) => artifact.type === 'audit' && ['verified', 'accepted'].includes(artifact.status))
-      || artifacts.slice().reverse().find((artifact) => artifact.type === 'audit' && ['verified', 'accepted'].includes(artifact.status));
+    const currentAudits = artifacts.filter((artifact) => artifact.type === 'audit' && artifact.targetId === synthesis?.id);
+    const latestAudit = currentAudits.at(-1);
+    const validAudit = latestAudit && latestAudit.auditVerdict === 'pass' && latestAudit.status === 'verified' ? latestAudit : null;
     return Object.freeze({
       ...projected,
       artifacts: artifactRecord,
       synthesisArtifactId: synthesis?.id || '',
-      validAuditArtifactId: audit?.id || ''
+      validAuditArtifactId: validAudit?.id || '',
+      currentSynthesisAuditId: latestAudit?.id || '',
+      currentSynthesisAuditVerdict: latestAudit?.auditVerdict || ''
     });
   }
 

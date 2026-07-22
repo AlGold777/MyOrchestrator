@@ -37,13 +37,28 @@ describe('DebateArtifactPipeline', () => {
     expect(Pipeline.commitStateDelta({ state: { ...state, caseVersion: 2 }, delta })).toMatchObject({ applied: false, reason: 'case_version_stale' });
   });
 
-  test('synthesis and audit artifacts expose finalization readiness IDs', () => {
-    const state = { runId: 'r', debateCase: { caseId: 'r', artifacts: [
-      ...Pipeline.extractArtifacts({ stage: { runId: 'r', stageInstanceId: 's1', purpose: 'synthesis' }, participant, text: 'Synthesis' }),
-      ...Pipeline.extractArtifacts({ stage: { runId: 'r', stageInstanceId: 's2', purpose: 'audit' }, participant, text: 'Audit passed' })
-    ] } };
+  test('a passing audit validates only the synthesis it targets', () => {
+    const synthesis = Pipeline.extractArtifacts({ stage: { runId: 'r', stageInstanceId: 's1', purpose: 'synthesis' }, participant, text: 'Synthesis' });
+    const audit = Pipeline.extractArtifacts({
+      stage: { runId: 'r', stageInstanceId: 's2', purpose: 'audit', inputArtifactIds: [synthesis[0].id] },
+      participant, text: '{"verdict":"pass","issues":[]}'
+    });
+    const state = { runId: 'r', debateCase: { caseId: 'r', artifacts: [...synthesis, ...audit] } };
     const map = Pipeline.projectStateMap(state);
-    expect(map.synthesisArtifactId).toMatch(/^artifact-/);
-    expect(map.validAuditArtifactId).toMatch(/^artifact-/);
+    expect(map.synthesisArtifactId).toBe(synthesis[0].id);
+    expect(map.validAuditArtifactId).toBe(audit[0].id);
+    expect(map.currentSynthesisAuditVerdict).toBe('pass');
+  });
+
+  test('issues_found remains contested and records correction inputs', () => {
+    const synthesis = Pipeline.extractArtifacts({ stage: { runId: 'r', stageInstanceId: 's1', purpose: 'synthesis' }, participant, text: 'Synthesis' });
+    const audit = Pipeline.extractArtifacts({
+      stage: { runId: 'r', stageInstanceId: 's2', purpose: 'audit', inputArtifactIds: [synthesis[0].id] },
+      participant, text: '{"verdict":"issues_found","issues":["Missing evidence"]}'
+    });
+    const map = Pipeline.projectStateMap({ runId: 'r', debateCase: { caseId: 'r', artifacts: [...synthesis, ...audit] } });
+    expect(audit[0]).toMatchObject({ status: 'contested', auditVerdict: 'issues_found', targetId: synthesis[0].id });
+    expect(map.validAuditArtifactId).toBe('');
+    expect(map.currentSynthesisAuditId).toBe(audit[0].id);
   });
 });

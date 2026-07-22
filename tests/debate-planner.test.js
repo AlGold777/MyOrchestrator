@@ -106,6 +106,20 @@ describe('Planner — derived goals (§7)', () => {
     expect(derived.map((g) => g.type)).toContain('audit_output');
   });
 
+  test('failed audit derives synthesis correction instead of another audit', () => {
+    const derived = Planner.deriveGoals(baseInput({
+      stateMap: {
+        synthesisArtifactId: 'syn-1', currentSynthesisAuditId: 'audit-1',
+        currentSynthesisAuditVerdict: 'issues_found', validAuditArtifactId: ''
+      },
+      policies: Policies.resolve({ finalization: { audit: 'required' } })
+    }));
+    expect(derived).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'correct_synthesis', targetArtifactIds: ['syn-1', 'audit-1'] })
+    ]));
+    expect(derived.map((g) => g.type)).not.toContain('audit_output');
+  });
+
   test('goal deduplication against open goals and active stages (§6.5)', () => {
     const candidates = [
       { goalId: 'derived:verify_claim:c1', type: 'verify_claim', targetArtifactIds: ['c1'] },
