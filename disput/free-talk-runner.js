@@ -236,12 +236,17 @@
           }));
           const failurePolicy = deps.stageById?.(state.executionPlan, openingId)?.failurePolicy || 'ask_user';
           openingDecision = failurePolicy === 'fail_run' ? 'stop' : 'continue';
-          if (failurePolicy === 'ask_user') {
+          if (failurePolicy === 'ask_user' && typeof deps.resolveParticipantDropout !== 'function') {
+            openingDecision = 'configuration_error';
+            stageEvent('DROPOUT_RESOLVER_MISSING', openingId, {
+              failedModels: failedOpeningModels, remainingModels, attempt, reasonCode: 'DROPOUT_RESOLVER_MISSING'
+            });
+          } else if (failurePolicy === 'ask_user') {
             stageEvent('DROPOUT_DECISION_REQUESTED', openingId, { failedModels: failedOpeningModels, remainingModels, attempt });
-            openingDecision = (await deps.resolveParticipantDropout?.({
+            openingDecision = (await deps.resolveParticipantDropout({
               topology: 'free_talk', stage: 'positions',
               failedModels: failedOpeningModels, remainingModels, attempt, maxAttempts: maxOpeningAttempts
-            })) || 'continue';
+            })) || 'stop';
           }
 
           if (openingDecision === 'retry') {
@@ -259,7 +264,7 @@
               attemptModels = retryableModels;
               continue;
             }
-          } else if (failurePolicy === 'ask_user') {
+          } else if (failurePolicy === 'ask_user' && openingDecision !== 'configuration_error') {
             stageEvent(openingDecision === 'continue' ? 'DROPOUT_CONTINUE_SELECTED' : 'DROPOUT_STOP_SELECTED', openingId, {
               failedModels: failedOpeningModels, remainingModels, attempt
             });
@@ -269,11 +274,18 @@
 
         // Barrier settlement: a terminally failed participant must not block the run.
         // The stage settles as degraded, the dropout is recorded, remaining
-        // participants continue (failurePolicy: ask_user delegates to the shared
-        // dropout resolver; without a resolver the run continues degraded instead of
-        // silently staying in `running`).
+        // participants continue only after an explicit policy/resolver decision.
+        // ask_user without a resolver fails closed as a configuration error.
         if (failedOpeningModels.length) {
           const remainingModels = openingTurns.map((turn) => turn.model);
+          if (openingDecision === 'configuration_error') {
+            transition(state, 'FAILED', { reason: 'DROPOUT_RESOLVER_MISSING' });
+            deps.recordRunFailure?.('DROPOUT_RESOLVER_MISSING');
+            await deps.notifyControl?.('FAILED', { stage: 'failed', reason: 'DROPOUT_RESOLVER_MISSING', failedModels: failedOpeningModels });
+            deps.notify?.('FreeTalk остановлен: политика ask_user требует подключённый resolver решения о выбытии.', 'error');
+            deps.finalizeRuntime?.();
+            return false;
+          }
           if (openingDecision !== 'continue') {
             transition(state, 'CANCELLED', { reason: 'participant_dropout:positions' });
             deps.recordRunFailure?.('participant_dropout_user_stop:positions');

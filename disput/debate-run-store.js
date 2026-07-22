@@ -2,7 +2,7 @@
 (function initDebateRunStore(root) {
   'use strict';
 
-  const VERSION = 4;
+  const VERSION = 5;
   const STORAGE_KEY = 'llmCodexDebateRun.v1';
   const MAX_EVENTS = 500;
   const TERMINAL = new Set(['completed', 'error', 'cancelled', 'stopped_by_moderator']);
@@ -45,6 +45,7 @@
     ,PROGRESS_WINDOW_UPDATED: 'PROGRESS_WINDOW_UPDATED'
     ,MODEL_SIGNAL_OBSERVED: 'MODEL_SIGNAL_OBSERVED'
     ,MODEL_SIGNAL_INVALID: 'MODEL_SIGNAL_INVALID'
+    ,DROPOUT_RESOLVER_MISSING: 'DROPOUT_RESOLVER_MISSING'
   });
 
   const now = () => Date.now();

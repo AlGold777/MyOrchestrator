@@ -54,7 +54,7 @@ const startInput = (overrides = {}) => ({
 
 describe('FreeTalk opening barrier — participant dropout', () => {
   test('2 of 3 answered → run continues degraded without the failed model, with dropout events and user notice', async () => {
-    const { deps, batches, stageEvents, notifications } = makeDeps();
+    const { deps, batches, stageEvents, notifications } = makeDeps({ resolveParticipantDropout: async () => 'continue' });
     const started = await Runner.createFreeTalkRunner(deps).start(startInput());
     expect(started).toBe(true); // run finishes, does not stay in `running`
     // Dropout is recorded.
@@ -116,7 +116,7 @@ describe('FreeTalk opening barrier — participant dropout', () => {
   });
 
   test('repair is not dispatched to terminally failed participants', async () => {
-    const { deps, batches } = makeDeps();
+    const { deps, batches } = makeDeps({ resolveParticipantDropout: async () => 'continue' });
     await Runner.createFreeTalkRunner(deps).start(startInput());
     const repairBatches = batches.filter((batch) => batch.stage.includes(':repair'));
     repairBatches.forEach((batch) => expect(batch.models).not.toContain('C'));
@@ -124,8 +124,21 @@ describe('FreeTalk opening barrier — participant dropout', () => {
 
   test('all participants failed still throws (no silent empty run)', async () => {
     const { deps } = makeDeps({
+      stageById: () => ({ failurePolicy: 'skip_stage' }),
       runModelBatch: async ({ models }) => ({ responses: Object.fromEntries(models.map((m) => [m, ''])), missing: models, failed: Object.fromEntries(models.map((m) => [m, 'ERROR'])), timedOut: false })
     });
     await expect(Runner.createFreeTalkRunner(deps).start(startInput())).rejects.toThrow('no usable responses');
+  });
+
+  test('ask_user without a resolver fails closed as configuration error', async () => {
+    const { deps, stageEvents, notifications } = makeDeps();
+    const started = await Runner.createFreeTalkRunner(deps).start(startInput());
+    expect(started).toBe(false);
+    expect(stageEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'DROPOUT_RESOLVER_MISSING', reasonCode: 'DROPOUT_RESOLVER_MISSING' })
+    ]));
+    expect(deps.recordRunFailure).toHaveBeenCalledWith('DROPOUT_RESOLVER_MISSING');
+    expect(deps.notifyControl).toHaveBeenCalledWith('FAILED', expect.objectContaining({ reason: 'DROPOUT_RESOLVER_MISSING' }));
+    expect(notifications.some((item) => item.level === 'error' && item.message.includes('ask_user'))).toBe(true);
   });
 });
