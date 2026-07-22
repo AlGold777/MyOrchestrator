@@ -6910,7 +6910,6 @@ document.addEventListener('click', (event) => {
                 return false;
             }
             const presetConfig = buildPipelinePresetRuntimeConfig(presetId);
-            const topology = window.DebateProtocols?.topologyOf?.(presetConfig.topology) || 'duel';
             const selectedSynthesizer = normalizeExplicitSynthesizer(debateSynthesizerSelect?.value);
             const selectedModelsForValidation = getSelectedLLMs();
             const capabilityVerdict = window.DebateCapabilityRegistry?.validateRequirements?.({
@@ -6922,42 +6921,9 @@ document.addEventListener('click', (event) => {
                 return false;
             }
             window.__activePipelinePresetConfig = presetConfig;
-            const activeAggregate = getDebateAggregateState();
-            if (activeAggregate?.protocolState?.active && activeAggregate.topology !== topology) {
-                showNotification('Другой pipeline уже активен. Остановите его перед сменой профиля.', 'warn');
-                return false;
-            }
-
-            if (topology === 'duel') {
-                const receiverBeforeRun = String(debateReceiverSelect?.value || '').trim();
-                if (receiverBeforeRun === '__none__') {
-                    const activeSession = getActiveDebateSession();
-                    const hasDebateContext = !!getDuelState()?.active
-                        || (Array.isArray(activeSession?.messages) && activeSession.messages.length > 0);
-                    if ((hasDebateContext || debateInitialTargetPromptPending) && moderatorEntryText) {
-                        appendModeratorNoneNoteFromComposer();
-                        return true;
-                    }
-                    debateInitialTargetPromptPending = true;
-                    showNotification('Выберите первую модель (A), которая будет отвечать.', 'warn');
-                    return false;
-                }
-                debateInitialTargetPromptPending = false;
-                if (getDuelState()?.active) {
-                    const dispatchInFlight = pipelineRunActive
-                        || serialApprovalRoutingInFlight
-                        || (isDebateAutoPolicy() && getDuelState().status === 'running');
-                    if (dispatchInFlight) {
-                        showNotification('Диспут уже идёт. Остановите текущий, прежде чем начать новый.', 'warn');
-                        return false;
-                    }
-                    getDuelState().active = false;
-                    getDuelState().pendingAutoContinuation = null;
-                    finalizeSerialDebateRuntime();
-                }
-            } else if (getTopologyProtocolState(topology)?.active) {
-                const topologyLabel = topology === 'triad' ? 'Triad' : topology === 'free_talk' ? 'FreeTalk' : 'Multi';
-                showNotification(`${topologyLabel} уже идёт. Остановите текущий запуск перед новым.`, 'warn');
+            const activeLifecycle = debateApplication?.getOrchestrator?.()?.getState?.()?.lifecycle;
+            if (pipelineRunActive || ['STARTING', 'RUNNING', 'PAUSE_REQUESTED', 'QUIESCING', 'PAUSED', 'RECONCILING', 'FINALIZING'].includes(activeLifecycle)) {
+                showNotification('Pipeline уже выполняется. Остановите текущий запуск перед новым.', 'warn');
                 return false;
             }
 
@@ -7018,7 +6984,6 @@ document.addEventListener('click', (event) => {
                     })
                 });
                 const started = await debateApplication.start({
-                    topology,
                     runId: activePipelineRunContext.pipelineRunId,
                     sessionId: activePipelineRunContext.sessionId,
                     runContext: activePipelineRunContext,
@@ -7057,25 +7022,17 @@ document.addEventListener('click', (event) => {
                     synthesizer,
                     maxWords: getDebateMaxWords(),
                     role: String(debateRoleSelect?.value || '').trim(),
-                    // Runtime policy belongs to the selected saved pipeline.
-                    // The application freezes it in DebateExecutionPlan before
-                    // the first browser effect; live controls become projections.
                     auto: compiledRunPolicy === 'auto',
-                    scenario: topology === 'duel' ? resolveSerialDebateScenarioFromFeed() : null,
-                    registryEnabled: isDebateRegistryEnabled(synthesizer),
-                    defaultWaveLimit: getTriadWaveLimit(),
-                    waveLimit: getMultiWaveLimit(),
-                    otherTopologyActive: false,
                     isPaused: () => debatePaused,
                     makeBatchContext
                 });
                 if (started === false && !window.DebateRunStore.isTerminal(getDebateAggregateState())) {
                     dispatchDebateRunEvent(window.DebateRunStore.EVENTS.RUN_FAILED, {
-                        reason: `${topology}_start_rejected`
+                        reason: 'universal_start_rejected'
                     });
                     await notifyPipelineControlState('FAILED', {
                         stage: 'failed',
-                        reason: `${topology}_start_rejected`
+                        reason: 'universal_start_rejected'
                     });
                 }
                 return started;
@@ -7089,7 +7046,7 @@ document.addEventListener('click', (event) => {
                     showNotification('Pipeline: cancelled', 'warn');
                 } else {
                     console.error('[RESULTS] Debate run failed', err);
-                    showNotification(`${topology}: error (${err?.message || String(err)})`, 'error');
+                    showNotification(`Pipeline: error (${err?.message || String(err)})`, 'error');
                 }
                 return false;
             } finally {
@@ -7097,8 +7054,8 @@ document.addEventListener('click', (event) => {
                 clearPromptAttachments();
                 pipelineRunActive = false;
                 pipelineWaiter.reset();
-                const protocolState = getTopologyProtocolState(topology);
-                if (protocolState?.active) {
+                const lifecycle = debateApplication?.getOrchestrator?.()?.getState?.()?.lifecycle;
+                if (['RUNNING', 'PAUSED', 'QUIESCING'].includes(lifecycle)) {
                     debateRunState.status = debatePaused ? 'paused' : 'awaiting_approval';
                     syncPipelineFlowVisualState();
                     setPipelineEditingEnabled(true);
@@ -7124,38 +7081,33 @@ document.addEventListener('click', (event) => {
             }
         };
         const cancelPipelineRun = async () => {
-            // A manual/paused debate keeps pipelineRunActive === false while still
-            // being live (getDuelState().active), so guard on both.
-            if (!pipelineRunActive && !getDuelState()?.active && !getTriadState()?.active && !getMultiState()?.active && !getFreeTalkState()?.active) return false;
+            const lifecycle = debateApplication?.getOrchestrator?.()?.getState?.()?.lifecycle;
+            if (!pipelineRunActive && !['STARTING', 'RUNNING', 'PAUSE_REQUESTED', 'QUIESCING', 'PAUSED', 'RECONCILING', 'FINALIZING'].includes(lifecycle)) return false;
             await notifyPipelineControlState('CANCELLED', {
                 stage: 'cancelled',
                 reason: 'user_cancel'
             });
-            const topology = getDebateAggregateState()?.topology || 'duel';
             await debateApplication.cancel('user_cancel');
-            if (topology === 'triad') finalizeTriadRuntime();
-            else if (topology === 'multi') finalizeMultiPipelineRuntime();
-            else if (topology === 'free_talk') finalizeFreeTalkRuntime();
-            else finalizeSerialDebateRuntime();
+            pipelineRunActive = false;
+            debatePaused = false;
+            activePipelineAbortController = null;
+            activePipelineRunContext = null;
+            setPipelineEditingEnabled(true);
+            setPipelineRunUi(false);
+            updateDebateButtonsUi();
             return true;
         };
         const debateApplication = window.DebateApplication?.createApplication?.({
-            universalEngine: true,
             store: debateAggregateStore,
-            protocols: window.DebateProtocols,
-            execution: debateExecutionContext,
-            runners: {
-                duel: duelRunner,
-                triad: triadRunner,
-                multi: multiRunner,
-                free_talk: freeTalkRunner
-            },
             deps: {
                 startFromPage: startDebateFromPage,
                 createId: makePipelineRunId,
                 runModelBatch,
                 acceptResponse: (text, meta) => window.DebateResponseAcceptance?.evaluate?.({
-                    text, meta: { ...(meta || {}), isErrorOutput }
+                    text, meta: {
+                        ...(meta || {}), isErrorOutput,
+                        ...(meta?.stage?.purpose === 'audit' ? { kind: 'synthesis_audit', outputKind: 'json' } : {})
+                    }
                 }) || { ok: Boolean(String(text || '').trim()), reason: '' },
                 compilePrompt: ({ stage, participant, context }) => window.DebatePromptCompiler?.compile?.({
                     task: context?.debateCase?.taskContract || {
@@ -7166,6 +7118,8 @@ document.addEventListener('click', (event) => {
                         stageId: stage.stageInstanceId,
                         operation: window.DebateArtifactPipeline.operationForPurpose(stage.purpose),
                         role: stage.purpose === 'synthesis' ? 'synthesizer' : stage.purpose === 'audit' ? 'auditor' : 'participant',
+                        targetId: stage.inputArtifactIds?.[0] || '',
+                        inputArtifactIds: stage.inputArtifactIds || [],
                         expectedArtifactTypes: stage.expectedOutputs || [],
                         outputContract: { maxWords: getDebateMaxWords() }
                     },
