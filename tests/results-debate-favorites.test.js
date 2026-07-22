@@ -927,7 +927,7 @@ describe('Pipeline debate favorites view', () => {
     expect(debug.getDebateRunPolicy()).toBe('manual');
     expect(debug.getDebateRoundLimit()).toBe(3);
     expect(activeSession.settings).toEqual(expect.objectContaining({
-      mode: 'serial_debate_2',
+      mode: 'universal_pipeline',
       turnLimit: 3,
       maxTurns: 4
     }));

@@ -1,8 +1,6 @@
 const DebateEngine = require('../disput/debate-engine');
 
-// After the disput consolidation, DebateEngine is a transcript/persistence/
-// template utility for the results UI — not a parallel debate runtime. These
-// tests cover only that retained surface.
+// DebateEngine is a transcript/persistence utility for the results UI.
 describe('DebateEngine transcript utility', () => {
   test('creates transcript sessions and appends structured turns', () => {
     const store = DebateEngine.createStore({
@@ -78,30 +76,9 @@ describe('DebateEngine transcript utility', () => {
     expect(markdown).toContain('## Turn 1 — Moderator -> GPT');
   });
 
-  test('builds debate envelope/template prompts that delegate to DisputMessageTemplates', () => {
-    const regular = DebateEngine.buildSerialDebateEnvelope({
-      topic: 'Architecture',
-      role: 'Critic',
-      opponentText: 'The current plan is stable.',
-      moderatorMessage: 'Challenge the assumption.'
-    });
-    const final = DebateEngine.buildSerialDebateEnvelope({
-      topic: 'Architecture',
-      role: 'Advocate',
-      opponentText: 'The plan is too risky.',
-      moderatorMessage: 'Give final answer.',
-      isFinalRound: true
-    });
-
-    expect(regular).toContain('[DEBATE CONTEXT]');
-    expect(regular).toContain('[ОТВЕТ ОППОНЕНТА]');
-    expect(regular).toContain('The current plan is stable.');
-    expect(regular).not.toContain('[ФИНАЛЬНЫЙ РАУНД]');
-    expect(final).toContain('[ФИНАЛЬНЫЙ РАУНД]');
-    expect(DebateEngine.DEFAULT_SERIAL_FORMAT).toContain('Ясный');
-
-    // Init/standard prompt builders delegate to the single template source.
-    expect(DebateEngine.buildInitAPrompt({ pipelineName: 'T', modelB: 'Claude', roleA: 'A' })).toContain('Тема дискуссии');
-    expect(DebateEngine.buildStandardTurnPrompt({ pipelineName: 'T', roleY: 'B', modelX: 'GPT', previousModelText: 'prev' })).toContain('prev');
+  test('normalizes transcript settings to the universal pipeline mode', () => {
+    expect(DebateEngine.normalizeSettings({ mode: 'unknown' }).mode).toBe('universal_pipeline');
+    expect(DebateEngine.UNIVERSAL_PIPELINE_MODE).toBe('universal_pipeline');
+    expect(DebateEngine.buildSerialDebateEnvelope).toBeUndefined();
   });
 });

@@ -1,20 +1,14 @@
 (function initDebateEngine(root) {
   'use strict';
 
-  // Disput runtime lives in results.js (serialDebateState). This module is a
-  // utility for the results UI only: it persists/exports the debate transcript
-  // and builds the message templates (delegating to DisputMessageTemplates).
-  // It is NOT a parallel debate runtime — the serial-run/FSM logic that used to
-  // live here was removed during the disput consolidation.
-  const DisputMessages = root.DisputMessageTemplates || (
-    typeof require === 'function' ? require('./disput-massage') : null
-  );
+  // Transcript persistence/export utility. Executable prompts are owned by
+  // DebatePromptCompiler and DebatePromptPack, never by this UI store.
   const VERSION = 1;
   const STORAGE_KEY = 'llmCortexDebateEngineState.v1';
   const DEFAULT_SETTINGS = Object.freeze({
     runPolicy: 'manual',
     maxTurns: 5,
-    mode: 'serial_debate_2',
+    mode: 'universal_pipeline',
     turnLimit: 3,
     autoApprovalDelayMs: 0,
     stopOnFailure: true,
@@ -46,8 +40,7 @@
     'USER_ACTION_REQUIRED',
     'UNCERTAIN'
   ]);
-  const SERIAL_DEBATE_MODE = 'serial_debate_2';
-  const DEFAULT_SERIAL_FORMAT = DisputMessages?.DEFAULT_SERIAL_FORMAT || 'Ясный, структурированный ответ.';
+  const UNIVERSAL_PIPELINE_MODE = 'universal_pipeline';
 
   const nowIso = () => new Date().toISOString();
   const compactIdPart = () => Math.random().toString(36).slice(2, 8);
@@ -91,7 +84,7 @@
       ...settings,
       runPolicy: normalizeRunPolicy(settings.runPolicy || DEFAULT_SETTINGS.runPolicy),
       maxTurns: clampInt(settings.maxTurns, 1, 50, DEFAULT_SETTINGS.maxTurns),
-      mode: settings.mode === SERIAL_DEBATE_MODE ? SERIAL_DEBATE_MODE : DEFAULT_SETTINGS.mode,
+      mode: settings.mode === UNIVERSAL_PIPELINE_MODE ? UNIVERSAL_PIPELINE_MODE : DEFAULT_SETTINGS.mode,
       turnLimit: normalizeTurnLimit(settings.turnLimit, DEFAULT_SETTINGS.turnLimit),
       autoApprovalDelayMs: clampInt(settings.autoApprovalDelayMs, 0, 60000, DEFAULT_SETTINGS.autoApprovalDelayMs),
       maxFullTurns: clampInt(settings.maxFullTurns, 1, 200, DEFAULT_SETTINGS.maxFullTurns),
@@ -320,65 +313,6 @@
     };
   }
 
-  function buildSerialDebateEnvelope({
-    topic = '',
-    role = '',
-    format = DEFAULT_SERIAL_FORMAT,
-    opponentText = '',
-    moderatorMessage = '',
-    isFinalRound = false
-  } = {}) {
-    if (DisputMessages?.buildSerialDebateEnvelope) {
-      return DisputMessages.buildSerialDebateEnvelope({
-        topic,
-        role,
-        format,
-        opponentText,
-        moderatorMessage,
-        isFinalRound
-      });
-    }
-    const safeFormat = String(format || DEFAULT_SERIAL_FORMAT).trim() || DEFAULT_SERIAL_FORMAT;
-    return [
-      '[DEBATE CONTEXT]',
-      'Тема дебатов:',
-      String(topic || '').trim() || 'Не указана.',
-      '',
-      'Твоя роль:',
-      String(role || '').trim() || 'Участник диспута.',
-      '',
-      'Формат ответа:',
-      safeFormat,
-      '',
-      isFinalRound ? '[ФИНАЛЬНЫЙ РАУНД]\nЭто последний раунд диспута. Нужно подвести итог своей позиции, ответить на ключевой аргумент оппонента и сформулировать финальный вывод.\n' : '',
-      '[ОТВЕТ ОППОНЕНТА]',
-      String(opponentText || '').trim() || 'Отсутствует. Это первый ход диспута.',
-      '',
-      '[СООБЩЕНИЕ МОДЕРАТОРА]',
-      String(moderatorMessage || '').trim() || 'Продолжай диспут по заданной теме.'
-    ].filter((line) => line !== '').join('\n');
-  }
-
-  function buildInitAPrompt(input = {}) {
-    if (DisputMessages?.buildInitAPrompt) return DisputMessages.buildInitAPrompt(input);
-    return buildSerialDebateEnvelope(input);
-  }
-
-  function buildInitBPrompt(input = {}) {
-    if (DisputMessages?.buildInitBPrompt) return DisputMessages.buildInitBPrompt(input);
-    return buildSerialDebateEnvelope(input);
-  }
-
-  function buildStandardTurnPrompt(input = {}) {
-    if (DisputMessages?.buildStandardTurnPrompt) return DisputMessages.buildStandardTurnPrompt(input);
-    return buildSerialDebateEnvelope({
-      topic: input.pipelineName,
-      role: input.roleY,
-      opponentText: input.previousModelText,
-      moderatorMessage: input.moderatorText
-    });
-  }
-
   function exportArtifact(storeOrSession) {
     const snapshot = typeof storeOrSession?.toJSON === 'function'
       ? storeOrSession.toJSON()
@@ -422,8 +356,7 @@
     DEFAULT_SETTINGS,
     TURN_STATUSES,
     TERMINAL_STATUSES,
-    SERIAL_DEBATE_MODE,
-    DEFAULT_SERIAL_FORMAT,
+    UNIVERSAL_PIPELINE_MODE,
     normalizeSettings,
     createSession,
     createTurn,
@@ -433,10 +366,6 @@
     persistStore,
     loadStore,
     createRuleBasedSummary,
-    buildInitAPrompt,
-    buildInitBPrompt,
-    buildStandardTurnPrompt,
-    buildSerialDebateEnvelope,
     exportArtifact,
     exportMarkdown,
     replayArtifact

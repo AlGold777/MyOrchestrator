@@ -1,5 +1,14 @@
 # CHANGELOG — Project
 
+### 2026-07-23 — Universal pipeline architecture
+
+- Disput now has one production execution path: Application → Planner → Orchestrator → StageExecutor → Artifact/StateDelta → StateMap.
+- Participant count and sequential/parallel dispatch are stage and policy data; no fixed conversation shape is selected in UI or runtime.
+- Added native parallel batches, all-settled participant accounting, atomic same-version delta commits, linked artifact import and synthesis audit/correction bound to artifact IDs.
+- Removed alternate executors, executor-selection switches, obsolete source-contract tests and obsolete protocol documentation.
+- Built-in profiles are Universal, Research and Red Team. Custom pipelines select participants and policies without selecting an execution shape.
+- Verification: full Jest regression plus repository architecture gates.
+
 ### 2026-07-21 — Honest Disput execution controls, version 2.81.25
 
 - Synthesizer стал действительно необязательным для Duel, Triad, Multi и
