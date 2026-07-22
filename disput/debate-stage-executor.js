@@ -2,6 +2,7 @@
 // (Roadmap §5.4). No planning decisions, no lifecycle ownership.
 (function initDebateStageExecutor(root) {
   'use strict';
+  const Participants = root.DebateParticipantRegistry || (typeof require === 'function' ? require('./debate-participant-registry') : null);
 
   const arr = (value) => Array.isArray(value) ? value : [];
   const text = (value) => String(value == null ? '' : value).trim();
@@ -52,7 +53,13 @@
           },
           signal
         });
-        return { status: 'received', text: text(result?.responses?.[participant.model || participant.participantId]), raw: result };
+        const modelId = participant.model || participant.participantId;
+        const terminalFailure = Participants?.terminalFailures?.(result, {
+          stageId: stage.stageInstanceId,
+          attemptId: `${stage.stageInstanceId}:a${attempt}`
+        }).find((failure) => failure.modelId === modelId);
+        if (terminalFailure) return { status: 'terminal_failure', failure: terminalFailure, raw: result };
+        return { status: 'received', text: text(result?.responses?.[modelId]), raw: result };
       }
     });
   }
@@ -102,6 +109,23 @@
           if (outcome?.status === 'awaiting_participant') {
             emit('PARTICIPANT_TASK_ASSIGNED', { stageInstanceId: stage.stageInstanceId, participantId: participant.participantId });
             return { participantId: participant.participantId, status: 'awaiting_participant', attempts: attempt };
+          }
+          if (outcome?.status === 'terminal_failure') {
+            const failure = outcome.failure || {
+              modelId: participant.model || participant.participantId,
+              terminal: true,
+              reasonCode: 'terminal_transport_failure',
+              stageId: stage.stageInstanceId,
+              attemptId: `${stage.stageInstanceId}:a${attempt}`
+            };
+            emit('PARTICIPANT_TERMINAL_FAILURE', {
+              stageInstanceId: stage.stageInstanceId, participantId: participant.participantId,
+              attempt, reasonCode: failure.reasonCode, attemptId: failure.attemptId
+            });
+            return {
+              participantId: participant.participantId, status: 'failed', terminal: true,
+              reason: failure.reasonCode, failure, attempts: attempt
+            };
           }
           let responseText = text(outcome?.text);
           let verdict = acceptance(responseText, { stage, participant });
@@ -160,6 +184,13 @@
         proposedStateDeltas: accepted.map((r) => r.proposedStateDelta).filter(Boolean),
         awaitingParticipants: awaiting.map((r) => r.participantId),
         failedParticipants: results.filter((r) => r.status === 'failed').map((r) => r.participantId)
+        ,terminalFailures: results.filter((r) => r.status === 'failed' && r.terminal).map((r) => ({
+          participantId: r.participantId,
+          terminal: true,
+          reasonCode: r.failure?.reasonCode || r.reason || 'terminal_transport_failure',
+          stageId: r.failure?.stageId || stage.stageInstanceId,
+          attemptId: r.failure?.attemptId || ''
+        }))
       };
     }
 

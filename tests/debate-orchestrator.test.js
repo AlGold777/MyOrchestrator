@@ -64,6 +64,24 @@ function makeOrchestrator(options = {}) {
   return { orchestrator, revisions, persistence };
 }
 
+function makeTerminalAwareOrchestrator(options = {}) {
+  const persistence = options.persistence || makePersistence();
+  const revisions = PlanRevision.createRevisionStore({});
+  const executor = {
+    execute: jest.fn(async (stage) => ({
+      stageInstanceId: stage.stageInstanceId,
+      executionStatus: 'partial', attempts: [],
+      acceptedResponses: [{ participantId: 'alpha', text: 'accepted', artifacts: [] }],
+      proposedStateDeltas: [{ by: 'alpha' }], awaitingParticipants: [], failedParticipants: ['beta'],
+      terminalFailures: [{ participantId: 'beta', terminal: true, reasonCode: 'ERROR', stageId: stage.stageInstanceId, attemptId: `${stage.stageInstanceId}:a1` }]
+    }))
+  };
+  return Orchestrator.createOrchestrator({
+    planner: Planner.createPlanner(), executor, revisionStore: revisions, persistence,
+    ownerId: 'owner-terminal', AbortController, exposeInternals: true
+  });
+}
+
 const types = (state) => state.events.map((e) => e.type);
 
 describe('Orchestrator — run lifecycle', () => {
@@ -112,6 +130,17 @@ describe('Orchestrator — run lifecycle', () => {
     const state = orchestrator.getState();
     expect(types(state)).toContain('NO_STATE_CHANGE');
     expect(state.openGoals.find((g) => g.goalId === 'g1').status).toBe('open');
+  });
+
+  test('terminal participant failure makes the participant unavailable for later planning', async () => {
+    const orchestrator = makeTerminalAwareOrchestrator();
+    await orchestrator.startRun({ debateCase: makeCase(), maxSteps: 1 });
+    const state = orchestrator.getState();
+    expect(state.participantStatus.beta).toEqual(expect.objectContaining({ available: false, terminal: true, reasonCode: 'ERROR' }));
+    expect(types(state)).toContain('PARTICIPANT_UNAVAILABLE');
+    const input = orchestrator._internals.plannerInput();
+    expect(input.availableParticipants.find((participant) => participant.participantId === 'beta').available).toBe(false);
+    expect(input.availableParticipants.find((participant) => participant.participantId === 'alpha').available).toBe(true);
   });
 });
 

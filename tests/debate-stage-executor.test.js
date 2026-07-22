@@ -106,6 +106,22 @@ describe('StageExecutor — retry, repair, idempotency, cancellation', () => {
     expect(result.executionStatus).toBe('failed');
     expect(result.attempts[0].reason).toBe('transport_down');
   });
+
+  test('terminal transport failure is not repaired or retried and is reported canonically', async () => {
+    const runModelBatch = jest.fn().mockResolvedValue({ responses: {}, failed: { alpha: 'NO_SEND' } });
+    const adapter = Executor.createLlmAdapter({ runModelBatch });
+    const executor = Executor.createStageExecutor({
+      adapters: Executor.createAdapterRegistry({ llm: adapter }),
+      repairPrompt: jest.fn(() => 'repair'),
+      retryPolicy: { maxAttempts: 3, delayMs: 0 }
+    });
+    const result = await executor.execute(stage({ participants: [{ participantId: 'alpha', model: 'alpha', type: 'llm' }], dispatchMode: 'single' }));
+    expect(result.executionStatus).toBe('failed');
+    expect(runModelBatch).toHaveBeenCalledTimes(1);
+    expect(result.terminalFailures).toEqual([expect.objectContaining({
+      participantId: 'alpha', terminal: true, reasonCode: 'NO_SEND', stageId: 'stage-1'
+    })]);
+  });
 });
 
 describe('StageExecutor — human participant adapter', () => {

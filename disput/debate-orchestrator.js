@@ -44,6 +44,7 @@
       events: [],           // append-only event log
       eventSequence: 0,
       decisions: {},        // planningDecisionId -> decision (idempotent commit)
+      participantStatus: {}, // participantId -> runtime availability projection
       pendingInterventions: [],
       lateResponses: [],
       pausePolicy: null,
@@ -137,6 +138,7 @@
         caseVersion: state.caseVersion,
         stateMapVersion: state.stateMapVersion,
         stateMap: clone(state.stateMap),
+        participantStatus: clone(state.participantStatus),
         totalStagesExecuted: state.totalStagesExecuted,
         stagnationSignals: clone(state.stagnationSignals),
         createdAt: nowIso()
@@ -159,7 +161,9 @@
         activeStages: clone(state.stages.filter((s) => !['completed', 'failed', 'cancelled', 'stale'].includes(s.status))),
         availableParticipants: arr(state.debateCase?.participants).map((p) => ({
           participantId: p.participantId, type: p.type || 'llm', provider: p.provider,
-          capabilities: p.capabilities || [], available: p.available !== false, capacity: p.capacity ?? 1
+          capabilities: p.capabilities || [],
+          available: p.available !== false && state.participantStatus[p.participantId]?.available !== false,
+          capacity: p.capacity ?? 1
         })),
         participantCapabilities: Object.fromEntries(arr(state.debateCase?.participants).map((p) => [p.participantId, p.capabilities || []])),
         policies: state.debateCase?.policies || {},
@@ -253,6 +257,19 @@
     // ---- Commit transaction (§12) ----
     function commitStageResult(stage, result) {
       // Atomic semantic commit: artifacts + goal update + case version + terminal status.
+      for (const failure of arr(result.terminalFailures)) {
+        const participantId = String(failure.participantId || '');
+        if (!participantId || state.participantStatus[participantId]?.available === false) continue;
+        state.participantStatus[participantId] = {
+          available: false,
+          terminal: true,
+          reasonCode: failure.reasonCode || 'terminal_transport_failure',
+          stageInstanceId: failure.stageId || stage.stageInstanceId,
+          attemptId: failure.attemptId || '',
+          recordedAt: nowIso()
+        };
+        emit('PARTICIPANT_UNAVAILABLE', { participantId, ...state.participantStatus[participantId] });
+      }
       const applied = [];
       for (const delta of arr(result.proposedStateDeltas)) {
         emit('STATE_DELTA_PROPOSED', { stageInstanceId: stage.stageInstanceId, delta });
@@ -499,7 +516,7 @@
         stages: clone(state.stages), openGoals: clone(state.openGoals),
         events: state.events.slice(), finalization: clone(state.finalization),
         pendingHumanDecision: clone(state.pendingHumanDecision || null),
-        stateMap: clone(state.stateMap)
+        stateMap: clone(state.stateMap), participantStatus: clone(state.participantStatus)
       }),
       getOwnerId: () => ownerId,
 
@@ -688,6 +705,7 @@
           state.caseVersion = snapshot.caseVersion;
           state.stateMapVersion = snapshot.stateMapVersion;
           state.stateMap = clone(snapshot.stateMap || {});
+          state.participantStatus = clone(snapshot.participantStatus || {});
           state.openGoals = clone(snapshot.openGoals);
           state.stages = clone(snapshot.stages || snapshot.activeStages);
           state.eventSequence = snapshot.eventSequence;
@@ -732,7 +750,7 @@
       },
 
       buildSnapshot,
-      _internals: deps.exposeInternals ? { state, plannerTick, step, runLoop, reconcile, acquireLease, assertLease } : undefined
+      _internals: deps.exposeInternals ? { state, plannerInput, plannerTick, step, runLoop, reconcile, acquireLease, assertLease } : undefined
     });
     return api;
   }
