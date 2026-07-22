@@ -33,6 +33,35 @@ test('canonical artifact pipeline satisfies the semantic production ports', asyn
   expect(result.ok).toBe(true);
 });
 
+test('production-shaped universal run batches all participants and commits every artifact atomically', async () => {
+  const runModelBatch = jest.fn(async ({ models }) => ({
+    responses: Object.fromEntries(models.map((model) => [model, `Independent position from ${model}`])), failed: {}
+  }));
+  const app = Application.createApplication({
+    universalEngine: true,
+    deps: {
+      runModelBatch,
+      acceptResponse: (text) => ({ ok: Boolean(String(text || '').trim()), reason: '' }),
+      compilePrompt: ({ stage, participant }) => `${stage.purpose}:${participant.participantId}`,
+      extractArtifacts: ArtifactPipeline.extractArtifacts,
+      proposeStateDelta: ArtifactPipeline.proposeStateDelta,
+      commitStateDelta: ArtifactPipeline.commitStateDelta,
+      projectStateMap: ArtifactPipeline.projectStateMap
+    },
+    exposeInternals: true
+  });
+  const result = await app.start(config({ models: ['alpha', 'beta', 'gamma', 'delta'], maxSteps: 2 }));
+  expect(result.ok).toBe(true);
+  expect(runModelBatch).toHaveBeenCalledTimes(2);
+  expect(runModelBatch.mock.calls[0][0].models).toEqual(['alpha', 'beta', 'delta', 'gamma']);
+  const state = app.getOrchestrator().getState();
+  expect(runModelBatch.mock.calls[1][0].models).toHaveLength(1);
+  expect(state.caseVersion).toBe(3);
+  expect(state.stateMap.claims).toHaveLength(4);
+  expect(state.stateMap.synthesisArtifactId).toMatch(/^artifact-/);
+  expect(state.events.filter((event) => event.type === 'STATE_DELTA_STALE')).toHaveLength(0);
+});
+
 const config = (overrides = {}) => ({
   runId: 'run-wiring-1',
   topic: 'Production wiring test',

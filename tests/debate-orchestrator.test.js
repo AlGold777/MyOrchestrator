@@ -142,6 +142,33 @@ describe('Orchestrator — run lifecycle', () => {
     expect(input.availableParticipants.find((participant) => participant.participantId === 'beta').available).toBe(false);
     expect(input.availableParticipants.find((participant) => participant.participantId === 'alpha').available).toBe(true);
   });
+
+  test('parallel stage deltas from one base version commit atomically with one version increment', async () => {
+    const revisions = PlanRevision.createRevisionStore({});
+    const executor = { execute: async (stage) => ({
+      stageInstanceId: stage.stageInstanceId, executionStatus: 'completed', attempts: [],
+      acceptedResponses: [], awaitingParticipants: [], failedParticipants: [], terminalFailures: [],
+      proposedStateDeltas: [
+        { deltaId: 'd-alpha', expectedCaseVersion: 1, artifacts: [{ id: 'a-alpha' }] },
+        { deltaId: 'd-beta', expectedCaseVersion: 1, artifacts: [{ id: 'a-beta' }] }
+      ]
+    }) };
+    const commitStateDelta = ({ state, delta }) => {
+      state.debateCase.artifacts = [...(state.debateCase.artifacts || []), ...delta.artifacts];
+      return { applied: true, stateMap: { artifactIds: state.debateCase.artifacts.map((artifact) => artifact.id) } };
+    };
+    const orchestrator = Orchestrator.createOrchestrator({
+      planner: Planner.createPlanner(), executor, revisionStore: revisions, persistence: makePersistence(),
+      commitStateDelta, ownerId: 'owner-atomic', AbortController, exposeInternals: true
+    });
+    await orchestrator.startRun({ debateCase: makeCase({ artifacts: [] }), maxSteps: 1 });
+    const state = orchestrator.getState();
+    expect(state.caseVersion).toBe(2);
+    expect(state.stateMapVersion).toBe(2);
+    expect(state.stateMap.artifactIds).toEqual(['a-alpha', 'a-beta']);
+    expect(state.events.filter((event) => event.type === 'STATE_DELTA_APPLIED')).toHaveLength(2);
+    expect(state.events.filter((event) => event.type === 'STATE_DELTA_STALE')).toHaveLength(0);
+  });
 });
 
 describe('Orchestrator — ownership (§6)', () => {

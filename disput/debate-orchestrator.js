@@ -271,28 +271,40 @@
         emit('PARTICIPANT_UNAVAILABLE', { participantId, ...state.participantStatus[participantId] });
       }
       const applied = [];
+      const baseCaseVersion = state.caseVersion;
+      const workingState = {
+        ...state,
+        debateCase: clone(state.debateCase),
+        stateMap: clone(state.stateMap),
+        caseVersion: baseCaseVersion,
+        stateMapVersion: state.stateMapVersion
+      };
       for (const delta of arr(result.proposedStateDeltas)) {
         emit('STATE_DELTA_PROPOSED', { stageInstanceId: stage.stageInstanceId, delta });
         const expected = delta.expectedCaseVersion;
-        if (expected != null && expected !== state.caseVersion) {
-          emit('STATE_DELTA_STALE', { stageInstanceId: stage.stageInstanceId, expected, actual: state.caseVersion });
+        if (expected != null && expected !== baseCaseVersion) {
+          emit('STATE_DELTA_STALE', { stageInstanceId: stage.stageInstanceId, expected, actual: baseCaseVersion });
           continue;
         }
-        let outcome = { applied: true, stateMap: state.stateMap };
-        if (commitStateDelta) outcome = commitStateDelta({ state, stage, delta }) || outcome;
+        let outcome = { applied: true, stateMap: workingState.stateMap };
+        if (commitStateDelta) outcome = commitStateDelta({ state: workingState, stage, delta }) || outcome;
         if (outcome.applied === false) {
           emit('STATE_DELTA_REJECTED', { stageInstanceId: stage.stageInstanceId, reason: outcome.reason });
           continue;
         }
         applied.push(delta);
-        state.caseVersion += 1;
-        if (state.debateCase) state.debateCase.version = state.caseVersion;
-        state.stateMap = outcome.stateMap || projectStateMap(state) || state.stateMap;
-        state.stateMapVersion += 1;
-        emit('STATE_DELTA_APPLIED', { stageInstanceId: stage.stageInstanceId, caseVersion: state.caseVersion });
+        workingState.stateMap = outcome.stateMap || projectStateMap(workingState) || workingState.stateMap;
       }
       const meaningful = applied.length > 0;
       if (meaningful) {
+        state.debateCase = workingState.debateCase;
+        state.stateMap = workingState.stateMap;
+        state.caseVersion = baseCaseVersion + 1;
+        state.stateMapVersion += 1;
+        if (state.debateCase) state.debateCase.version = state.caseVersion;
+        applied.forEach((delta) => emit('STATE_DELTA_APPLIED', {
+          stageInstanceId: stage.stageInstanceId, deltaId: delta.deltaId || '', caseVersion: state.caseVersion
+        }));
         state.stagnationSignals.consecutiveNoStateDelta = 0;
         state.stagnationSignals.unchangedStateMapCount = 0;
       } else {
