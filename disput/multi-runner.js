@@ -1,6 +1,7 @@
 // Application-level sequencing for the Multi topology.
 (function initMultiRunner(root) {
   'use strict';
+  const Participants = root.DebateParticipantRegistry || (typeof require === 'function' ? require('./debate-participant-registry') : null);
 
   function createMultiRunner(deps = {}) {
     const acceptance = deps.acceptResponse || ((text) => ({ ok: Boolean(String(text || '').trim()) && !deps.isErrorOutput?.(String(text || '').trim()), reason: '' }));
@@ -85,6 +86,7 @@
           finalizationPolicy: preset.finalizationPolicy || 'auto_after_limit',
           autoMode: runPolicy === 'auto'
         });
+        Participants.initialize(state, selected);
         state.registry = input.registryEnabled ? deps.createRegistry?.({ mode: 'multi' }) || null : null;
         state.maxWords = input.maxWords;
         state.taskContract = input.taskContract || deps.createTaskContract?.({ rawRequest: input.pipelineNameText || input.moderatorEntryText, objective: input.pipelineNameText || input.moderatorEntryText, problemSpec: input.problemSpec, maxWords: input.maxWords, runId: state.runId, profileId: preset.profileId || preset.presetId }) || null;
@@ -171,10 +173,14 @@
             },
             signal: input.signal
           });
+              const terminalFailures = Participants.terminalFailures(result, { stageId, attemptId: stageAttemptId })
+                .filter((failure) => waveModels.includes(failure.modelId));
+              const failedModels = terminalFailures.map((failure) => failure.modelId);
               const waveTurns = waveModels.map((modelName) => ({
             model: modelName,
             text: String(result?.responses?.[modelName] || '').trim()
           })).filter((entry) => {
+            if (failedModels.includes(entry.model)) return false;
             const verdict = acceptance(entry.text, { kind: 'participant', taskClass: state.taskContract?.taskClass, maxWords: state.maxWords, allowShort: state.taskContract?.taskClass === 'direct_answer' });
             const correlation = deps.validateCorrelation?.(result?.contexts?.[entry.model] || result?.pipelineContext || {}, { pipelineRunId: state.runId, pipelineStageId: stageId, stageAttemptId }) || { ok: true };
             if (!correlation.ok) { stageEvent('CORRELATION_REJECTED', stageId, { model: entry.model, reasonCode: correlation.reason }); return false; }
@@ -182,16 +188,18 @@
             return verdict.ok;
           });
           const successfulModels = waveTurns.map((turn) => turn.model);
-              const failedModels = waveModels.filter((modelName) => !successfulModels.includes(modelName));
+          const remainingModels = activeModels.filter((model) => !failedModels.includes(model));
           waveTurns.forEach((turn) => stageEvent('BARRIER_PARTICIPANT_READY', stageId, { model: turn.model, answerLength: turn.text.length }));
-          failedModels.forEach((model) => stageEvent('BARRIER_PARTICIPANT_FAILED', stageId, { model, reason: 'no_usable_response' }));
+          failedModels.forEach((model) => stageEvent('BARRIER_PARTICIPANT_FAILED', stageId, {
+            model, terminal: true, reason: terminalFailures.find((failure) => failure.modelId === model)?.reasonCode || 'terminal_transport_failure'
+          }));
           if (failedModels.length) {
-            stageEvent('DROPOUT_DECISION_REQUESTED', stageId, { failedModels, remainingModels: successfulModels });
+            stageEvent('DROPOUT_DECISION_REQUESTED', stageId, { failedModels, remainingModels });
             const decision = await resolveDropout(state, stageId, {
               topology: 'multi', stage: `wave_${wave}`,
-              failedModels, remainingModels: successfulModels
+              failedModels, remainingModels
             }) || 'stop';
-            stageEvent(decision === 'retry' ? 'DROPOUT_RETRY_SELECTED' : (decision === 'continue' ? 'DROPOUT_CONTINUE_SELECTED' : 'DROPOUT_STOP_SELECTED'), stageId, { failedModels, remainingModels: successfulModels });
+            stageEvent(decision === 'retry' ? 'DROPOUT_RETRY_SELECTED' : (decision === 'continue' ? 'DROPOUT_CONTINUE_SELECTED' : 'DROPOUT_STOP_SELECTED'), stageId, { failedModels, remainingModels });
             if (decision === 'retry') {
               stageEvent('RECOVERY_ATTEMPT_STARTED', stageId, { attempt: attemptNumber + 1, strategy: 'manual_stage_retry' });
               wave -= 1;
@@ -199,9 +207,8 @@
             }
             if (decision !== 'continue') return stopAfterDropout(state, failedModels, `wave_${wave}`);
             const synthesizerWasParticipant = activeModels.includes(synthesizer);
-            activeModels = activeModels.filter((modelName) => !failedModels.includes(modelName));
+            activeModels = Participants.markDropped(state, terminalFailures);
             state.models = activeModels.slice();
-            state.droppedModels = Array.from(new Set([...(state.droppedModels || []), ...failedModels]));
             // The selected synthesizer can be a service model outside the
             // participant pool. Preserve it unless that exact model failed as
             // a participant; otherwise a participant dropout must not silently
@@ -290,7 +297,7 @@
           timeline('Dispatch', { from: 'Moderator', to: synthesizer, note: 'multi: Final Synthesis' });
           deps.renderCards?.('synthesizer', [synthesizer], { approvalSelectable: false });
           stageEvent('STAGE_STARTED', 'final:synthesis', { kind: 'final_synthesis', participants: [synthesizer] });
-          const synthesisResult = await deps.runModelBatch({
+          let synthesisResult = await deps.runModelBatch({
             prompt: synthesisPrompt,
             models: [synthesizer],
             attachments: [],
@@ -307,6 +314,9 @@
             },
             signal: input.signal
           });
+          let synthesisFailure = Participants.terminalFailures(synthesisResult, {
+            stageId: 'final:synthesis', attemptId: synthesisAttemptId
+          }).find((failure) => failure.modelId === synthesizer) || null;
           synthesisAnswer = String(synthesisResult?.responses?.[synthesizer] || '').trim();
           const missingSections = deps.validateSynthesisSections?.(synthesisAnswer) || [];
           if (synthesisAnswer && missingSections.length && !state.synthesisFormatRetried) {
@@ -318,6 +328,10 @@
               models: [synthesizer], attachments: [], forceNewTabs: false, useApiFallback: input.useApiFallback,
               generationProfile: 'long', context: { ...(input.runContext || {}), pipelineStageId: 'final:synthesis', stageAttemptId: synthesisAttemptId }, signal: input.signal
             });
+            synthesisResult = repair;
+            synthesisFailure = Participants.terminalFailures(repair, {
+              stageId: 'final:synthesis', attemptId: synthesisAttemptId
+            }).find((failure) => failure.modelId === synthesizer) || null;
             synthesisAnswer = String(repair?.responses?.[synthesizer] || '').trim();
             if (deps.validateSynthesisSections?.(synthesisAnswer)?.length) stageEvent('MISSING_REQUIRED_ARTIFACT', 'final:synthesis', { sections: deps.validateSynthesisSections(synthesisAnswer) });
           }
@@ -325,6 +339,17 @@
             acceptedSynthesisAttemptId = synthesisAttemptId;
             break;
           }
+          if (!synthesisFailure) {
+            stageEvent('SYNTHESIS_RESPONSE_REJECTED', 'final:synthesis', { model: synthesizer, reasonCode: 'no_usable_response' });
+            transition(state, 'FAILED', { reason: 'synthesis_response_rejected' });
+            deps.recordRunFailure?.('synthesis_response_rejected');
+            await deps.notifyControl?.('FAILED', { stage: 'failed', reason: 'synthesis_response_rejected' });
+            deps.finalizeRuntime?.();
+            return false;
+          }
+          stageEvent('BARRIER_PARTICIPANT_FAILED', 'final:synthesis', {
+            model: synthesizer, terminal: true, reason: synthesisFailure.reasonCode
+          });
           const alternatives = activeModels.filter((model) => model !== synthesizer && !attemptedSynthesizers.has(model));
           const decision = await resolveDropout(state, 'final:synthesis', {
             topology: 'multi', stage: 'final_synthesis', failedModels: [synthesizer], remainingModels: alternatives
@@ -335,7 +360,7 @@
             continue;
           }
           if (decision !== 'continue') return stopAfterDropout(state, [synthesizer], 'final_synthesis');
-          state.droppedModels = Array.from(new Set([...(state.droppedModels || []), synthesizer]));
+          Participants.markDropped(state, [synthesisFailure]);
           stageEvent('STAGE_SKIPPED', 'final:synthesis', { reasonCode: 'selected_synthesizer_unavailable', participant: synthesizer });
           synthesizer = '';
           state.synthesizer = '';

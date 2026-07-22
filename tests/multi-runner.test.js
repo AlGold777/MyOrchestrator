@@ -70,9 +70,12 @@ describe('MultiRunner', () => {
     expect(terminal).toHaveBeenCalledWith(expect.objectContaining({ synthesisText: 'synthesis' }), 'multi');
   });
 
-  test('stops after a missing synthesis when continuation is rejected', async () => {
+  test('does not classify a missing non-terminal wave response as participant dropout', async () => {
+    let state;
+    const resolver = jest.fn().mockResolvedValue('stop');
     const runner = MultiRunner.createMultiRunner({
       protocol: { createState: MultiFSM.createState },
+      setState: (current) => { state = current; },
       transition: (state, event) => {
         if (event.type === 'MULTI_BEGIN_WAVE') MultiFSM.beginWave(state, event.payload.wave);
         if (event.type === 'MULTI_WAVE_COMPLETED') MultiFSM.recordWave(state, event.payload.turns);
@@ -83,16 +86,26 @@ describe('MultiRunner', () => {
       buildFinalSynthesisPrompt: () => 'synthesis',
       runModelBatch: async ({ context, models }) => ({ responses: { [models[0]]: context.pipelineRoundId === 'multi-synthesis' ? '' : 'wave' } }),
       runRoundFilter: async () => null,
-      resolveParticipantDropout: async () => 'stop'
+      resolveParticipantDropout: resolver
     });
     await expect(runner.start({
       selectedModels: ['A', 'B'], pipelineNameText: 'T', runContext: { pipelineRunId: 'r' }, presetConfig: { waveLimit: 1 }
-    })).resolves.toBe(false);
+    })).resolves.toBe(true);
+    expect(resolver).not.toHaveBeenCalled();
+    expect(state.activeParticipants).toEqual(['A', 'B']);
+    expect(state.droppedParticipants).toEqual([]);
   });
 
   test('continues later waves without a dropped participant', async () => {
     let state;
     const resolver = jest.fn().mockResolvedValue('continue');
+    const runModelBatch = jest.fn(async ({ context, models }) => {
+      if (context.pipelineRoundId === 'multi-synthesis') return { responses: { [models[0]]: 'synthesis' } };
+      return {
+        responses: Object.fromEntries(models.filter((model) => model !== 'B').map((model) => [model, `answer:${model}`])),
+        failed: models.includes('B') ? { B: 'ERROR' } : {}
+      };
+    });
     const runner = MultiRunner.createMultiRunner({
       protocol: { createState: MultiFSM.createState },
       setState: (current) => { state = current; },
@@ -106,10 +119,7 @@ describe('MultiRunner', () => {
       },
       buildWavePrompt: ({ modelName }) => `wave:${modelName}`,
       buildFinalSynthesisPrompt: () => 'synth',
-      runModelBatch: async ({ context, models }) => {
-        if (context.pipelineRoundId === 'multi-synthesis') return { responses: { [models[0]]: 'synthesis' } };
-        return { responses: Object.fromEntries(models.filter((model) => model !== 'B').map((model) => [model, `answer:${model}`])) };
-      },
+      runModelBatch,
       isErrorOutput: () => false,
       resolveParticipantDropout: resolver,
       runRoundFilter: async () => null
@@ -122,6 +132,10 @@ describe('MultiRunner', () => {
     expect(resolver).toHaveBeenCalledWith(expect.objectContaining({ failedModels: ['B'], remainingModels: ['A', 'C'] }));
     expect(state.droppedModels).toEqual(['B']);
     expect(state.models).toEqual(['A', 'C']);
+    expect(state.configuredParticipants).toEqual(['A', 'B', 'C']);
+    expect(state.activeParticipants).toEqual(['A', 'C']);
+    expect(state.droppedParticipants).toEqual([expect.objectContaining({ modelId: 'B', terminal: true, stageId: 'r1:wave' })]);
+    runModelBatch.mock.calls.slice(1).forEach(([request]) => expect(request.models).not.toContain('B'));
   });
 
   test('retries the same wave after the dropout dialog returns retry', async () => {
@@ -131,7 +145,10 @@ describe('MultiRunner', () => {
       if (context.pipelineRoundId === 'multi-synthesis') return { responses: { [models[0]]: 'synthesis' } };
       waveAttempts += 1;
       const names = waveAttempts === 1 ? models.filter((model) => model !== 'B') : models;
-      return { responses: Object.fromEntries(names.map((model) => [model, `answer:${model}`])) };
+      return {
+        responses: Object.fromEntries(names.map((model) => [model, `answer:${model}`])),
+        failed: waveAttempts === 1 ? { B: 'ERROR' } : {}
+      };
     });
     const runner = MultiRunner.createMultiRunner({
       protocol: { createState: MultiFSM.createState },
@@ -156,5 +173,35 @@ describe('MultiRunner', () => {
     expect(resolver).toHaveBeenCalledWith(expect.objectContaining({ stage: 'wave_1' }));
     expect(waveAttempts).toBe(2);
     expect(runModelBatch).toHaveBeenCalledTimes(3);
+  });
+
+  test('rejects an unusable synthesis without misclassifying the synthesizer as dropped', async () => {
+    let state;
+    const resolver = jest.fn();
+    const notifyControl = jest.fn();
+    const runner = MultiRunner.createMultiRunner({
+      protocol: { createState: MultiFSM.createState },
+      setState: (current) => { state = current; },
+      transition: (current, event) => {
+        if (event.type === 'MULTI_BEGIN_WAVE') MultiFSM.beginWave(current, event.payload.wave);
+        if (event.type === 'MULTI_WAVE_COMPLETED') MultiFSM.recordWave(current, event.payload.turns);
+        if (event.type === 'MULTI_BEGIN_SYNTHESIS') MultiFSM.beginSynthesis(current);
+        if (event.type === 'FAILED') MultiFSM.markError(current, event.payload.reason);
+        return current;
+      },
+      buildWavePrompt: () => 'wave', buildFinalSynthesisPrompt: () => 'synthesis',
+      runModelBatch: async ({ context, models }) => ({
+        responses: Object.fromEntries(models.map((model) => [model, context.pipelineRoundId === 'multi-synthesis' ? '' : `wave:${model}`])),
+        failed: {}
+      }),
+      runRoundFilter: async () => null, resolveParticipantDropout: resolver, notifyControl
+    });
+    await expect(runner.start({
+      selectedModels: ['A', 'B'], synthesizer: 'A', pipelineNameText: 'T',
+      runContext: { pipelineRunId: 'r-invalid-synthesis' }, presetConfig: { waveLimit: 1 }
+    })).resolves.toBe(false);
+    expect(resolver).not.toHaveBeenCalled();
+    expect(state.droppedParticipants).toEqual([]);
+    expect(notifyControl).toHaveBeenCalledWith('FAILED', expect.objectContaining({ reason: 'synthesis_response_rejected' }));
   });
 });
