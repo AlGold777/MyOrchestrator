@@ -105,11 +105,14 @@ describe('Universal Production Wiring Contract — hard-fail gate', () => {
     });
   });
 
-  test('flag disabled: incomplete deps do not throw (legacy path unaffected)', async () => {
+  test('universal wiring remains mandatory even when an obsolete flag is false', async () => {
     const app = Application.createApplication({
+      universalEngine: false,
       deps: { legacyStart: async () => 'legacy-started' }
     });
-    await expect(app.start({ topology: 'duel' })).resolves.toBe('legacy-started');
+    await expect(app.start({ models: ['alpha'] })).rejects.toMatchObject({
+      code: 'UNIVERSAL_PRODUCTION_WIRING_INCOMPLETE'
+    });
   });
 
   test('flag enabled + allowIncompleteWiring: bypasses the gate for isolated unit tests', async () => {

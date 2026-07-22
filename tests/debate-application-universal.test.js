@@ -1,4 +1,4 @@
-// Universal engine path through DebateApplication (flag-gated command surface).
+// Universal engine path through the only DebateApplication command surface.
 const Application = require('../disput/debate-application');
 const Policies = require('../disput/debate-policies');
 
@@ -25,7 +25,7 @@ const config = (overrides = {}) => ({
 });
 
 describe('DebateApplication — universal engine path', () => {
-  test('start() routes to universal path when flag enabled, without runners', async () => {
+  test('start() routes to universal path without runners or a feature flag', async () => {
     const app = makeApp();
     const result = await app.start(config({ deferExecution: true }));
     expect(result.ok).toBe(true);
@@ -92,11 +92,8 @@ describe('DebateApplication — universal engine path', () => {
     expect(resumed.ok).toBe(true);
   });
 
-  test('legacy path is untouched when flag is off', async () => {
-    const app = Application.createApplication({
-      deps: { legacyStart: async () => 'legacy-started' }
-    });
-    expect(app.isUniversalEngineEnabled()).toBe(false);
-    await expect(app.start({ topology: 'duel' })).resolves.toBe('legacy-started');
+  test('universal architecture cannot be disabled by configuration', () => {
+    const app = makeApp({ universalEngine: false });
+    expect(app.isUniversalEngineEnabled()).toBe(true);
   });
 });

@@ -3967,16 +3967,6 @@ document.addEventListener('click', (event) => {
                     roundLimit: definition.roundLimit,
                     selectedModels,
                     models: selectedModels,
-                    policies: window.DebatePolicies?.resolve?.({
-                        finalization: {
-                            mode: compiledRunPolicy === 'auto' ? 'after_required_goals' : 'manual',
-                            synthesis: synthesizer ? 'optional' : 'none',
-                            audit: presetConfig.synthesisAudit === 'required' ? 'required' : 'optional'
-                        },
-                        budgets: {
-                            maxTotalStages: Number(presetConfig.resourceBudget?.limit || presetConfig.turnLimit || presetConfig.waveLimit || 50)
-                        }
-                    }),
                     synthesizer: definition.synthesizer || definition.triadSynthesizer || definition.multiSynthesizer || '',
                     reasoningBudget: definition.reasoningBudget,
                     roundPlan: definition.roundPlan || [],
@@ -7050,6 +7040,16 @@ document.addEventListener('click', (event) => {
                     problemSpec,
                     problemSpecText,
                     taskContract,
+                    policies: window.DebatePolicies?.resolve?.({
+                        finalization: {
+                            mode: compiledRunPolicy === 'auto' ? 'after_required_goals' : 'manual',
+                            synthesis: synthesizer ? 'optional' : 'none',
+                            audit: presetConfig.synthesisAudit === 'required' ? 'required' : 'optional'
+                        },
+                        budgets: {
+                            maxTotalStages: Number(presetConfig.resourceBudget?.limit || presetConfig.turnLimit || presetConfig.waveLimit || 50)
+                        }
+                    }),
                     attachmentsPayload,
                     forceNewTabs,
                     useApiFallback,

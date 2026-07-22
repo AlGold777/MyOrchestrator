@@ -3,11 +3,6 @@
   'use strict';
 
   const RunStore = root.DebateRunStore || (typeof require === 'function' ? require('./debate-run-store') : null);
-  const Protocols = root.DebateProtocols || (typeof require === 'function' ? require('./debate-protocols') : null);
-  const ProtocolTransitionService = root.DebateProtocolTransitionService || (typeof require === 'function' ? require('./debate-protocol-transition-service') : null);
-  const ExecutionContext = root.DebateExecutionContext || (typeof require === 'function' ? require('./debate-execution-context') : null);
-  const PlanCompiler = root.DebatePlanCompiler || (typeof require === 'function' ? require('./debate-plan-compiler') : null);
-  const EvolutionFlags = root.DisputEvolutionFlags || (typeof require === 'function' ? require('./disput-evolution-flags') : null);
   const Policies = root.DebatePolicies || (typeof require === 'function' ? require('./debate-policies') : null);
   const PlanRevision = root.DebatePlanRevision || (typeof require === 'function' ? require('./debate-plan-revision') : null);
   const Planner = root.DebatePlanner || (typeof require === 'function' ? require('./debate-planner') : null);
@@ -19,49 +14,14 @@
   function createApplication(options = {}) {
     const store = options.store || RunStore?.createStore?.();
     if (!store) throw new Error('DebateApplication requires DebateRunStore');
-    const protocols = options.protocols || Protocols;
     const deps = Object.freeze({ ...(options.deps || {}) });
-    const runners = { ...(options.runners || {}) };
-    const execution = options.execution || ExecutionContext?.createExecutionContext?.({
-      AbortController: deps.AbortController
-    });
-    if (!execution) throw new Error('DebateApplication requires DebateExecutionContext');
-
-    const topologyOf = (value) => protocols?.topologyOf?.(value) || String(value || 'duel');
     const dispatch = (type, payload = {}) => store.dispatch({ type, payload });
     const event = RunStore?.EVENTS || {};
-    const isCancellation = (error, signal) => error?.name === 'AbortError'
-      || signal?.aborted === true
-      || execution?.signal?.()?.aborted === true;
-    const syncProtocolTransition = (topology, protocolState, type, reason) => {
-      if (!protocolState || RunStore?.isTerminal?.(store.getState())) return protocolState;
-      if (!ProtocolTransitionService?.applyProtocolTransition) {
-        throw new Error('PROTOCOL_TRANSITION_SERVICE_UNAVAILABLE');
-      }
-      return ProtocolTransitionService.applyProtocolTransition({
-        protocol: protocols?.getProtocol?.(topology),
-        protocolState,
-        event: { type, payload: { reason } },
-        getProtocolRevision: () => store.getState()?.protocolRevision ?? null,
-        syncState: (next, transitionReason, syncOptions = {}) => {
-          dispatch(event.PROTOCOL_STATE_SYNCED, {
-            protocolState: next,
-            reason: transitionReason,
-            protocolStatus: String(next.status || ''),
-            ...(syncOptions.expectedProtocolRevision == null
-              ? {}
-              : { expectedProtocolRevision: Number(syncOptions.expectedProtocolRevision) })
-          });
-          return store.getState().protocolState;
-        },
-        reason: `APPLICATION_${type}`
-      });
-    };
 
-    // --- Universal engine path (Roadmap Slices B–H, behind flags; legacy stays primary) ---
+    // The application has exactly one execution architecture: the universal engine.
     let universal = null;
     let universalRevisions = null;
-    const universalEnabled = () => options.universalEngine === true || EvolutionFlags?.enabled?.('universalEngine') === true;
+    const universalEnabled = () => true;
     const universalModulesReady = () => Boolean(Policies && PlanRevision && Planner && StageExecutor && Orchestrator);
 
     function normalizeParticipants(config = {}) {
@@ -84,7 +44,7 @@
     // that looks completed but produced nothing. Tests opt out explicitly via
     // options.allowIncompleteWiring; production callers must wire all ports for real.
     function assertProductionWiringComplete(options, deps) {
-      if (!universalEnabled() || options.allowIncompleteWiring) return;
+      if (options.allowIncompleteWiring) return;
       const missing = [];
       if (!options.stageExecutor) {
         if (!options.adapters?.llm && typeof deps.runModelBatch !== 'function') missing.push('runModelBatch');
@@ -133,7 +93,7 @@
         lifecycle: 'created'
       };
       universalRevisions = PlanRevision.createRevisionStore({
-        emit: (type, payload) => dispatch(event.TIMELINE_EVENT_RECORDED, { kind: type, ...payload }),
+        emit: recordUniversalEvent,
         validateDraft: options.validateRevisionDraft
       });
       const adapters = StageExecutor.createAdapterRegistry({
@@ -149,7 +109,7 @@
         extractArtifacts: options.extractArtifacts || deps.extractArtifacts,
         proposeStateDelta: options.proposeStateDelta || deps.proposeStateDelta,
         retryPolicy: policies.retry,
-        emit: (type, payload) => dispatch(event.TIMELINE_EVENT_RECORDED, { kind: type, ...payload })
+        emit: recordUniversalEvent
       });
       universal = Orchestrator.createOrchestrator({
         planner: options.planner || Planner.createPlanner(),
@@ -161,10 +121,20 @@
         extractArtifacts: options.extractArtifacts || deps.extractArtifacts,
         proposeStateDelta: options.proposeStateDelta || deps.proposeStateDelta,
         AbortController: deps.AbortController,
-        emit: (type, payload) => dispatch(event.TIMELINE_EVENT_RECORDED, { kind: type, ...payload }),
+        emit: recordUniversalEvent,
         exposeInternals: options.exposeInternals
       });
       return { ok: true, orchestrator: universal, debateCase, validation, runId };
+    }
+
+    function recordUniversalEvent(type, payload = {}) {
+      dispatch(event.TIMELINE_EVENT_RECORDED, { kind: type, ...payload });
+      const body = payload?.payload || payload;
+      if (type === 'STAGE_STARTED') dispatch(event.STAGE_STARTED, { stageId: body.stageInstanceId });
+      if (type === 'STAGE_COMPLETED') dispatch(event.STAGE_COMPLETED, { stageId: body.stageInstanceId });
+      if (type === 'RUN_COMPLETED') dispatch(event.FINALIZATION_COMPLETED, { reason: body.reason || 'completed' });
+      if (type === 'RUN_CANCELLED') dispatch(event.CANCEL_REQUESTED, { reason: body.reason || 'cancelled' });
+      if (type === 'RUN_FAILED') dispatch(event.RUN_FAILED, { reason: body.reason || 'failed' });
     }
 
     const revisionCommand = (commandType, payload, meta = {}) => ({
@@ -179,8 +149,8 @@
     const api = Object.freeze({
       getState: () => store.getState(),
       subscribe: (listener) => store.subscribe(listener),
-      getExecutionContext: () => execution,
-      // Universal engine surface (flag-gated).
+      getExecutionContext: () => null,
+      // Universal engine surface.
       isUniversalEngineEnabled: universalEnabled,
       validateConfiguration(config = {}) {
         if (!Policies) throw new Error('DebatePolicies unavailable');
@@ -189,6 +159,14 @@
       async startUniversal(config = {}) {
         const created = createUniversalRun(config);
         if (!created.ok) return created;
+        dispatch(event.START_REQUESTED, {
+          runId: created.runId,
+          sessionId: config.sessionId,
+          topology: 'universal',
+          preset: config.preset || null,
+          taskContract: created.debateCase.taskContract,
+          config: config.persistedConfig || config
+        });
         const maxSteps = config.maxSteps ?? created.debateCase.policies?.budgets?.maxTotalStages;
         const started = await created.orchestrator.startRun({
           runId: created.runId, debateCase: created.debateCase,
@@ -209,99 +187,28 @@
       submitParticipantResponse: (command) => universal?.submitParticipantResponse(command),
       pauseRun: (command) => universal?.requestPause(command || {}),
       continueRun: (command) => universal?.requestContinue(command || {}),
-      registerRunner(topology, runner) {
-        runners[topologyOf(topology)] = runner;
-        return api;
-      },
       async start(config = {}) {
-        if (universalEnabled() && universalModulesReady()) return api.startUniversal(config);
-        const topology = topologyOf(config.topology || config.preset);
-        const runner = runners[topology];
-        if (!runner || typeof runner.start !== 'function') {
-          if (typeof deps.legacyStart === 'function') return deps.legacyStart(config);
-          throw new Error(`Debate runner is unavailable: ${topology}`);
-        }
-        const runId = String(config.runId || deps.createId?.('debate') || makeFallbackId());
-        const executionPlan = config.executionPlan || PlanCompiler?.compile?.({
-          ...config,
-          runId,
-          runPolicy: config.runPolicy || config.presetConfig?.runPolicy || config.preset?.runPolicy,
-          roundLimit: config.presetConfig?.roundLimit,
-          synthesizer: config.synthesizer
-        });
-        if (!executionPlan) throw new Error('Debate execution plan is unavailable');
-        execution.begin(runId, config.execution);
-        dispatch(event.START_REQUESTED, {
-          runId,
-          sessionId: config.sessionId,
-          topology,
-          preset: config.preset || null,
-          executionPlan,
-          config: config.persistedConfig || config,
-          protocolState: config.protocolState || null
-        });
-        try {
-          return await runner.start({
-            ...config,
-            executionPlan,
-            auto: executionPlan.runPolicy === 'auto',
-            synthesizer: executionPlan.synthesizer,
-            runId,
-            topology,
-            store,
-            protocols,
-            execution,
-            deps
-          });
-        } catch (error) {
-          const cancelled = isCancellation(error, config.signal);
-          const failedState = store.getState();
-          const protocolState = failedState?.protocolState;
-          const protocolEvent = cancelled ? 'CANCELLED' : 'FAILED';
-          const reason = error?.message || String(error || (cancelled ? 'cancelled' : 'debate_failed'));
-          if (protocolState) syncProtocolTransition(topology, protocolState, protocolEvent, reason);
-          if (!RunStore?.isTerminal?.(store.getState())) {
-            dispatch(cancelled ? event.CANCEL_REQUESTED : event.RUN_FAILED, { reason });
-          }
-          if (cancelled) {
-            return Object.freeze({ ok: false, cancelled: true, runId, status: 'cancelled', reason });
-          }
-          throw error;
-        }
+        return api.startUniversal(config);
       },
       startFromPage(...args) {
         if (typeof deps.startFromPage === 'function') return deps.startFromPage(...args);
-        if (typeof deps.legacyStart === 'function') return deps.legacyStart(...args);
         return api.start(args[0] || {});
       },
-      pause(reason = 'moderator_pause') {
-        const runner = runners[topologyOf(store.getState()?.topology)];
-        runner?.pause?.({ reason, store, execution, deps });
-        dispatch(event.PAUSE_REQUESTED, { reason });
-        return store.getState();
+      async pause(reason = 'moderator_pause') {
+        return universal?.requestPause?.({ requestedBy: 'moderator', reason }) || { ok: false, code: 'RUN_NOT_STARTED' };
       },
-      resume() {
-        const runner = runners[topologyOf(store.getState()?.topology)];
-        runner?.resume?.({ store, execution, deps });
-        dispatch(event.RESUME_REQUESTED);
-        return store.getState();
+      async resume() {
+        return universal?.requestContinue?.({ requestedBy: 'moderator' }) || { ok: false, code: 'RUN_NOT_STARTED' };
       },
       approveTurn(turn) {
-        const resolved = execution.resolveApproval(turn);
-        if (resolved) dispatch(event.APPROVAL_GRANTED, { turn });
-        return resolved;
+        return api.submitParticipantResponse(turn || {});
       },
-      rejectTurn(reason) {
-        return execution.rejectApproval(reason || new Error('Debate turn rejected'));
+      rejectTurn() {
+        return false;
       },
       async cancel(reason = 'cancelled') {
         const state = store.getState();
-        const topology = topologyOf(state?.topology);
-        const runner = runners[topology];
-        execution.abort(reason);
-        await runner?.cancel?.({ reason, state, store, execution, deps });
-        const protocolState = store.getState()?.protocolState;
-        if (protocolState) syncProtocolTransition(topology, protocolState, 'CANCELLED', reason);
+        await universal?.requestCancel?.({ reason });
         if (!RunStore?.isTerminal?.(store.getState())) dispatch(event.CANCEL_REQUESTED, { reason });
         await deps.cancelTransport?.(state?.runId, reason);
         return store.getState();
@@ -313,7 +220,7 @@
         return store.getState();
       },
       dispose(reason = 'application_disposed') {
-        execution.dispose(reason);
+        universal?.requestCancel?.({ reason });
       }
     });
 
