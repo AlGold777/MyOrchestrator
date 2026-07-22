@@ -85,16 +85,34 @@ describe('FreeTalk opening barrier — participant dropout', () => {
     expect(deps.recordRunFailure).toHaveBeenCalledWith('participant_dropout_user_stop:positions');
   });
 
-  test('ask_user retry decision restarts the opening stage', async () => {
+  test('ask_user retry repeats only terminally failed opening participants without restarting the run', async () => {
     let calls = 0;
     const { deps, batches } = makeDeps({
       resolveParticipantDropout: async () => { calls += 1; return calls === 1 ? 'retry' : 'continue'; }
     });
     const started = await Runner.createFreeTalkRunner(deps).start(startInput());
     expect(started).toBe(true);
-    // Opening dispatched twice (retry), both times to the full participant set.
+    // Opening is attempted twice, but accepted participants are not re-dispatched.
     const openings = batches.filter((batch) => batch.stage === 'free-talk:positions');
     expect(openings).toHaveLength(2);
+    expect(openings[0].models).toEqual(['A', 'B', 'C']);
+    expect(openings[1].models).toEqual(['C']);
+    expect(deps.appendModerator).toHaveBeenCalledTimes(1);
+    expect(deps.setRunPresentation).toHaveBeenCalledTimes(1);
+  });
+
+  test('an always-retry resolver stops at the policy limit without recursion', async () => {
+    const { deps, batches, stageEvents } = makeDeps({ resolveParticipantDropout: async () => 'retry' });
+    const started = await Runner.createFreeTalkRunner(deps).start(startInput());
+    expect(started).toBe(false);
+    const openings = batches.filter((batch) => batch.stage === 'free-talk:positions');
+    expect(openings).toHaveLength(2);
+    expect(openings[1].models).toEqual(['C']);
+    expect(stageEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'DROPOUT_RETRY_EXHAUSTED', attempt: 2, maxAttempts: 2 })
+    ]));
+    expect(deps.appendModerator).toHaveBeenCalledTimes(1);
+    expect(deps.finalizeRuntime).toHaveBeenCalledTimes(1);
   });
 
   test('repair is not dispatched to terminally failed participants', async () => {

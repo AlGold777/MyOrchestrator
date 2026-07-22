@@ -259,6 +259,7 @@
         "disput/debate-execution-context.js",
         "disput/debate-stage-types.js",
         "disput/debate-plan-validator.js",
+        "disput/debate-policies.js",
         "disput/debate-plan-compiler.js",
         "disput/debate-application.js",
         "disput/debate-run-services.js",

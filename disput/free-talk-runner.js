@@ -8,6 +8,7 @@
   const Capabilities = root.DebateCapabilityRegistry || (typeof require === 'function' ? require('./debate-capability-registry') : null);
   const Decisions = root.DebateDecisionRequest || (typeof require === 'function' ? require('./debate-decision-request') : null);
   const ModelSignal = root.DebateModelSignal || (typeof require === 'function' ? require('./debate-model-signal') : null);
+  const Policies = root.DebatePolicies || (typeof require === 'function' ? require('./debate-policies') : null);
   const semanticOverlap = (left, right) => {
     const tokens = (value) => new Set(String(value || '').toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) || []);
     const a = tokens(left); const b = tokens(right);
@@ -179,37 +180,101 @@
           `Тема: ${state.topic}`,
           'Дай независимую стартовую позицию.', Catalog?.wordLimitLine?.(state.maxWords) || ''
         ].filter(Boolean).join('\n'))]));
-        let openingResult = await deps.runModelBatch({
-          prompt: openingPrompts[models[0]], promptsByModel: openingPrompts, models, attachments: input.attachmentsPayload || [], forceNewTabs: input.forceNewTabs,
-          useApiFallback: input.useApiFallback, generationProfile: 'long',
-          context: { ...(input.runContext || {}), pipelineStageId: openingId, pipelineRoundId: 'free-talk-positions', pipelineBatchId: `${state.runId}:positions:${Date.now()}` },
-          signal: input.signal
-        });
-        openingResult = await repairInvalidBatch(openingResult, openingCompiled, { stageId: openingId, useApiFallback: input.useApiFallback, generationProfile: 'long', signal: input.signal, context: { ...(input.runContext || {}), pipelineRoundId: 'free-talk-positions', pipelineBatchId: `${state.runId}:positions:repair:${Date.now()}` } });
-        const openingTurns = models.map((model) => ({ model, text: acceptedText(openingResult?.responses?.[model], { ...(openingCompiled[model]?.validator || { taskClass: state.taskContract?.taskClass, maxWords: state.maxWords }), model, stageId: openingId }) })).filter((turn) => turn.text);
-        if (!openingTurns.length) throw new Error('FreeTalk positions produced no usable responses');
+        const retryPolicy = deps.resolveRetryPolicy?.({ input, preset, stageId: openingId })
+          || Policies?.resolve?.(input.failurePolicy || preset.executionPolicies || {})?.retry;
+        const maxOpeningAttempts = Number(retryPolicy?.maxAttempts);
+        if (!Number.isInteger(maxOpeningAttempts) || maxOpeningAttempts < 1) {
+          throw new Error('FREE_TALK_OPENING_RETRY_POLICY_INVALID');
+        }
+        state.openingRetryAttempts = 0;
+        const configuredOpeningModels = models.slice();
+        const openingResponses = {};
+        let openingTurns = [];
+        let failedOpeningModels = [];
+        let terminalOpeningFailures = {};
+        let openingDecision = 'continue';
+        let attemptModels = configuredOpeningModels.slice();
+
+        for (let attempt = 1; attempt <= maxOpeningAttempts; attempt += 1) {
+          checkAbort();
+          const attemptPrompts = Object.fromEntries(attemptModels.map((model) => [model, openingPrompts[model]]));
+          let attemptResult = await deps.runModelBatch({
+            prompt: attemptPrompts[attemptModels[0]], promptsByModel: attemptPrompts, models: attemptModels,
+            attachments: input.attachmentsPayload || [], forceNewTabs: attempt === 1 ? input.forceNewTabs : false,
+            useApiFallback: input.useApiFallback, generationProfile: 'long',
+            context: {
+              ...(input.runContext || {}), pipelineStageId: openingId, pipelineRoundId: 'free-talk-positions',
+              pipelineBatchId: `${state.runId}:positions:a${attempt}:${Date.now()}`,
+              stageAttemptId: `${openingId}:a${attempt}`
+            },
+            signal: input.signal
+          });
+          attemptResult = await repairInvalidBatch(attemptResult, Object.fromEntries(attemptModels.map((model) => [model, openingCompiled[model]])), {
+            stageId: openingId, useApiFallback: input.useApiFallback, generationProfile: 'long', signal: input.signal,
+            context: {
+              ...(input.runContext || {}), pipelineRoundId: 'free-talk-positions',
+              pipelineBatchId: `${state.runId}:positions:repair:a${attempt}:${Date.now()}`,
+              stageAttemptId: `${openingId}:a${attempt}`
+            }
+          });
+          Object.assign(openingResponses, attemptResult?.responses || {});
+          terminalOpeningFailures = { ...terminalOpeningFailures, ...(attemptResult?.failed || {}) };
+          openingTurns = configuredOpeningModels.map((model) => ({
+            model,
+            text: acceptedText(openingResponses[model], {
+              ...(openingCompiled[model]?.validator || { taskClass: state.taskContract?.taskClass, maxWords: state.maxWords }),
+              model, stageId: openingId
+            })
+          })).filter((turn) => turn.text);
+          openingTurns.forEach((turn) => { delete terminalOpeningFailures[turn.model]; });
+          failedOpeningModels = configuredOpeningModels.filter((model) => !openingTurns.some((turn) => turn.model === model));
+          if (!failedOpeningModels.length) break;
+
+          const remainingModels = openingTurns.map((turn) => turn.model);
+          failedOpeningModels.forEach((model) => stageEvent('BARRIER_PARTICIPANT_FAILED', openingId, {
+            model, reason: terminalOpeningFailures[model] ? 'terminal_transport_failure' : 'no_usable_response', attempt
+          }));
+          const failurePolicy = deps.stageById?.(state.executionPlan, openingId)?.failurePolicy || 'ask_user';
+          openingDecision = failurePolicy === 'fail_run' ? 'stop' : 'continue';
+          if (failurePolicy === 'ask_user') {
+            stageEvent('DROPOUT_DECISION_REQUESTED', openingId, { failedModels: failedOpeningModels, remainingModels, attempt });
+            openingDecision = (await deps.resolveParticipantDropout?.({
+              topology: 'free_talk', stage: 'positions',
+              failedModels: failedOpeningModels, remainingModels, attempt, maxAttempts: maxOpeningAttempts
+            })) || 'continue';
+          }
+
+          if (openingDecision === 'retry') {
+            const retryableModels = failedOpeningModels.filter((model) => terminalOpeningFailures[model]);
+            if (attempt >= maxOpeningAttempts || !retryableModels.length) {
+              stageEvent('DROPOUT_RETRY_EXHAUSTED', openingId, {
+                failedModels: failedOpeningModels, retryableModels, attempt, maxAttempts: maxOpeningAttempts
+              });
+              openingDecision = 'stop';
+            } else {
+              state.openingRetryAttempts += 1;
+              stageEvent('DROPOUT_RETRY_SELECTED', openingId, {
+                failedModels: failedOpeningModels, retryableModels, remainingModels, attempt, nextAttempt: attempt + 1
+              });
+              attemptModels = retryableModels;
+              continue;
+            }
+          } else if (failurePolicy === 'ask_user') {
+            stageEvent(openingDecision === 'continue' ? 'DROPOUT_CONTINUE_SELECTED' : 'DROPOUT_STOP_SELECTED', openingId, {
+              failedModels: failedOpeningModels, remainingModels, attempt
+            });
+          }
+          break;
+        }
+
         // Barrier settlement: a terminally failed participant must not block the run.
         // The stage settles as degraded, the dropout is recorded, remaining
         // participants continue (failurePolicy: ask_user delegates to the shared
         // dropout resolver; without a resolver the run continues degraded instead of
         // silently staying in `running`).
-        const failedOpeningModels = models.filter((model) => !openingTurns.some((turn) => turn.model === model));
         if (failedOpeningModels.length) {
           const remainingModels = openingTurns.map((turn) => turn.model);
-          failedOpeningModels.forEach((model) => stageEvent('BARRIER_PARTICIPANT_FAILED', openingId, { model, reason: 'no_usable_response' }));
-          const failurePolicy = deps.stageById?.(state.executionPlan, openingId)?.failurePolicy || 'ask_user';
-          let decision = 'continue';
-          if (failurePolicy === 'fail_run') decision = 'stop';
-          else if (failurePolicy === 'ask_user') {
-            stageEvent('DROPOUT_DECISION_REQUESTED', openingId, { failedModels: failedOpeningModels, remainingModels });
-            decision = (await deps.resolveParticipantDropout?.({
-              topology: 'free_talk', stage: 'positions',
-              failedModels: failedOpeningModels, remainingModels
-            })) || 'continue';
-            stageEvent(decision === 'retry' ? 'DROPOUT_RETRY_SELECTED' : (decision === 'continue' ? 'DROPOUT_CONTINUE_SELECTED' : 'DROPOUT_STOP_SELECTED'), openingId, { failedModels: failedOpeningModels, remainingModels });
-          }
-          if (decision === 'retry') return runner.start(input);
-          if (decision !== 'continue') {
+          if (openingDecision !== 'continue') {
             transition(state, 'CANCELLED', { reason: 'participant_dropout:positions' });
             deps.recordRunFailure?.('participant_dropout_user_stop:positions');
             await deps.notifyControl?.('CANCELLED', { stage: 'cancelled', reason: 'participant_dropout_user_stop', failedModels: failedOpeningModels });
@@ -217,6 +282,7 @@
             deps.finalizeRuntime?.();
             return false;
           }
+          if (!openingTurns.length) throw new Error('FreeTalk positions produced no usable responses');
           models = remainingModels;
           state.models = remainingModels;
           state.degradedReasons.push(`participant_dropout:${failedOpeningModels.join(',')}`);

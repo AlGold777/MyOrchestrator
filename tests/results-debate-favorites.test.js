@@ -394,6 +394,7 @@ async function loadResultsScript() {
   window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-execution-context.js'), 'utf8'));
   window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-stage-types.js'), 'utf8'));
   window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-plan-validator.js'), 'utf8'));
+  window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-policies.js'), 'utf8'));
   window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-plan-compiler.js'), 'utf8'));
   window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-application.js'), 'utf8'));
   window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-run-services.js'), 'utf8'));
