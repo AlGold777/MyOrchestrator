@@ -141,4 +141,56 @@ describe('FreeTalk opening barrier — participant dropout', () => {
     expect(deps.notifyControl).toHaveBeenCalledWith('FAILED', expect.objectContaining({ reason: 'DROPOUT_RESOLVER_MISSING' }));
     expect(notifications.some((item) => item.level === 'error' && item.message.includes('ask_user'))).toBe(true);
   });
+
+  test('a dropped configured synthesizer is deterministically reassigned', async () => {
+    const { deps, stageEvents } = makeDeps({ resolveParticipantDropout: async () => 'continue' });
+    const started = await Runner.createFreeTalkRunner(deps).start(startInput({ synthesizer: 'C' }));
+    expect(started).toBe(true);
+    expect(stageEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'SYNTHESIZER_UNAVAILABLE', from: 'C' }),
+      expect.objectContaining({ type: 'SYNTHESIZER_REASSIGNED', from: 'C', to: 'A' })
+    ]));
+    expect(deps.appendVerdict).toHaveBeenCalledWith('Final synthesis', expect.objectContaining({ source: 'free_talk:A' }));
+  });
+
+  test('terminal synthesis failure with no replacement completes inconclusively without synthesis', async () => {
+    const { deps, stageEvents } = makeDeps({
+      runModelBatch: async ({ models, context }) => {
+        const synthesis = context?.pipelineStageId === 'final:synthesis';
+        return {
+          responses: Object.fromEntries(models.map((model) => [model, synthesis ? '' : `Position ${model}`])),
+          missing: synthesis ? models.slice() : [],
+          failed: synthesis ? Object.fromEntries(models.map((model) => [model, 'ERROR'])) : {},
+          timedOut: false
+        };
+      }
+    });
+    const started = await Runner.createFreeTalkRunner(deps).start(startInput({ selectedModels: ['A'], synthesizer: 'A' }));
+    expect(started).toBe(true);
+    expect(deps.appendVerdict).not.toHaveBeenCalled();
+    expect(deps.recordFinalization).toHaveBeenCalledWith(expect.objectContaining({ synthesis: false, reason: 'synthesis_unavailable', epistemicOutcome: 'inconclusive' }));
+    expect(deps.handleTerminalOutputs).toHaveBeenCalledTimes(1);
+    expect(stageEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'SYNTHESIS_SKIPPED_UNAVAILABLE', reasonCode: 'synthesis_unavailable' })
+    ]));
+  });
+
+  test('rejected synthesis is repaired once and then skipped without misclassifying dropout', async () => {
+    const runModelBatch = jest.fn(async ({ models, context }) => ({
+      responses: Object.fromEntries(models.map((model) => [model, context?.pipelineStageId?.startsWith('final:synthesis') ? 'Malformed synthesis' : `Position ${model}`])),
+      missing: [], failed: {}, timedOut: false
+    }));
+    const { deps, stageEvents } = makeDeps({
+      acceptResponse: (text, meta) => meta?.kind === 'synthesis'
+        ? { ok: false, reason: 'required_sections_missing', details: { missingSections: ['Conclusion'] } }
+        : { ok: Boolean(String(text || '').trim()) },
+      runModelBatch
+    });
+    const started = await Runner.createFreeTalkRunner(deps).start(startInput({ selectedModels: ['A'], synthesizer: 'A' }));
+    expect(started).toBe(true);
+    expect(runModelBatch.mock.calls.filter(([input]) => input.context?.pipelineStageId?.startsWith('final:synthesis'))).toHaveLength(2);
+    expect(deps.recordFinalization).toHaveBeenCalledWith(expect.objectContaining({ synthesis: false, reason: 'synthesis_unavailable' }));
+    expect(stageEvents.filter((event) => event.type === 'SYNTHESIZER_REASSIGNED')).toHaveLength(0);
+    expect(stageEvents.filter((event) => event.type === 'SYNTHESIS_RESPONSE_REJECTED').length).toBeGreaterThanOrEqual(1);
+  });
 });

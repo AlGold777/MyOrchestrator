@@ -307,15 +307,20 @@
         stageEvent('STAGE_COMPLETED', openingId, { participants: openingTurns.map((turn) => turn.model), droppedModels: failedOpeningModels });
         await runCheckpoint(openingTurns, 1, 'free-talk-positions');
 
-        if (!synthesizer) {
-          state.stopReason = 'synthesizer_none';
+        const finalizeWithoutSynthesis = async (reason = 'synthesis_unavailable') => {
+          state.stopReason = reason;
           state.epistemicOutcome = 'inconclusive';
-          transition(state, 'COMPLETED', { reason: state.stopReason, epistemicOutcome: state.epistemicOutcome });
-          deps.recordFinalization?.({ synthesis: false, reason: state.stopReason, epistemicOutcome: state.epistemicOutcome, promptTrace: state.promptTrace });
-          await deps.notifyControl?.('COMPLETED', { stage: 'completed', reason: state.stopReason });
+          stageEvent('SYNTHESIS_SKIPPED_UNAVAILABLE', 'final:synthesis', { reasonCode: reason });
+          transition(state, 'COMPLETED', { reason, epistemicOutcome: state.epistemicOutcome });
+          deps.recordFinalization?.({ synthesis: false, reason, epistemicOutcome: state.epistemicOutcome, degradedReasons: state.degradedReasons, promptTrace: state.promptTrace });
+          await deps.notifyControl?.('COMPLETED', { stage: 'completed', reason });
           await deps.handleTerminalOutputs?.(state, 'free_talk');
           deps.finalizeRuntime?.();
           return true;
+        };
+
+        if (!synthesizer) {
+          return finalizeWithoutSynthesis('synthesizer_none');
         }
         if (runPolicy === 'manual') await deps.waitForContinuation?.(input.signal, 'free_talk_positions_approval');
 
@@ -470,48 +475,100 @@
         }
 
         checkAbort();
+        const activeSynthesizerCandidates = (excluded = []) => configuredOpeningModels.filter((model) => (
+          models.includes(model)
+          && !(state.droppedModels || []).includes(model)
+          && !excluded.includes(model)
+        ));
+        let synthesisModel = synthesizer;
+        const reassignSynthesizer = (failedModel, reasonCode) => {
+          stageEvent('SYNTHESIZER_UNAVAILABLE', 'final:synthesis', { from: failedModel, reasonCode });
+          const replacement = activeSynthesizerCandidates([failedModel])[0] || '';
+          if (!replacement) return '';
+          synthesisModel = replacement;
+          state.synthesizer = replacement;
+          stageEvent('SYNTHESIZER_REASSIGNED', 'final:synthesis', { from: failedModel, to: replacement, reasonCode });
+          deps.notify?.(`FreeTalk: синтезатор ${failedModel || 'не выбран'} недоступен, назначен ${replacement}.`, 'warn');
+          return replacement;
+        };
+        if (!activeSynthesizerCandidates().includes(synthesisModel)) {
+          synthesisModel = reassignSynthesizer(synthesisModel, 'configured_synthesizer_inactive');
+        }
+        if (!synthesisModel) return finalizeWithoutSynthesis('synthesis_unavailable');
+
         transition(state, 'FREE_TALK_SYNTHESIS_STARTED');
-        stageEvent('STAGE_STARTED', 'final:synthesis', { kind: 'final_synthesis', participants: [synthesizer], reason: state.stopReason });
-        const synthesisCompiled = compilePrompt({
+        stageEvent('STAGE_STARTED', 'final:synthesis', { kind: 'final_synthesis', participants: [synthesisModel], reason: state.stopReason });
+        const compileSynthesis = (model) => compilePrompt({
           task: state.taskContract || { objective: state.topic, maxWords: state.maxWords },
           stage: { stageId: 'final:synthesis', operation: 'synthesis', role: 'synthesizer', outputContract: { maxWords: state.maxWords, requiredSections: Catalog?.SYNTHESIS_REQUIRED_SECTIONS || [] } },
-          model: synthesizer, map: finalMap || {}, turns: previousTurns, limits: input.contextLimits
+          model, map: finalMap || {}, turns: previousTurns, limits: input.contextLimits
         });
-        let synthesisPrompt = synthesisCompiled?.prompt || deps.buildFinalSynthesisPrompt?.({
-          topic: state.topic, synthesizer, turns: previousTurns, roundFilters: state.roundFilters,
-          problemSpec: input.problemSpecText || '', maxWords: state.maxWords
-        }) || `Синтезируй обсуждение по теме: ${state.topic}`;
-        let synthesisResult = await deps.runModelBatch({
-          prompt: synthesisPrompt, models: [synthesizer], attachments: [], forceNewTabs: false, useApiFallback: input.useApiFallback,
-          generationProfile: 'long', context: { ...(input.runContext || {}), pipelineStageId: 'final:synthesis', pipelineRoundId: 'free-talk-synthesis', pipelineBatchId: `${state.runId}:synthesis:${Date.now()}` }, signal: input.signal
-        });
-        let synthesisRaw = String(synthesisResult?.responses?.[synthesizer] || '').trim();
+        const dispatchSynthesis = async (model, compiled, attemptId) => {
+          const prompt = compiled?.prompt || deps.buildFinalSynthesisPrompt?.({
+            topic: state.topic, synthesizer: model, turns: previousTurns, roundFilters: state.roundFilters,
+            problemSpec: input.problemSpecText || '', maxWords: state.maxWords
+          }) || `Синтезируй обсуждение по теме: ${state.topic}`;
+          const result = await deps.runModelBatch({
+            prompt, models: [model], attachments: [], forceNewTabs: false, useApiFallback: input.useApiFallback,
+            generationProfile: 'long', context: {
+              ...(input.runContext || {}), pipelineStageId: 'final:synthesis', pipelineRoundId: 'free-talk-synthesis',
+              pipelineBatchId: `${state.runId}:synthesis:${attemptId}:${Date.now()}`, stageAttemptId: `final:synthesis:${attemptId}`
+            }, signal: input.signal
+          });
+          return { prompt, result };
+        };
+
+        let synthesisCompiled = compileSynthesis(synthesisModel);
+        let dispatched = await dispatchSynthesis(synthesisModel, synthesisCompiled, 'a1');
+        let synthesisPrompt = dispatched.prompt;
+        let synthesisResult = dispatched.result;
+        if (synthesisResult?.failed?.[synthesisModel]) {
+          const failedSynthesizer = synthesisModel;
+          state.droppedModels = Array.from(new Set([...(state.droppedModels || []), failedSynthesizer]));
+          models = models.filter((model) => model !== failedSynthesizer);
+          synthesisModel = reassignSynthesizer(failedSynthesizer, 'terminal_transport_failure');
+          if (!synthesisModel) return finalizeWithoutSynthesis('synthesis_unavailable');
+          synthesisCompiled = compileSynthesis(synthesisModel);
+          dispatched = await dispatchSynthesis(synthesisModel, synthesisCompiled, 'reassigned-a1');
+          synthesisPrompt = dispatched.prompt;
+          synthesisResult = dispatched.result;
+          if (synthesisResult?.failed?.[synthesisModel]) {
+            stageEvent('SYNTHESIZER_UNAVAILABLE', 'final:synthesis', { from: synthesisModel, reasonCode: 'terminal_transport_failure_after_reassignment' });
+            return finalizeWithoutSynthesis('synthesis_unavailable');
+          }
+        }
+
+        let synthesisRaw = String(synthesisResult?.responses?.[synthesisModel] || '').trim();
         let synthesisVerdict = deps.acceptResponse?.(synthesisRaw, { kind: 'synthesis', ...(synthesisCompiled?.validator || {}), requiredSections: synthesisCompiled?.validator?.requiredSections || [] }) || { ok: Boolean(synthesisRaw) };
         if (!synthesisVerdict.ok && synthesisCompiled && Compiler?.repairPrompt) {
+          stageEvent('SYNTHESIS_RESPONSE_REJECTED', 'final:synthesis', { model: synthesisModel, reasonCode: synthesisVerdict.reason || 'response_rejected' });
           synthesisPrompt = Compiler.repairPrompt(synthesisCompiled, [synthesisVerdict.reason, ...(synthesisVerdict.details?.missingSections || [])]);
           synthesisResult = await deps.runModelBatch({
-            prompt: synthesisPrompt, models: [synthesizer], attachments: [], forceNewTabs: false, useApiFallback: input.useApiFallback,
+            prompt: synthesisPrompt, models: [synthesisModel], attachments: [], forceNewTabs: false, useApiFallback: input.useApiFallback,
             generationProfile: 'long', context: { ...(input.runContext || {}), pipelineStageId: 'final:synthesis:repair', pipelineRoundId: 'free-talk-synthesis', pipelineBatchId: `${state.runId}:synthesis:repair:${Date.now()}` }, signal: input.signal
           });
-          synthesisRaw = String(synthesisResult?.responses?.[synthesizer] || '').trim();
+          synthesisRaw = String(synthesisResult?.responses?.[synthesisModel] || '').trim();
           synthesisVerdict = deps.acceptResponse?.(synthesisRaw, { kind: 'synthesis', ...(synthesisCompiled.validator || {}) }) || { ok: Boolean(synthesisRaw) };
         }
         let synthesis = synthesisVerdict.ok ? synthesisRaw : '';
-        if (!synthesis) throw new Error('FreeTalk final synthesis produced no usable response');
+        if (!synthesis) {
+          stageEvent('SYNTHESIS_RESPONSE_REJECTED', 'final:synthesis', { model: synthesisModel, reasonCode: synthesisVerdict.reason || 'repair_exhausted' });
+          return finalizeWithoutSynthesis('synthesis_unavailable');
+        }
         const auditor = state.serviceRoles?.auditor;
         if (auditor && typeof deps.runSynthesisAudit === 'function') {
           const audit = await deps.runSynthesisAudit({ topology: 'free_talk', auditorModel: auditor, synthesisText: synthesis, roundFilters: state.roundFilters || [], finalWords: [], maxWords: state.maxWords, context: input.runContext, signal: input.signal });
           state.synthesisAudit = audit;
           if (audit?.status === 'issues_found') {
             const correctionPrompt = `${synthesisPrompt}\n\nНезависимый аудит подтвердил следующие проблемы:\n${JSON.stringify(audit.issues?.length ? audit.issues : audit.text)}\n\nИсправь только подтверждённые проблемы и верни полный синтез.`;
-            const corrected = await deps.runModelBatch({ prompt: correctionPrompt, models: [synthesizer], attachments: [], forceNewTabs: false, useApiFallback: input.useApiFallback, generationProfile: 'long', context: { ...(input.runContext || {}), pipelineStageId: 'final:synthesis:audit-repair', pipelineRoundId: 'free-talk-synthesis', pipelineBatchId: `${state.runId}:synthesis:audit-repair:${Date.now()}` }, signal: input.signal });
-            const correctedText = String(corrected?.responses?.[synthesizer] || '').trim();
+            const corrected = await deps.runModelBatch({ prompt: correctionPrompt, models: [synthesisModel], attachments: [], forceNewTabs: false, useApiFallback: input.useApiFallback, generationProfile: 'long', context: { ...(input.runContext || {}), pipelineStageId: 'final:synthesis:audit-repair', pipelineRoundId: 'free-talk-synthesis', pipelineBatchId: `${state.runId}:synthesis:audit-repair:${Date.now()}` }, signal: input.signal });
+            const correctedText = String(corrected?.responses?.[synthesisModel] || '').trim();
             const correctedVerdict = deps.acceptResponse?.(correctedText, { kind: 'synthesis', ...(synthesisCompiled?.validator || {}) }) || { ok: Boolean(correctedText) };
             if (correctedVerdict.ok) synthesis = correctedText;
           }
         }
         transition(state, 'FREE_TALK_SYNTHESIS_RECORDED', { text: synthesis });
-        deps.appendVerdict?.(synthesis, { title: 'FreeTalk Synthesis', source: `free_talk:${synthesizer}` });
+        deps.appendVerdict?.(synthesis, { title: 'FreeTalk Synthesis', source: `free_talk:${synthesisModel}` });
         stageEvent('STAGE_COMPLETED', 'final:synthesis');
         const epistemicOutcome = state.stopReason === 'resource_budget_reserved_for_finalization' ? 'budget_limited'
           : state.stopReason === 'FACT_DISPUTE' ? 'blocked'
