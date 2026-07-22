@@ -1,0 +1,1944 @@
+# ARCHIVE DIFF 1 — Debate architecture changes from this conversation
+
+Это отдельный пакет изменений именно по архитектуре страницы Debate, которые были сделаны в этой беседе и которые имеет смысл сохранить перед откатом.
+Внутри него по смыслу такие блоки:
+Новый входной слой приложения Debate.
+Один центральный модуль, который принимает команды run/pause/resume/cancel и дальше маршрутизирует выполнение в нужный режим: Duel, Triad или Multi.
+
+Новый execution context для Debate.
+Это слой, который держит временные runtime-ресурсы: отмену выполнения, ожидания подтверждений, блокировки, служебные флаги и прочее состояние, которое не должно жить в UI.
+
+Новый общий сервисный слой для Debate run.
+Там собраны общие механизмы для всех режимов: фильтрация раундов, чекпоинты, контроль финальных событий, защита от повторной финализации.
+
+Отдельный runner для Duel.
+В этом блоке собрана логика дуэльного сценария: стартовые промпты, последовательные ходы, финальные слова, синтез и повторное использование уже привязанных вкладок в следующих ходах.
+
+Отдельный runner для Triad.
+Здесь вынесена логика тройного режима: волны запросов, барьеры синхронизации, подтверждения, финальные слова, синтез, fallback для пустых промптов, повторное использование вкладок.
+
+Отдельный runner для Multi.
+Здесь вынесена логика мульти-режима: волновой запуск нескольких моделей, обязательный синтез и работа через уже привязанные вкладки.
+
+Доработка orchestration-слоя для promptsByModel.
+Смысл изменения: модельно-специфичные промпты должны подставляться не абстрактно заранее, а в реальных точках выполнения, когда реально происходит dispatch на конкретную модель.
+
+Набор тестов на архитектуру Debate.
+Они проверяют не визуальный слой, а разбиение ответственности: application, execution context, shared services и три runner’а по режимам.
+
+Документация по архитектуре Debate.
+В файле зафиксировано, кто чем владеет: где FSM, где orchestration, где state ownership, где transport, как устроено переиспользование вкладок.
+
+Регрессионные тесты на две конкретные вещи.
+Первое: что promptsByModel реально доходят до фактической отправки.
+Второе: что в поздних раундах Duel используются уже привязанные вкладки, а не создаются новые без необходимости.
+
+Коротко: первый diff-файл это не “все изменения Debate вообще”, а именно сохранённый срез архитектурной декомпозиции Debate, сделанной в этой беседе.
+
+User-facing summary:
+This archive preserves the Debate architecture work from the conversation before rollback to the verified read-only version “LLM_Codex-Terra 2.80.175 !!!”. Architecture modules are stored as full-file patches so the archive can be reused independently even though part of this architecture is already present in 2.80.175.
+
+Important:
+- The only verified rollback baseline is 2.80.175.
+- The 2.80.175 folder was read only and was not modified.
+- Text before every patch section explains the user-visible purpose.
+- General runtime changes introduced in broken 2.80.176 are archived separately in 02-other-changes-after-2.80.175.diff.
+
+
+## disput/debate-application.js
+User-facing description: Единая topology-neutral точка запуска, pause/resume/cancel и делегирования Duel/Triad/Multi.
+
+--- /dev/null
++++ b/disput/debate-application.js
+@@ -0,0 +1,148 @@
++// Topology-neutral application boundary for Debate orchestration.
++(function initDebateApplication(root) {
++  'use strict';
++
++  const RunStore = root.DebateRunStore || (typeof require === 'function' ? require('./debate-run-store') : null);
++  const Protocols = root.DebateProtocols || (typeof require === 'function' ? require('./debate-protocols') : null);
++  const ExecutionContext = root.DebateExecutionContext || (typeof require === 'function' ? require('./debate-execution-context') : null);
++
++  const makeFallbackId = () => `debate-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
++
++  function createApplication(options = {}) {
++    const store = options.store || RunStore?.createStore?.();
++    if (!store) throw new Error('DebateApplication requires DebateRunStore');
++    const protocols = options.protocols || Protocols;
++    const deps = Object.freeze({ ...(options.deps || {}) });
++    const runners = { ...(options.runners || {}) };
++    const execution = options.execution || ExecutionContext?.createExecutionContext?.({
++      AbortController: deps.AbortController
++    });
++    if (!execution) throw new Error('DebateApplication requires DebateExecutionContext');
++
++    const topologyOf = (value) => protocols?.topologyOf?.(value) || String(value || 'duel');
++    const dispatch = (type, payload = {}) => store.dispatch({ type, payload });
++    const event = RunStore?.EVENTS || {};
++
++    const api = Object.freeze({
++      getState: () => store.getState(),
++      subscribe: (listener) => store.subscribe(listener),
++      getExecutionContext: () => execution,
++      registerRunner(topology, runner) {
++        runners[topologyOf(topology)] = runner;
++        return api;
++      },
++      async start(config = {}) {
++        const topology = topologyOf(config.topology || config.preset);
++        const runner = runners[topology];
++        if (!runner || typeof runner.start !== 'function') {
++          if (typeof deps.legacyStart === 'function') return deps.legacyStart(config);
++          throw new Error(`Debate runner is unavailable: ${topology}`);
++        }
++        const runId = String(config.runId || deps.createId?.('debate') || makeFallbackId());
++        execution.begin(runId, config.execution);
++        dispatch(event.START_REQUESTED, {
++          runId,
++          sessionId: config.sessionId,
++          topology,
++          preset: config.preset || null,
++          config: config.persistedConfig || config,
++          protocolState: config.protocolState || null
++        });
++        try {
++          return await runner.start({
++            ...config,
++            runId,
++            topology,
++            store,
++            protocols,
++            execution,
++            deps
++          });
++        } catch (error) {
++          const failedState = store.getState();
++          const protocolState = failedState?.protocolState;
++          if (protocolState) {
++            const protocolEvent = error?.name === 'AbortError' ? 'CANCELLED' : 'FAILED';
++            const next = protocols?.getProtocol?.(topology)?.reduce?.(protocolState, {
++              type: protocolEvent,
++              payload: { reason: error?.message || String(error || 'debate_failed') }
++            }) || protocolState;
++            dispatch(event.PROTOCOL_STATE_SYNCED, {
++              protocolState: next,
++              reason: `APPLICATION_${protocolEvent}`,
++              protocolStatus: String(next.status || '')
++            });
++          }
++          if (!RunStore?.isTerminal?.(store.getState())) {
++            dispatch(error?.name === 'AbortError' ? event.CANCEL_REQUESTED : event.RUN_FAILED, {
++              reason: error?.message || String(error || 'debate_failed')
++            });
++          }
++          throw error;
++        }
++      },
++      startFromPage(...args) {
++        if (typeof deps.startFromPage === 'function') return deps.startFromPage(...args);
++        if (typeof deps.legacyStart === 'function') return deps.legacyStart(...args);
++        return api.start(args[0] || {});
++      },
++      pause(reason = 'moderator_pause') {
++        const runner = runners[topologyOf(store.getState()?.topology)];
++        runner?.pause?.({ reason, store, execution, deps });
++        dispatch(event.PAUSE_REQUESTED, { reason });
++        return store.getState();
++      },
++      resume() {
++        const runner = runners[topologyOf(store.getState()?.topology)];
++        runner?.resume?.({ store, execution, deps });
++        dispatch(event.RESUME_REQUESTED);
++        return store.getState();
++      },
++      approveTurn(turn) {
++        const resolved = execution.resolveApproval(turn);
++        if (resolved) dispatch(event.APPROVAL_GRANTED, { turn });
++        return resolved;
++      },
++      rejectTurn(reason) {
++        return execution.rejectApproval(reason || new Error('Debate turn rejected'));
++      },
++      async cancel(reason = 'cancelled') {
++        const state = store.getState();
++        const topology = topologyOf(state?.topology);
++        const runner = runners[topology];
++        execution.abort(reason);
++        await runner?.cancel?.({ reason, state, store, execution, deps });
++        const protocolState = store.getState()?.protocolState;
++        if (protocolState) {
++          const next = protocols?.getProtocol?.(topology)?.reduce?.(protocolState, {
++            type: 'CANCELLED',
++            payload: { reason }
++          }) || protocolState;
++          dispatch(event.PROTOCOL_STATE_SYNCED, {
++            protocolState: next,
++            reason: 'APPLICATION_CANCELLED',
++            protocolStatus: String(next.status || '')
++          });
++        }
++        if (!RunStore?.isTerminal?.(store.getState())) dispatch(event.CANCEL_REQUESTED, { reason });
++        await deps.cancelTransport?.(state?.runId, reason);
++        return store.getState();
++      },
++      recover(snapshot) {
++        const recovered = RunStore?.hydrate?.(snapshot) || snapshot;
++        store.replace(recovered);
++        dispatch(event.TECHNICAL_PAUSE, { reason: 'page_recovered' });
++        return store.getState();
++      },
++      dispose(reason = 'application_disposed') {
++        execution.dispose(reason);
++      }
++    });
++
++    return api;
++  }
++
++  const api = Object.freeze({ createApplication });
++  root.DebateApplication = api;
++  if (typeof module !== 'undefined' && module.exports) module.exports = api;
++})(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this));
+
+## disput/debate-execution-context.js
+User-facing description: Владелец abort controller, approval waiters, locks и других неперсистентных runtime-ресурсов.
+
+--- /dev/null
++++ b/disput/debate-execution-context.js
+@@ -0,0 +1,122 @@
++// Volatile, non-persisted resources for one Debate application run.
++(function initDebateExecutionContext(root) {
++  'use strict';
++
++  function createExecutionContext(options = {}) {
++    const AbortControllerImpl = options.AbortController || root.AbortController || null;
++    let current = null;
++
++    const cleanupApproval = (reason) => {
++      const approval = current?.approval;
++      if (!approval) return false;
++      current.approval = null;
++      try { approval.cleanup?.(); } catch (_) {}
++      if (reason !== undefined) {
++        try { approval.reject?.(reason); } catch (_) {}
++      }
++      return true;
++    };
++
++    const api = Object.freeze({
++      begin(runId, seed = {}) {
++        api.dispose(new Error('Debate execution context replaced'));
++        current = {
++          runId: String(runId || ''),
++          abortController: seed.abortController || (AbortControllerImpl ? new AbortControllerImpl() : null),
++          approval: null,
++          locks: new Set(),
++          pending: new Map(),
++          cleanup: new Set()
++        };
++        return current;
++      },
++      get() {
++        return current;
++      },
++      isCurrent(runId) {
++        return !!current && String(runId || '') === current.runId;
++      },
++      signal() {
++        return current?.abortController?.signal || null;
++      },
++      setApprovalWaiter(waiter = {}) {
++        if (!current) throw new Error('Debate execution context is not active');
++        cleanupApproval();
++        current.approval = {
++          resolve: typeof waiter.resolve === 'function' ? waiter.resolve : null,
++          reject: typeof waiter.reject === 'function' ? waiter.reject : null,
++          cleanup: typeof waiter.cleanup === 'function' ? waiter.cleanup : null
++        };
++      },
++      resolveApproval(value) {
++        const approval = current?.approval;
++        if (!approval) return false;
++        current.approval = null;
++        try { approval.cleanup?.(); } catch (_) {}
++        approval.resolve?.(value);
++        return true;
++      },
++      hasApprovalWaiter() {
++        return !!current?.approval;
++      },
++      clearApproval() {
++        return cleanupApproval();
++      },
++      rejectApproval(reason) {
++        return cleanupApproval(reason);
++      },
++      lock(name) {
++        if (!current) return false;
++        const key = String(name || 'default');
++        if (current.locks.has(key)) return false;
++        current.locks.add(key);
++        return true;
++      },
++      unlock(name) {
++        return current?.locks.delete(String(name || 'default')) || false;
++      },
++      track(key, value) {
++        if (!current) return value;
++        current.pending.set(String(key || ''), value);
++        return value;
++      },
++      untrack(key) {
++        const value = current?.pending.get(String(key || ''));
++        current?.pending.delete(String(key || ''));
++        return value;
++      },
++      onCleanup(callback) {
++        if (current && typeof callback === 'function') current.cleanup.add(callback);
++        return () => current?.cleanup.delete(callback);
++      },
++      abort(reason) {
++        const controller = current?.abortController;
++        if (!controller || controller.signal?.aborted) return false;
++        controller.abort(reason);
++        return true;
++      },
++      dispose(reason) {
++        if (!current) return false;
++        const previous = current;
++        cleanupApproval(reason);
++        if (!previous.abortController?.signal?.aborted) {
++          try { previous.abortController?.abort(reason); } catch (_) {}
++        }
++        previous.cleanup.forEach((callback) => {
++          try { callback(reason); } catch (_) {}
++        });
++        previous.cleanup.clear();
++        previous.pending.clear();
++        previous.locks.clear();
++        current = null;
++        return true;
++      }
++    });
++
++    return api;
++  }
++
++  const api = Object.freeze({ createExecutionContext });
++  root.DebateExecutionContext = api;
++  if (typeof module !== 'undefined' && module.exports) module.exports = api;
++})(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this));
+
+## disput/debate-run-services.js
+User-facing description: Общие round filters, checkpoints и exactly-once terminal outputs.
+
+--- /dev/null
++++ b/disput/debate-run-services.js
+@@ -0,0 +1,203 @@
++// Shared side-effect services used by Duel, Triad and Multi runners.
++(function initDebateRunServices(root) {
++  'use strict';
++
++  function createRunServices(deps = {}) {
++    const completedOutputRuns = new Set();
++    const maxOutputRuns = Math.max(10, Number(deps.maxOutputRuns || 100));
++    const now = typeof deps.now === 'function' ? deps.now : Date.now;
++    const timeline = typeof deps.timeline === 'function' ? deps.timeline : () => {};
++
++    return Object.freeze({
++      async runRoundFilter(input = {}) {
++        const {
++          topic,
++          topology = 'duel',
++          round,
++          outputs = [],
++          turns = [],
++          previousFilter = '',
++          synthesizer,
++          runId,
++          signal,
++          context = {},
++          useApiFallback = true
++        } = input;
++        if (!outputs.length || !turns.length || !synthesizer) return null;
++        if (typeof deps.runModelBatch !== 'function') throw new Error('Debate runModelBatch dependency is unavailable');
++        const prompt = deps.promptCatalog?.buildRoundFilter?.({
++          topic,
++          topology,
++          round,
++          outputs,
++          turns,
++          previousFilter
++        });
++        if (!String(prompt || '').trim()) throw new Error(`${topology} R${round} filter prompt is empty`);
++        timeline('Dispatch', {
++          from: 'System',
++          to: synthesizer,
++          note: `${topology}: filter R${round} (${outputs.join(', ')})`
++        });
++        const result = await deps.runModelBatch({
++          prompt,
++          models: [synthesizer],
++          attachments: [],
++          forceNewTabs: true,
++          useApiFallback,
++          generationProfile: 'long',
++          context: {
++            ...context,
++            pipelineRoundId: `${topology}-filter-r${round}`,
++            pipelineBatchId: `${runId}:${topology}:filter:r${round}:${now()}`
++          },
++          signal
++        });
++        const text = String(result?.responses?.[synthesizer] || '').trim();
++        if (!text || deps.isErrorOutput?.(text)) {
++          throw new Error(`${topology} R${round} filter returned no usable result`);
++        }
++        timeline('Response', {
++          from: synthesizer,
++          to: 'System',
++          note: `${topology}: filter R${round} ready`
++        });
++        return { round, outputs: outputs.slice(), text, synthesizer };
++      },
++
++      async runCheckpoint(state, input = {}) {
++        const registry = state?.registry;
++        const templates = deps.triadTemplates;
++        const turns = Array.isArray(input.turns) ? input.turns : [];
++        if (!registry || !templates || !deps.registry || !turns.length) return null;
++        turns.forEach(({ turnId, model, text }) => {
++          deps.registry.appendEvent(registry, { turnId, waveKey: input.waveKey, model, text });
++        });
++        const synthesizer = String(state.synthesizer || '').trim();
++        if (!synthesizer) return null;
++        try {
++          const prompt = templates.buildTriadCheckpointPrompt({
++            topic: state.topic,
++            waveNumber: input.waveNumber,
++            turns,
++            registrySummary: deps.registry.summarizeForCheckpoint(registry),
++            derivedSummary: deps.registry.summarizeDerivedForCheckpoint?.(registry) || '',
++            fullContexts: deps.registry.consumePendingContextForCheckpoint?.(registry) || []
++          });
++          timeline('Dispatch', { from: 'System', to: synthesizer, note: `триада: checkpoint волны ${input.waveNumber}` });
++          const result = await deps.runModelBatch({
++            prompt,
++            models: [synthesizer],
++            attachments: [],
++            forceNewTabs: true,
++            useApiFallback: input.useApiFallback !== false,
++            generationProfile: 'long',
++            context: input.context,
++            signal: input.signal || null
++          });
++          const parsed = templates.parseTriadCheckpointOutput(String(result?.responses?.[synthesizer] || ''));
++          if (!parsed.ok) {
++            timeline('Error', { note: `триада: checkpoint волны ${input.waveNumber} не разобран` });
++            return null;
++          }
++          const applied = deps.registry.ingestCheckpoint(registry, parsed, { wave: input.waveNumber });
++          deps.recordEvent?.('REGISTRY_UPDATED', {
++            topology: state.topology || 'triad',
++            checkpoint: input.waveNumber,
++            applied: applied.applied,
++            actions: applied.actions
++          });
++          state.lastCheckpointAtWave = input.waveNumber;
++          timeline('Response', {
++            from: synthesizer,
++            to: 'System',
++            note: `реестр: +${applied.applied} артефактов, ${applied.actions} триггеров, focus ${applied.focus || 0}, ctx ${applied.contextRequests || 0}, ${applied.rejected} отклонено`
++          });
++          return applied;
++        } catch (error) {
++          if (error?.name === 'AbortError') throw error;
++          timeline('Error', { note: `триада: checkpoint волны ${input.waveNumber} — ${error?.message || 'сбой'}` });
++          return null;
++        }
++      },
++
++      async runDuelCheckpoint(state, input = {}) {
++        const registry = state?.registry;
++        const templates = deps.triadTemplates;
++        const every = Math.max(1, Number(state?.checkpointPolicy?.everyPublicTurns) || 2);
++        const publicTurns = Number(state?.turns?.publicTurnsDispatched || 0);
++        if (!registry || !templates || !deps.registry || !state.checkpointPolicy?.enabled) return null;
++        if (publicTurns <= 0 || publicTurns % every !== 0 || publicTurns <= Number(state.lastCheckpointAtTurn || 0)) return null;
++        const synthesizer = String(state.synthesizer || '').trim();
++        if (!synthesizer) return null;
++        const turns = (state.eventLog || []).filter((event) => event.phase === 'public').slice(-every)
++          .map((event) => ({ turnId: event.turnId, model: event.model, text: event.text }));
++        if (!turns.length) return null;
++        const prompt = templates.buildTriadCheckpointPrompt({
++          topic: state.topic,
++          waveNumber: publicTurns,
++          turns,
++          registrySummary: deps.registry.summarizeForCheckpoint(registry),
++          derivedSummary: deps.registry.summarizeDerivedForCheckpoint?.(registry) || '',
++          fullContexts: deps.registry.consumePendingContextForCheckpoint?.(registry) || []
++        });
++        timeline('Dispatch', { from: 'System', to: synthesizer, note: `duel: checkpoint после ${publicTurns} public turns` });
++        const result = await deps.runModelBatch({
++          prompt,
++          models: [synthesizer],
++          attachments: [],
++          forceNewTabs: true,
++          useApiFallback: input.useApiFallback !== false,
++          generationProfile: 'long',
++          context: {
++            ...(input.context || {}),
++            pipelineRoundId: `duel-checkpoint-${publicTurns}`,
++            pipelineBatchId: `${state.runId}:duel-checkpoint:${publicTurns}`
++          },
++          signal: input.signal || null
++        });
++        const parsed = templates.parseTriadCheckpointOutput(String(result?.responses?.[synthesizer] || ''));
++        if (!parsed.ok) return null;
++        const applied = deps.registry.ingestCheckpoint(registry, parsed, { wave: publicTurns });
++        deps.recordEvent?.('REGISTRY_UPDATED', {
++          topology: 'duel', checkpoint: publicTurns, applied: applied.applied, actions: applied.actions
++        });
++        state.lastCheckpointAtTurn = publicTurns;
++        timeline('Response', {
++          from: synthesizer,
++          to: 'System',
++          note: `duel registry: +${applied.applied} артефактов, ${applied.actions} триггеров`
++        });
++        return applied;
++      },
++
++      async handleTerminalOutputs(input = {}) {
++        const runId = String(input.runId || input.state?.runId || '').trim();
++        if (!runId || completedOutputRuns.has(runId)) return false;
++        completedOutputRuns.add(runId);
++        if (completedOutputRuns.size > maxOutputRuns) {
++          completedOutputRuns.delete(completedOutputRuns.values().next().value);
++        }
++        try {
++          const result = typeof input.buildResult === 'function'
++            ? input.buildResult(input.state, input.topology)
++            : input.result;
++          await deps.handleOutputs?.(result, input.selection);
++          return true;
++        } catch (error) {
++          deps.warn?.('[RESULTS] Debate terminal outputs failed', error);
++          deps.notify?.('Debate completed, but one or more Output actions failed.', 'warn');
++          return false;
++        }
++      },
++
++      hasHandledTerminalOutputs(runId) {
++        return completedOutputRuns.has(String(runId || '').trim());
++      }
++    });
++  }
++
++  const api = Object.freeze({ createRunServices });
++  root.DebateRunServices = api;
++  if (typeof module !== 'undefined' && module.exports) module.exports = api;
++})(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this));
+
+## disput/duel-runner.js
+User-facing description: Последовательная orchestration Duel: openings, маршрутизация, final words и synthesis.
+
+--- /dev/null
++++ b/disput/duel-runner.js
+@@ -0,0 +1,372 @@
++// Application-level sequencing for the Duel topology.
++(function initDuelRunner(root) {
++  'use strict';
++
++  function createDuelRunner(deps = {}) {
++    const now = typeof deps.now === 'function' ? deps.now : Date.now;
++    const timeline = typeof deps.timeline === 'function' ? deps.timeline : () => {};
++    const transition = (state, type, payload = {}) => deps.transition?.(state, { type, payload }) || state;
++
++    const runner = Object.freeze({
++      async start(input = {}) {
++        const scenario = input.scenario || {};
++        if (!scenario.ok) {
++          deps.notify?.(scenario.message || 'Invalid Duel scenario.', 'warn');
++          deps.recordRunFailure?.('invalid_serial_scenario');
++          await deps.notifyControl?.('FAILED', { stage: 'failed', reason: 'invalid_serial_scenario' });
++          return false;
++        }
++        const state = deps.protocol?.createState?.() || deps.fsm?.createState?.();
++        if (!state) throw new Error('Duel runtime is unavailable');
++        const preset = input.presetConfig || {};
++        state.active = true;
++        state.runId = input.runContext?.pipelineRunId;
++        state.sessionId = input.runContext?.sessionId;
++        state.moderatorMessage = input.moderatorEntryText;
++        state.participants = {
++          A: { slot: 'A', model: '', role: '', openingTurnId: null, finalTurnId: null },
++          B: { slot: 'B', model: '', role: '', openingTurnId: null, finalTurnId: null }
++        };
++        deps.fsm?.setParticipants?.(state, {
++          modelA: scenario.modelA,
++          modelB: scenario.modelB,
++          roleA: scenario.roleA,
++          roleB: scenario.roleB
++        });
++        state.modelA = state.participants?.A?.model || scenario.modelA;
++        state.modelB = state.participants?.B?.model || scenario.modelB;
++        state.roleA = state.participants?.A?.role || scenario.roleA;
++        state.roleB = state.participants?.B?.role || scenario.roleB;
++        state.topic = input.pipelineNameText;
++        state.presetId = preset.presetId;
++        state.topology = preset.topology;
++        state.duration = preset.duration;
++        state.terminationOwner = preset.terminationOwner;
++        state.checkpointPolicy = preset.checkpointPolicy;
++        state.lastCheckpointAtTurn = 0;
++        state.finalizationPolicy = preset.finalizationPolicy;
++        state.presetConfigSnapshot = preset;
++        state.roundFilters = [];
++        deps.fsm?.beginOpenings?.(state);
++        state.synthesizer = input.synthesizer || '';
++        state.registry = input.registryEnabled ? deps.createRegistry?.({ mode: 'duel' }) || null : null;
++        state.autoMode = input.auto;
++        state.turnLimit = preset.turnLimit;
++        state.turns.publicTurnLimit = preset.turnLimit;
++        state.round = 1;
++        state.dispatchedTurns = 0;
++        state.publicTurnsDispatched = 0;
++        state.waitingApprovalModel = '';
++        state.newPagesOpenedModels = new Set();
++        deps.replaceAggregateState?.(state);
++        deps.setState?.(state);
++        deps.clearTimeline?.();
++
++        const initialPrompt = deps.buildInitAPrompt?.({
++          pipelineName: input.pipelineNameText,
++          modelB: scenario.modelB,
++          roleA: scenario.roleA,
++          moderatorMessage: input.moderatorEntryText
++        });
++        const silentInitBPrompt = deps.buildInitBPrompt?.({
++          pipelineName: input.pipelineNameText,
++          modelA: scenario.modelA,
++          roleB: scenario.roleB,
++          moderatorMessage: input.moderatorEntryText
++        });
++        if (!initialPrompt || !silentInitBPrompt) {
++          transition(state, 'FAILED', { reason: 'debate_template_unavailable' });
++          deps.recordRunFailure?.('debate_template_unavailable');
++          await deps.notifyControl?.('FAILED', { stage: 'failed', reason: 'debate_template_unavailable' });
++          deps.notify?.('Dispute template is unavailable.', 'error');
++          return false;
++        }
++        deps.appendModerator?.(input.moderatorEntryText);
++        deps.renderCards?.(scenario.roleA, [scenario.modelA], { approvalSelectable: true });
++        deps.clearModerator?.();
++        timeline('Dispatch', { from: 'Moderator', to: `${scenario.modelA}+${scenario.modelB}`, note: 'параллельная инициализация A0+B0' });
++        deps.syncVisualState?.();
++        const initResult = await deps.runModelBatch({
++          prompt: initialPrompt,
++          promptsByModel: { [scenario.modelA]: initialPrompt, [scenario.modelB]: silentInitBPrompt },
++          models: [scenario.modelA, scenario.modelB],
++          attachments: input.attachmentsPayload || [],
++          forceNewTabs: input.forceNewTabs,
++          useApiFallback: input.useApiFallback,
++          context: input.makeBatchContext?.(1, 0),
++          signal: input.signal
++        });
++        deps.markNewPageOpened?.(state, scenario.modelA, input.forceNewTabs);
++        deps.markNewPageOpened?.(state, scenario.modelB, input.forceNewTabs);
++
++        const recordOpening = (slot, model, role, text) => {
++          const turnId = `${state.runId}:opening:${slot}`;
++          transition(state, slot === 'A' ? 'DUEL_OPENING_A' : 'DUEL_OPENING_B', { text, turnId });
++          deps.fsm?.appendEvent?.(state, {
++            turnId, phase: 'opening', slot, model, role, text, source: 'model', publicTurnIndex: null, round: null
++          });
++          deps.appendRegistryEvent?.(state.registry, { turnId, waveKey: 'duel-opening', model, text });
++          return turnId;
++        };
++        const firstAnswer = String(initResult?.responses?.[scenario.modelA] || '').trim();
++        if (!firstAnswer || deps.isErrorOutput?.(firstAnswer)) {
++          transition(state, 'FAILED', { reason: 'opening_a_missing' });
++          deps.recordRunFailure?.('opening_a_missing');
++          await deps.notifyControl?.('FAILED', { stage: 'failed', reason: 'opening_a_missing' });
++          deps.notify?.(`${scenario.modelA} не дал ответа. Диспут остановлен.`, 'error');
++          timeline('Error', { model: scenario.modelA, note: 'no usable response (empty or error)' });
++          return false;
++        }
++        recordOpening('A', scenario.modelA, scenario.roleA, firstAnswer);
++        timeline('Response', { from: scenario.modelA, to: 'Moderator', note: firstAnswer.slice(0, 120) });
++        deps.syncModeratorRoute?.(scenario.modelA);
++
++        const openingB = String(initResult?.responses?.[scenario.modelB] || '').trim();
++        if (!openingB || deps.isErrorOutput?.(openingB)) {
++          transition(state, 'FAILED', { reason: 'opening_b_missing' });
++          deps.recordRunFailure?.('opening_b_missing');
++          await deps.notifyControl?.('FAILED', { stage: 'failed', reason: 'opening_b_missing' });
++          deps.notify?.(`${scenario.modelB} не дал ответа. Диспут остановлен.`, 'error');
++          timeline('Error', { model: scenario.modelB, note: 'no usable silent init response (empty or error)' });
++          return false;
++        }
++        recordOpening('B', scenario.modelB, scenario.roleB, openingB);
++        timeline('Response', { from: scenario.modelB, to: 'Moderator', note: 'B0 сохранён как стартовая позиция' });
++        const openingFilter = await deps.runRoundFilter?.({
++          topic: state.topic,
++          topology: 'duel',
++          round: 1,
++          outputs: deps.getRoundOutputs?.(preset, 1) || [],
++          turns: [{ model: scenario.modelA, text: firstAnswer }, { model: scenario.modelB, text: openingB }],
++          previousFilter: '',
++          synthesizer: state.synthesizer || state.modelA,
++          runId: state.runId,
++          signal: input.signal
++        });
++        if (openingFilter) state.roundFilters.push(openingFilter);
++        deps.syncState?.(state, 'DUEL_OPENINGS_SYNCED');
++        if (deps.fsm?.shouldAutoContinue?.(state, { auto: input.auto })) {
++          return runner.routeApprovedTurn({ llmName: scenario.modelA, text: firstAnswer }, input);
++        }
++        state.waitingApprovalModel = scenario.modelA;
++        return true;
++      },
++
++      async requestFinalWords(state, options = {}) {
++        if (!state?.active || state.finalWordsRequested) return true;
++        state.finalWordsRequested = true;
++        const finalModels = [state.modelA, state.modelB].filter(Boolean);
++        for (const [index, modelName] of finalModels.entries()) {
++          const prompt = deps.buildFinalWordPrompt?.(state, modelName);
++          if (!prompt) continue;
++          timeline('Dispatch', { from: 'Moderator', to: modelName, note: 'запрос финального слова' });
++          const result = await deps.runModelBatch({
++            prompt,
++            models: [modelName],
++            attachments: [],
++            forceNewTabs: false,
++            useApiFallback: options.useApiFallback !== false,
++            context: {
++              pipelineRunId: state.runId,
++              pipelineRoundId: 'final',
++              pipelineBatchId: `${state.runId}:final:${index}:${now()}`
++            },
++            signal: options.signal || null
++          });
++          const answer = String(result?.responses?.[modelName] || '').trim();
++          if (answer && !deps.isErrorOutput?.(answer)) {
++            if (modelName === state.modelA) state.finalWordA = answer;
++            if (modelName === state.modelB) state.finalWordB = answer;
++            timeline('Response', { from: modelName, to: 'Moderator', note: 'финальное слово' });
++          }
++        }
++
++        const synthesizer = String(state.synthesizer || state.modelA || '').trim();
++        const synthesisResult = await deps.runModelBatch({
++          prompt: deps.buildFinalSynthesisPrompt?.(state),
++          models: [synthesizer],
++          attachments: [],
++          forceNewTabs: false,
++          useApiFallback: options.useApiFallback !== false,
++          generationProfile: 'long',
++          context: {
++            pipelineRunId: state.runId,
++            pipelineRoundId: 'duel-final-synthesis',
++            pipelineBatchId: `${state.runId}:duel-final-synthesis:${now()}`
++          },
++          signal: options.signal || null
++        });
++        const synthesisText = String(synthesisResult?.responses?.[synthesizer] || '').trim();
++        if (!synthesisText || deps.isErrorOutput?.(synthesisText)) {
++          transition(state, 'FAILED', { reason: 'final_synthesis_missing' });
++          await deps.notifyControl?.('FAILED', { stage: 'failed', reason: 'final_synthesis_missing' });
++          deps.notify?.('Duel: обязательный Final Synthesis не получен.', 'error');
++          return false;
++        }
++
++        state.synthesisText = synthesisText;
++        deps.appendVerdict?.(synthesisText, { title: 'Final Synthesis', source: `serial:${synthesizer}` });
++        timeline('Verdict', { from: synthesizer, to: 'Moderator', note: 'Duel Final Synthesis' });
++        transition(state, 'COMPLETED', { reason: 'final_synthesis_completed' });
++        timeline('Completed', { note: `round limit reached (${deps.getRoundLimit?.()} rounds)` });
++        await deps.notifyControl?.('COMPLETED', { stage: 'completed' });
++        await deps.handleTerminalOutputs?.(state, 'duel');
++        deps.syncVisualState?.();
++        return true;
++      },
++
++      async runTurnWithRetry({ state, targetModel, prompt, forceNewTabs, signal, useApiFallback = true }) {
++        let lastError = null;
++        const retryLimit = Math.max(0, Number(deps.autoRetryLimit || 0));
++        const maxAttempts = deps.isAuto?.() ? retryLimit + 1 : 1;
++        for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
++          try {
++            const result = await deps.runModelBatch({
++              prompt,
++              models: [targetModel],
++              attachments: [],
++              forceNewTabs,
++              useApiFallback,
++              context: {
++                pipelineRunId: state.runId,
++                pipelineRoundId: `serial-r${state.round}`,
++                pipelineBatchId: `${state.runId}:serial:${now()}`
++              },
++              signal
++            });
++            const answer = String(result?.responses?.[targetModel] || '').trim();
++            if (answer && !deps.isErrorOutput?.(answer)) return { ok: true, result, answer, attempts: attempt };
++            lastError = new Error(answer ? 'error_output' : 'empty_response');
++          } catch (error) {
++            lastError = error;
++          }
++          if (attempt < maxAttempts) {
++            timeline('Retry', {
++              model: targetModel,
++              note: `auto retry ${attempt}/${retryLimit}: ${lastError?.message || 'no usable response'}`
++            });
++            deps.notify?.(`${targetModel}: retrying empty/error debate turn.`, 'warn');
++            await deps.sleep?.(deps.autoRetryDelayMs || 0);
++          }
++        }
++        return { ok: false, error: lastError, attempts: maxAttempts };
++      },
++
++      async routeApprovedTurn(initial = {}, options = {}) {
++        let current = initial;
++        while (true) {
++          const state = deps.getState?.();
++          const currentModel = String(current?.llmName || '').trim();
++          const currentText = String(current?.text || '').trim();
++          if (!state?.active || !currentText || !currentModel) return false;
++          if (!deps.fsm?.canRoutePublic?.(state)) return false;
++          if (state.waitingApprovalModel && state.waitingApprovalModel !== currentModel) return false;
++          if (deps.fsm?.hasReachedTurnLimit?.(state)) return runner.requestFinalWords(state, options);
++
++          const route = deps.prepareRoute?.(state, { currentModel, currentText });
++          if (!route?.targetModel || !route.prompt) return false;
++          transition(state, 'DUEL_TURN_ROUTED', { llmName: currentModel, targetModel: route.targetModel });
++          state.lastText = currentText;
++          const publicTurnIndex = Number(state.turns?.publicTurnsDispatched || state.publicTurnsDispatched || 0);
++          state.round = route.protocolRound;
++          deps.recordRoute?.(state, { ...route, currentModel, currentText, publicTurnIndex });
++          timeline('Approved', { from: currentModel, to: 'Moderator', note: currentText.slice(0, 120) });
++          timeline('Dispatch', { from: 'Moderator', to: route.targetModel, note: 'approved opponent answer + moderator header' });
++          deps.renderCards?.(route.targetIsA ? state.roleA : state.roleB, [route.targetModel], { approvalSelectable: true });
++          deps.syncVisualState?.();
++
++          try {
++            const outcome = await runner.runTurnWithRetry({
++              state,
++              targetModel: route.targetModel,
++              prompt: route.prompt,
++              forceNewTabs: false,
++              signal: options.signal || null,
++              useApiFallback: options.useApiFallback !== false
++            });
++            deps.markNewPageOpened?.(state, route.targetModel, false);
++            if (!outcome.ok) {
++              const reason = outcome.error?.message || 'no usable response';
++              timeline('Error', { model: route.targetModel, note: `no usable response after ${outcome.attempts || 1} attempt(s): ${reason}` });
++              if (deps.isAuto?.()) {
++                state.pendingAutoContinuation = { llmName: currentModel, text: currentText };
++                state.waitingApprovalModel = currentModel;
++                deps.fsm?.markPaused?.(state);
++                deps.syncState?.(state, 'DUEL_PAUSED_AUTO_FAILURE');
++                deps.setPaused?.(true, `auto_turn_failed:${route.targetModel}`);
++                deps.notify?.(`${route.targetModel} не дал ответа после retry. Auto debate paused.`, 'error');
++                deps.syncVisualState?.();
++                return true;
++              }
++              transition(state, 'FAILED', { reason: 'duel_turn_failed' });
++              deps.notify?.(`${route.targetModel} не дал ответа. Диспут остановлен.`, 'error');
++              return false;
++            }
++
++            const answer = outcome.answer;
++            deps.recordAnswer?.(state, { ...route, currentModel, answer, publicTurnIndex });
++            state.waitingApprovalModel = deps.isAuto?.() ? '' : route.targetModel;
++            timeline('Response', { from: route.targetModel, to: 'Moderator', note: answer.slice(0, 120) });
++            if (publicTurnIndex % 2 === 0) {
++              const roundTurns = (state.eventLog || []).filter((event) => event.phase === 'public').slice(-2)
++                .map((event) => ({ model: event.model, text: event.text }));
++              const filter = await deps.runRoundFilter?.({
++                topic: state.topic,
++                topology: 'duel',
++                round: route.protocolRound,
++                outputs: route.roundOutputs,
++                turns: roundTurns,
++                previousFilter: route.previousFilter,
++                synthesizer: state.synthesizer || state.modelA,
++                runId: state.runId,
++                signal: options.signal || null
++              });
++              if (filter) state.roundFilters.push(filter);
++            }
++            await deps.runCheckpoint?.(state);
++            deps.syncState?.(state, 'DUEL_TURN_ARTIFACTS_SYNCED');
++            deps.syncVisualState?.();
++            if (deps.fsm?.shouldAutoContinue?.(state, { auto: deps.isAuto?.() })) {
++              if (options.isPaused?.()) {
++                state.pendingAutoContinuation = { llmName: route.targetModel, text: answer };
++                state.waitingApprovalModel = route.targetModel;
++                deps.fsm?.markPaused?.(state);
++                deps.syncState?.(state, 'DUEL_PAUSED_BY_MODERATOR');
++                timeline('Paused', { note: 'auto debate paused by moderator' });
++                deps.syncVisualState?.();
++                return true;
++              }
++              current = { llmName: route.targetModel, text: answer };
++              continue;
++            }
++            if (deps.isAuto?.() && deps.fsm?.hasReachedTurnLimit?.(state)) {
++              await runner.requestFinalWords(state, options);
++            }
++            return true;
++          } catch (error) {
++            if (deps.isAuto?.()) {
++              state.pendingAutoContinuation = { llmName: currentModel, text: currentText };
++              state.waitingApprovalModel = currentModel;
++              deps.fsm?.markPaused?.(state);
++              deps.syncState?.(state, 'DUEL_PAUSED_EXCEPTION');
++              deps.setPaused?.(true, `auto_turn_exception:${route.targetModel}`);
++              timeline('Error', { model: route.targetModel, note: error?.message || 'dispatch failed' });
++              deps.notify?.(`${route.targetModel}: auto debate paused (${error?.message || 'dispatch failed'}).`, 'error');
++              deps.syncVisualState?.();
++              return true;
++            }
++            transition(state, 'FAILED', { reason: error?.message || 'duel_dispatch_failed' });
++            deps.notify?.(`${route.targetModel} не дал ответа. Диспут остановлен.`, 'error');
++            timeline('Error', { model: route.targetModel, note: error?.message || 'dispatch failed' });
++            return false;
++          }
++        }
++      }
++    });
++    return runner;
++  }
++
++  const api = Object.freeze({ createDuelRunner });
++  root.DuelRunner = api;
++  if (typeof module !== 'undefined' && module.exports) module.exports = api;
++})(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this));
+
+## disput/triad-runner.js
+User-facing description: Волны Triad, barrier/approval, final words, synthesis, непустой fallback prompt и reuse вкладок.
+
+--- /dev/null
++++ b/disput/triad-runner.js
+@@ -0,0 +1,331 @@
++// Application-level sequencing for the Triad topology.
++(function initTriadRunner(root) {
++  'use strict';
++
++  function createTriadRunner(deps = {}) {
++    const timeline = typeof deps.timeline === 'function' ? deps.timeline : () => {};
++    const transition = (state, type, payload = {}) => deps.transition?.(state, { type, payload }) || state;
++
++    const runner = Object.freeze({
++      async start(input = {}) {
++        const selected = (input.selectedModels || []).slice(0, 3);
++        if (selected.length < 3) {
++          deps.notify?.('Triad: выберите минимум три модели в шапке.', 'warn');
++          return false;
++        }
++        if (input.otherTopologyActive) {
++          deps.notify?.('Диспут уже идёт. Остановите текущий, прежде чем начать новый.', 'warn');
++          return false;
++        }
++        const state = deps.protocol?.createState?.() || null;
++        if (!state) {
++          deps.notify?.('Triad runtime is unavailable.', 'error');
++          return false;
++        }
++        const preset = input.presetConfig || {};
++        state.active = true;
++        state.runId = input.runContext?.pipelineRunId;
++        state.sessionId = input.runContext?.sessionId;
++        state.moderatorMessage = input.moderatorEntryText;
++        state.models = selected;
++        state.role = input.role || '';
++        state.topic = input.pipelineNameText;
++        state.presetId = preset.presetId || 'TRIAD_STANDARD';
++        state.topology = preset.topology || 'triad';
++        state.duration = preset.duration || 'fixed';
++        state.terminationOwner = preset.terminationOwner || 'runtime';
++        const configuredRounds = preset.waveLimit;
++        state.maxWaves = configuredRounds == null ? input.defaultWaveLimit : Math.max(0, Number(configuredRounds) - 1);
++        state.waveLimit = configuredRounds == null ? null : Math.max(0, Number(configuredRounds) - 1);
++        state.completedWaves = 0;
++        state.checkpointPolicy = preset.checkpointPolicy || state.checkpointPolicy;
++        state.lastCheckpointAtWave = 0;
++        state.finalizationPolicy = preset.finalizationPolicy || 'auto_after_limit';
++        state.presetConfigSnapshot = preset;
++        state.autoMode = input.auto;
++        state.synthesizer = input.synthesizer || '';
++        state.attachments = Array.isArray(input.attachmentsPayload) ? input.attachmentsPayload : [];
++        state.finalWordsRequested = false;
++        state.roundFilters = [];
++        state.pendingWaveContinuation = null;
++        state.newPagesOpenedModels = new Set();
++        state.registry = input.registryEnabled ? deps.createRegistry?.({ mode: 'triad' }) || null : null;
++        deps.fsm?.beginInitWave?.(state);
++        transition(state, 'RUNNING');
++        deps.replaceAggregateState?.(state);
++        deps.setState?.(state);
++        deps.clearTimeline?.();
++        deps.setRunPresentation?.({ activeRole: state.role, maxTurns: state.waveLimit ?? 0 });
++        deps.appendModerator?.(input.moderatorEntryText);
++        deps.clearModerator?.();
++        return runner.dispatchWave(state, 'init', input);
++      },
++
++      async dispatchWave(state, kind = 'init', options = {}) {
++        const api = deps.templates;
++        if (!state?.active || !api) return false;
++        const models = state.models.slice();
++        const isInit = kind === 'init';
++        const waveNumber = isInit ? 0 : Number(state.wave || 0) + 1;
++        const protocolRound = isInit ? 1 : waveNumber + 1;
++        const waveKey = isInit ? 'init-0' : `wave-${waveNumber}`;
++        const moderatorText = isInit ? state.moderatorMessage : deps.getModeratorText?.();
++        if (!isInit && moderatorText) {
++          deps.appendModerator?.(moderatorText);
++          deps.clearModerator?.();
++        }
++        const promptsByModel = {};
++        models.forEach((modelName) => {
++          const regView = !isInit && state.registry
++            ? deps.serializeRegistryForModel?.(state.registry, modelName) || { context: '', primaryTrigger: '' }
++            : { context: '', primaryTrigger: '' };
++          promptsByModel[modelName] = isInit
++            ? api.buildTriadInitPrompt({
++              topic: state.topic,
++              role: state.role,
++              format: deps.getDefaultFormat?.(),
++              moderatorMessage: state.moderatorMessage,
++              roundOutputs: deps.getRoundOutputs?.(state.presetConfigSnapshot, 1) || []
++            })
++            : api.buildTriadWavePrompt({
++              topic: state.topic,
++              role: state.role,
++              waveNumber,
++              opponents: deps.fsm?.opponentsFor?.(state, modelName),
++              moderatorText,
++              format: deps.getDefaultFormat?.(),
++              registryContext: regView.context,
++              primaryTrigger: regView.primaryTrigger,
++              operationalSignals: regView.operationalSignals,
++              roundOutputs: deps.getRoundOutputs?.(state.presetConfigSnapshot, protocolRound) || [],
++              previousFilter: state.roundFilters?.at?.(-1)?.text || ''
++            });
++        });
++        if (!isInit && state.registry) {
++          deps.recordRegistryRoute?.(state.registry, {
++            mode: 'triad', wave: waveNumber, fromModels: models, toModels: models,
++            reason: 'wave_dispatch', primaryTriggerId: null
++          });
++        }
++        const sanitizedMap = deps.sanitizePromptsByModel?.(promptsByModel) || promptsByModel;
++        if (!sanitizedMap || !models.every((modelName) => sanitizedMap[String(modelName).trim().toUpperCase()])) {
++          transition(state, 'FAILED', { reason: 'prompt_sanitization_failed' });
++          deps.notify?.('Triad: не удалось построить полную карту промптов волны.', 'error');
++          deps.finalizeRuntime?.();
++          return false;
++        }
++        state.currentWaveKind = isInit ? 'init' : 'wave';
++        state.currentWaveKey = waveKey;
++        state.waitingWaveApproval = !options.auto;
++        timeline('Dispatch', {
++          from: 'Moderator', to: models.join('+'),
++          note: isInit ? 'триада: изолированная стартовая волна' : `триада: волна ${waveNumber}`
++        });
++        deps.renderCards?.(state.role, models, { approvalSelectable: !options.auto });
++        deps.tagWaveCards?.(state, waveKey, models);
++        deps.syncVisualState?.();
++        const result = await deps.runModelBatch({
++          prompt: sanitizedMap[String(models[0]).trim().toUpperCase()],
++          promptsByModel,
++          models,
++          attachments: isInit ? (state.attachments || []) : [],
++          forceNewTabs: isInit && options.forceNewTabs !== false,
++          useApiFallback: options.useApiFallback !== false,
++          generationProfile: 'long',
++          context: deps.makeBatchContext?.(state, isInit ? 'triad-w0' : `triad-w${waveNumber}`),
++          signal: options.signal || null
++        });
++        let usableCount = 0;
++        const waveTurns = [];
++        models.forEach((modelName) => {
++          const answer = String(result?.responses?.[modelName] || '').trim();
++          if (answer && !deps.isErrorOutput?.(answer)) {
++            usableCount += 1;
++            waveTurns.push({ turnId: deps.makeTurnId?.(waveKey, modelName), model: modelName, text: answer });
++            transition(state, isInit ? 'TRIAD_INIT_ANSWER' : 'TRIAD_WAVE_ANSWER', {
++              model: modelName, text: answer, ...(isInit ? {} : { wave: waveNumber })
++            });
++            deps.appendFeed?.(modelName, answer, '', { role: state.role, status: 'SUCCESS', finalStatus: 'SUCCESS' });
++            timeline('Response', { from: modelName, to: 'Moderator', note: answer.slice(0, 120) });
++          } else {
++            timeline('Error', { model: modelName, note: isInit ? 'no usable init response' : 'triad wave skipped by model' });
++            if (!isInit) {
++              deps.notify?.(`Triad: ${modelName} пропустила волну ${waveNumber}.`, 'warn');
++              deps.markSkippedCard?.(state, modelName, waveKey);
++            }
++          }
++        });
++        deps.tagWaveCards?.(state, waveKey, models);
++        if (isInit && !deps.fsm?.allInitCaptured?.(state)) {
++          transition(state, 'FAILED', { reason: 'triad_openings_incomplete' });
++          deps.notify?.('Triad: не получены стартовые позиции всех трёх участников.', 'error');
++          deps.finalizeRuntime?.();
++          return false;
++        }
++        if (!isInit && usableCount === 0) {
++          transition(state, 'FAILED', { reason: 'triad_wave_empty' });
++          deps.notify?.('Triad: все три ответа волны пустые или ошибочные.', 'error');
++          deps.finalizeRuntime?.();
++          return false;
++        }
++        const roundFilter = await deps.runRoundFilter?.({
++          topic: state.topic,
++          topology: 'triad',
++          round: protocolRound,
++          outputs: deps.getRoundOutputs?.(state.presetConfigSnapshot, protocolRound) || [],
++          turns: waveTurns,
++          previousFilter: state.roundFilters?.at?.(-1)?.text || '',
++          synthesizer: state.synthesizer || state.models[0],
++          runId: state.runId,
++          signal: options.signal || null
++        });
++        if (roundFilter) state.roundFilters.push(roundFilter);
++        const checkpointEvery = Number(state.checkpointPolicy?.everyWaves || 0);
++        const checkpointDue = state.checkpointPolicy?.enabled && checkpointEvery > 0
++          && protocolRound % checkpointEvery === 0 && protocolRound > Number(state.lastCheckpointAtWave || 0);
++        if (options.registryEnabled && state.registry && checkpointDue) {
++          await deps.runCheckpoint?.(state, { waveKey, waveNumber: protocolRound, turns: waveTurns });
++        }
++        deps.syncState?.(state, 'TRIAD_WAVE_ARTIFACTS_SYNCED');
++        if (options.auto) {
++          deps.markWaveCardsApproved?.(state, waveKey);
++          return runner.completeBarrier(state, options);
++        }
++        deps.updateButtons?.();
++        return true;
++      },
++
++      async finalize(state, options = {}) {
++        if (!state?.active || state.finalWordsRequested) return true;
++        state.finalWordsRequested = true;
++        const api = deps.templates;
++        if (api?.buildTriadFinalWordPrompt) {
++          state.currentWaveKind = 'final';
++          state.currentWaveKey = 'final';
++          deps.syncVisualState?.();
++          timeline('Dispatch', { from: 'Moderator', to: state.models.join('+'), note: 'триада: финальные слова' });
++          deps.renderCards?.(state.role, state.models, { approvalSelectable: false });
++          deps.tagWaveCards?.(state, 'final', state.models);
++          const promptsByModel = Object.fromEntries(state.models.map((modelName) => [
++            modelName,
++            api.buildTriadFinalWordPrompt({
++              topic: state.topic,
++              position: state.positions[modelName] || '',
++              filteredState: deps.formatRoundFilters?.(state.roundFilters) || ''
++            })
++          ]));
++          const result = await deps.runModelBatch({
++            prompt: promptsByModel[state.models[0]],
++            promptsByModel,
++            models: state.models,
++            attachments: [],
++            forceNewTabs: false,
++            useApiFallback: options.useApiFallback !== false,
++            generationProfile: 'long',
++            context: deps.makeBatchContext?.(state, 'triad-final'),
++            signal: options.signal || null
++          });
++          state.models.forEach((modelName) => {
++            const answer = String(result?.responses?.[modelName] || '').trim();
++            if (answer && !deps.isErrorOutput?.(answer)) {
++              state.finalWords[modelName] = answer;
++              deps.appendFeed?.(modelName, answer, '', {
++                role: state.role,
++                status: 'SUCCESS',
++                finalStatus: 'SUCCESS'
++              });
++              timeline('Response', { from: modelName, to: 'Moderator', note: 'финальное слово' });
++            }
++          });
++          deps.markWaveCardsApproved?.(state, 'final');
++        }
++
++        const synthesizer = String(state.synthesizer || state.models[0] || '').trim();
++        if (synthesizer) {
++          const finals = state.models.map((modelName) => ({
++            model: modelName,
++            text: state.finalWords[modelName] || state.positions[modelName] || ''
++          })).filter((entry) => entry.text.trim());
++          const prompt = api?.buildTriadSynthesisPrompt?.({
++            topic: state.topic,
++            finals,
++            roundFilters: state.roundFilters
++          }) || '';
++          if (prompt) {
++            state.currentWaveKind = 'synthesis';
++            state.currentWaveKey = 'synthesis';
++            deps.syncVisualState?.();
++            timeline('Dispatch', { from: 'Moderator', to: synthesizer, note: 'триада: синтез итогов' });
++            deps.renderCards?.('synthesizer', [synthesizer], { approvalSelectable: false });
++            deps.tagWaveCards?.(state, 'synthesis', [synthesizer]);
++            const result = await deps.runModelBatch({
++              prompt,
++              models: [synthesizer],
++              attachments: [],
++              forceNewTabs: false,
++              useApiFallback: options.useApiFallback !== false,
++              generationProfile: 'long',
++              context: deps.makeBatchContext?.(state, 'triad-synthesis'),
++              signal: options.signal || null
++            });
++            const answer = String(result?.responses?.[synthesizer] || '').trim();
++            if (answer && !deps.isErrorOutput?.(answer)) {
++              state.synthesisText = answer;
++              deps.appendVerdict?.(answer, { title: 'Final Synthesis', source: `triad:${synthesizer}` });
++              timeline('Response', { from: synthesizer, to: 'Moderator', note: 'синтез итогов' });
++            }
++            deps.markWaveCardsApproved?.(state, 'synthesis');
++          }
++        }
++
++        if (!state.synthesisText) {
++          transition(state, 'FAILED', { reason: 'final_synthesis_missing' });
++          await deps.notifyControl?.('FAILED', { stage: 'failed', reason: 'final_synthesis_missing' });
++          deps.notify?.(`Triad: обязательный Final Synthesis${synthesizer ? ` от ${synthesizer}` : ''} не получен.`, 'error');
++          deps.finalizeRuntime?.();
++          return false;
++        }
++        state.currentWaveKind = '';
++        state.currentWaveKey = '';
++        transition(state, 'COMPLETED', { reason: 'final_synthesis_completed' });
++        timeline('Completed', { note: `triad wave limit reached (${state.maxWaves})` });
++        await deps.notifyControl?.('COMPLETED', { stage: 'completed' });
++        await deps.handleTerminalOutputs?.(state, 'triad');
++        deps.finalizeRuntime?.();
++        return true;
++      },
++
++      async advance(state, options = {}) {
++        if (!state?.active) return false;
++        if (deps.hasReachedWaveLimit?.(state)) return runner.finalize(state, options);
++        if (options.auto && options.paused) {
++          state.pendingWaveContinuation = { wave: Number(state.wave || 0) + 1 };
++          deps.markPaused?.(state);
++          deps.syncState?.(state, 'TRIAD_PAUSED');
++          timeline('Paused', { note: 'auto triad paused by moderator' });
++          deps.updateButtons?.();
++          return true;
++        }
++        transition(state, 'RUNNING');
++        return typeof deps.dispatchWave === 'function'
++          ? deps.dispatchWave('wave')
++          : runner.dispatchWave(state, 'wave', options);
++      },
++
++      async completeBarrier(state, options = {}) {
++        if (!state?.active || !state.currentWaveKind) return false;
++        if (state.currentWaveKind === 'wave') transition(state, 'TRIAD_WAVE_COMPLETED');
++        else state.waitingWaveApproval = false;
++        state.currentWaveKind = '';
++        state.currentWaveKey = '';
++        return runner.advance(state, options);
++      }
++    });
++
++    return runner;
++  }
++
++  const api = Object.freeze({ createTriadRunner });
++  root.TriadRunner = api;
++  if (typeof module !== 'undefined' && module.exports) module.exports = api;
++})(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this));
+
+## disput/multi-runner.js
+User-facing description: Волновая orchestration Multi и обязательный final synthesis с reuse вкладок.
+
+--- /dev/null
++++ b/disput/multi-runner.js
+@@ -0,0 +1,161 @@
++// Application-level sequencing for the Multi topology.
++(function initMultiRunner(root) {
++  'use strict';
++
++  function createMultiRunner(deps = {}) {
++    const now = typeof deps.now === 'function' ? deps.now : Date.now;
++    const timeline = typeof deps.timeline === 'function' ? deps.timeline : () => {};
++    const transition = (state, type, payload = {}) => deps.transition?.(state, { type, payload }) || state;
++
++    return Object.freeze({
++      async start(input = {}) {
++        const selected = (input.selectedModels || []).slice();
++        if (selected.length < 2) {
++          deps.notify?.('Multi: выберите минимум две модели в шапке.', 'warn');
++          return false;
++        }
++        if (input.otherTopologyActive) {
++          deps.notify?.('Диспут уже идёт. Остановите текущий запуск перед новым.', 'warn');
++          return false;
++        }
++        const preset = input.presetConfig || {};
++        const synthesizer = String(input.synthesizer || selected[0]).trim() || selected[0];
++        const maxWaves = Math.max(1, Math.min(50, Number(preset.waveLimit ?? input.waveLimit) || 1));
++        const state = deps.protocol.createState({
++          runId: input.runContext?.pipelineRunId,
++          sessionId: input.runContext?.sessionId,
++          topic: input.pipelineNameText,
++          role: input.role || '',
++          models: selected,
++          synthesizer,
++          waveLimit: maxWaves,
++          roundPlan: Array.isArray(preset.roundPlan) ? preset.roundPlan : [],
++          presetId: preset.presetId || 'MULTI_STANDARD',
++          duration: preset.duration || 'fixed',
++          terminationOwner: preset.terminationOwner || 'runtime',
++          finalizationPolicy: preset.finalizationPolicy || 'auto_after_limit',
++          autoMode: preset.runPolicy !== 'manual'
++        });
++        state.registry = input.registryEnabled ? deps.createRegistry?.({ mode: 'multi' }) || null : null;
++        deps.setState?.(state);
++        transition(state, 'RUNNING');
++        deps.replaceAggregateState?.(state);
++        deps.appendModerator?.(input.moderatorEntryText);
++        deps.clearModerator?.();
++        deps.setRunPresentation?.({ activeRole: input.role || '', maxTurns: maxWaves });
++
++        let previousTurns = [];
++        for (let wave = 1; wave <= maxWaves; wave += 1) {
++          if (input.signal?.aborted) throw new DOMException('Pipeline run cancelled', 'AbortError');
++          transition(state, 'MULTI_BEGIN_WAVE', { wave });
++          deps.syncVisualState?.();
++          const promptsByModel = selected.reduce((acc, modelName, index) => {
++            acc[modelName] = deps.buildWavePrompt?.({
++              topic: input.pipelineNameText,
++              wave,
++              maxWaves,
++              modelName,
++              role: deps.resolveRole?.(index) || '',
++              previousTurns,
++              roundOutputs: state.roundPlan.find((entry) => Number(entry?.round) === wave)?.outputs || [],
++              previousFilter: state.roundFilters.at(-1)?.text || ''
++            });
++            return acc;
++          }, {});
++          timeline('Dispatch', { from: 'Moderator', to: selected.join('+'), note: `multi wave ${wave}/${maxWaves}` });
++          deps.renderCards?.(input.role || '', selected, { approvalSelectable: false });
++          const result = await deps.runModelBatch({
++            prompt: promptsByModel[selected[0]],
++            promptsByModel,
++            models: selected,
++            attachments: wave === 1 ? (input.attachmentsPayload || []) : [],
++            forceNewTabs: wave === 1 && input.forceNewTabs,
++            useApiFallback: input.useApiFallback,
++            generationProfile: 'long',
++            context: {
++              ...(input.runContext || {}),
++              pipelineRoundId: `multi-r${wave}`,
++              pipelineBatchId: `${state.runId}:multi-r${wave}:${now()}`
++            },
++            signal: input.signal
++          });
++          const waveTurns = selected.map((modelName) => ({
++            model: modelName,
++            text: String(result?.responses?.[modelName] || '').trim()
++          })).filter((entry) => entry.text && !deps.isErrorOutput?.(entry.text));
++          waveTurns.forEach((entry) => {
++            deps.appendFeed?.(entry.model, entry.text, '', { role: input.role || '', status: 'SUCCESS', finalStatus: 'SUCCESS' });
++            timeline('Response', { from: entry.model, to: 'Moderator', note: `multi wave ${wave}` });
++          });
++          transition(state, 'MULTI_WAVE_COMPLETED', { turns: waveTurns });
++          previousTurns = waveTurns.length ? waveTurns : previousTurns;
++          if (!waveTurns.length) throw new Error(`Multi wave ${wave} produced no usable responses`);
++
++          const roundFilter = await deps.runRoundFilter?.({
++            topic: input.pipelineNameText,
++            topology: 'multi',
++            round: wave,
++            outputs: deps.getRoundOutputs?.(preset, wave) || [],
++            turns: waveTurns,
++            previousFilter: state.roundFilters.at(-1)?.text || '',
++            synthesizer,
++            runId: state.runId,
++            signal: input.signal
++          });
++          if (roundFilter) state.roundFilters.push(roundFilter);
++          if (state.registry) {
++            await deps.runCheckpoint?.(state, { waveKey: state.currentWaveKey, waveNumber: wave, turns: waveTurns });
++          }
++          deps.syncState?.(state, 'MULTI_WAVE_ARTIFACTS_SYNCED');
++          if (preset.runPolicy === 'manual' || input.isPaused?.()) {
++            await deps.waitForContinuation?.(input.signal, preset.runPolicy === 'manual' ? `multi_r${wave}_approval` : 'multi_paused');
++          }
++        }
++
++        const synthesisPrompt = deps.buildFinalSynthesisPrompt?.({
++          topic: input.pipelineNameText,
++          synthesizer,
++          turns: state.responsesByWave.flat(),
++          roundFilters: state.roundFilters
++        });
++        transition(state, 'MULTI_BEGIN_SYNTHESIS');
++        deps.syncVisualState?.();
++        timeline('Dispatch', { from: 'Moderator', to: synthesizer, note: 'multi: Final Synthesis' });
++        deps.renderCards?.('synthesizer', [synthesizer], { approvalSelectable: false });
++        const synthesisResult = await deps.runModelBatch({
++          prompt: synthesisPrompt,
++          models: [synthesizer],
++          attachments: [],
++          forceNewTabs: false,
++          useApiFallback: input.useApiFallback,
++          generationProfile: 'long',
++          context: {
++            ...(input.runContext || {}),
++            pipelineRoundId: 'multi-synthesis',
++            pipelineBatchId: `${state.runId}:multi-synthesis:${now()}`
++          },
++          signal: input.signal
++        });
++        const synthesisAnswer = String(synthesisResult?.responses?.[synthesizer] || '').trim();
++        if (!synthesisAnswer || deps.isErrorOutput?.(synthesisAnswer)) {
++          deps.notify?.(`Multi: обязательный Final Synthesis от ${synthesizer} не получен.`, 'error');
++          throw new Error('multi_final_synthesis_missing');
++        }
++        transition(state, 'MULTI_SYNTHESIS_RECORDED', { text: synthesisAnswer });
++        deps.appendVerdict?.(synthesisAnswer, { title: 'Final Synthesis', source: `multi:${synthesizer}` });
++        timeline('Response', { from: synthesizer, to: 'Moderator', note: 'multi: Final Synthesis' });
++        timeline('Completed', { note: `multi wave limit reached (${maxWaves})` });
++        transition(state, 'COMPLETED');
++        deps.recordFinalization?.({ synthesis: true });
++        await deps.notifyControl?.('COMPLETED', { stage: 'completed' });
++        await deps.handleTerminalOutputs?.(state, 'multi');
++        deps.finalizeRuntime?.();
++        return true;
++      }
++    });
++  }
++
++  const api = Object.freeze({ createMultiRunner });
++  root.MultiRunner = api;
++  if (typeof module !== 'undefined' && module.exports) module.exports = api;
++})(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this));
+
+## background/job-orchestrator.js — Debate prompt dispatch supplement
+User-facing description: Additional post-2.80.176 hunks that resolve promptsByModel at Round 1, repair, collection and resend boundaries. The larger general-runtime 2.80.175→current diff for this file is stored in archive 02.
+
+--- a-2.80.176/background/job-orchestrator.js
++++ b/background/job-orchestrator.js
+@@ -1204,6 +1204,10 @@
+       sessionId: meta?.sessionId || getCurrentRunSessionId(),
+       runSessionId: meta?.runSessionId || meta?.sessionId || getCurrentRunSessionId(),
+       dispatchId: meta?.dispatchId || entry?.lastDispatchMeta?.dispatchId || null,
++      tabId: meta?.tabId || entry?.runIdentity?.tabId || entry?.tabId || null,
++      tabSessionId: meta?.tabSessionId || entry?.runIdentity?.tabSessionId || null,
++      contentScriptInstanceId: meta?.contentScriptInstanceId || entry?.runIdentity?.contentScriptInstanceId || null,
++      navigationSeq: meta?.navigationSeq || entry?.runIdentity?.navigationSeq || null,
+       responseMeta: {
+         ...(incomingResponseMeta || {}),
+         source: incomingResponseMeta.source || meta?.source || result.source || 'late_collect',
+@@ -4298,12 +4302,16 @@
+   broadcastHumanVisitStatus();
+ 
+   void runDispatchRounds(selectedLLMs, prompt, forceNewTabs, attachments);
++}
++
++function resolvePromptForDispatch(llmName, fallbackPrompt = '') {
++  return self.TransportPolicy?.resolvePromptForModel
++    ? self.TransportPolicy.resolvePromptForModel(jobState?.session?.promptsByModel, llmName, fallbackPrompt)
++    : fallbackPrompt;
+ }
+ 
+ function startModelForLLM(llmName, prompt, forceNewTabs, attachments = [], options = {}) {
+-  prompt = self.TransportPolicy?.resolvePromptForModel
+-    ? self.TransportPolicy.resolvePromptForModel(jobState?.session?.promptsByModel, llmName, prompt)
+-    : prompt;
++  prompt = resolvePromptForDispatch(llmName, prompt);
+   const sessionId = options.sessionId || getActiveSessionId();
+   const chain = llmStartChains[llmName] || Promise.resolve();
+   llmStartChains[llmName] = chain.then(async () => {
+@@ -4725,7 +4733,8 @@
+     const dispatchTab = await getTabSafe(tabId);
+     initRequestMetadata(llmName, tabId, dispatchTab?.url || dispatchTab?.pendingUrl || '');
+     //- 1.1. Round 1: режим "Спринт". Не ждем подтверждения, чтобы Gemini и Claude получили промпт мгновенно -//
+-    await dispatchPromptToTab(llmName, tabId, prompt, attachments, 'round1', {
++    const modelPrompt = resolvePromptForDispatch(llmName, prompt);
++    await dispatchPromptToTab(llmName, tabId, modelPrompt, attachments, 'round1', {
+       forceFocus: true,
+       skipNoFocusProbe: true,
+       skipFocusRestore: true,
+@@ -5195,7 +5204,7 @@
+               entry.dispatchState = 'IDLE';
+               entry.csBusyUntil = 0;
+             }
+-            await dispatchPromptToTab(llmName, tabId, jobState.prompt, jobState.attachments || [], 'round2_repair_pre_visit', {
++            await dispatchPromptToTab(llmName, tabId, resolvePromptForDispatch(llmName, jobState.prompt), jobState.attachments || [], 'round2_repair_pre_visit', {
+               forceFocus: true,
+               skipNoFocusProbe: true,
+               deferSendMs: 250,
+@@ -5397,7 +5406,7 @@
+               entry.dispatchState = 'IDLE';
+               entry.csBusyUntil = 0;
+             }
+-            await dispatchPromptToTab(llmName, tabId, jobState.prompt, jobState.attachments || [], 'round2_repair', {
++            await dispatchPromptToTab(llmName, tabId, resolvePromptForDispatch(llmName, jobState.prompt), jobState.attachments || [], 'round2_repair', {
+               forceFocus: true,
+               skipNoFocusProbe: true,
+               deferSendMs: 500,
+@@ -5764,7 +5773,7 @@
+     const alreadySent = flags ? flags.isSent : !!entry.messageSent;
+     const boundTabId = resolveBoundTabIdForOrchestrator(llmName, entry);
+     if (boundTabId && !alreadySent) {
+-      dispatchPromptToTab(llmName, boundTabId, jobState.prompt, jobState.attachments || [], 'collect_responses');
++      dispatchPromptToTab(llmName, boundTabId, resolvePromptForDispatch(llmName, jobState.prompt), jobState.attachments || [], 'collect_responses');
+     }
+   });
+   broadcastHumanVisitStatus();
+@@ -8172,7 +8181,7 @@
+   if (machine) {
+     machine.reset();
+   }
+-  dispatchPromptToTab(llmName, tabId, prompt, jobState.attachments || [], 'manual_resend', {
++  dispatchPromptToTab(llmName, tabId, resolvePromptForDispatch(llmName, prompt), jobState.attachments || [], 'manual_resend', {
+     recoveryIntent: 'resend_prompt'
+   });
+   return { status: 'manual_resend_dispatched' };
+
+## Architecture regression tests
+User-facing description: Focused tests for application ownership, topology sequencing, synthesis and tab reuse.
+
+### tests/debate-application.test.js
+User-facing description: Контракт application facade и topology delegation.
+
+--- /dev/null
++++ b/tests/debate-application.test.js
+@@ -0,0 +1,59 @@
++const RunStore = require('../disput/debate-run-store');
++const DebateApplication = require('../disput/debate-application');
++
++describe('DebateApplication', () => {
++  test('selects a topology runner and starts the canonical aggregate', async () => {
++    const store = RunStore.createStore();
++    const runner = { start: jest.fn().mockResolvedValue('done') };
++    const application = DebateApplication.createApplication({
++      store,
++      runners: { duel: runner },
++      deps: { createId: () => 'run-1' }
++    });
++    await expect(application.start({ topology: 'duel', sessionId: 'session-1' })).resolves.toBe('done');
++    expect(runner.start).toHaveBeenCalledWith(expect.objectContaining({ runId: 'run-1', topology: 'duel', store }));
++    expect(store.getState()).toMatchObject({ runId: 'run-1', sessionId: 'session-1', topology: 'duel', status: 'running' });
++  });
++
++  test('keeps the page compatibility entry point behind one dependency', async () => {
++    const legacyStart = jest.fn().mockResolvedValue(true);
++    const application = DebateApplication.createApplication({ deps: { legacyStart } });
++    await application.startFromPage('from-ui');
++    expect(legacyStart).toHaveBeenCalledWith('from-ui');
++  });
++
++  test('ignores stale cancellation after a runner already completed', async () => {
++    const store = RunStore.createStore();
++    const runner = {
++      start: jest.fn(({ store: activeStore }) => {
++        activeStore.dispatch({ type: RunStore.EVENTS.FINALIZATION_COMPLETED });
++      }),
++      cancel: jest.fn()
++    };
++    const application = DebateApplication.createApplication({ store, runners: { duel: runner } });
++    await application.start({ topology: 'duel', runId: 'run-1' });
++    await application.cancel('late');
++    expect(store.getState().status).toBe('completed');
++  });
++
++  test('runner failure closes both protocol and aggregate state', async () => {
++    const store = RunStore.createStore();
++    const protocol = {
++      createState: () => ({ active: true, status: 'running' }),
++      reduce: (state, event) => event.type === 'FAILED'
++        ? { ...state, active: false, status: 'error', stopReason: event.payload.reason }
++        : state
++    };
++    const application = DebateApplication.createApplication({
++      store,
++      protocols: { topologyOf: () => 'duel', getProtocol: () => protocol },
++      runners: { duel: { start: jest.fn().mockRejectedValue(new Error('runner_failed')) } }
++    });
++    await expect(application.start({ topology: 'duel', runId: 'run-fail', protocolState: protocol.createState() }))
++      .rejects.toThrow('runner_failed');
++    expect(store.getState()).toMatchObject({
++      status: 'error',
++      protocolState: { active: false, status: 'error', stopReason: 'runner_failed' }
++    });
++  });
++});
+
+### tests/debate-execution-context.test.js
+User-facing description: Контракт ownership abort/waiter ресурсов.
+
+--- /dev/null
++++ b/tests/debate-execution-context.test.js
+@@ -0,0 +1,27 @@
++const ExecutionContext = require('../disput/debate-execution-context');
++
++describe('DebateExecutionContext', () => {
++  test('owns approval waiters and volatile locks for one run', () => {
++    const context = ExecutionContext.createExecutionContext();
++    const resolved = jest.fn();
++    context.begin('run-1');
++    context.setApprovalWaiter({ resolve: resolved });
++    expect(context.lock('routing')).toBe(true);
++    expect(context.lock('routing')).toBe(false);
++    expect(context.resolveApproval({ id: 'turn-1' })).toBe(true);
++    expect(resolved).toHaveBeenCalledWith({ id: 'turn-1' });
++    expect(context.unlock('routing')).toBe(true);
++  });
++
++  test('disposing aborts and rejects pending approval', () => {
++    const context = ExecutionContext.createExecutionContext();
++    const rejected = jest.fn();
++    context.begin('run-1');
++    context.setApprovalWaiter({ reject: rejected });
++    const signal = context.signal();
++    context.dispose('closed');
++    expect(signal.aborted).toBe(true);
++    expect(rejected).toHaveBeenCalledWith('closed');
++    expect(context.get()).toBeNull();
++  });
++});
+
+### tests/debate-run-services.test.js
+User-facing description: Контракт общих run services и terminal outputs.
+
+--- /dev/null
++++ b/tests/debate-run-services.test.js
+@@ -0,0 +1,42 @@
++const RunServices = require('../disput/debate-run-services');
++
++describe('DebateRunServices', () => {
++  test('builds and dispatches a correlated round filter', async () => {
++    const runModelBatch = jest.fn().mockResolvedValue({ responses: { GPT: 'usable filter' } });
++    const timeline = jest.fn();
++    const services = RunServices.createRunServices({
++      promptCatalog: { buildRoundFilter: jest.fn().mockReturnValue('filter prompt') },
++      runModelBatch,
++      timeline,
++      now: () => 42
++    });
++    await expect(services.runRoundFilter({
++      topic: 'T', topology: 'triad', round: 2, outputs: ['risks'], turns: [{ text: 'x' }],
++      synthesizer: 'GPT', runId: 'run-1', context: { pipelineRunId: 'run-1' }
++    })).resolves.toEqual({ round: 2, outputs: ['risks'], text: 'usable filter', synthesizer: 'GPT' });
++    expect(runModelBatch).toHaveBeenCalledWith(expect.objectContaining({
++      prompt: 'filter prompt',
++      context: expect.objectContaining({ pipelineRoundId: 'triad-filter-r2', pipelineBatchId: 'run-1:triad:filter:r2:42' })
++    }));
++    expect(timeline).toHaveBeenCalledTimes(2);
++  });
++
++  test('rejects an unusable filter response', async () => {
++    const services = RunServices.createRunServices({
++      promptCatalog: { buildRoundFilter: () => 'prompt' },
++      runModelBatch: async () => ({ responses: { GPT: 'ERROR' } }),
++      isErrorOutput: (text) => text === 'ERROR'
++    });
++    await expect(services.runRoundFilter({
++      topology: 'duel', round: 1, outputs: ['summary'], turns: [{}], synthesizer: 'GPT', runId: 'r'
++    })).rejects.toThrow('returned no usable result');
++  });
++
++  test('runs terminal outputs once per run', async () => {
++    const handleOutputs = jest.fn().mockResolvedValue(undefined);
++    const services = RunServices.createRunServices({ handleOutputs });
++    await expect(services.handleTerminalOutputs({ runId: 'r1', result: { ok: true } })).resolves.toBe(true);
++    await expect(services.handleTerminalOutputs({ runId: 'r1', result: { ok: true } })).resolves.toBe(false);
++    expect(handleOutputs).toHaveBeenCalledTimes(1);
++  });
++});
+
+### tests/duel-runner.test.js
+User-facing description: Сценарные проверки Duel runner.
+
+--- /dev/null
++++ b/tests/duel-runner.test.js
+@@ -0,0 +1,49 @@
++const DuelRunner = require('../disput/duel-runner');
++
++const makeState = () => ({
++  active: true,
++  runId: 'run-1',
++  modelA: 'GPT',
++  modelB: 'Claude',
++  synthesizer: 'GPT'
++});
++
++describe('DuelRunner finalization', () => {
++  test('collects final words and completes only after mandatory synthesis', async () => {
++    const transition = jest.fn();
++    const terminal = jest.fn();
++    const runModelBatch = jest.fn(({ context, models }) => Promise.resolve({
++      responses: { [models[0]]: context.pipelineRoundId === 'duel-final-synthesis' ? 'synthesis' : `final ${models[0]}` }
++    }));
++    const runner = DuelRunner.createDuelRunner({
++      runModelBatch,
++      buildFinalWordPrompt: (_, model) => `final for ${model}`,
++      buildFinalSynthesisPrompt: () => 'synth prompt',
++      transition,
++      handleTerminalOutputs: terminal,
++      getRoundLimit: () => 3,
++      now: () => 10
++    });
++    const state = makeState();
++    await expect(runner.requestFinalWords(state)).resolves.toBe(true);
++    expect(state).toMatchObject({ finalWordA: 'final GPT', finalWordB: 'final Claude', synthesisText: 'synthesis' });
++    expect(transition).toHaveBeenLastCalledWith(state, { type: 'COMPLETED', payload: { reason: 'final_synthesis_completed' } });
++    expect(terminal).toHaveBeenCalledWith(state, 'duel');
++  });
++
++  test('fails when synthesis is missing', async () => {
++    const transition = jest.fn();
++    const notifyControl = jest.fn();
++    const runner = DuelRunner.createDuelRunner({
++      runModelBatch: async ({ models }) => ({ responses: { [models[0]]: '' } }),
++      buildFinalWordPrompt: () => '',
++      buildFinalSynthesisPrompt: () => 'synth prompt',
++      transition,
++      notifyControl
++    });
++    const state = makeState();
++    await expect(runner.requestFinalWords(state)).resolves.toBe(false);
++    expect(transition).toHaveBeenCalledWith(state, { type: 'FAILED', payload: { reason: 'final_synthesis_missing' } });
++    expect(notifyControl).toHaveBeenCalledWith('FAILED', expect.any(Object));
++  });
++});
+
+### tests/triad-runner.test.js
+User-facing description: Сценарные проверки Triad runner и fallback prompt.
+
+--- /dev/null
++++ b/tests/triad-runner.test.js
+@@ -0,0 +1,36 @@
++const TriadRunner = require('../disput/triad-runner');
++const fs = require('fs');
++const path = require('path');
++
++describe('TriadRunner', () => {
++  test('never uses an empty shared prompt for a promptsByModel wave', () => {
++    const source = fs.readFileSync(path.join(__dirname, '..', 'disput', 'triad-runner.js'), 'utf8');
++    expect(source).not.toContain("prompt: '',\n          promptsByModel");
++    expect(source).toContain('prompt: sanitizedMap[String(models[0]).trim().toUpperCase()]');
++  });
++
++  test('completes a wave barrier before dispatching the next wave', async () => {
++    const transition = jest.fn();
++    const dispatchWave = jest.fn().mockResolvedValue(true);
++    const runner = TriadRunner.createTriadRunner({ transition, dispatchWave, hasReachedWaveLimit: () => false });
++    const state = { active: true, currentWaveKind: 'wave', currentWaveKey: 'wave-1' };
++    await expect(runner.completeBarrier(state)).resolves.toBe(true);
++    expect(transition).toHaveBeenNthCalledWith(1, state, { type: 'TRIAD_WAVE_COMPLETED', payload: {} });
++    expect(transition).toHaveBeenNthCalledWith(2, state, { type: 'RUNNING', payload: {} });
++    expect(dispatchWave).toHaveBeenCalledWith('wave');
++  });
++
++  test('does not complete without mandatory synthesis', async () => {
++    const transition = jest.fn();
++    const finalizeRuntime = jest.fn();
++    const runner = TriadRunner.createTriadRunner({
++      templates: {}, transition, finalizeRuntime, notifyControl: jest.fn()
++    });
++    const state = {
++      active: true, models: ['A', 'B', 'C'], positions: {}, finalWords: {}, roundFilters: [], synthesizer: 'C'
++    };
++    await expect(runner.finalize(state)).resolves.toBe(false);
++    expect(transition).toHaveBeenCalledWith(state, { type: 'FAILED', payload: { reason: 'final_synthesis_missing' } });
++    expect(finalizeRuntime).toHaveBeenCalled();
++  });
++});
+
+### tests/multi-runner.test.js
+User-facing description: Сценарные проверки Multi runner и synthesis.
+
+--- /dev/null
++++ b/tests/multi-runner.test.js
+@@ -0,0 +1,58 @@
++const MultiFSM = require('../disput/multi-runtime');
++const MultiRunner = require('../disput/multi-runner');
++
++describe('MultiRunner', () => {
++  test('runs waves and mandatory synthesis', async () => {
++    const terminal = jest.fn();
++    const setState = jest.fn();
++    const runModelBatch = jest.fn(({ context, models }) => Promise.resolve({
++      responses: Object.fromEntries(models.map((model) => [model, context.pipelineRoundId === 'multi-synthesis' ? 'synthesis' : `wave:${model}`]))
++    }));
++    const runner = MultiRunner.createMultiRunner({
++      protocol: { createState: MultiFSM.createState },
++      setState,
++      transition: (state, event) => {
++        if (event.type === 'MULTI_BEGIN_WAVE') MultiFSM.beginWave(state, event.payload.wave);
++        if (event.type === 'MULTI_WAVE_COMPLETED') MultiFSM.recordWave(state, event.payload.turns);
++        if (event.type === 'MULTI_BEGIN_SYNTHESIS') MultiFSM.beginSynthesis(state);
++        if (event.type === 'MULTI_SYNTHESIS_RECORDED') MultiFSM.recordSynthesis(state, event.payload.text);
++        if (event.type === 'COMPLETED') MultiFSM.markCompleted(state);
++        return state;
++      },
++      buildWavePrompt: ({ modelName }) => `wave for ${modelName}`,
++      buildFinalSynthesisPrompt: () => 'synthesis prompt',
++      runModelBatch,
++      runRoundFilter: async () => null,
++      handleTerminalOutputs: terminal,
++      now: () => 1
++    });
++    await expect(runner.start({
++      selectedModels: ['GPT', 'Claude'], synthesizer: 'GPT', pipelineNameText: 'Topic',
++      runContext: { pipelineRunId: 'r1', sessionId: 's1' }, presetConfig: { waveLimit: 1 }
++    })).resolves.toBe(true);
++    expect(setState).toHaveBeenCalled();
++    expect(runModelBatch).toHaveBeenCalledTimes(2);
++    expect(runModelBatch.mock.calls[0][0].forceNewTabs).toBeFalsy();
++    expect(runModelBatch.mock.calls[1][0].forceNewTabs).toBe(false);
++    expect(terminal).toHaveBeenCalledWith(expect.objectContaining({ synthesisText: 'synthesis' }), 'multi');
++  });
++
++  test('rejects a missing synthesis', async () => {
++    const runner = MultiRunner.createMultiRunner({
++      protocol: { createState: MultiFSM.createState },
++      transition: (state, event) => {
++        if (event.type === 'MULTI_BEGIN_WAVE') MultiFSM.beginWave(state, event.payload.wave);
++        if (event.type === 'MULTI_WAVE_COMPLETED') MultiFSM.recordWave(state, event.payload.turns);
++        if (event.type === 'MULTI_BEGIN_SYNTHESIS') MultiFSM.beginSynthesis(state);
++        return state;
++      },
++      buildWavePrompt: () => 'wave',
++      buildFinalSynthesisPrompt: () => 'synthesis',
++      runModelBatch: async ({ context, models }) => ({ responses: { [models[0]]: context.pipelineRoundId === 'multi-synthesis' ? '' : 'wave' } }),
++      runRoundFilter: async () => null
++    });
++    await expect(runner.start({
++      selectedModels: ['A', 'B'], pipelineNameText: 'T', runContext: { pipelineRunId: 'r' }, presetConfig: { waveLimit: 1 }
++    })).rejects.toThrow('multi_final_synthesis_missing');
++  });
++});
+
+## docs/debate-architecture.md
+User-facing description: Normative module ownership, state flow, shared transport and tab-reuse documentation relative to the verified 2.80.175 baseline.
+
+--- a/docs/debate-architecture.md
++++ b/docs/debate-architecture.md
+@@ -157,14 +157,51 @@
+ Background owns delivery, not debate semantics:
+ 
+ - `PipelineRunState` constructs execution state;
+-- `PipelineFSM` owns dispatch/control transitions and persistence;
++- `PipelineFSM` owns dispatch/control transitions and derives aggregate
++  completion from all required model finals;
+ - `PipelineMessageHandlers` owns cancellation and control messages;
+-- job orchestration owns tabs, retries, collection and provider recovery.
++- `TabMapManager` is the only writer of model-to-tab bindings;
++- `ModelRunState` is the only writer of per-model status transitions;
++- job orchestration owns the active-run snapshot, collection, versioned
++  persistence and provider recovery; `RecoveryPolicy` owns automatic recovery
++  decisions.
+ 
++This is ownership per fact, not one global physical store. Provider DOM
++evidence remains authoritative in the content runtime, while background is
++authoritative for accepted run state and terminal decisions. Compatibility
++fields exposed to older UI code are read-only projections.
++
+ `pipelineRunId`, `pipelineRoundId` and `pipelineBatchId` correlate page protocol
+ effects with background execution. Background must not inspect topology roles,
+ round prompts or registry artifacts.
+ 
++Debate uses the same `START_FULLPAGE_PROCESS`, `TabMapManager` and provider
++dispatch path as the main page. A batch may carry `promptsByModel`; the
++background resolves that map at the final dispatch boundary for every model,
++including Round 1, recovery, collection retry and manual resend. The shared
++`prompt` is only a compatibility fallback and must never replace an available
++model-specific prompt. A Debate run may request fresh tabs for its initial
++batch; later Duel turns, Triad waves/finalization and Multi waves/synthesis
++reuse the model bindings owned by background. Topology runners do not own or
++cache browser tab ids.
++
++Accepted answers have two equivalent delivery channels from background to the
++page: the live `LLM_PARTIAL_RESPONSE`/final message and the durable answer in
++`GLOBAL_STATE_BROADCAST`. The latter must hydrate both the visible Debate card
++and `pipelineWaiter`; otherwise a missed live message leaves the topology
++runner blocked despite a persisted terminal answer. A status-indicator recovery
++request first republishes the accepted answer for the active run, then may scan
++the provider DOM for a newer candidate. The DOM scan is an upgrade mechanism,
++not a prerequisite for restoring already accepted state.
++
++The shared completion path requires the same full identity on dispatch,
++lifecycle completion and answer events: run/dispatch ids plus tab session,
++content-script instance and navigation sequence. `ContentUtils` decorates
++`LLM_RESPONSE_READY` at emission time. Trusted background DOM recovery copies
++the active model entry identity into the recovered finalization event. Identity
++validation remains fail-closed for provider-tab messages; recovery code must
++not satisfy it by weakening or bypassing the validator.
++
+ ## Presets and prompts
+ 
+ `PipelinePresets` is the only built-in preset catalog. It owns topology,
+
+## tests/prompts-by-model.test.js
+User-facing description: Regression guard for model-specific prompt resolution at the actual background dispatch boundary.
+
+--- a/tests/prompts-by-model.test.js
++++ b/tests/prompts-by-model.test.js
+@@ -1,4 +1,6 @@
+ const TransportPolicy = require('../shared/transport-policy');
++const fs = require('fs');
++const path = require('path');
+ 
+ describe('TransportPolicy promptsByModel', () => {
+   test('sanitizePromptsByModel rejects non-object inputs', () => {
+@@ -43,4 +45,27 @@
+     expect(TransportPolicy.resolvePromptForModel({ GPT: 'GPT prompt' }, 'Claude', 'fallback')).toBe('fallback');
+     expect(TransportPolicy.resolvePromptForModel({ CLAUDE: '   ' }, 'Claude', 'fallback')).toBe('fallback');
+   });
++
++  test('background resolves the model prompt at the actual dispatch boundary', () => {
++    const source = fs.readFileSync(path.join(__dirname, '..', 'background', 'job-orchestrator.js'), 'utf8');
++    const round1 = source.slice(
++      source.indexOf('async function dispatchRound1Sequentially'),
++      source.indexOf('async function verifyRound2Sequentially')
++    );
++    expect(round1).toContain('const modelPrompt = resolvePromptForDispatch(llmName, prompt);');
++    expect(round1).toContain("dispatchPromptToTab(llmName, tabId, modelPrompt, attachments, 'round1'");
++    expect(source).toContain("resolvePromptForDispatch(llmName, jobState.prompt), jobState.attachments || [], 'round2_repair'");
++  });
++
++  test('global-state answer recovery also settles the active Debate batch', () => {
++    const source = fs.readFileSync(path.join(__dirname, '..', 'results.js'), 'utf8');
++    const syncBlock = source.slice(
++      source.indexOf('function syncStatusFromGlobalState'),
++      source.indexOf('// --- END STATUS INDICATOR LOGIC ---')
++    );
++    expect(syncBlock).toContain('if (answerVisible && entry?.finalStatusRecorded)');
++    expect(syncBlock).toContain("type: 'LLM_FINAL_RESPONSE'");
++    expect(syncBlock).toContain("source: 'GLOBAL_STATE_ANSWER_RECOVERY'");
++    expect(syncBlock).toContain('pipelineWaiter.handleFinal');
++  });
+ });
+
+## tests/release-log-regressions.test.js
+User-facing description: Source guard for reusing a bound Duel tab on later turns.
+
+--- a/tests/release-log-regressions.test.js
++++ b/tests/release-log-regressions.test.js
+@@ -181,7 +181,7 @@
+     expect(bootstrap).toContain('window.__stopNewPagesDefaultBootstrap = stopDefaultBootstrap;');
+     expect(source).toContain("typeof window.__stopNewPagesDefaultBootstrap === 'function'");
+     expect(duelRunner).toContain('deps.markNewPageOpened?.(state, scenario.modelA, input.forceNewTabs);');
+-    expect(duelRunner).toContain('deps.markNewPageOpened?.(state, route.targetModel, options.forceNewTabs !== false);');
++    expect(duelRunner).toContain('deps.markNewPageOpened?.(state, route.targetModel, false);');
+     expect(source).toContain('resetNewPagesCheckboxAfterOpen();');
+     expect(source.indexOf('const resetNewPagesCheckboxAfterOpen = () => {')).toBeLessThan(source.indexOf("startButton?.addEventListener('click'"));
+     expect(css).toContain('.top-new-pages-checkbox:checked + .top-toggle-track {\n    background: #1f3b4c;');
+
+## Integration files already present in 2.80.175
+User-facing description: results.js, result_new.html, pipeline_panel.html and manifest wiring for DebateApplication/context/services/runners are already present in the verified rollback folder. They therefore need no architecture patch to survive rollback.
+

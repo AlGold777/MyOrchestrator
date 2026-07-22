@@ -1,0 +1,152 @@
+{
+  "_comment": "Заготовки узлов для ручного прогона Gate 0. Каждый пример валиден по node.schema.json. Скопировать, заменить текст, вести нумерацию n001+ сквозной.",
+  "templates": {
+    "claim_fresh": {
+      "id": "n001",
+      "type": "claim",
+      "text": "<одно атомарное проверяемое утверждение>",
+      "status": "fresh",
+      "edges_in": [],
+      "load_cycles": 0,
+      "origin_cluster": "c01"
+    },
+    "assumption_fresh": {
+      "id": "n002",
+      "type": "assumption",
+      "text": "<неявное допущение, извлечённое из ответа или по D3>",
+      "status": "fresh",
+      "edges_in": [],
+      "load_cycles": 0,
+      "origin_cluster": "c01"
+    },
+    "definition_fresh": {
+      "id": "n003",
+      "type": "definition",
+      "text": "<термин> означает <определение, на которое опираются другие узлы>",
+      "status": "fresh",
+      "edges_in": [],
+      "load_cycles": 0,
+      "origin_cluster": "c02"
+    },
+    "mechanism_fresh": {
+      "id": "n004",
+      "type": "mechanism",
+      "text": "<как именно X приводит к Y — причинная цепочка, а не корреляция>",
+      "status": "fresh",
+      "edges_in": [],
+      "load_cycles": 0,
+      "origin_cluster": "c02"
+    },
+    "value_choice_fresh": {
+      "id": "n005",
+      "type": "value_choice",
+      "text": "<ценностный выбор: что считаем важнее чего и почему>",
+      "status": "fresh",
+      "edges_in": [],
+      "load_cycles": 0,
+      "origin_cluster": "c03"
+    },
+    "claim_attacked": {
+      "id": "n006",
+      "type": "claim",
+      "text": "<утверждение под атакой, ремонт ещё не выполнен>",
+      "status": "attacked",
+      "edges_in": [
+        {
+          "kind": "attack",
+          "from": "n031",
+          "born_wave": 1,
+          "survived_rotation": false,
+          "attack_type": "hidden_assumption",
+          "anchor": { "turn_id": "t014", "quote": "<дословная цитата 1–2 предложения из ответа-атаки>" }
+        }
+      ],
+      "load_cycles": 0,
+      "origin_cluster": "c01"
+    },
+    "claim_contested_fault_line_candidate": {
+      "id": "n007",
+      "type": "claim",
+      "text": "<утверждение, пережившее ≥2 цикла атака↔ремонт без разрешения — кандидат в fault_line>",
+      "status": "contested",
+      "edges_in": [
+        {
+          "kind": "attack",
+          "from": "n032",
+          "born_wave": 1,
+          "survived_rotation": true,
+          "attack_type": "applicability_boundary",
+          "anchor": { "turn_id": "t009", "quote": "<цитата>" }
+        },
+        {
+          "kind": "attack",
+          "from": "n040",
+          "born_wave": 2,
+          "survived_rotation": true,
+          "attack_type": "logic",
+          "anchor": { "turn_id": "t021", "quote": "<цитата>" }
+        }
+      ],
+      "load_cycles": 2,
+      "repair_count": 2,
+      "origin_cluster": "c04"
+    },
+    "claim_stable": {
+      "id": "n008",
+      "type": "claim",
+      "text": "<утверждение, отразившее атаки минимум одной полной волны с ротацией>",
+      "status": "stable",
+      "edges_in": [
+        {
+          "kind": "support",
+          "from": "n012",
+          "born_wave": 1,
+          "survived_rotation": true,
+          "anchor": { "turn_id": "t005", "quote": "<цитата>" }
+        }
+      ],
+      "load_cycles": 2,
+      "origin_cluster": "c01"
+    },
+    "claim_dead": {
+      "id": "n009",
+      "type": "claim",
+      "text": "<убитое утверждение — остаётся в кладбище с причиной>",
+      "status": "dead",
+      "edges_in": [
+        {
+          "kind": "attack",
+          "from": "n033",
+          "born_wave": 1,
+          "survived_rotation": true,
+          "attack_type": "no_source",
+          "anchor": { "turn_id": "t011", "quote": "<цитата>" }
+        }
+      ],
+      "load_cycles": 1,
+      "failure_reason": "no_source: автор атаки запросил источник (A5), подтверждение не получено",
+      "origin_cluster": "c03"
+    },
+    "assumption_with_dependents": {
+      "id": "n010",
+      "type": "assumption",
+      "text": "<общее допущение, извлечённое по D3 из ≥2 атак с общим корнем>",
+      "status": "fresh",
+      "edges_in": [
+        {
+          "kind": "depends_on",
+          "from": "n001",
+          "born_wave": 2,
+          "anchor": { "turn_id": "t018", "quote": "<цитата, показывающая зависимость>" }
+        },
+        {
+          "kind": "depends_on",
+          "from": "n004",
+          "born_wave": 2,
+          "anchor": { "turn_id": "t018", "quote": "<цитата>" }
+        }
+      ],
+      "load_cycles": 0
+    }
+  }
+}

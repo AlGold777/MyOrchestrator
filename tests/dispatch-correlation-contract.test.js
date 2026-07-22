@@ -1,0 +1,35 @@
+const fs = require('fs');
+const path = require('path');
+
+const read = (...parts) => fs.readFileSync(path.join(__dirname, '..', ...parts), 'utf8');
+const Correlation = require('../disput/debate-correlation-guard');
+
+describe('dispatch correlation contract', () => {
+  test('submit waiters are keyed by model and exact dispatch id', () => {
+    const src = read('background', 'dispatch-coordinator.js');
+    expect(src).toContain('modelWaiters?.get?.(String(dispatchId))');
+    expect(src).toContain('waitForPromptSubmitted(llmName, dispatchId, submitTimeoutMs)');
+    expect(src).not.toContain('waitForPromptSubmitted(llmName, submitTimeoutMs)');
+  });
+
+  test('lifecycle events require exact current dispatch and run session', () => {
+    const src = read('background', 'message-router.js');
+    expect(src).toContain('validateLifecycleCorrelation');
+    expect(src).toContain("reason: incomingDispatchId ? 'dispatch_mismatch' : 'missing_dispatch_id'");
+    expect(src).toContain("reason: incomingRunSessionId ? 'run_session_mismatch' : 'missing_run_session_id'");
+    expect(src).toContain("return { ok: false, reason: 'no_bound_tab'");
+  });
+
+  test('mapping changes quarantine the command instead of rerouting stale metadata', () => {
+    const src = read('background', 'dispatch-coordinator.js');
+    expect(src).toContain("'STALE_TAB_COMMAND_QUARANTINED'");
+    expect(src).not.toContain('sendMessageSafely(mappedTabId, llmName, message, attempt)');
+  });
+
+  test('rejects missing and mismatched stage attempt identity', () => {
+    const expected = { pipelineRunId: 'r', pipelineStageId: 'r2:wave', stageAttemptId: 'r2:wave:a2' };
+    expect(Correlation.validate(expected, { pipelineRunId: 'r', pipelineStageId: 'r2:wave' })).toMatchObject({ ok: false, field: 'stageAttemptId', missing: true });
+    expect(Correlation.validate(expected, { ...expected, stageAttemptId: 'r2:wave:a1' })).toMatchObject({ ok: false, field: 'stageAttemptId' });
+    expect(Correlation.validate(expected, expected)).toEqual({ ok: true, reason: '' });
+  });
+});

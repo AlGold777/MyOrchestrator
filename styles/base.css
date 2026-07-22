@@ -1,0 +1,86 @@
+
+@font-face {
+    font-family: "tabler-icons-filled";
+    font-style: normal;
+    font-weight: 400;
+    src: url("https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/fonts/tabler-icons-filled.woff2?v3.44.0") format("woff2"),
+         url("https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/fonts/tabler-icons-filled.woff?v3.44.0") format("woff"),
+         url("https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/fonts/tabler-icons-filled.ttf?v3.44.0") format("truetype");
+}
+
+button i.ti {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    font-size: 16px;
+}
+
+:root {
+    --bg-color: #F8F7F4;
+    --body-bg-color: rgba(0, 0, 0, 0.5);
+    --text-color: #1a1a1a;
+    --text-secondary-color: #6c757d;
+    --border-color: #dee2e6;
+    --input-bg-color: #ffffff;
+    --primary-button-bg: #1a1a1a;
+    --primary-button-text: #ffffff;
+    --secondary-button-bg: #ffffff;
+    --secondary-button-border: #ced4da;
+    --accent-color: #f7a032;
+    --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --layout-gap: 18px;
+    --center-max-width: 980px;
+    --sidebar-left-width: 280px;
+    --sidebar-left-min: 280px;
+    --sidebar-left-max: 520px;
+    --sidebar-right-width: 260px;
+    --sidebar-bg: #ffffff;
+    --sidebar-border: #e5e7eb;
+    --notes-bg: #f6f8fc;
+    --notes-panel: #ffffff;
+    --notes-panel-2: #f3f6fb;
+    --notes-text: #111827;
+    --notes-muted: #5b677a;
+    --notes-border: rgba(17, 24, 39, 0.1);
+    --notes-border-strong: rgba(17, 24, 39, 0.14);
+    --notes-shadow: 0 16px 40px rgba(17, 24, 39, 0.12);
+    --notes-radius: 14px;
+    --notes-row-height: 34px;
+    --pipeline-bg: #f8fafc;
+    --pipeline-card: #ffffff;
+    --pipeline-border: #e2e8f0;
+    --pipeline-text: #0f172a;
+    --pipeline-muted: #64748b;
+    --pipeline-blue: #2563eb;
+    --pipeline-blue-soft: #dbeafe;
+    --pipeline-purple: #8b5cf6;
+    --pipeline-purple-soft: #f3e8ff;
+    --pipeline-green: #22c55e;
+    --pipeline-green-soft: #dcfce7;
+    --pipeline-orange: #f59e0b;
+    --pipeline-connector: #cbd5e1;
+    --pipeline-block-height: 59.52px;
+    --pipeline-block-gap: 11px;
+}
+
+html {
+    scrollbar-gutter: stable;
+}
+
+body {
+    background-color: #F3F4F6;
+    font-family: var(--font-family);
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden;
+    overflow-y: scroll;
+}
+
+body, button, input, select, textarea {
+    font-family: var(--font-family);
+}
+
+body.modal-open {
+    overflow: hidden;
+}

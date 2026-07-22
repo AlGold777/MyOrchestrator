@@ -1,0 +1,3089 @@
+# ARCHIVE DIFF 2 — All other changes after verified 2.80.175
+тезисный разбор второго diff-файла по пунктам, чтобы можно было идти по нему последовательно.
+background/message-router.js
+Новые жёсткие проверки корреляции и отправителя для LLM_RESPONSE, FINAL_LLM_RESPONSE, ANSWER_SNAPSHOT, LLM_RESPONSE_READY и связанных lifecycle-событий.
+Главный риск: валидные события отбрасываются как несоответствующие текущему run/tab/session/navigation.
+
+background/job-orchestrator.js
+Сильно расширенная orchestration-логика: identity, finalization, recovery, persistence, promptsByModel, повторные отправки, обработка стадий.
+Главный риск: orchestration стало слишком централизованным и может ожидать сигналы, которые теперь не приходят.
+
+shared/completion-policy.js
+Новая централизованная политика завершения ответа.
+Главный риск: завершение теперь зависит не от простых UI-признаков, а от набора обязательных условий вроде fresh-answer, baseline, stability, typing-state.
+
+content/unified-answer-watcher.js
+Новый усиленный watcher ответа.
+Главный риск: ответ может бесконечно считаться “ещё не завершённым”, даже если визуально генерация уже закончилась.
+
+content/response-lifecycle-detector.js
+Новый detector жизненного цикла ответа и готовности финального состояния.
+Главный риск: неверно определяется момент начала/окончания именно нового ответа, особенно если на странице уже был старый ответ.
+
+shared/run-identity.js
+Введена строгая модель идентичности run/dispatch/tab/session/content/navigation.
+Главный риск: любая рассинхронизация между слоями превращает корректный ответ в “stale” или “foreign”.
+
+background/ready-signal-manager.js
+Перестроена логика ready-handshake между вкладкой и background.
+Главный риск: вкладка может считаться неготовой или устаревшей, хотя реально уже работает.
+
+background/tab-manager.js
+Усилены правила reuse/ownership/readiness для вкладок.
+Главный риск: вкладка открывается и работает, но background не признаёт её корректно привязанной к текущему запуску.
+
+background/dispatch-coordinator.js
+Добавлены более строгие блокировки и revalidation перед отправкой.
+Главный риск: dispatch уходит в полузавершённое состояние или теряет связь с последующим lifecycle.
+
+background/cleanup-manager.js
+Изменена логика очистки активных запусков и terminal cleanup.
+Главный риск: состояние запуска очищается слишком рано или наоборот зависает.
+
+background/ui-broadcast.js
+Изменён слой проекции runtime-state в UI.
+Главный риск: background знает о состоянии больше, чем реально доходит до интерфейса результатов.
+
+content/content-bootstrap.js
+Добавлены content-instance и navigation identity.
+Главный риск: после обновления страницы или смены route контент-скрипт становится “новым экземпляром”, а runtime ещё живёт старым.
+
+Провайдерные content-скрипты (chatgpt, claude, gemini, grok, deepseek, perplexity, qwen, lechat)
+Встроена передача dispatch/run identity в lifecycle ответа.
+Главный риск: один провайдер мог начать слать неполный набор данных, из-за чего общая схема ломает приём ответа.
+
+shared/pipeline-fsm.js
+Расширена FSM пайплайна: recovery, final acceptance, terminal/post-terminal ветки.
+Главный риск: пайплайн может формально оставаться “в процессе”, хотя пользовательский ответ уже завершён.
+
+shared/model-run-state.js
+Расширена каноническая модель состояния запуска.
+Главный риск: UI и background по-разному понимают terminal state.
+
+shared/recovery-policy.js
+Добавлен централизованный policy-слой восстановления.
+Главный риск: вместо завершения система уходит в ожидание, наблюдение или попытку recovery.
+
+shared/timeout-policy.js
+Централизованы timeout budgets и роли таймаутов.
+Главный риск: время жизни стадий изменилось, и старые переходы теперь срабатывают не тогда, когда ожидалось.
+
+results.js
+Изменена интеграция UI со статусами, глобальным состоянием и recovery.
+Главный риск: двойной клик, индикаторы и подтягивание ответа могут зависеть уже не только от background, но и от новой логики UI-state.
+
+manifest.json и version/package файлы
+Изменён состав подключаемых скриптов и версия сборки.
+Главный риск: порядок загрузки новых shared/background/content-модулей мог повлиять на инициализацию.
+
+Документация
+Обновлены change-log, next-steps, документы по model tabs и timing map.
+Это не источник поломки, но важно как карта того, что именно было задумано внедрить.
+
+Тесты
+Добавлены тесты на completion, identity, recovery, lifecycle gating, timeout и регрессии.
+Главный риск: тесты могли закрепить уже ошибочную логику и создать ложное ощущение корректности
+
+User-facing summary:
+This archive contains every currently surviving non-Debate-architecture code, configuration, documentation and test difference between the verified read-only folder “LLM_Codex-Terra 2.80.175 !!!” and the active workspace before rollback. This includes the entire broken 2.80.176 general-runtime package, not merely the later version bumps.
+
+Important:
+- The 2.80.175 folder was read only and was not modified.
+- Debate application/context/services/topology modules are archived in file 01.
+- Provider log files that exist only in the reference folder are evidence artifacts, not implementation changes, and are intentionally not represented as deletions.
+- Text before every individual patch explains its user-visible purpose.
+
+
+## background/cleanup-manager.js
+User-facing description: Очистка активного run и согласование terminal cleanup с новым ownership background.
+
+--- a/background/cleanup-manager.js
++++ b/background/cleanup-manager.js
+@@ -59,7 +59,6 @@
+     if (preserveEntry) {
+       const entry = jobState.llms[llmName];
+       if (entry) {
+-        entry.tabId = null;
+         entry.dispatchInFlight = false;
+         entry.messageSent = false;
+         entry.dispatchState = 'IDLE';
+
+## background/dispatch-coordinator.js
+User-facing description: Новая dispatch identity, lock/revalidation, ready metadata и защита от stale attempts.
+
+--- a/background/dispatch-coordinator.js
++++ b/background/dispatch-coordinator.js
+@@ -8,14 +8,18 @@
+ var promptSubmitWaiters = new Map();
+ var promptDispatchSupervisorTimer = null;
+ //- 2.1. Лимит ожидания сигнала из контента -//
+-const PROMPT_SUBMIT_TIMEOUT_MS = TimingConfig.getTiming('promptSubmitTimeoutMs', 15000);
++const PROMPT_SUBMIT_TIMEOUT_MS = self.TimeoutPolicy?.resolve?.('submit', {
++  fallback: TimingConfig.getTiming('promptSubmitTimeoutMs', 15000)
++}) || TimingConfig.getTiming('promptSubmitTimeoutMs', 15000);
+ // Per-model submit timeouts live in shared/model-policy.js (single source);
+ // the legacy PROMPT_SUBMIT_TIMEOUTS_MS map here was a divergent duplicate.
+ const CLAUDE_TYPING_TIMEOUT_PER_CHAR_MS = 6;
+ const CLAUDE_TYPING_TIMEOUT_MAX_MS = 180000;
+ const CLAUDE_TYPING_TIMEOUT_MIN_MS = 30000;
+ const SEND_PROMPT_DELAY_MS = TimingConfig.getTiming('sendPromptDelayMs', 3000);
+-const READY_ACK_TIMEOUT_MS = TimingConfig.getTiming('readyAckTimeoutMs', 6000);
++const READY_ACK_TIMEOUT_MS = self.TimeoutPolicy?.resolve?.('handshake', {
++  fallback: TimingConfig.getTiming('readyAckTimeoutMs', 6000)
++}) || TimingConfig.getTiming('readyAckTimeoutMs', 6000);
+ const SEND_PROMPT_DELAY_OVERRIDES = {
+   'Perplexity': 1000,
+   'Claude': 1500,
+@@ -37,7 +41,9 @@
+ // re-emit RECOVERY_INTENT_DENIED — on every tick. Without this the supervisor
+ // spams identical denials for minutes (observed on Le Chat hard_timeout runs).
+ const RECOVERY_DENY_BACKOFF_MS = 15000;
+-const NO_FOCUS_TIMEOUT_MS = TimingConfig.getTiming('noFocusTimeoutMs', 5000);
++const NO_FOCUS_TIMEOUT_MS = self.TimeoutPolicy?.resolve?.('no_focus_probe', {
++  fallback: TimingConfig.getTiming('noFocusTimeoutMs', 5000)
++}) || TimingConfig.getTiming('noFocusTimeoutMs', 5000);
+ const RESULTS_PAGE_URL = chrome.runtime.getURL('result_new.html');
+ const EXTENSION_BASE_URL = chrome.runtime.getURL('');
+ 
+@@ -56,9 +62,11 @@
+ // follow the generation wait profile — a fixed 180s killed long generations.
+ const SCRIPT_RUNTIME_HARD_STOP_SHORT_MS = 210000;
+ const SCRIPT_RUNTIME_HARD_STOP_LONG_MS = 480000;
+-const getScriptRuntimeHardStopMs = () => (self.isLongGenerationProfile?.()
+-  ? SCRIPT_RUNTIME_HARD_STOP_LONG_MS
+-  : SCRIPT_RUNTIME_HARD_STOP_SHORT_MS);
++const getScriptRuntimeHardStopMs = () => self.TimeoutPolicy?.resolve?.('generation', {
++  long: self.isLongGenerationProfile?.() === true,
++  fallback: SCRIPT_RUNTIME_HARD_STOP_SHORT_MS,
++  longFallback: SCRIPT_RUNTIME_HARD_STOP_LONG_MS
++}) || (self.isLongGenerationProfile?.() ? SCRIPT_RUNTIME_HARD_STOP_LONG_MS : SCRIPT_RUNTIME_HARD_STOP_SHORT_MS);
+ const SCRIPT_RUNTIME_HARD_STOP_ACTIVITY_WINDOW_MS = 15000;
+ const SCRIPT_RUNTIME_HARD_STOP_GRACE_MS = 12000;
+ const SCRIPT_RUNTIME_HARD_STOP_MAX_GRACE_EXTENSIONS = 2;
+@@ -342,17 +350,36 @@
+ function scheduleDispatchRetry(entry, llmName, error) {
+   if (!entry) return;
+   const attempt = Number(entry.dispatchAttempts || 0);
+-  const decision = self.DispatchRetry?.getDispatchRetryDecision
++  const policyDecision = self.RecoveryPolicy?.decide
++    ? self.RecoveryPolicy.decide(entry, {
++      error,
++      attempt,
++      maxAttempts: DISPATCH_MAX_ATTEMPTS,
++      intent: 'resend_prompt',
++      reason: error?.type || error?.code || 'dispatch_retry',
++      minChars: self.AnswerLengthPolicy?.getPolicy?.(llmName)?.minTerminalChars
++        || self.DOM_SNAPSHOT_RECOVERY_MIN_CHARS
++        || 80
++    })
++    : null;
++  const decision = policyDecision?.retryDecision || (self.DispatchRetry?.getDispatchRetryDecision
+     ? self.DispatchRetry.getDispatchRetryDecision(attempt, error)
+-    : { shouldRetry: true, delayMs: DEFAULT_RETRY_DELAY_MS, classification: 'UNKNOWN' };
++    : { shouldRetry: true, delayMs: DEFAULT_RETRY_DELAY_MS, classification: 'UNKNOWN' });
+   entry.lastDispatchError = error || null;
+   entry.lastDispatchErrorClass = decision.classification || 'UNKNOWN';
+-  if (!decision.shouldRetry) {
++  entry.lastRecoveryPolicyDecision = policyDecision || null;
++  if (policyDecision?.action === 'OBSERVE') {
+     entry.retryAfterAt = null;
++    entry.recoveryDeniedUntil = Date.now() + RECOVERY_DENY_BACKOFF_MS;
++    return policyDecision;
++  }
++  if (policyDecision?.action === 'FINALIZE_ERROR' || !decision.shouldRetry) {
++    entry.retryAfterAt = null;
+     entry.dispatchAttempts = DISPATCH_MAX_ATTEMPTS;
+-    return;
++    return policyDecision;
+   }
+-  entry.retryAfterAt = Date.now() + Math.max(0, decision.delayMs || DEFAULT_RETRY_DELAY_MS);
++  entry.retryAfterAt = Date.now() + Math.max(0, policyDecision?.delayMs || decision.delayMs || DEFAULT_RETRY_DELAY_MS);
++  return policyDecision;
+ }
+ 
+ function sendMessageWithTimeout(tabId, llmName, message, timeoutMs = NO_FOCUS_TIMEOUT_MS) {
+@@ -561,10 +588,43 @@
+ 
+ function getPromptSubmitTimeoutMs(llmName) {
+   if (!llmName) return PROMPT_SUBMIT_TIMEOUT_MS;
++  if (self.TimeoutPolicy?.resolve) {
++    return self.TimeoutPolicy.resolve('submit', { model: llmName, fallback: PROMPT_SUBMIT_TIMEOUT_MS });
++  }
+   if (self.ModelPolicy?.getPromptSubmitTimeoutMs) {
+     return self.ModelPolicy.getPromptSubmitTimeoutMs(llmName, PROMPT_SUBMIT_TIMEOUT_MS);
+   }
+   return PROMPT_SUBMIT_TIMEOUT_MS;
++}
++
++function validateDispatchInsideLock({ llmName, tabId, dispatchId, sessionId, entry, recoveryIntent, options = {} } = {}) {
++  const liveEntry = jobState?.llms?.[llmName] || null;
++  if (!liveEntry || liveEntry !== entry) return { ok: false, reason: 'model_entry_replaced' };
++  const liveSessionId = jobState?.session?.startTime || null;
++  if (sessionId && liveSessionId !== sessionId) return { ok: false, reason: 'run_session_changed' };
++  if (isTerminalLlmEntry(liveEntry)) return { ok: false, reason: 'model_terminal' };
++  const liveTabId = resolveBoundTabIdForDispatch(llmName, liveEntry);
++  if (!isValidTabId(liveTabId) || liveTabId !== tabId) {
++    return { ok: false, reason: 'tab_binding_changed', liveTabId };
++  }
++  const liveFlags = resolveDispatchFlags(llmName, liveEntry);
++  const machineDispatchId = liveFlags.machine?.data?.dispatchId || liveEntry?.dispatchId || null;
++  if (machineDispatchId && dispatchId && machineDispatchId !== dispatchId) {
++    return { ok: false, reason: 'dispatch_replaced', machineDispatchId };
++  }
++  if (recoveryIntent && self.RecoveryIntent?.authorize) {
++    const decision = self.RecoveryIntent.authorize(liveEntry, {
++      intent: recoveryIntent,
++      reason: 'inside_dispatch_lock',
++      minChars: self.AnswerLengthPolicy?.getPolicy?.(llmName)?.minTerminalChars
++        || self.DOM_SNAPSHOT_RECOVERY_MIN_CHARS
++        || 80,
++      explicitUserOverride: options.explicitUserOverride === true,
++      allowAfterEvidence: options.allowAfterEvidence === true
++    });
++    if (!decision.ok) return { ok: false, reason: decision.reason || 'recovery_denied', decision };
++  }
++  return { ok: true, liveEntry, liveFlags, liveTabId };
+ }
+ 
+ function updateTypingStateFromDiagnostic(llmName, event) {
+@@ -789,17 +849,31 @@
+       : (reason === 'retry_supervisor' ? 'resend_prompt' : null)
+   );
+   if (recoveryIntent && self.RecoveryIntent?.authorize) {
+-    const intentDecision = self.RecoveryIntent.authorize(entry, {
+-      intent: recoveryIntent,
+-      reason,
+-      minChars: self.AnswerLengthPolicy?.getPolicy?.(llmName)?.minTerminalChars
+-        || self.DOM_SNAPSHOT_RECOVERY_MIN_CHARS
+-        || 80,
+-      explicitUserOverride: options.explicitUserOverride === true,
+-      allowAfterEvidence: options.allowAfterEvidence === true
+-    });
++    const recoveryPolicyDecision = self.RecoveryPolicy?.decide
++      ? self.RecoveryPolicy.decide(entry, {
++        intent: recoveryIntent,
++        reason,
++        attempt: Number(entry.dispatchAttempts || 0),
++        maxAttempts: DISPATCH_MAX_ATTEMPTS,
++        minChars: self.AnswerLengthPolicy?.getPolicy?.(llmName)?.minTerminalChars
++          || self.DOM_SNAPSHOT_RECOVERY_MIN_CHARS
++          || 80,
++        explicitUserOverride: options.explicitUserOverride === true,
++        allowAfterEvidence: options.allowAfterEvidence === true
++      })
++      : null;
++    const intentDecision = recoveryPolicyDecision?.intentDecision || self.RecoveryIntent.authorize(entry, {
++        intent: recoveryIntent,
++        reason,
++        minChars: self.AnswerLengthPolicy?.getPolicy?.(llmName)?.minTerminalChars
++          || self.DOM_SNAPSHOT_RECOVERY_MIN_CHARS
++          || 80,
++        explicitUserOverride: options.explicitUserOverride === true,
++        allowAfterEvidence: options.allowAfterEvidence === true
++      });
+     entry.lastRecoveryIntentDecision = {
+       ...intentDecision,
++      action: recoveryPolicyDecision?.action || null,
+       reasonLabel: reason,
+       decidedAt: Date.now()
+     };
+@@ -850,7 +924,8 @@
+   });
+   if (!isAlive) {
+     const attempts = Number(entry.dispatchAttempts || 0);
+-    const allowPreDispatchReload = reason === 'retry_supervisor' && attempts >= 2;
++    const allowPreDispatchReload = reason === 'retry_supervisor'
++      && (entry.lastRecoveryPolicyDecision?.action === 'RELOAD' || attempts >= 2);
+     emitTelemetry(llmName, 'PRE_DISPATCH_HEALTH_PING_FAIL', {
+       level: 'warning',
+       details: allowPreDispatchReload ? 'reload_attempted' : 'reload_skipped',
+@@ -926,8 +1001,22 @@
+   saveJobState(jobState);
+ 
+   return withPromptDispatchLock(llmName, async () => {
+-    if (capturedSessionId && jobState?.session?.startTime !== capturedSessionId) {
+-      return;
++    const lockValidation = validateDispatchInsideLock({
++      llmName,
++      tabId,
++      dispatchId,
++      sessionId: capturedSessionId,
++      entry,
++      recoveryIntent,
++      options
++    });
++    if (!lockValidation.ok) {
++      emitTelemetry(llmName, 'DISPATCH_REJECTED_INSIDE_LOCK', {
++        level: 'warning',
++        details: lockValidation.reason,
++        meta: { dispatchId, tabId, liveTabId: lockValidation.liveTabId || null, reason }
++      });
++      return { ok: false, errorCode: 'STALE_DISPATCH', reason: lockValidation.reason };
+     }
+     promptDispatchInProgress += 1;
+     stopHumanPresenceLoop();
+@@ -1120,6 +1209,12 @@
+       const readyInfo = self.ReadySignalManager?.getReadyInfo
+         ? self.ReadySignalManager.getReadyInfo(tabId)
+         : null;
++      if (entry.runIdentity) {
++        entry.runIdentity.tabId = tabId;
++        entry.runIdentity.contentScriptInstanceId = readyInfo?.contentScriptInstanceId || null;
++        entry.runIdentity.navigationSeq = Number(readyInfo?.navigationSeq || 0) || null;
++        entry.runIdentity.tabSessionId = readyInfo?.tabSessionId || null;
++      }
+       const dispatchSendPayload = {
+         type: 'SMART_DISPATCH_SEND',
+         llmName,
+@@ -1149,7 +1244,9 @@
+             sessionId,
+             pipelineRunId,
+             dispatchId,
+-            tabSessionId: readyInfo?.tabSessionId || null
++            tabSessionId: readyInfo?.tabSessionId || null,
++            contentScriptInstanceId: readyInfo?.contentScriptInstanceId || null,
++            navigationSeq: readyInfo?.navigationSeq || null
+           }
+         }, NO_FOCUS_TIMEOUT_MS);
+         needsFocus = !noFocusResponse || noFocusResponse.requiresFocus === true || noFocusResponse.timeout;
+@@ -1293,7 +1390,9 @@
+               sessionId,
+               pipelineRunId,
+               dispatchId,
+-              tabSessionId: readyInfo?.tabSessionId || null
++              tabSessionId: readyInfo?.tabSessionId || null,
++              contentScriptInstanceId: readyInfo?.contentScriptInstanceId || null,
++              navigationSeq: readyInfo?.navigationSeq || null
+             }
+           });
+         });
+@@ -1323,7 +1422,9 @@
+             sessionId,
+             pipelineRunId,
+             dispatchId,
+-            tabSessionId: readyInfo?.tabSessionId || null
++            tabSessionId: readyInfo?.tabSessionId || null,
++            contentScriptInstanceId: readyInfo?.contentScriptInstanceId || null,
++            navigationSeq: readyInfo?.navigationSeq || null
+           }
+         });
+       }
+@@ -1904,6 +2005,7 @@
+ self.resolvePromptSubmitted = resolvePromptSubmitted;
+ self.waitForPromptSubmitted = waitForPromptSubmitted;
+ self.getPromptSubmitTimeoutMs = getPromptSubmitTimeoutMs;
++self.validateDispatchInsideLock = validateDispatchInsideLock;
+ self.sendMessageWithTimeout = sendMessageWithTimeout;
+ self.normalizePageReadyState = normalizePageReadyState;
+ self.markModelRuntimeActivity = markModelRuntimeActivity;
+
+## background/index.js
+User-facing description: Подключение новых shared policies и порядок загрузки background runtime.
+
+--- a/background/index.js
++++ b/background/index.js
+@@ -139,8 +139,11 @@
+   '../shared/answer-length-policy.js',
+   '../shared/answer-evidence.js',
+   '../shared/answer-content-classifier.js',
++  '../shared/completion-policy.js',
++  '../shared/timeout-policy.js',
+   '../shared/finalization-controller.js',
+   '../shared/recovery-intent.js',
++  '../shared/recovery-policy.js',
+   '../shared/run-identity.js',
+   '../shared/decision-ledger.js',
+   '../shared/page-blocker-policy.js',
+
+## background/job-orchestrator.js
+User-facing description: Полный пакет изменений orchestration после 2.80.175: identity/finality/recovery/persistence плюс позднее model-specific Debate prompt routing.
+
+--- a/background/job-orchestrator.js
++++ b/background/job-orchestrator.js
+@@ -1204,6 +1204,10 @@
+       sessionId: meta?.sessionId || getCurrentRunSessionId(),
+       runSessionId: meta?.runSessionId || meta?.sessionId || getCurrentRunSessionId(),
+       dispatchId: meta?.dispatchId || entry?.lastDispatchMeta?.dispatchId || null,
++      tabId: meta?.tabId || entry?.runIdentity?.tabId || entry?.tabId || null,
++      tabSessionId: meta?.tabSessionId || entry?.runIdentity?.tabSessionId || null,
++      contentScriptInstanceId: meta?.contentScriptInstanceId || entry?.runIdentity?.contentScriptInstanceId || null,
++      navigationSeq: meta?.navigationSeq || entry?.runIdentity?.navigationSeq || null,
+       responseMeta: {
+         ...(incomingResponseMeta || {}),
+         source: incomingResponseMeta.source || meta?.source || result.source || 'late_collect',
+@@ -2861,9 +2865,9 @@
+     lastFinalEmittedAt: 0,
+     ...overrides
+   };
+-  entry.modelRunState = self.ModelRunState?.deriveModelRunState
+-    ? self.ModelRunState.deriveModelRunState(entry)
+-    : null;
++  if (self.ModelRunState?.ensureModelRunState) {
++    self.ModelRunState.ensureModelRunState(entry);
++  }
+   return entry;
+ };
+ 
+@@ -2914,7 +2918,7 @@
+   }
+   if (!jobState.llms[llmName]) {
+     jobState.llms[llmName] = buildInitialLlmEntry(llmName, {
+-      tabId: isValidTabId(tabId) ? tabId : null,
++      tabId: null,
+       status: 'RECOVERY_PENDING',
+       recoveryOnly: true
+     });
+@@ -2925,8 +2929,9 @@
+       level: 'warning',
+       meta: { tabId }
+     });
+-  } else if (isValidTabId(tabId)) {
+-    jobState.llms[llmName].tabId = tabId;
++  }
++  if (isValidTabId(tabId) && typeof self.setTabBinding === 'function') {
++    void self.setTabBinding(llmName, tabId);
+   }
+   if (!Array.isArray(jobState.session.selectedModels)) {
+     jobState.session.selectedModels = [];
+@@ -3918,35 +3923,116 @@
+ }
+ 
+ //-- 11.1. Сохранение и загрузка jobState из storage --//
+-async function saveJobState(state) {
+-  try {
+-    const persisted = self.PipelineFSM?.compactJobStateForStorage
+-      ? self.PipelineFSM.compactJobStateForStorage(state)
+-      : state;
+-    await CompressedStorage.set('jobState', persisted);
+-    updateMv3SurvivalAlarm(state);
+-    if (self.PipelineFSM?.persistControlState) {
+-      const control = self.PipelineFSM.normalizeControlState?.(state?.session?.pipelineControl || {
+-        pipelineRunId: state?.session?.pipelineRunId || null,
+-        sessionId: state?.session?.startTime || null,
+-        state: state?.session?.pipelineState || 'IDLE',
+-        stage: state?.session?.pipelineStage || null,
+-        round: state?.session?.pipelineRoundId || null
+-      });
+-      void self.PipelineFSM.persistControlState(control);
+-    }
+-    globalThis.LLMLog?.debug?.('[BACKGROUND] Job state saved to storage (compressed)');
+-  } catch (e) {
+-    console.error('[BACKGROUND] Failed to save job state:', e);
++let jobStatePersistQueue = Promise.resolve();
++let jobStatePersistRevision = 0;
++let jobStateCommittedRevision = 0;
++let jobStatePersistenceGeneration = 1;
++const RUN_TOMBSTONE_STORAGE_KEY = 'llm_run_tombstone_v1';
++
++function beginJobStatePersistenceGeneration(reason = 'new_generation') {
++  jobStatePersistenceGeneration += 1;
++  globalThis.LLMLog?.debug?.('[BACKGROUND] Job persistence generation advanced', {
++    generation: jobStatePersistenceGeneration,
++    reason
++  });
++  return jobStatePersistenceGeneration;
++}
++
++function enqueueJobStatePersistence(operation) {
++  jobStatePersistQueue = jobStatePersistQueue
++    .catch((err) => {
++      console.warn('[BACKGROUND] Previous job-state persistence operation failed', err);
++    })
++    .then(operation);
++  return jobStatePersistQueue;
++}
++
++function saveJobState(state) {
++  if (!state || typeof state !== 'object' || !Object.keys(state).length) {
++    return Promise.resolve({ saved: false, reason: 'empty_state' });
+   }
++  const generation = jobStatePersistenceGeneration;
++  const revision = ++jobStatePersistRevision;
++  state.session = state.session && typeof state.session === 'object' ? state.session : {};
++  state.session.stateRevision = revision;
++  state.session.persistenceGeneration = generation;
++  const persisted = self.PipelineFSM?.compactJobStateForStorage
++    ? self.PipelineFSM.compactJobStateForStorage(state)
++    : JSON.parse(JSON.stringify(state));
++  const control = self.PipelineFSM?.normalizeControlState?.(state?.session?.pipelineControl || {
++    pipelineRunId: state?.session?.pipelineRunId || null,
++    sessionId: state?.session?.startTime || null,
++    state: state?.session?.pipelineState || 'IDLE',
++    stage: state?.session?.pipelineStage || null,
++    round: state?.session?.pipelineRoundId || null
++  });
++
++  return enqueueJobStatePersistence(async () => {
++    if (generation !== jobStatePersistenceGeneration) {
++      return { saved: false, reason: 'stale_generation', revision, generation };
++    }
++    try {
++      await CompressedStorage.set('jobState', persisted);
++      if (self.PipelineFSM?.persistControlState && control) {
++        await self.PipelineFSM.persistControlState(control);
++      }
++      jobStateCommittedRevision = revision;
++      updateMv3SurvivalAlarm(state);
++      globalThis.LLMLog?.debug?.('[BACKGROUND] Job state saved to storage (serialized)', { revision, generation });
++      return { saved: true, revision, generation };
++    } catch (e) {
++      console.error('[BACKGROUND] Failed to save job state:', e);
++      return { saved: false, reason: 'storage_error', revision, generation, error: e?.message || String(e) };
++    }
++  });
++}
++
++function invalidatePersistedJobState(reason = 'invalidated') {
++  const stoppedRun = {
++    schemaVersion: 1,
++    runSessionId: jobState?.session?.startTime || null,
++    pipelineRunId: jobState?.session?.pipelineRunId || null,
++    revision: ++jobStatePersistRevision,
++    reason,
++    stoppedAt: Date.now()
++  };
++  const generation = beginJobStatePersistenceGeneration(reason);
++  stoppedRun.persistenceGeneration = generation;
++  return enqueueJobStatePersistence(async () => {
++    try {
++      await chrome.storage?.session?.set?.({ [RUN_TOMBSTONE_STORAGE_KEY]: stoppedRun });
++    } catch (_) {}
++    try {
++      await CompressedStorage.remove('jobState');
++    } catch (_) {
++      try { await chrome.storage.local.remove(['jobState']); } catch (_) {}
++    }
++    return { removed: true, generation, reason };
++  });
+ }
+ 
+ async function loadJobState() {
+   try {
+     const saved = await CompressedStorage.get('jobState');
++    let tombstoneData = {};
++    try {
++      if (chrome.storage?.session?.get) {
++        tombstoneData = await chrome.storage.session.get(RUN_TOMBSTONE_STORAGE_KEY) || {};
++      }
++    } catch (_) {}
++    const tombstone = tombstoneData?.[RUN_TOMBSTONE_STORAGE_KEY] || null;
++    const savedGeneration = Number(saved?.session?.persistenceGeneration || 0);
++    if (saved && tombstone && Number(tombstone.persistenceGeneration || 0) >= savedGeneration) {
++      try { await CompressedStorage.remove('jobState'); } catch (_) {}
++      jobState = {};
++      self.jobState = jobState;
++      return;
++    }
+     if (saved) {
+       jobState = saved;
+       self.jobState = jobState;
++      jobStatePersistRevision = Math.max(jobStatePersistRevision, Number(saved?.session?.stateRevision || 0));
++      jobStateCommittedRevision = Math.max(jobStateCommittedRevision, Number(saved?.session?.stateRevision || 0));
+       const control = self.PipelineFSM?.loadControlState ? await self.PipelineFSM.loadControlState() : null;
+       if (self.PipelineFSM?.hydrateJobState) {
+         self.PipelineFSM.hydrateJobState(jobState, control);
+@@ -4104,9 +4190,7 @@
+   rateLimitTimers.clear();
+ 
+   if (jobState && Object.keys(jobState).length) {
+-    try {
+-      chrome.storage.local.remove(['jobState']);
+-    } catch (_) {}
++    void invalidatePersistedJobState(reason);
+   }
+   if (self.PipelineFSM?.stopRun) {
+     const control = getActivePipelineControlState();
+@@ -4142,6 +4226,8 @@
+     ? { ...options.pipelineContext }
+     : null;
+   const sourceView = options.sourceView || pipelineContext?.sourceView || null;
++  beginJobStatePersistenceGeneration('start_process');
++  try { await chrome.storage?.session?.remove?.(RUN_TOMBSTONE_STORAGE_KEY); } catch (_) {}
+   globalThis.LLMLog?.debug?.(`[BACKGROUND] Starting process. Force new tabs: ${forceNewTabs}. Use API: ${useApiFallback}. LLMs:`, selectedLLMs);
+   resultsTabId = resultsTab;
+   jobMetadata.clear();
+@@ -4218,10 +4304,14 @@
+   void runDispatchRounds(selectedLLMs, prompt, forceNewTabs, attachments);
+ }
+ 
++function resolvePromptForDispatch(llmName, fallbackPrompt = '') {
++  return self.TransportPolicy?.resolvePromptForModel
++    ? self.TransportPolicy.resolvePromptForModel(jobState?.session?.promptsByModel, llmName, fallbackPrompt)
++    : fallbackPrompt;
++}
++
+ function startModelForLLM(llmName, prompt, forceNewTabs, attachments = [], options = {}) {
+-  prompt = self.TransportPolicy?.resolvePromptForModel
+-    ? self.TransportPolicy.resolvePromptForModel(jobState?.session?.promptsByModel, llmName, prompt)
+-    : prompt;
++  prompt = resolvePromptForDispatch(llmName, prompt);
+   const sessionId = options.sessionId || getActiveSessionId();
+   const chain = llmStartChains[llmName] || Promise.resolve();
+   llmStartChains[llmName] = chain.then(async () => {
+@@ -4643,7 +4733,8 @@
+     const dispatchTab = await getTabSafe(tabId);
+     initRequestMetadata(llmName, tabId, dispatchTab?.url || dispatchTab?.pendingUrl || '');
+     //- 1.1. Round 1: режим "Спринт". Не ждем подтверждения, чтобы Gemini и Claude получили промпт мгновенно -//
+-    await dispatchPromptToTab(llmName, tabId, prompt, attachments, 'round1', {
++    const modelPrompt = resolvePromptForDispatch(llmName, prompt);
++    await dispatchPromptToTab(llmName, tabId, modelPrompt, attachments, 'round1', {
+       forceFocus: true,
+       skipNoFocusProbe: true,
+       skipFocusRestore: true,
+@@ -5113,7 +5204,7 @@
+               entry.dispatchState = 'IDLE';
+               entry.csBusyUntil = 0;
+             }
+-            await dispatchPromptToTab(llmName, tabId, jobState.prompt, jobState.attachments || [], 'round2_repair_pre_visit', {
++            await dispatchPromptToTab(llmName, tabId, resolvePromptForDispatch(llmName, jobState.prompt), jobState.attachments || [], 'round2_repair_pre_visit', {
+               forceFocus: true,
+               skipNoFocusProbe: true,
+               deferSendMs: 250,
+@@ -5315,7 +5406,7 @@
+               entry.dispatchState = 'IDLE';
+               entry.csBusyUntil = 0;
+             }
+-            await dispatchPromptToTab(llmName, tabId, jobState.prompt, jobState.attachments || [], 'round2_repair', {
++            await dispatchPromptToTab(llmName, tabId, resolvePromptForDispatch(llmName, jobState.prompt), jobState.attachments || [], 'round2_repair', {
+               forceFocus: true,
+               skipNoFocusProbe: true,
+               deferSendMs: 500,
+@@ -5682,7 +5773,7 @@
+     const alreadySent = flags ? flags.isSent : !!entry.messageSent;
+     const boundTabId = resolveBoundTabIdForOrchestrator(llmName, entry);
+     if (boundTabId && !alreadySent) {
+-      dispatchPromptToTab(llmName, boundTabId, jobState.prompt, jobState.attachments || [], 'collect_responses');
++      dispatchPromptToTab(llmName, boundTabId, resolvePromptForDispatch(llmName, jobState.prompt), jobState.attachments || [], 'collect_responses');
+     }
+   });
+   broadcastHumanVisitStatus();
+@@ -6203,14 +6294,6 @@
+ function recordModelRunState(llmName, entry, evidence = {}) {
+   if (!entry) return;
+   const status = String(evidence.finalStatus || entry.status || '').toUpperCase();
+-  const legacyState = {
+-    executionStatus: evidence.success ? 'finalized_success' : (evidence.terminalFailure ? 'finalized_failure' : 'running'),
+-    generationStatus: evidence.lifecycleReadyAt ? 'complete' : (evidence.completionReason || 'unknown'),
+-    answerStatus: evidence.promptEcho ? 'rejected_prompt_echo' : (evidence.hasAcceptedAnswer ? 'accepted' : (evidence.hasAnswerEvidence ? 'candidate' : 'none')),
+-    uiStatus: status || null,
+-    dispatchId: evidence.dispatchId || null,
+-    updatedAt: Date.now()
+-  };
+   if (self.commitModelRunTransition || self.ModelRunState?.applyModelRunTransition) {
+     const transition = evidence.accepted
+       ? (evidence.terminalFailure ? 'TERMINAL_FAILURE' : 'ANSWER_CANDIDATE_ACCEPTED')
+@@ -6231,18 +6314,9 @@
+     } else {
+       self.ModelRunState.applyModelRunTransition(entry, transition, payload);
+     }
+-    entry.modelRunState = {
+-      ...(entry.modelRunState || {}),
+-      ...legacyState,
+-      executionState: entry.modelRunState?.executionState || legacyState.executionStatus,
+-      generationState: entry.modelRunState?.generationState || legacyState.generationStatus,
+-      answerState: entry.modelRunState?.answerState || legacyState.answerStatus,
+-      terminalStatus: entry.modelRunState?.terminalStatus || (evidence.success || evidence.terminalFailure ? status : null),
+-      terminalState: entry.modelRunState?.terminalState || (evidence.success ? 'success' : (evidence.terminalFailure ? 'failure' : 'open'))
+-    };
+     return;
+   }
+-  entry.modelRunState = legacyState;
++  self.ModelRunState?.ensureModelRunState?.(entry);
+ }
+ 
+ function emitFinalizationDecision(llmName, evidence = {}) {
+@@ -6414,7 +6488,10 @@
+         sessionId: incomingSessionId,
+         runSessionId: metaObj?.runSessionId || incomingSessionId,
+         dispatchId: incomingDispatchId,
+-        tabId: metaObj?.tabId || metaObj?.responseMeta?.tabId || null
++        tabId: metaObj?.tabId || metaObj?.responseMeta?.tabId || null,
++        tabSessionId: metaObj?.tabSessionId || null,
++        contentScriptInstanceId: metaObj?.contentScriptInstanceId || null,
++        navigationSeq: metaObj?.navigationSeq || null
+       }, {
+         runSessionId: expectedSessionId,
+         tabId: entry?.tabId || null
+@@ -7489,8 +7566,8 @@
+       } else {
+         self.ModelRunState.applyModelRunTransition(entry, finalTransition, finalPayload);
+       }
+-    } else if (self.ModelRunState?.deriveModelRunState) {
+-      entry.modelRunState = self.ModelRunState.deriveModelRunState(entry);
++    } else if (self.ModelRunState?.ensureModelRunState) {
++      self.ModelRunState.ensureModelRunState(entry);
+     }
+     if (typeof self.projectModelRunStateToLegacy === 'function') {
+       self.projectModelRunStateToLegacy(llmName, entry, finalProjection, 'handleLLMResponse_final_projection');
+@@ -8104,7 +8181,7 @@
+   if (machine) {
+     machine.reset();
+   }
+-  dispatchPromptToTab(llmName, tabId, prompt, jobState.attachments || [], 'manual_resend', {
++  dispatchPromptToTab(llmName, tabId, resolvePromptForDispatch(llmName, prompt), jobState.attachments || [], 'manual_resend', {
+     recoveryIntent: 'resend_prompt'
+   });
+   return { status: 'manual_resend_dispatched' };
+@@ -8125,6 +8202,13 @@
+ 
+   self.saveJobState = saveJobState;
+   self.loadJobState = loadJobState;
++  self.invalidatePersistedJobState = invalidatePersistedJobState;
++  self.beginJobStatePersistenceGeneration = beginJobStatePersistenceGeneration;
++  self.getJobStatePersistenceSnapshot = () => ({
++    revision: jobStatePersistRevision,
++    committedRevision: jobStateCommittedRevision,
++    generation: jobStatePersistenceGeneration
++  });
+   self.stopAllProcesses = stopAllProcesses;
+   self.startProcess = startProcess;
+   self.collectResponses = collectResponses;
+
+## background/message-router.js
+User-facing description: Correlation и sender gates для ответов/lifecycle, новые control/recovery сообщения.
+
+--- a/background/message-router.js
++++ b/background/message-router.js
+@@ -443,6 +443,12 @@
+     const meta = message?.meta && typeof message.meta === 'object' ? message.meta : {};
+     const incomingDispatchId = typeof meta.dispatchId === 'string' ? meta.dispatchId : null;
+     const incomingRunSessionId = Number(meta.runSessionId || meta.sessionId || 0) || null;
++    const expectedTabSessionId = entry?.runIdentity?.tabSessionId || null;
++    const incomingTabSessionId = meta.tabSessionId || null;
++    const expectedContentInstanceId = entry?.runIdentity?.contentScriptInstanceId || null;
++    const incomingContentInstanceId = meta.contentScriptInstanceId || null;
++    const expectedNavigationSeq = Number(entry?.runIdentity?.navigationSeq || 0) || null;
++    const incomingNavigationSeq = Number(meta.navigationSeq || 0) || null;
+     if (expectedDispatchId && incomingDispatchId !== expectedDispatchId) {
+         emitTelemetry(llmName, 'LIFECYCLE_CORRELATION_REJECTED', {
+             level: 'warning',
+@@ -461,6 +467,15 @@
+         });
+         return { ok: false, reason: incomingRunSessionId ? 'run_session_mismatch' : 'missing_run_session_id' };
+     }
++    if (expectedTabSessionId && incomingTabSessionId !== expectedTabSessionId) {
++        return { ok: false, reason: incomingTabSessionId ? 'tab_session_mismatch' : 'missing_tab_session_id' };
++    }
++    if (expectedContentInstanceId && incomingContentInstanceId !== expectedContentInstanceId) {
++        return { ok: false, reason: incomingContentInstanceId ? 'content_instance_mismatch' : 'missing_content_instance_id' };
++    }
++    if (expectedNavigationSeq && incomingNavigationSeq !== expectedNavigationSeq) {
++        return { ok: false, reason: incomingNavigationSeq ? 'navigation_seq_mismatch' : 'missing_navigation_seq' };
++    }
+     return { ok: true, expectedDispatchId, incomingDispatchId, expectedRunSessionId, incomingRunSessionId };
+ };
+ 
+@@ -681,7 +696,11 @@
+             if (self.__extensionLifecycleReady) {
+                 await self.__extensionLifecycleReady;
+             }
+-            await Promise.all([loadJobState(), TabMapManager.load()]);
++            // Tab bindings are hydrated first because they are authoritative.
++            // jobState.tabId is only a compatibility projection reconciled below.
++            await TabMapManager.load();
++            await loadJobState();
++            await TabMapManager.reconcileJobState?.();
+             await loadResolutionMetrics();
+             await (self.DispatchCircuit?.loadDispatchCircuitState ? self.DispatchCircuit.loadDispatchCircuitState() : Promise.resolve());
+             initialStateReady = true;
+@@ -747,7 +766,6 @@
+                     type: 'tab_closed_prematurely'
+                 });
+             }
+-            jobState.llms[closedLlmName].tabId = null;
+         }
+         cleanupTabResources(tabId, 'tab_removed');
+         // Tab is already gone; just drop mapping/state.
+@@ -2586,6 +2604,13 @@
+                 });
+             } else {
+                 chrome.storage.local.remove(['jobState'], () => chrome.runtime.lastError);
++            }
++            // Pipeline FSM control lives in storage.session and can otherwise
++            // recreate the just-cleared run after a service-worker restart.
++            try {
++                chrome.storage?.session?.remove?.('llm_pipeline_fsm_v1');
++            } catch (err) {
++                console.warn('[BACKGROUND] Pipeline FSM session cleanup failed:', err);
+             }
+             broadcastGlobalState();
+             sendResponse({ status: 'all_sessions_cleared' });
+@@ -2616,14 +2641,23 @@
+                 const isTerminal = isTerminalRouterEntry(entry);
+                 const shouldAdvanceStrategy = message.advanceStrategy === true;
+                 const manualLatestRecovery = message.manualLatestRecovery === true;
+-                if (entry && entry.answer && !manualLatestRecovery) {
++                // Return the answer already accepted for the active run
++                // immediately. A latest-recovery request may continue with its
++                // DOM scan afterwards, but must not leave the UI empty when the
++                // scan cannot find a better candidate.
++                if (entry && entry.answer) {
+                     sendMessageToResultsTab({
+                         type: 'LLM_PARTIAL_RESPONSE',
+                         llmName,
+                         answer: entry.answer,
+                         answerHtml: entry.answerHtml || '',
+                         requestId: entry.requestId || null,
+-                        metadata: { status: entry.status || 'UNKNOWN' },
++                        metadata: {
++                            status: entry.finalStatus || entry.status || 'UNKNOWN',
++                            finalStatus: entry.finalStatus || null,
++                            terminal: !!entry.finalStatusRecorded,
++                            source: manualLatestRecovery ? 'manual_latest_cached_baseline' : 'manual_cached_answer'
++                        },
+                         logs: getLogSnapshot(llmName)
+                     });
+                 }
+
+## background/ready-signal-manager.js
+User-facing description: Расширенный ready handshake с tab-session/content-instance/navigation metadata.
+
+--- a/background/ready-signal-manager.js
++++ b/background/ready-signal-manager.js
+@@ -38,7 +38,9 @@
+       readyAt: Date.now(),
+       version: extra.version,
+       url: extra.url,
+-      tabSessionId: extra.tabSessionId || null
++      tabSessionId: extra.tabSessionId || null,
++      contentScriptInstanceId: extra.contentScriptInstanceId || null,
++      navigationSeq: Number(extra.navigationSeq || 0) || null
+     };
+     this._readyTabs.set(tabId, info);
+     const waiters = this._pendingWaiters.get(tabId);
+
+## background/tab-manager.js
+User-facing description: Fail-closed readiness/reuse, navigation checks и tab ownership.
+
+--- a/background/tab-manager.js
++++ b/background/tab-manager.js
+@@ -259,6 +259,15 @@
+ 
+ const fallbackRecoveryUsed = new Set();
+ 
++const projectTabBindingToJobState = (llmName, tabId) => {
++  const entry = jobState?.llms?.[llmName];
++  if (!entry) return;
++  // Compatibility projection only. TabMapManager remains the sole writer of
++  // the authoritative model -> tab binding.
++  entry.tabId = isValidTabId(tabId) ? tabId : null;
++  entry.tabBindingProjectedAt = Date.now();
++};
++
+ const TabMapManager = (() => {
+   let mutex = Promise.resolve();
+ 
+@@ -280,41 +289,64 @@
+     } else {
+       llmTabMap[llmName] = tabId;
+     }
+-    if (jobState?.llms?.[llmName]) {
+-      jobState.llms[llmName].tabId = isValidTabId(tabId) ? tabId : null;
+-    }
++    projectTabBindingToJobState(llmName, tabId);
+     fallbackRecoveryUsed.delete(llmName);
+     await saveTabMapToStorage();
+   });
+ 
+   const removeByName = (llmName) => withLock(async () => {
+-    if (!llmName || !(llmName in llmTabMap)) return;
++    if (!llmName) return;
++    const changed = llmName in llmTabMap;
+     delete llmTabMap[llmName];
+-    if (jobState?.llms?.[llmName]) {
+-      jobState.llms[llmName].tabId = null;
+-    }
+-    await saveTabMapToStorage();
++    projectTabBindingToJobState(llmName, null);
++    if (changed) await saveTabMapToStorage();
+   });
+ 
+   const removeByTabId = (tabId) => withLock(async () => {
+     const name = getNameByTabId(tabId);
+     if (name) {
+       delete llmTabMap[name];
+-      if (jobState?.llms?.[name]) {
+-        jobState.llms[name].tabId = null;
+-      }
++      projectTabBindingToJobState(name, null);
+       await saveTabMapToStorage();
+     }
+   });
+ 
+ const clear = () => withLock(async () => {
+   Object.keys(llmTabMap).forEach((key) => delete llmTabMap[key]);
++  Object.keys(jobState?.llms || {}).forEach((name) => projectTabBindingToJobState(name, null));
+   await saveTabMapToStorage();
+   fallbackRecoveryUsed.clear();
+ });
+ 
+   const load = () => withLock(async () => {
+     await loadTabMapFromStorage();
++  });
++
++  const reconcileJobState = () => withLock(async () => {
++    let changed = false;
++    for (const [llmName, entry] of Object.entries(jobState?.llms || {})) {
++      const mapped = llmTabMap[llmName];
++      if (isValidTabId(mapped)) {
++        projectTabBindingToJobState(llmName, mapped);
++        continue;
++      }
++      // One-time migration from the former writable projection.
++      const legacyTabId = entry?.tabId;
++      if (!isValidTabId(legacyTabId)) {
++        projectTabBindingToJobState(llmName, null);
++        continue;
++      }
++      const tab = await getTabSafe(legacyTabId);
++      if (tab && !isAppUiTab(tab) && isEligibleTabForLlm(llmName, tab)) {
++        llmTabMap[llmName] = legacyTabId;
++        projectTabBindingToJobState(llmName, legacyTabId);
++        changed = true;
++      } else {
++        projectTabBindingToJobState(llmName, null);
++      }
++    }
++    if (changed) await saveTabMapToStorage();
++    return { changed, entries: Object.entries(llmTabMap) };
+   });
+ 
+   const entries = () => Object.entries(llmTabMap);
+@@ -333,6 +365,7 @@
+     removeByTabId,
+     clear,
+     load,
++    reconcileJobState,
+     entries,
+     get,
+     getNameByTabId
+@@ -348,33 +381,21 @@
+     await TabMapManager.removeByName(llmName);
+     tabId = null;
+   }
+-  if (jobState?.llms?.[llmName]) {
+-    jobState.llms[llmName].tabId = tabId;
+-  }
+ }
+ 
+ function getBoundTabId(llmName, entry = null) {
+   const runTabIds = Array.isArray(jobState?.session?.boundTabIds)
+     ? jobState.session.boundTabIds
+     : null;
+-  const entryTabId = entry?.tabId;
+-  if (isValidTabId(entryTabId)) {
+-    if (runTabIds && !runTabIds.includes(entryTabId)) {
+-      runTabIds.push(entryTabId);
+-      if (typeof saveJobState === 'function') {
+-        saveJobState(jobState);
+-      }
+-    }
+-    const mapped = TabMapManager.get(llmName);
+-    if (!isValidTabId(mapped) && !fallbackRecoveryUsed.has(llmName)) {
+-      return markFallbackBinding(llmName, entryTabId, entry);
+-    }
+-    return entryTabId;
+-  }
+   const mapped = TabMapManager.get(llmName);
+   if (isValidTabId(mapped)) {
+     if (runTabIds && !runTabIds.includes(mapped)) return null;
++    projectTabBindingToJobState(llmName, mapped);
+     return mapped;
++  }
++  const entryTabId = entry?.tabId;
++  if (isValidTabId(entryTabId) && !fallbackRecoveryUsed.has(llmName)) {
++    return markFallbackBinding(llmName, entryTabId, entry);
+   }
+   return null;
+ }
+@@ -386,12 +407,6 @@
+   } catch (_) {}
+   trackSessionTab(tabId);
+   trackRunTab(tabId);
+-  if (jobState?.llms?.[llmName]) {
+-    jobState.llms[llmName].tabId = null;
+-  }
+-  if (entry) {
+-    entry.tabId = null;
+-  }
+   console.warn(`[TabManager] fallback binding ${llmName}→${tabId}`);
+   return tabId;
+ }
+@@ -1390,6 +1405,7 @@
+ self.saveTabMapToStorage = saveTabMapToStorage;
+ self.loadTabMapFromStorage = loadTabMapFromStorage;
+ self.TabMapManager = TabMapManager;
++self.projectTabBindingToJobState = projectTabBindingToJobState;
+ self.setTabBinding = setTabBinding;
+ self.getBoundTabId = getBoundTabId;
+ self.isValidTabId = isValidTabId;
+
+## background/ui-broadcast.js
+User-facing description: Проекция background state и answer recovery payload для results view.
+
+--- a/background/ui-broadcast.js
++++ b/background/ui-broadcast.js
+@@ -11,9 +11,6 @@
+     const modelRunState = entry?.modelRunState || (self.ModelRunState?.deriveModelRunState
+       ? self.ModelRunState.deriveModelRunState({ ...(entry || {}), llmName: name })
+       : null);
+-    if (entry && modelRunState && !entry.modelRunState) {
+-      entry.modelRunState = modelRunState;
+-    }
+     const statusContract = self.LLMStatusContract?.deriveStatusContract
+       ? self.LLMStatusContract.deriveStatusContract(entry || {})
+       : null;
+
+## content-scripts/content-bootstrap.js
+User-facing description: Content instance/navigation identity и lifecycle bootstrap metadata.
+
+--- a/content-scripts/content-bootstrap.js
++++ b/content-scripts/content-bootstrap.js
+@@ -2,6 +2,8 @@
+ (function initContentBootstrap() {
+   const root = typeof window !== 'undefined' ? window : globalThis;
+   root.LLMExtension = root.LLMExtension || {};
++  root.__LLMContentInstanceId = root.__LLMContentInstanceId
++    || `content_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+   root.SelectorConfig = root.SelectorConfig || {};
+   const safeRuntimeSendMessage = (payload) => {
+     try {
+@@ -77,12 +79,31 @@
+     extractorV2: false,
+     humanoidV2: false,
+     adaptersV2: {},
++    legacyAnswerWatchers: { enabled: true, adapters: {} },
+     verboseLogging: false,
+     verboseSelectors: false,
+     verboseAnswerWatcher: false,
+     verboseTelemetry: false
+   };
+   root.LLMExtension.flags = Object.assign({}, defaultFlags, root.LLMExtension.flags || {});
++  root.LLMExtension.shouldUseLegacyAnswerWatcher = (modelName) => {
++    const config = root.LLMExtension.flags?.legacyAnswerWatchers;
++    if (config === false) return false;
++    if (!config || typeof config !== 'object') return true;
++    const key = String(modelName || '').trim().toLowerCase();
++    if (config.adapters && Object.prototype.hasOwnProperty.call(config.adapters, key)) {
++      return config.adapters[key] !== false;
++    }
++    return config.enabled !== false;
++  };
++  try {
++    chrome?.storage?.local?.get?.('legacyAnswerWatchersV1', (stored) => {
++      const configured = stored?.legacyAnswerWatchersV1;
++      if (configured === false || (configured && typeof configured === 'object')) {
++        root.LLMExtension.flags.legacyAnswerWatchers = configured;
++      }
++    });
++  } catch (_) {}
+ 
+   // Budgets/Contracts (Embedded Pragmatist v2.0)
+   if (!root.__PRAGMATIST_BUDGETS && typeof root.__loadPragmatistBudgets !== 'function') {
+@@ -180,6 +201,8 @@
+         readyStateByModel.set(llmName, {
+           llmName,
+           tabSessionId: buildSessionId(),
++          contentScriptInstanceId: root.__LLMContentInstanceId,
++          navigationSeq: 1,
+           attempts: 0,
+           acked: false,
+           popstateBound: false,
+@@ -241,9 +264,13 @@
+         type: 'SCRIPT_READY',
+         llmName: state.llmName,
+         tabSessionId: state.tabSessionId,
++        contentScriptInstanceId: state.contentScriptInstanceId,
++        navigationSeq: state.navigationSeq,
+         meta: {
+           ...meta,
+           tabSessionId: state.tabSessionId,
++          contentScriptInstanceId: state.contentScriptInstanceId,
++          navigationSeq: state.navigationSeq,
+           reason,
+           url: location.href
+         }
+@@ -256,6 +283,7 @@
+       state.acked = false;
+       state.attempts = 0;
+       state.tabSessionId = buildSessionId();
++      state.navigationSeq = Number(state.navigationSeq || 0) + 1;
+       const previousUrl = state.lastHref;
+       state.lastHref = location.href;
+       notifySpaNavigation(state, reason, previousUrl, state.lastHref);
+
+## content-scripts/content-chatgpt.js
+User-facing description: Передача dispatch identity в ChatGPT answer lifecycle.
+
+--- a/content-scripts/content-chatgpt.js
++++ b/content-scripts/content-chatgpt.js
+@@ -1404,6 +1404,9 @@
+         if (pipelineAnswer) {
+           return pipelineAnswer;
+         }
++        if (window.LLMExtension?.shouldUseLegacyAnswerWatcher?.(MODEL) === false) {
++          throw new Error('legacy_answer_watcher_disabled');
++        }
+         // Fallback: grab latest DOM answer if pipeline missed it
+         try {
+           const latestMarkup = grabLatestAssistantMarkup();
+
+## content-scripts/content-claude.js
+User-facing description: Передача dispatch identity в Claude answer lifecycle.
+
+--- a/content-scripts/content-claude.js
++++ b/content-scripts/content-claude.js
+@@ -2175,6 +2175,9 @@
+           }
+         }
+ 
++        if (!response && window.LLMExtension?.shouldUseLegacyAnswerWatcher?.(MODEL) === false) {
++          throw new Error('legacy_answer_watcher_disabled');
++        }
+         if (!response) {
+           const domCandidate = extractClaudeResponseFromDOM(prompt, baselineElement);
+           if (domCandidate && !isLikelyClaudeModelLabel(domCandidate) && !isLikelyClaudeThinkingText(domCandidate)) {
+
+## content-scripts/content-deepseek.js
+User-facing description: Передача dispatch identity в DeepSeek answer lifecycle.
+
+--- a/content-scripts/content-deepseek.js
++++ b/content-scripts/content-deepseek.js
+@@ -1456,6 +1456,9 @@
+             if (pipelineAnswer) {
+               return pipelineAnswer;
+             }
++            if (window.LLMExtension?.shouldUseLegacyAnswerWatcher?.(MODEL) === false) {
++              throw new Error('legacy_answer_watcher_disabled');
++            }
+ 
+             const response = await waitForDeepSeekReply(prompt, 150000);
+ 
+
+## content-scripts/content-gemini.js
+User-facing description: Передача dispatch identity в Gemini answer lifecycle.
+
+--- a/content-scripts/content-gemini.js
++++ b/content-scripts/content-gemini.js
+@@ -1157,6 +1157,9 @@
+                 }
+             }, geminiLastDispatchBaseline?.text || geminiLastDispatchBaseline?.normalizedCleanText || '');
+             if (pipelineAnswer) return pipelineAnswer;
++            if (window.LLMExtension?.shouldUseLegacyAnswerWatcher?.(MODEL) === false) {
++                throw new Error('legacy_answer_watcher_disabled');
++            }
+             const fresh = await waitForFreshGeminiAnswer(geminiLastDispatchBaseline, 90000, 500);
+             if (fresh?.text || fresh?.html) {
+                 const cleaned = window.contentCleaner.cleanContent(fresh.html || fresh.text || '', { maxLength: 50000 });
+@@ -1424,6 +1427,9 @@
+         if (pipelineAnswer) {
+             return pipelineAnswer;
+         }
++        if (window.LLMExtension?.shouldUseLegacyAnswerWatcher?.(MODEL) === false) {
++            throw new Error('legacy_answer_watcher_disabled');
++        }
+         const freshMarkup = await waitForFreshGeminiAnswer(preDispatchBaseline, 90000, 500);
+         if (freshMarkup?.text || freshMarkup?.html) {
+           const cleanedFresh = window.contentCleaner.cleanContent(freshMarkup.html || freshMarkup.text || '', { maxLength: 50000 });
+
+## content-scripts/content-grok.js
+User-facing description: Передача dispatch identity в Grok answer lifecycle.
+
+--- a/content-scripts/content-grok.js
++++ b/content-scripts/content-grok.js
+@@ -2393,13 +2393,10 @@
+         activity.heartbeat(0.65, { phase: 'waiting-response' });
+         const responsePayload = await withSmartScroll(async () => {
+           let pipelineAnswer = null;
+-          const domFallbackPromise = waitForDomAnswer(
+-            prompt,
+-            45000,
+-            900,
+-            () => responseDelivered,
+-            baselineSnapshot
+-          );
++          const legacyWatcherEnabled = window.LLMExtension?.shouldUseLegacyAnswerWatcher?.(MODEL) !== false;
++          const domFallbackPromise = legacyWatcherEnabled
++            ? waitForDomAnswer(prompt, 45000, 900, () => responseDelivered, baselineSnapshot)
++            : Promise.resolve(null);
+           await tryGrokPipeline(prompt, {
+             heartbeat: (meta = {}) => activity.heartbeat(0.8, Object.assign({ phase: 'pipeline' }, meta)),
+             stop: async ({ answer, answerHtml, metadata }) => {
+@@ -2459,6 +2456,9 @@
+           if (pipelineAnswer) {
+             return pipelineAnswer;
+           }
++          if (!legacyWatcherEnabled) {
++            throw new Error('legacy_answer_watcher_disabled');
++          }
+ 
+           const domFallbackAnswer = await domFallbackPromise;
+           if (domFallbackAnswer && !responseDelivered) {
+
+## content-scripts/content-lechat.js
+User-facing description: Передача dispatch identity в Le Chat answer lifecycle.
+
+--- a/content-scripts/content-lechat.js
++++ b/content-scripts/content-lechat.js
+@@ -1441,6 +1441,9 @@
+           if (pipelineAnswer) {
+             return pipelineAnswer;
+           }
++          if (window.LLMExtension?.shouldUseLegacyAnswerWatcher?.(MODEL) === false) {
++            throw new Error('legacy_answer_watcher_disabled');
++          }
+           const rawText = await waitForLeChatReply(prompt, 150000);
+           const rawPayload = normalizeResponsePayload(rawText, lastResponseHtml);
+           if (rawPayload.html) lastResponseHtml = rawPayload.html;
+
+## content-scripts/content-perplexity.js
+User-facing description: Передача dispatch identity в Perplexity answer lifecycle.
+
+--- a/content-scripts/content-perplexity.js
++++ b/content-scripts/content-perplexity.js
+@@ -1054,6 +1054,9 @@
+     if (pipelineAnswer) {
+       return pipelineAnswer;
+     }
++    if (window.LLMExtension?.shouldUseLegacyAnswerWatcher?.(MODEL) === false) {
++      throw new Error('legacy_answer_watcher_disabled');
++    }
+ 
+     // Fallback: extract latest assistant text if pipeline missed it
+     try {
+
+## content-scripts/content-qwen.js
+User-facing description: Передача dispatch identity в Qwen answer lifecycle.
+
+--- a/content-scripts/content-qwen.js
++++ b/content-scripts/content-qwen.js
+@@ -2813,6 +2813,9 @@
+             if (pipelineAnswer) {
+               return pipelineAnswer;
+             }
++            if (window.LLMExtension?.shouldUseLegacyAnswerWatcher?.(MODEL) === false) {
++              throw new Error('legacy_answer_watcher_disabled');
++            }
+ 
+             const rawText = await waitForQwenReply(prompt, 150000, {
+               baselineCount: baselineAssistantCount,
+
+## content-scripts/content-utils.js
+User-facing description: Хранение и декорирование run/dispatch/tab/content/navigation metadata в content runtime.
+
+--- a/content-scripts/content-utils.js
++++ b/content-scripts/content-utils.js
+@@ -110,6 +110,8 @@
+   let storedRunSessionId = null;
+   let storedDispatchId = null;
+   let storedTabSessionId = null;
++  let storedContentScriptInstanceId = window.__LLMContentInstanceId || null;
++  let storedNavigationSeq = null;
+   let sessionExpired = false;
+   const resetSessionExpiredState = () => {
+     sessionExpired = false;
+@@ -139,6 +141,12 @@
+     }
+     if (meta.tabSessionId) {
+       storedTabSessionId = meta.tabSessionId;
++    }
++    if (meta.contentScriptInstanceId) {
++      storedContentScriptInstanceId = meta.contentScriptInstanceId;
++    }
++    if (Number(meta.navigationSeq) > 0) {
++      storedNavigationSeq = Number(meta.navigationSeq);
+     }
+   };
+ 
+@@ -157,6 +165,12 @@
+     }
+     if (storedTabSessionId && !base.tabSessionId) {
+       base.tabSessionId = storedTabSessionId;
++    }
++    if (storedContentScriptInstanceId && !base.contentScriptInstanceId) {
++      base.contentScriptInstanceId = storedContentScriptInstanceId;
++    }
++    if (storedNavigationSeq && !base.navigationSeq) {
++      base.navigationSeq = storedNavigationSeq;
+     }
+     if (storedPipelineRunId && !base.pipelineRunId) {
+       base.pipelineRunId = storedPipelineRunId;
+
+## content-scripts/unified-answer-watcher.js
+User-facing description: Fresh-answer anchor, CompletionPolicy, typing/stability gates и baseline rules.
+
+--- a/content-scripts/unified-answer-watcher.js
++++ b/content-scripts/unified-answer-watcher.js
+@@ -175,6 +175,7 @@
+       this.lastFingerprint = '';
+       this.fingerprintStable = false;
+       this.latestContentLength = 0;
++      this.latestContentText = '';
+       this.lastContentChangeAt = 0;
+       this.scoreThreshold = completionConfig.scoring?.threshold || 0.6;
+       this.scoreWeights = Object.assign({
+@@ -303,6 +304,7 @@
+               this.freshAnswerObserved = true;
+             }
+           this.latestContentLength = len;
++          this.latestContentText = text;
+           const delta = len - lastContentLength;
+           this.lastContentDelta = delta;
+           const absDelta = Math.abs(delta);
+@@ -383,16 +385,25 @@
+             return;
+           }
+           if (this.freshAnswerObserved && regenerateVisible) {
+-            cleanup(this.buildResult('regenerate_visible', 1, typingActive, getRecentGrowth(), true));
+-            return;
++            const decision = this.evaluateCompletionCandidate('regenerate_visible', 1, { stopVisible, typingActive });
++            if (decision.accepted) {
++              cleanup(this.buildResult('regenerate_visible', 1, typingActive, getRecentGrowth(), true));
++              return;
++            }
+           }
+           if (this.freshAnswerObserved && completionSignal && this.criteria.criteria.completionSignal?.enabled) {
+-            cleanup(this.buildResult('completion_signal', 1, typingActive, getRecentGrowth(), true));
+-            return;
++            const decision = this.evaluateCompletionCandidate('completion_signal', 1, { stopVisible, typingActive });
++            if (decision.accepted) {
++              cleanup(this.buildResult('completion_signal', 1, typingActive, getRecentGrowth(), true));
++              return;
++            }
+           }
+           if (this.freshAnswerObserved && copyButtonStable && this.criteria.criteria.copyButtonVisible?.enabled) {
+-            cleanup(this.buildResult('copy_button_stable', 0.92, typingActive, getRecentGrowth(), true));
+-            return;
++            const decision = this.evaluateCompletionCandidate('copy_button_stable', 0.92, { stopVisible, typingActive });
++            if (decision.accepted) {
++              cleanup(this.buildResult('copy_button_stable', 0.92, typingActive, getRecentGrowth(), true));
++              return;
++            }
+           }
+           const metCount = this.criteria.metCount();
+           const criteriaTotal = Object.values(this.criteria.criteria).filter((c) => c.enabled !== false).length || 5;
+@@ -443,18 +454,28 @@
+           });
+           const contentMutationStable = this.criteria.criteria.contentStable?.met && this.criteria.criteria.mutationIdle?.met;
+           if (this.freshAnswerObserved && contentMutationStable) {
+-            cleanup(this.buildResult('content_mutation_stable', 0.85, typingActive, getRecentGrowth(), true));
+-            return;
++            const decision = this.evaluateCompletionCandidate('content_mutation_stable', 0.85, { stopVisible, typingActive });
++            if (decision.accepted) {
++              cleanup(this.buildResult('content_mutation_stable', 0.85, typingActive, getRecentGrowth(), true));
++              return;
++            }
+           }
+           if (this.scoringEnabled) {
+             const score = this.calculateScore();
+             if (this.freshAnswerObserved && score > this.scoreThreshold) {
+-              cleanup(this.buildResult('score_threshold', score, typingActive, getRecentGrowth(), true));
+-              return;
++              const decision = this.evaluateCompletionCandidate('score_threshold', score, { stopVisible, typingActive });
++              if (decision.accepted) {
++                cleanup(this.buildResult('score_threshold', score, typingActive, getRecentGrowth(), true));
++                return;
++              }
+             }
+           } else if (this.freshAnswerObserved && metCount >= this.minMetCriteria) {
+-            cleanup(this.buildResult('criteria_met', metCount / criteriaTotal, typingActive, getRecentGrowth(), true));
+-            return;
++            const confidence = metCount / criteriaTotal;
++            const decision = this.evaluateCompletionCandidate('criteria_met', confidence, { stopVisible, typingActive });
++            if (decision.accepted) {
++              cleanup(this.buildResult('criteria_met', confidence, typingActive, getRecentGrowth(), true));
++              return;
++            }
+           }
+ 
+           if (expiration.hardExpired) {
+@@ -1246,7 +1267,32 @@
+           },
+           copyButton: this.lastCopyButtonMeta || null
+         }
++      };
++    }
++
++    evaluateCompletionCandidate(reason, confidence, { stopVisible = false, typingActive = false } = {}) {
++      const stable = Boolean(
++        this.criteria?.criteria?.contentStable?.met
++        || this.fingerprintStable
++      );
++      const providerError = window.ContentUtils?.detectProviderErrorSurface?.()?.detected === true;
++      const policy = window.CompletionPolicy;
++      const candidate = {
++        reason,
++        text: this.latestContentText,
++        freshTurnEvidence: this.freshAnswerObserved === true,
++        textStable: stable,
++        stopVisible: stopVisible === true,
++        loadingVisible: typingActive === true,
++        progressVisible: false,
++        providerError,
++        confidence
+       };
++      const decision = policy?.evaluate
++        ? policy.evaluate(candidate, { minConfidence: 0.8, minValidChars: 20 })
++        : { accepted: candidate.freshTurnEvidence && candidate.textStable && !candidate.stopVisible && !candidate.loadingVisible && !candidate.providerError };
++      this.lastCompletionPolicyDecision = { ...decision, reasonSignal: reason, decidedAt: Date.now() };
++      return decision;
+     }
+ 
+     buildCriteriaSnapshot() {
+
+## content-utils/response-lifecycle-detector.js
+User-facing description: Fresh-turn detection, stability policy и LLM_RESPONSE_READY completion event.
+
+--- a/content-utils/response-lifecycle-detector.js
++++ b/content-utils/response-lifecycle-detector.js
+@@ -648,15 +648,29 @@
+       const contentEligible = classifierApi
+         ? classifierApi.classify(snapshot.text || '', { minValid: 20 }).terminalEligible
+         : (textLength >= 20);
+-      if (
+-        tracker.freshAnswerObserved &&
+-        contentEligible &&
+-        completionSignals.textStable &&
+-        indicators.stopButtonSignal === false &&
+-        !indicators.hasLoadingIndicator &&
+-        !indicators.hasProgressbar &&
+-        confidence >= MIN_COMPLETE_CONFIDENCE
+-      ) {
++      const completionDecision = window.CompletionPolicy?.evaluate
++        ? window.CompletionPolicy.evaluate({
++          text: snapshot.text,
++          freshTurnEvidence: tracker.freshAnswerObserved === true,
++          textStable: completionSignals.textStable === true,
++          stopVisible: indicators.stopButtonSignal === true,
++          stopSignal: indicators.stopButtonSignal,
++          loadingVisible: indicators.hasLoadingIndicator === true,
++          progressVisible: indicators.hasProgressbar === true,
++          providerError: contentEligible !== true,
++          confidence
++        }, { minConfidence: MIN_COMPLETE_CONFIDENCE, minValidChars: 20 })
++        : {
++          accepted: tracker.freshAnswerObserved
++            && contentEligible
++            && completionSignals.textStable
++            && indicators.stopButtonSignal === false
++            && !indicators.hasLoadingIndicator
++            && !indicators.hasProgressbar
++            && confidence >= MIN_COMPLETE_CONFIDENCE
++        };
++      tracker.lastCompletionPolicyDecision = completionDecision;
++      if (completionDecision.accepted) {
+         if (!isTrackerActive(tracker)) {
+           return trackerCancelledResult(tracker);
+         }
+@@ -679,19 +693,23 @@
+           return trackerCancelledResult(tracker);
+         }
+         try {
++          const lifecycleMeta = {
++            dispatchId: tracker.dispatchId || null,
++            runSessionId: tracker.runSessionId || null,
++            sessionId: tracker.runSessionId || null,
++            state: 'COMPLETE',
++            confidence,
++            textLength,
++            completionSignals,
++            completedAt
++          };
++          const correlatedMeta = globalThis.ContentUtils?.ensureDispatchMeta
++            ? globalThis.ContentUtils.ensureDispatchMeta(lifecycleMeta, modelName)
++            : lifecycleMeta;
+           chrome.runtime.sendMessage({
+             type: 'LLM_RESPONSE_READY',
+             llmName: modelName,
+-            meta: {
+-              dispatchId: tracker.dispatchId || null,
+-              runSessionId: tracker.runSessionId || null,
+-              sessionId: tracker.runSessionId || null,
+-              state: 'COMPLETE',
+-              confidence,
+-              textLength,
+-              completionSignals,
+-              completedAt
+-            }
++            meta: correlatedMeta
+           });
+         } catch (_) {}
+         return {
+
+## shared/completion-policy.js
+User-facing description: Новая централизованная policy обязательных completion evidence и contradictions.
+
+--- /dev/null
++++ b/shared/completion-policy.js
+@@ -0,0 +1,36 @@
++// Shared, side-effect-free gate for completion observations.
++(function initCompletionPolicy(root) {
++  'use strict';
++
++  function evaluate(candidate = {}, options = {}) {
++    const confidence = Number(candidate.confidence || 0);
++    const minConfidence = Number(options.minConfidence || 0.8);
++    const text = String(candidate.text || '');
++    const classifier = root.AnswerContentClassifier || null;
++    const classification = classifier?.classify
++      ? classifier.classify(text, { minValid: Number(options.minValidChars || 20) })
++      : { terminalEligible: text.trim().length >= Number(options.minValidChars || 20), contentClass: 'length_fallback' };
++    const contradictions = [];
++    if (candidate.freshTurnEvidence !== true) contradictions.push('fresh_turn_missing');
++    if (candidate.textStable !== true) contradictions.push('text_unstable');
++    if (candidate.stopVisible === true) contradictions.push('stop_visible');
++    if (candidate.stopSignal === 'unknown') contradictions.push('stop_unknown');
++    if (candidate.loadingVisible === true) contradictions.push('loading_visible');
++    if (candidate.progressVisible === true) contradictions.push('progress_visible');
++    if (candidate.providerError === true) contradictions.push('provider_error');
++    if (!classification.terminalEligible) contradictions.push(`content_${classification.contentClass || 'ineligible'}`);
++    if (confidence < minConfidence) contradictions.push('confidence_low');
++    return {
++      accepted: contradictions.length === 0,
++      reason: contradictions[0] || 'completion_accepted',
++      contradictions,
++      confidence,
++      minConfidence,
++      classification
++    };
++  }
++
++  const api = Object.freeze({ evaluate });
++  root.CompletionPolicy = api;
++  if (typeof module !== 'undefined' && module.exports) module.exports = api;
++})(typeof globalThis !== 'undefined' ? globalThis : this);
+
+## shared/model-run-state.js
+User-facing description: Расширенный canonical model state, terminal ownership и post-terminal handling.
+
+--- a/shared/model-run-state.js
++++ b/shared/model-run-state.js
+@@ -196,6 +196,14 @@
+     return state;
+   }
+ 
++  function ensureModelRunState(entry = {}) {
++    if (!entry || typeof entry !== 'object') return null;
++    if (!entry.modelRunState || typeof entry.modelRunState !== 'object') {
++      entry.modelRunState = deriveModelRunState(entry);
++    }
++    return entry.modelRunState;
++  }
++
+   function isTerminalRunState(stateOrEntry = {}) {
+     const state = stateOrEntry.modelRunState || stateOrEntry;
+     if (state?.terminalStatus && !isFinalTerminalStatus(state.terminalStatus)) return false;
+@@ -443,6 +451,7 @@
+     isFinalTerminalStatus,
+     hashText,
+     deriveModelRunState,
++    ensureModelRunState,
+     applyModelRunTransition,
+     isTerminalRunState,
+     isPostTerminalNoiseEvent,
+
+## shared/pipeline-fsm.js
+User-facing description: Версионированный pipeline control, final acceptance и recovery state transitions.
+
+--- a/shared/pipeline-fsm.js
++++ b/shared/pipeline-fsm.js
+@@ -135,6 +135,7 @@
+       const next = {};
+       [
+         'startTime', 'totalModels', 'selectedModels', 'completed', 'failed', 'focusSwitches',
++        'stateRevision', 'persistenceGeneration',
+         'telemetrySampled', 'telemetrySampleRate', 'completedAt', 'runSummaryEmitted',
+         'pipelineRunId', 'pipelineState', 'pipelineStage', 'pipelineRoundId', 'pipelineBatchId',
+         'pipelineControl', 'roundDurations', 'roundStarts', 'runMetrics', 'boundTabIds',
+@@ -396,6 +397,40 @@
+     });
+   };
+ 
++  const getRequiredModels = (state = {}) => {
++    const configured = Array.isArray(state?.payload?.selectedModels)
++      ? state.payload.selectedModels
++      : [];
++    const registered = Object.keys(state?.activeDispatches || {});
++    return Array.from(new Set((configured.length ? configured : registered)
++      .map(normalizeId)
++      .filter(Boolean)));
++  };
++
++  const deriveAggregateCompletion = (state = {}) => {
++    const requiredModels = getRequiredModels(state);
++    const dispatches = state?.activeDispatches || {};
++    const terminalModels = requiredModels.filter((model) => normalizeId(dispatches?.[model]?.finalStatus));
++    const pendingModels = requiredModels.filter((model) => !normalizeId(dispatches?.[model]?.finalStatus));
++    const statuses = terminalModels.map((model) => normalizeId(dispatches?.[model]?.finalStatus)).filter(Boolean);
++    const failureStatuses = new Set([
++      'ERROR', 'CRITICAL_ERROR', 'UNRESPONSIVE', 'CIRCUIT_OPEN', 'API_FAILED',
++      'NO_SEND', 'EXTRACT_FAILED', 'STREAM_TIMEOUT', 'EXTERNAL_LLM_FAILURE',
++      'USER_ACTION_REQUIRED', 'UNCERTAIN'
++    ]);
++    const failures = statuses.filter((status) => failureStatuses.has(String(status).toUpperCase()));
++    const successes = statuses.filter((status) => !failureStatuses.has(String(status).toUpperCase()));
++    return {
++      complete: requiredModels.length > 0 && pendingModels.length === 0,
++      requiredModels,
++      terminalModels,
++      pendingModels,
++      terminalStatus: failures.length
++        ? (successes.length ? 'PARTIAL' : failures[0])
++        : (statuses.length ? 'SUCCESS' : null)
++    };
++  };
++
+   const markFinal = (state, meta = {}) => {
+     const llmName = normalizeId(meta.llmName);
+     if (!state || !llmName) return { ok: false, reason: 'missing_llm' };
+@@ -418,15 +453,48 @@
+     dispatch.finalAt = now();
+     dispatch.status = normalizeId(meta.finalStatus) || dispatch.status || null;
+     dispatch.updatedAt = dispatch.finalAt;
+-    state.completedAt = state.completedAt || dispatch.finalAt;
+-    state.terminalStatus = normalizeId(meta.finalStatus) || state.terminalStatus || null;
+-    state.terminalReason = meta.reason || state.terminalReason || null;
+     state.pipelineRunId = normalizeRunId(meta.pipelineRunId) || state.pipelineRunId || null;
+     state.sessionId = Number(meta.sessionId || state.sessionId || 0) || null;
+     if (meta.cancelled === true || meta.finalStatus === STATES.CANCELLED) {
+       return { ok: true, state: setState(state, STATES.CANCELLED, meta) };
+     }
+-    return { ok: true, state: setState(state, STATES.COMPLETED, meta) };
++    const aggregate = deriveAggregateCompletion(state);
++    state.totals = {
++      ...(state.totals || {}),
++      required: aggregate.requiredModels.length,
++      terminal: aggregate.terminalModels.length,
++      pending: aggregate.pendingModels.length
++    };
++    if (!aggregate.complete) {
++      state.completedAt = null;
++      state.terminalStatus = null;
++      state.terminalReason = null;
++      return {
++        ok: true,
++        aggregate,
++        state: setState(state, STATES.AWAITING_FINAL, {
++          ...meta,
++          stage: 'awaiting_final',
++          reason: null,
++          terminalStatus: null,
++          payload: { pendingModels: aggregate.pendingModels }
++        })
++      };
++    }
++    state.completedAt = dispatch.finalAt;
++    state.terminalStatus = aggregate.terminalStatus;
++    state.terminalReason = meta.reason || 'all_required_models_terminal';
++    return {
++      ok: true,
++      aggregate,
++      state: setState(state, STATES.COMPLETED, {
++        ...meta,
++        reason: state.terminalReason,
++        terminalStatus: state.terminalStatus,
++        stage: 'completed',
++        payload: { pendingModels: [] }
++      })
++    };
+   };
+ 
+   const cancelRun = (state, meta = {}) => {
+@@ -606,6 +674,8 @@
+     markAwaitingApproval,
+     markAwaitingFinal,
+     markDispatching,
++    getRequiredModels,
++    deriveAggregateCompletion,
+     markFinal,
+     completeRun,
+     cancelRun,
+
+## shared/recovery-policy.js
+User-facing description: Новая policy выбора wait/observe/reload/resend/error.
+
+--- /dev/null
++++ b/shared/recovery-policy.js
+@@ -0,0 +1,50 @@
++// One decision policy for automatic recovery actions. Executors remain in the
++// coordinator/orchestrator; this module only decides what is safe to do next.
++(function initRecoveryPolicy(root) {
++  'use strict';
++
++  const ACTIONS = Object.freeze({
++    WAIT: 'WAIT',
++    OBSERVE: 'OBSERVE',
++    RELOAD: 'RELOAD',
++    RESEND: 'RESEND',
++    FINALIZE_ERROR: 'FINALIZE_ERROR'
++  });
++
++  function decide(entry = {}, request = {}) {
++    const attempt = Number(request.attempt || 0);
++    const maxAttempts = Number(request.maxAttempts || 4);
++    const error = request.error || {};
++    const intent = request.intent || 'resend_prompt';
++    const intentDecision = root.RecoveryIntent?.authorize
++      ? root.RecoveryIntent.authorize(entry, {
++        intent,
++        reason: request.reason || error.type || error.code || 'recovery',
++        minChars: request.minChars || 80,
++        explicitUserOverride: request.explicitUserOverride === true,
++        allowAfterEvidence: request.allowAfterEvidence === true
++      })
++      : { ok: true, evidenceHit: false };
++    if (!intentDecision.ok) {
++      return { action: ACTIONS.OBSERVE, reason: intentDecision.reason, intentDecision, delayMs: 0 };
++    }
++    const retryDecision = root.DispatchRetry?.getDispatchRetryDecision
++      ? root.DispatchRetry.getDispatchRetryDecision(attempt, error)
++      : { shouldRetry: attempt < maxAttempts, delayMs: 2000, classification: 'UNKNOWN' };
++    if (attempt >= maxAttempts || retryDecision.shouldRetry === false) {
++      return { action: ACTIONS.FINALIZE_ERROR, reason: 'retry_exhausted', retryDecision, intentDecision, delayMs: 0 };
++    }
++    const errorType = String(error?.type || error?.code || error?.message || '').toLowerCase();
++    if (attempt >= 2 && /ack|connection|no_receiver|tab_not_ready|page_not_ready/.test(errorType)) {
++      return { action: ACTIONS.RELOAD, reason: 'transport_recovery', retryDecision, intentDecision, delayMs: retryDecision.delayMs || 0 };
++    }
++    if (retryDecision.classification === 'RATE_LIMITED') {
++      return { action: ACTIONS.WAIT, reason: 'rate_limited', retryDecision, intentDecision, delayMs: retryDecision.delayMs || 0 };
++    }
++    return { action: ACTIONS.RESEND, reason: 'retryable_failure', retryDecision, intentDecision, delayMs: retryDecision.delayMs || 0 };
++  }
++
++  const api = Object.freeze({ ACTIONS, decide });
++  root.RecoveryPolicy = api;
++  if (typeof module !== 'undefined' && module.exports) module.exports = api;
++})(typeof globalThis !== 'undefined' ? globalThis : this);
+
+## shared/run-identity.js
+User-facing description: Строгая run/dispatch/tab/session/content/navigation identity validation.
+
+--- a/shared/run-identity.js
++++ b/shared/run-identity.js
+@@ -29,6 +29,7 @@
+       runSessionId,
+       dispatchId,
+       tabId,
++      tabSessionId: input.tabSessionId || null,
+       promptHash,
+       contentScriptInstanceId: input.contentScriptInstanceId || null,
+       navigationSeq: normalizeNumber(input.navigationSeq),
+@@ -81,6 +82,24 @@
+       };
+     }
+ 
++    const expectedTabSessionId = expected.tabSessionId || entry.runIdentity?.tabSessionId || null;
++    const incomingTabSessionId = event.tabSessionId || null;
++    if (expectedTabSessionId && incomingTabSessionId !== expectedTabSessionId) {
++      return { ok: false, reason: incomingTabSessionId ? 'stale_tab_session' : 'missing_tab_session_identity', expectedTabSessionId, incomingTabSessionId };
++    }
++
++    const expectedContentInstanceId = expected.contentScriptInstanceId || entry.runIdentity?.contentScriptInstanceId || null;
++    const incomingContentInstanceId = event.contentScriptInstanceId || null;
++    if (expectedContentInstanceId && incomingContentInstanceId !== expectedContentInstanceId) {
++      return { ok: false, reason: incomingContentInstanceId ? 'stale_content_instance' : 'missing_content_instance_identity', expectedContentInstanceId, incomingContentInstanceId };
++    }
++
++    const expectedNavigationSeq = normalizeNumber(expected.navigationSeq || entry.runIdentity?.navigationSeq);
++    const incomingNavigationSeq = normalizeNumber(event.navigationSeq);
++    if (expectedNavigationSeq && incomingNavigationSeq !== expectedNavigationSeq) {
++      return { ok: false, reason: incomingNavigationSeq ? 'stale_navigation' : 'missing_navigation_identity', expectedNavigationSeq, incomingNavigationSeq };
++    }
++
+     return {
+       ok: true,
+       reason: 'identity_accepted',
+
+## shared/timeout-policy.js
+User-facing description: Новая централизованная классификация timeout budgets и ролей.
+
+--- /dev/null
++++ b/shared/timeout-policy.js
+@@ -0,0 +1,33 @@
++// Named timeout roles shared by background and content runtimes.
++(function initTimeoutPolicy(root) {
++  'use strict';
++  const ROLES = Object.freeze({
++    HANDSHAKE: 'handshake',
++    SUBMIT: 'submit',
++    GENERATION: 'generation',
++    RECOVERY: 'recovery',
++    NO_FOCUS_PROBE: 'no_focus_probe',
++    TAB_READY: 'tab_ready'
++  });
++  const DEFAULTS = Object.freeze({
++    [ROLES.HANDSHAKE]: 6000,
++    [ROLES.SUBMIT]: 15000,
++    [ROLES.GENERATION]: 210000,
++    [ROLES.RECOVERY]: 12000,
++    [ROLES.NO_FOCUS_PROBE]: 5000,
++    [ROLES.TAB_READY]: 15000
++  });
++  function resolve(role, options = {}) {
++    const fallback = Number(options.fallback || DEFAULTS[role] || 0);
++    if (role === ROLES.SUBMIT && options.model && root.ModelPolicy?.getPromptSubmitTimeoutMs) {
++      return root.ModelPolicy.getPromptSubmitTimeoutMs(options.model, fallback);
++    }
++    if (role === ROLES.GENERATION && options.long === true) {
++      return Number(options.longFallback || 480000);
++    }
++    return fallback;
++  }
++  const api = Object.freeze({ ROLES, DEFAULTS, resolve });
++  root.TimeoutPolicy = api;
++  if (typeof module !== 'undefined' && module.exports) module.exports = api;
++})(typeof globalThis !== 'undefined' ? globalThis : this);
+
+## results.js
+User-facing description: UI projection и status/global-state integration, изменённые после рабочего 2.80.175.
+
+--- a/results.js
++++ b/results.js
+@@ -15701,6 +15701,25 @@
+             const rawStatus = modelRunState?.uiStatus || modelRunState?.terminalStatus || entry?.finalStatus || entry?.status || null;
+             if (!rawStatus) return;
+             const answerVisible = hydrateAnswerFromGlobalState(llmName, entry);
++            // GLOBAL_STATE_BROADCAST is also the durable recovery channel for a
++            // missed LLM_PARTIAL_RESPONSE. Hydrating only the DOM left
++            // runModelBatch waiting forever even though background had already
++            // persisted a terminal answer. Feed the same snapshot into the
++            // batch waiter so the topology runner can consume it.
++            if (answerVisible && entry?.finalStatusRecorded) {
++                pipelineWaiter.handleFinal({
++                    type: 'LLM_FINAL_RESPONSE',
++                    llmName,
++                    answer: String(entry?.answer || ''),
++                    answerHtml: String(entry?.answerHtml || ''),
++                    metadata: {
++                        terminal: true,
++                        status: entry?.finalStatus || rawStatus,
++                        finalStatus: entry?.finalStatus || rawStatus,
++                        source: 'GLOBAL_STATE_ANSWER_RECOVERY'
++                    }
++                });
++            }
+             // A green indicator over a card with no answer anywhere is a false
+             // success for the user; keep the honest uncertain state instead.
+             const successWithoutAnswer = GREEN_SUCCESS_STATUSES.includes(normalizeStatusValue(rawStatus))
+@@ -15835,7 +15854,10 @@
+     }
+ 
+     // --- MAIN PAGE LOGIC ---
+-    chrome.runtime.sendMessage({ type: 'REGISTER_RESULTS_TAB' }, (response) => {
++    // A full results-page reload starts a fresh UI session. Clear the
++    // background run/telemetry first; otherwise registration immediately
++    // hydrates the previous page's statuses and logs back into the new DOM.
++    const registerResultsTab = () => chrome.runtime.sendMessage({ type: 'REGISTER_RESULTS_TAB' }, (response) => {
+         if (chrome.runtime.lastError) {
+             console.warn('[RESULTS] Results-tab registration failed:', chrome.runtime.lastError.message);
+             return;
+@@ -15851,6 +15873,21 @@
+             }));
+         }
+     });
++    if (isPageReloadNavigation()) {
++        chrome.runtime.sendMessage({ type: 'CLEAR_ALL_SESSIONS', reason: 'results_page_reload' }, () => {
++            if (chrome.runtime.lastError) {
++                console.warn('[RESULTS] Session reset on page reload failed:', chrome.runtime.lastError.message);
++            }
++            chrome.runtime.sendMessage({ type: 'CLEAR_DIAG_EVENTS', reason: 'results_page_reload' }, () => {
++                if (chrome.runtime.lastError) {
++                    console.warn('[RESULTS] Telemetry reset on page reload failed:', chrome.runtime.lastError.message);
++                }
++                registerResultsTab();
++            });
++        });
++    } else {
++        registerResultsTab();
++    }
+ 
+     if (autoCheckbox) {
+         autoCheckbox.checked = false;
+
+## manifest.json
+User-facing description: Загрузка новых policies/tests runtime и повышение версии расширения.
+
+--- a/manifest.json
++++ b/manifest.json
+@@ -1,7 +1,7 @@
+ {
+   "manifest_version": 3,
+   "name": "A_Terra",
+-  "version": "2.80.175",
++  "version": "2.80.179",
+   "description": "Compares LLMs with stable Debate pipelines, structured state logs, and final synthesis.",
+   "permissions": [
+     "storage",
+@@ -75,6 +75,8 @@
+         "utils/sanitize.js",
+         "shared/selector-profile-lifecycle.js",
+         "shared/answer-content-classifier.js",
++        "shared/completion-policy.js",
++        "shared/timeout-policy.js",
+         "content-utils/selector-resolver-v2.js",
+         "content-utils/response-lifecycle-detector.js",
+         "content-scripts/content-bootstrap.js",
+
+## package.json
+User-facing description: Синхронизация npm version.
+
+--- a/package.json
++++ b/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "llm-selector-manager",
+-  "version": "2.80.175",
++  "version": "2.80.179",
+   "private": true,
+   "description": "Selector management and content scripts for multi-LLM browser extension",
+   "scripts": {
+
+## package-lock.json
+User-facing description: Синхронизация lockfile version.
+
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -1,12 +1,12 @@
+ {
+   "name": "llm-selector-manager",
+-  "version": "2.80.175",
++  "version": "2.80.179",
+   "lockfileVersion": 3,
+   "requires": true,
+   "packages": {
+     "": {
+       "name": "llm-selector-manager",
+-      "version": "2.80.175",
++      "version": "2.80.179",
+       "dependencies": {
+         "cheerio": "^1.1.2"
+       },
+
+## docs/change-log-codex.md
+User-facing description: История изменений 2.80.176–2.80.181, включая ошибочные и отменённые попытки.
+
+--- a/docs/change-log-codex.md
++++ b/docs/change-log-codex.md
+@@ -1,5 +1,68 @@
+ ## Change Log — Codex
+ 
++### 2026-07-11 — Shared completion identity regression, version 2.80.179
++
++- Найдена общая регрессия после 2.80.175: строгий correlation gate из 2.80.176
++  ожидал tab-session/content-instance/navigation identity, но
++  `LLM_RESPONSE_READY` её не передавал. Валидное completion-событие отвергалось,
++  поэтому главная страница и Debate оставались в оранжевом состоянии.
++- Lifecycle detector теперь декорирует completion полной identity через
++  `ContentUtils`. Background DOM recovery по двойному клику переносит ту же
++  identity из активной model entry перед общей finalization.
++- Защита от чужих вкладок и stale events не ослаблена. Проверка: 5 профильных
++  suites / 57 tests green; добавлены проверки completion и manual-recovery
++  identity.
++- Файлы: `content-utils/response-lifecycle-detector.js`,
++  `background/job-orchestrator.js`, профильные тесты, архитектурная документация
++  и manifest/npm metadata.
++
++### 2026-07-11 — Debate terminal answer recovery, version 2.80.178
++
++- Durable terminal-ответ из `GLOBAL_STATE_BROADCAST` теперь не только заполняет
++  карточку, но и завершает соответствующую модель в `pipelineWaiter`; Debate
++  runner больше не зависает после пропущенного live response message.
++- Двойной клик по status indicator немедленно возвращает уже принятый background
++  answer и затем продолжает latest DOM recovery как возможное обновление.
++- Проверка: 3 профильных suites / 52 tests, включая загрузку `results.js`, и
++  полный прогон 136 suites / 735 tests green; добавлены guards для waiter
++  recovery и cached baseline ручного восстановления.
++- Файлы: `results.js`, `background/message-router.js`, профильные тесты,
++  `docs/debate-architecture.md`, manifest/npm metadata.
++
++### 2026-07-10 — Debate model prompt dispatch and tab reuse, version 2.80.177
++
++- Исправлена причина пустых вкладок Triad: Round 1 и recovery/resend пути
++  background теперь разрешают `promptsByModel` непосредственно перед отправкой,
++  а Triad передаёт непустой совместимый fallback prompt.
++- Новые вкладки создаются только для стартового batch Debate. Последующие ходы
++  Duel, волны/finalization Triad и волны/synthesis Multi используют общие
++  background tab bindings вместо повторного открытия страниц.
++- Добавлены регрессии на непустой Triad prompt, model-specific dispatch boundary
++  и reuse policy. Проверка: профильные 4 suites / 13 tests и полный Jest-прогон
++  green; синтаксис изменённых runtime-файлов и JSON metadata проверены.
++- Файлы: `background/job-orchestrator.js`, topology runners в `disput/`,
++  профильные тесты, `docs/debate-architecture.md`, manifest/npm metadata.
++
++### 2026-07-10 — Model-tab state ownership and recovery hardening, version 2.80.176
++
++- Background закреплён как владелец активного запуска; `TabMapManager` стал
++  единственным писателем tab binding, а статусы моделей изменяются через
++  `ModelRunState`. Legacy-поля оставлены read-only проекциями.
++- `PipelineFSM` завершает запуск только после терминального результата всех
++  обязательных моделей. Completion-сигналы проходят общую freshness/stability
++  policy, а identity дополнена session/navigation/content-instance полями.
++- Dispatch повторно валидируется внутри lock; единая recovery policy выбирает
++  wait/observe/reload/resend/error и запрещает автоматический resend после
++  появления answer evidence. Таймеры получили именованные роли.
++- Persistence сериализована и версионирована; stop/cancel пишет terminal
++  tombstone, а MV3 recovery загружает последнюю допустимую версию и сверяет её
++  с живыми вкладками. Legacy watchers помещены под `legacyAnswerWatchersV1`.
++- Нормативные контракты обновлены в `docs/model-tabs-architecture.md`,
++  `docs/debate-architecture.md` и `docs/timing-map.md`; версии manifest и npm
++  metadata синхронизированы на `2.80.176`.
++- Проверка: 136/136 suites и 732/732 tests green; JSON metadata и ссылки
++  документации проверены отдельно.
++
+ ### 2026-07-10 — Debate application orchestration extraction, version 2.80.175
+ 
+ - Вся Duel/Triad/Multi orchestration вынесена из `results.js` в
+
+## docs/model-tabs-architecture.md
+User-facing description: Документация нового tab ownership/identity/recovery контракта.
+
+--- a/docs/model-tabs-architecture.md
++++ b/docs/model-tabs-architecture.md
+@@ -20,9 +20,9 @@
+ | Model buttons и selection UI | `result_new.html`, `results.js`, `content-scripts/model-selection-toolbar.js` | выбор/снятие модели, ограничители схемы, view-scoped persistence |
+ | Results page orchestration | `results.js`, `results/boot-utils.js`, `results/dom-utils.js` | запуск UI, карточки, prompt, lifecycle display |
+ | Target catalog | `background/llm-targets.js` | canonical model names, URLs, attach/reuse rules |
+-| Tab ownership | `background/tab-manager.js`, `background/shared-state.js` | создание, attach/reuse, binding `model → tabId`, session scope |
++| Tab ownership | `background/tab-manager.js` (`TabMapManager`) | создание, attach/reuse, единственная запись binding `model → tabId`, session scope и reconciliation |
+ | Dispatch coordination | `background/dispatch-coordinator.js`, `background/dispatch-state-machine.js` | lock, queue, send boundary, retries and correlation IDs |
+-| Run orchestration | `background/job-orchestrator.js`, `background/message-router.js` | batch lifecycle, provider recovery, terminal outcome |
++| Run orchestration | `background/job-orchestrator.js`, `background/message-router.js` | authoritative active-run state, batch lifecycle, provider recovery, terminal outcome и persistence |
+ | Provider DOM adapter | `content-scripts/unified-answer-pipeline.js`, provider scripts, `content-utils/*` | composer/send/extraction/lifecycle signals |
+ | Selector configuration | `selectors/*.config.js`, `selectors/config-bundle.*`, `shared/selector-profile-lifecycle.js` | selector candidates, profiles, overrides and health |
+ | Diagnostics | `background/telemetry-logs.js`, `results-devtools.js`, `shared/telemetry-export.js` | run-scoped evidence, health and export |
+@@ -31,6 +31,14 @@
+ second tab registry. Background owns tab identity and delivery; content scripts
+ own provider DOM operations.
+ 
++The runtime does not pretend that one physical store can be authoritative for
++provider DOM, MV3 memory and persisted recovery at the same time. Instead,
++every writable fact has one owner: `TabMapManager` writes tab bindings,
++`ModelRunState` writes model transitions, `PipelineFSM` derives aggregate
++completion, and the background orchestration owns the active-run snapshot.
++Legacy `entry.tabId`, `status` and `messageSent` fields are compatibility
++projections and must not become parallel writers.
++
+ ## Model selection contract
+ 
+ 1. The active view owns its selected model set. Main-page selection must not be
+@@ -51,8 +59,9 @@
+ 
+ ## Tab lifecycle
+ 
+-The background tab registry is the authority for `model → tabId` and its
+-session/run binding. A normal lifecycle is:
++`TabMapManager` is the authority for `model → tabId` and its session/run
++binding. `entry.tabId` is populated only as its read-only compatibility
++projection. A normal lifecycle is:
+ 
+ ```text
+ select models
+@@ -70,7 +79,8 @@
+ The results page never treats a visible provider tab as proof that the tab
+ belongs to the current run. Correlation must include, where available,
+ `pipelineRunId`, `pipelineRoundId`, `pipelineBatchId`, `dispatchId`, `sessionId`,
+-`model` and `tabId`.
++`model`, `tabId`, `tabSessionId`, `contentScriptInstanceId` and
++`navigationSeq`.
+ 
+ For provider-tab lifecycle messages, `dispatchId` and `runSessionId` are not
+ optional compatibility hints. `PROMPT_SUBMITTED`, `LLM_RESPONSE_READY`,
+@@ -113,6 +123,12 @@
+   `GET_ANSWER` alone is not proof of delivery.
+ - Failed submission attempts are retried by the background supervisor with
+   bounded backoff. A provider timeout must not block unrelated models.
++- Dispatch state is checked again after entering the per-model lock and
++  immediately before send. A changed run, binding, dispatch or terminal state
++  rejects the prepared command.
++- `RecoveryPolicy` is the single automatic decision point for wait, observe,
++  reload, resend or terminal error. Automatic resend is denied after answer
++  evidence appears.
+ - If the model binding changes after a command was prepared, that command is
+   quarantined. It is never rerouted to the replacement tab with the old
+   `tabSessionId` or dispatch identity; the supervisor creates a fresh dispatch.
+@@ -201,6 +217,29 @@
+ gate; unstable text returns `answer_not_stable` and remains recoverable rather
+ than being published as terminal success.
+ 
++All successful watcher paths pass through `CompletionPolicy`; provider signals
++cannot directly publish completion. Legacy provider watchers are temporary
++fallbacks controlled by `legacyAnswerWatchersV1` and may be disabled globally
++or per adapter while the unified watcher remains authoritative.
++
++One model reaching a terminal state does not complete a multi-model run.
++`PipelineFSM` derives aggregate completion from the snapshotted required model
++set and closes the run only when every required participant is terminal.
++
++## Persistence and MV3 recovery
++
++Background snapshots are written through one serialized queue. Every snapshot
++has `stateRevision` and `persistenceGeneration`; older asynchronous writes
++cannot overwrite a newer committed state. Stop/cancel advances the generation
++and writes a run tombstone, preventing a suspended worker write from reviving a
++terminated run.
++
++On an ordinary MV3 wake, `TabMapManager` is loaded first, then the latest valid
++run snapshot. Reconciliation validates live provider tabs, projects bindings
++back into compatibility fields and derives model/pipeline statuses from their
++canonical state. Volatile timers and DOM observations are never treated as
++persisted truth.
++
+ “Latest answer” means the last eligible assistant turn in DOM order after the
+ turn anchor. Automatic extraction does not use answer length as a recency
+ signal and does not reuse a cached answer element as proof of latestness.
+
+## docs/next-steps.md
+User-facing description: Открытые smoke-проверки и незавершённые задачи.
+
+--- a/docs/next-steps.md
++++ b/docs/next-steps.md
+@@ -6,9 +6,11 @@
+ ## Debate / Disput
+ 
+ - Прогнать ручной end-to-end smoke-run `Duel`, `Triad` и `Multi Verdict` на реальных
+-  вкладках провайдеров после 2.80.175: проверить application runners,
+-  MV3 cold-start recovery, A0/B0 parallel init, Auto retry->pause и provider
+-  orchestration.
++  вкладках провайдеров после 2.80.179: проверить общий terminal detection на
++  главной и Debate, полный identity у `LLM_RESPONSE_READY`, вставку из `promptsByModel`,
++  появление terminal-ответов в Debate feed, восстановление двойным кликом,
++  reuse вкладок между ходами, MV3 cold-start recovery, A0/B0 parallel init,
++  Auto retry->pause и provider orchestration.
+ - Добавить user-facing индикатор, когда Auto поставлен на паузу именно из-за
+   `auto_turn_failed:<target>`, чтобы причина была видна без просмотра timeline.
+ 
+
+## docs/timing-map.md
+User-facing description: Документация новых timeout roles и timing ownership.
+
+--- a/docs/timing-map.md
++++ b/docs/timing-map.md
+@@ -22,6 +22,12 @@
+ > `ROUND2` batch = max(45s, N×8s); stable-pending = defer stable-force = 30s;
+ > submit-timeout единственный источник — `shared/model-policy.js`.
+ 
++Именованные роли таймеров определены в `shared/timeout-policy.js`:
++`handshake=6000`, `submit=15000` до model override,
++`generation=210000` (`480000` long), `recovery=12000`,
++`no_focus_probe=5000`, `tab_ready=15000`. Роль описывает назначение таймера;
++model-specific submit значения по-прежнему принадлежат `shared/model-policy.js`.
++
+ Цель: быстро найти, откуда берётся задержка (и что именно можно крутить). Тут есть 3 слоя:
+ - `background/tab-manager.js`, `background/dispatch-coordinator.js`, `background/job-orchestrator.js` — открытие/активация вкладок, очередь отправки, ожидание подтверждения “промпт отправлен”.
+ - `content-scripts/content-*.js` — поиск композера/кнопки, вставка текста, отправка (клик/Enter) + локальная проверка, что “ушло”.
+@@ -50,15 +56,20 @@
+ 
+ ### 1.3. Подтверждение “промпт отправлен”
+ - Бэкграунд ждёт событие `PROMPT_SUBMITTED` (от content-script) до таймаута:
+-  - `PROMPT_SUBMIT_TIMEOUT_MS = 20000`
+-  - `PROMPT_SUBMIT_TIMEOUTS_MS`:
++  - timeout role `submit`, базовое значение `15000`;
++  - model overrides из `shared/model-policy.js`:
+     - `GPT: 15000`
+     - `DeepSeek: 22000`
+-    - остальные: `20000`
++    - `Perplexity: 12000`
++    - Gemini, Claude, Grok, Le Chat, Qwen и Z.ai: `20000`
+ - Ретраи диспатча (если подтверждение не пришло):
+   - `DISPATCH_MAX_ATTEMPTS = 4`
+-  - `DISPATCH_RETRY_BACKOFF_MS = [0, 2500, 5000, 9000]`
++  - short `DISPATCH_RETRY_BACKOFF_MS = [500, 800, 3000, 8000]`
++  - long `[2000, 2500, 5000, 9000]`
+   - `DISPATCH_SUPERVISOR_TICK_MS = 1200`
++  - действие выбирает `shared/recovery-policy.js`: `WAIT`, `OBSERVE`,
++    `RELOAD`, `RESEND` или `FINALIZE_ERROR`; таймер `recovery=12000` не является
++    таймером генерации или подтверждения отправки.
+ 
+ ### 1.4. Защита от retry-storm (когда вкладка ещё обрабатывает прошлый запрос)
+ - Если content-script вернул `error.type === 'concurrent_request'`, бэкграунд не ставит `ERROR`, а ставит cooldown:
+
+## tests/architecture-ownership.test.js
+User-facing description: Guards нового background ownership.
+
+--- /dev/null
++++ b/tests/architecture-ownership.test.js
+@@ -0,0 +1,23 @@
++const fs = require('fs');
++const path = require('path');
++
++const root = path.join(__dirname, '..');
++const read = (...parts) => fs.readFileSync(path.join(root, ...parts), 'utf8');
++
++describe('bounded state ownership', () => {
++  test('TabMapManager is the only background writer of the tabId compatibility projection', () => {
++    const backgroundDir = path.join(root, 'background');
++    const offenders = fs.readdirSync(backgroundDir)
++      .filter((name) => name.endsWith('.js') && name !== 'tab-manager.js')
++      .filter((name) => /(?:entry|jobState\.llms\[[^\]]+\])\.tabId\s*=(?!=)/.test(read('background', name)));
++    expect(offenders).toEqual([]);
++  });
++
++  test('legacy model status fields are written only by the state projection owner', () => {
++    const backgroundDir = path.join(root, 'background');
++    const offenders = fs.readdirSync(backgroundDir)
++      .filter((name) => name.endsWith('.js') && name !== 'state-manager.js')
++      .filter((name) => /entry\.(?:status|finalStatus|finalStatusRecorded)\s*=(?!=)/.test(read('background', name)));
++    expect(offenders).toEqual([]);
++  });
++});
+
+## tests/completion-policy.test.js
+User-facing description: Тесты обязательных completion evidence.
+
+--- /dev/null
++++ b/tests/completion-policy.test.js
+@@ -0,0 +1,47 @@
++describe('shared completion policy', () => {
++  let CompletionPolicy;
++
++  beforeEach(() => {
++    jest.resetModules();
++    global.AnswerContentClassifier = require('../shared/answer-content-classifier');
++    CompletionPolicy = require('../shared/completion-policy');
++  });
++
++  test('accepts a fresh stable answer with no active generation indicators', () => {
++    const result = CompletionPolicy.evaluate({
++      text: 'A complete and meaningful generated answer.',
++      freshTurnEvidence: true,
++      textStable: true,
++      stopVisible: false,
++      stopSignal: false,
++      loadingVisible: false,
++      progressVisible: false,
++      providerError: false,
++      confidence: 0.92
++    });
++    expect(result.accepted).toBe(true);
++  });
++
++  test.each([
++    ['stale answer', { freshTurnEvidence: false }, 'fresh_turn_missing'],
++    ['growing answer', { textStable: false }, 'text_unstable'],
++    ['visible stop', { stopVisible: true }, 'stop_visible'],
++    ['unknown stop probe', { stopSignal: 'unknown' }, 'stop_unknown'],
++    ['loading indicator', { loadingVisible: true }, 'loading_visible']
++  ])('rejects %s', (_label, override, expectedReason) => {
++    const result = CompletionPolicy.evaluate({
++      text: 'A complete and meaningful generated answer.',
++      freshTurnEvidence: true,
++      textStable: true,
++      stopVisible: false,
++      stopSignal: false,
++      loadingVisible: false,
++      progressVisible: false,
++      providerError: false,
++      confidence: 0.95,
++      ...override
++    });
++    expect(result.accepted).toBe(false);
++    expect(result.contradictions).toContain(expectedReason);
++  });
++});
+
+## tests/dispatch-concurrency-regression.test.js
+User-facing description: Регрессии lock/revalidation и stale dispatch.
+
+--- /dev/null
++++ b/tests/dispatch-concurrency-regression.test.js
+@@ -0,0 +1,162 @@
++// Behavioral regression: concurrent callers must produce one logical prompt send.
++// This executes the real coordinator, dispatch FSM and mutex implementation.
++const fs = require('fs');
++const path = require('path');
++const vm = require('vm');
++
++const read = (...parts) => fs.readFileSync(path.join(__dirname, '..', ...parts), 'utf8');
++
++function createDispatchSandbox() {
++  const sentMessages = [];
++  const context = {
++    console,
++    Promise,
++    Map,
++    Set,
++    Date,
++    Math,
++    Array,
++    Object,
++    Number,
++    String,
++    Boolean,
++    RegExp,
++    JSON,
++    URL,
++    AbortController,
++    setTimeout,
++    clearTimeout,
++    TimingConfig: { getTiming: (_name, fallback) => fallback },
++    SUCCESS_STATUSES: ['SUCCESS', 'DONE', 'PARTIAL'],
++    FAILURE_STATUSES: ['ERROR', 'NO_SEND'],
++    TERMINAL_STATUSES: ['SUCCESS', 'DONE', 'PARTIAL', 'ERROR', 'NO_SEND'],
++    AUTO_PING_WINDOW_MS: 45000,
++    resultsTabId: null,
++    promptDispatchInProgress: 0,
++    jobState: {
++      prompt: 'Explain bounded ownership',
++      attachments: [],
++      session: { startTime: 7001, pipelineRunId: 'run-7001' },
++      llms: {
++        GPT: { status: 'IDLE', tabId: 41, dispatchAttempts: 0 }
++      }
++    },
++    chrome: {
++      runtime: {
++        lastError: null,
++        getURL: (file = '') => `chrome-extension://test/${file}`
++      },
++      tabs: {
++        get: jest.fn((tabId, callback) => callback({ id: tabId, status: 'complete', url: 'https://chatgpt.com/' })),
++        query: jest.fn((_query, callback) => callback([])),
++        update: jest.fn((_tabId, _change, callback) => callback?.()),
++        reload: jest.fn((_tabId, _options, callback) => callback?.()),
++        sendMessage: jest.fn((tabId, message, callback) => {
++          sentMessages.push({ tabId, message });
++          if (message.type === 'HEALTH_CHECK_PING') {
++            setTimeout(() => callback?.({ ok: true }), 1);
++            return Promise.resolve({ ok: true });
++          }
++          if (message.type === 'GET_ANSWER_NO_FOCUS') {
++            callback?.({
++              status: 'ready',
++              pageReady: true,
++              composerReady: true,
++              requiresFocus: false,
++              blockers: []
++            });
++            return Promise.resolve({ status: 'ready' });
++          }
++          callback?.({ ok: true });
++          return Promise.resolve({ ok: true });
++        })
++      },
++      windows: { update: jest.fn((_id, _change, callback) => callback?.()) }
++    },
++    TabMapManager: {
++      get: jest.fn(() => 41)
++    },
++    ReadySignalManager: {
++      getReadyInfo: jest.fn(() => ({ tabSessionId: 'tab-session-41' }))
++    },
++    ModelPolicy: {
++      modelRequiresAckReady: jest.fn(() => false),
++      modelUsesConservativeDispatch: jest.fn(() => false),
++      getPromptSubmitTimeoutMs: jest.fn((_model, fallback) => fallback)
++    },
++    ensureTabReadyForDispatch: jest.fn(async () => ({ ok: true, tab: { id: 41 }, snapshot: { id: 41 } })),
++    captureTabSnapshot: jest.fn(async () => ({ id: 41 })),
++    isValidTabId: (id) => Number.isInteger(id) && id > 0,
++    extendPingWindowForTab: jest.fn(),
++    stopHumanPresenceLoop: jest.fn(),
++    startHumanPresenceLoop: jest.fn(),
++    updateModelState: jest.fn((llmName, status) => {
++      if (context.jobState.llms[llmName]) context.jobState.llms[llmName].status = status;
++    }),
++    appendLogEntry: jest.fn(),
++    emitTelemetry: jest.fn(),
++    broadcastDiagnostic: jest.fn(),
++    sendMessageToResultsTab: jest.fn(),
++    saveJobState: jest.fn(async () => {}),
++    handleLLMResponse: jest.fn(),
++    sendPassiveMessageWithRetries: jest.fn(),
++    registerSessionTimer: (timer) => timer,
++    deregisterSessionTimer: jest.fn(),
++    self: null
++  };
++  context.self = context;
++
++  vm.createContext(context);
++  [
++    ['utils', 'safe-mutex.js'],
++    ['utils', 'retry-strategy.js'],
++    ['shared', 'run-error.js'],
++    ['shared', 'run-identity.js'],
++    ['shared', 'recovery-intent.js'],
++    ['background', 'dispatch-retry.js'],
++    ['background', 'dispatch-state-machine.js'],
++    ['background', 'dispatch-coordinator.js']
++  ].forEach((parts) => vm.runInContext(read(...parts), context, { filename: parts.join('/') }));
++
++  return { context, sentMessages };
++}
++
++describe('dispatch concurrency regression', () => {
++  test('two concurrent dispatch requests send GET_ANSWER only once', async () => {
++    const { context, sentMessages } = createDispatchSandbox();
++
++    await Promise.all([
++      context.dispatchPromptToTab('GPT', 41, 'Explain bounded ownership', [], 'test', { skipSubmitWait: true }),
++      context.dispatchPromptToTab('GPT', 41, 'Explain bounded ownership', [], 'test', { skipSubmitWait: true })
++    ]);
++    await new Promise((resolve) => setTimeout(resolve, 5));
++
++    const promptSends = sentMessages.filter(({ message }) => message.type === 'GET_ANSWER');
++    expect(promptSends).toHaveLength(1);
++    expect(promptSends[0].message.meta).toEqual(expect.objectContaining({
++      runSessionId: 7001,
++      dispatchId: 'GPT:7001:1',
++      tabSessionId: 'tab-session-41'
++    }));
++    expect(context.jobState.llms.GPT.dispatchAttempts).toBe(1);
++  });
++
++  test('a prepared send is quarantined if the tab binding changes', async () => {
++    const { context, sentMessages } = createDispatchSandbox();
++    context.TabMapManager.get.mockReturnValue(99);
++
++    context.sendMessageSafely(41, 'GPT', {
++      type: 'GET_ANSWER',
++      prompt: 'stale command',
++      meta: { runSessionId: 7001, dispatchId: 'GPT:7001:1' }
++    });
++    await new Promise((resolve) => setTimeout(resolve, 1));
++
++    expect(sentMessages.filter(({ message }) => message.type === 'GET_ANSWER')).toHaveLength(0);
++    expect(context.emitTelemetry).toHaveBeenCalledWith(
++      'GPT',
++      'STALE_TAB_COMMAND_QUARANTINED',
++      expect.any(Object)
++    );
++  });
++});
+
+## tests/extension-reload-reset.test.js
+User-facing description: MV3 reload/reset behavior.
+
+--- a/tests/extension-reload-reset.test.js
++++ b/tests/extension-reload-reset.test.js
+@@ -11,7 +11,7 @@
+     expect(indexSource).toContain('self.__extensionLifecycleReady = new Promise');
+     expect(indexSource).toMatch(/onInstalled\.addListener[\s\S]*details\?\.reason !== 'update'/);
+     expect(indexSource).toMatch(/chrome\.storage\.local\.remove\(\[[\s\S]*'jobState'[\s\S]*'__diagnostics_events__'/);
+-    expect(routerSource).toMatch(/await self\.__extensionLifecycleReady;[\s\S]*await Promise\.all\(\[loadJobState\(\), TabMapManager\.load\(\)\]\)/);
++    expect(routerSource).toMatch(/await self\.__extensionLifecycleReady;[\s\S]*await TabMapManager\.load\(\);[\s\S]*await loadJobState\(\);[\s\S]*reconcileJobState/);
+   });
+ 
+   test('results registration reconciles an authoritative snapshot', () => {
+
+## tests/finalization-evidence.test.js
+User-facing description: Новые требования к finalization evidence.
+
+--- a/tests/finalization-evidence.test.js
++++ b/tests/finalization-evidence.test.js
+@@ -5,6 +5,7 @@
+ const JOB_ORCHESTRATOR_PATH = path.join(__dirname, '..', 'background', 'job-orchestrator.js');
+ const JOB_ORCHESTRATOR_SOURCE = fs.readFileSync(JOB_ORCHESTRATOR_PATH, 'utf8');
+ const STATUS_CONTRACT_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'shared', 'status-contract.js'), 'utf8');
++const MODEL_RUN_STATE_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'shared', 'model-run-state.js'), 'utf8');
+ const ANSWER_EVIDENCE_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'shared', 'answer-evidence.js'), 'utf8');
+ const FINALIZATION_CONTROLLER_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'shared', 'finalization-controller.js'), 'utf8');
+ const RECOVERY_INTENT_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'shared', 'recovery-intent.js'), 'utf8');
+@@ -86,6 +87,7 @@
+   context.self = context;
+   vm.createContext(context);
+   vm.runInContext(STATUS_CONTRACT_SOURCE, context, { filename: 'shared/status-contract.js' });
++  vm.runInContext(MODEL_RUN_STATE_SOURCE, context, { filename: 'shared/model-run-state.js' });
+   vm.runInContext(ANSWER_EVIDENCE_SOURCE, context, { filename: 'shared/answer-evidence.js' });
+   vm.runInContext(FINALIZATION_CONTROLLER_SOURCE, context, { filename: 'shared/finalization-controller.js' });
+   vm.runInContext(RECOVERY_INTENT_SOURCE, context, { filename: 'shared/recovery-intent.js' });
+@@ -318,8 +320,8 @@
+     context.recordModelRunState('Perplexity', entry, evidence);
+     expect(evidence.accepted).toBe(true);
+     expect(entry.modelRunState).toEqual(expect.objectContaining({
+-      executionStatus: 'finalized_failure',
+-      answerStatus: 'none',
++      executionState: 'terminal_failure',
++      answerState: 'failed',
+       uiStatus: 'EXTRACT_FAILED'
+     }));
+   });
+
+## tests/legacy-watcher-feature-flag.test.js
+User-facing description: Guard legacy watcher feature flag.
+
+--- /dev/null
++++ b/tests/legacy-watcher-feature-flag.test.js
+@@ -0,0 +1,17 @@
++const fs = require('fs');
++const path = require('path');
++
++describe('legacy answer watcher feature flag', () => {
++  test('is centrally configured and guards every adapter that retains a legacy watcher', () => {
++    const root = path.resolve(__dirname, '..');
++    const bootstrap = fs.readFileSync(path.join(root, 'content-scripts/content-bootstrap.js'), 'utf8');
++    expect(bootstrap).toContain('legacyAnswerWatchersV1');
++    expect(bootstrap).toContain('shouldUseLegacyAnswerWatcher');
++
++    const adapters = ['chatgpt', 'claude', 'deepseek', 'gemini', 'grok', 'lechat', 'perplexity', 'qwen'];
++    adapters.forEach((adapter) => {
++      const source = fs.readFileSync(path.join(root, `content-scripts/content-${adapter}.js`), 'utf8');
++      expect(source).toContain('shouldUseLegacyAnswerWatcher');
++    });
++  });
++});
+
+## tests/lifecycle-sender-gate.test.js
+User-facing description: Sender/correlation gate behavior.
+
+--- a/tests/lifecycle-sender-gate.test.js
++++ b/tests/lifecycle-sender-gate.test.js
+@@ -58,6 +58,7 @@
+     stopAllProcesses: jest.fn(),
+     writeDiagnosticsEventsToStorage: jest.fn(() => Promise.resolve()),
+     handleLLMResponse: jest.fn(),
++    updateModelState: jest.fn(),
+     resolvePromptSubmitted: jest.fn(),
+     emitTelemetry: jest.fn((llmName, event, payload = {}) => telemetryEvents.push({ llmName, event, payload })),
+     broadcastDiagnostic: jest.fn(),
+@@ -157,6 +158,57 @@
+     expect(context.handleLLMResponse).toHaveBeenCalledWith('GPT', 'real text', null, META, '');
+   });
+ 
++  test('a late response from the previous dispatch is rejected on the bound tab', async () => {
++    const { context, telemetryEvents, sendMessage } = createRouterSandbox();
++    const response = await sendMessage({
++      type: 'LLM_RESPONSE',
++      llmName: 'GPT',
++      answer: 'late answer from an older prompt',
++      meta: { ...META, dispatchId: 'GPT:12345:0' }
++    }, BOUND_SENDER);
++
++    expect(response).toEqual(expect.objectContaining({
++      status: 'response_rejected',
++      reason: 'dispatch_mismatch'
++    }));
++    expect(context.handleLLMResponse).not.toHaveBeenCalled();
++    expect(telemetryEvents.some((event) => (
++      event.event === 'LIFECYCLE_CORRELATION_REJECTED'
++      && event.payload?.meta?.messageType === 'LLM_RESPONSE'
++    ))).toBe(true);
++  });
++
++  test('a response from a previous run session is rejected even with the current dispatch id', async () => {
++    const { context, sendMessage } = createRouterSandbox();
++    const response = await sendMessage({
++      type: 'LLM_RESPONSE',
++      llmName: 'GPT',
++      answer: 'answer from a previous run',
++      meta: { ...META, runSessionId: 12344, sessionId: 12344 }
++    }, BOUND_SENDER);
++
++    expect(response).toEqual(expect.objectContaining({
++      status: 'response_rejected',
++      reason: 'run_session_mismatch'
++    }));
++    expect(context.handleLLMResponse).not.toHaveBeenCalled();
++  });
++
++  test('missing correlation cannot mutate the current run from the bound tab', async () => {
++    const { context, sendMessage } = createRouterSandbox();
++    const response = await sendMessage({
++      type: 'LLM_RESPONSE_READY',
++      llmName: 'GPT',
++      meta: {}
++    }, BOUND_SENDER);
++
++    expect(response).toEqual(expect.objectContaining({
++      status: 'response_ready_rejected',
++      reason: 'missing_dispatch_id'
++    }));
++    expect(context.jobState.llms.GPT.lifecycleReadyAt).toBeFalsy();
++  });
++
+   test('LLM_RESPONSE_READY from a foreign tab cannot set completion evidence', async () => {
+     const { context, sendMessage } = createRouterSandbox();
+     const rejected = await sendMessage({ type: 'LLM_RESPONSE_READY', llmName: 'GPT' }, FOREIGN_SENDER);
+
+## tests/lifecycle-tristate-completion.test.js
+User-facing description: Tri-state Stop/loading completion behavior.
+
+--- a/tests/lifecycle-tristate-completion.test.js
++++ b/tests/lifecycle-tristate-completion.test.js
+@@ -36,6 +36,14 @@
+       if (typeof callback === 'function') callback({});
+     };
+     window.chrome = global.chrome;
++    window.ContentUtils = {
++      ensureDispatchMeta: (meta) => ({
++        ...meta,
++        tabSessionId: 'tab-session-1',
++        contentScriptInstanceId: 'content-instance-1',
++        navigationSeq: 3
++      })
++    };
+     loadScript('content-utils/response-lifecycle-detector.js');
+   });
+ 
+@@ -78,6 +86,13 @@
+   test('a clean page (confirmed-absent stop) still completes', async () => {
+     await runTracking('GPT');
+     expect(completeEvents().length).toBeGreaterThanOrEqual(1);
++    expect(readyEvents()[0]?.meta).toEqual(expect.objectContaining({
++      dispatchId: 'd-GPT',
++      runSessionId: 77,
++      tabSessionId: 'tab-session-1',
++      contentScriptInstanceId: 'content-instance-1',
++      navigationSeq: 3
++    }));
+   });
+ 
+   test('an answer that existed before dispatch never starts or completes the new turn', async () => {
+
+## tests/manual-latest-recovery.test.js
+User-facing description: Double-click/manual latest recovery behavior.
+
+--- a/tests/manual-latest-recovery.test.js
++++ b/tests/manual-latest-recovery.test.js
+@@ -4,7 +4,7 @@
+ const read = (...parts) => fs.readFileSync(path.join(__dirname, '..', ...parts), 'utf8');
+ 
+ describe('manual latest-answer recovery from status indicator', () => {
+-  test('status indicator double-click requests latest recovery instead of cached answer', () => {
++  test('status indicator double-click restores the accepted answer before latest recovery', () => {
+     const results = read('results.js');
+     const router = read('background', 'message-router.js');
+ 
+@@ -14,7 +14,8 @@
+     expect(results).toContain("triggerManualPing(llmName, indicator, { source: 'status_indicator_dblclick' });");
+ 
+     expect(router).toContain('const manualLatestRecovery = message.manualLatestRecovery === true;');
+-    expect(router).toContain('entry && entry.answer && !manualLatestRecovery');
++    expect(router).toContain('if (entry && entry.answer)');
++    expect(router).toContain("source: manualLatestRecovery ? 'manual_latest_cached_baseline' : 'manual_cached_answer'");
+     expect(router).toContain('!shouldAdvanceStrategy && !manualLatestRecovery');
+     expect(router).toContain('manualLatestRecovery,');
+   });
+@@ -56,6 +57,13 @@
+     expect(orchestrator).toContain('const manualBudget = manualLatestRecovery');
+   });
+ 
++  test('background DOM recovery preserves the active tab identity for finalization', () => {
++    const orchestrator = read('background', 'job-orchestrator.js');
++    expect(orchestrator).toContain('tabSessionId: meta?.tabSessionId || entry?.runIdentity?.tabSessionId || null');
++    expect(orchestrator).toContain('contentScriptInstanceId: meta?.contentScriptInstanceId || entry?.runIdentity?.contentScriptInstanceId || null');
++    expect(orchestrator).toContain('navigationSeq: meta?.navigationSeq || entry?.runIdentity?.navigationSeq || null');
++  });
++
+   test('orchestrator inline latest recovery has Claude-specific answer selectors', () => {
+     const orchestrator = read('background', 'job-orchestrator.js');
+     const claudeMap = orchestrator.slice(
+
+## tests/mv3-recovery-behavior.test.js
+User-facing description: MV3 persisted-run recovery.
+
+--- /dev/null
++++ b/tests/mv3-recovery-behavior.test.js
+@@ -0,0 +1,211 @@
++// Behavioral MV3 recovery regression: execute the real rehydration routine and
++// verify that only open submitted models are re-armed after worker suspension.
++const fs = require('fs');
++const path = require('path');
++const vm = require('vm');
++
++const ORCHESTRATOR_SOURCE = fs.readFileSync(
++  path.join(__dirname, '..', 'background', 'job-orchestrator.js'),
++  'utf8'
++);
++
++function createRecoverySandbox() {
++  const context = {
++    console,
++    Promise,
++    Map,
++    Set,
++    Date,
++    Math,
++    Array,
++    Object,
++    Number,
++    String,
++    Boolean,
++    RegExp,
++    JSON,
++    URL,
++    AbortController,
++    setTimeout,
++    clearTimeout,
++    SUCCESS_STATUSES: ['SUCCESS', 'DONE', 'COMPLETE', 'PARTIAL'],
++    FAILURE_STATUSES: ['ERROR', 'NO_SEND', 'EXTRACT_FAILED'],
++    TERMINAL_STATUSES: ['SUCCESS', 'DONE', 'COMPLETE', 'PARTIAL', 'ERROR', 'NO_SEND', 'EXTRACT_FAILED'],
++    jobState: {
++      prompt: 'resume this run',
++      attachments: [],
++      session: {
++        startTime: 8801,
++        selectedModels: ['GPT', 'Claude'],
++        totalModels: 2,
++        roundsInProgress: true,
++        boundTabIds: [81, 82]
++      },
++      llms: {
++        GPT: {
++          status: 'GENERATING',
++          tabId: 81,
++          promptSubmittedAt: 8700,
++          confirmedDispatchId: 'GPT:8801:1',
++          lastDispatchMeta: { dispatchId: 'GPT:8801:1' },
++          dispatchInFlight: true
++        },
++        Claude: {
++          status: 'SUCCESS',
++          finalStatus: 'SUCCESS',
++          finalStatusRecorded: true,
++          finalizedAt: 8790,
++          tabId: 82,
++          lastDispatchMeta: { dispatchId: 'Claude:8801:1' }
++        }
++      }
++    },
++    chrome: {
++      tabs: { sendMessage: jest.fn(() => Promise.resolve()) },
++      scripting: { executeScript: jest.fn(() => Promise.resolve([])) },
++      storage: {
++        local: {
++          set: jest.fn(() => Promise.resolve()),
++          get: jest.fn(() => Promise.resolve({})),
++          remove: jest.fn(() => Promise.resolve())
++        },
++        session: {
++          get: jest.fn(() => Promise.resolve({})),
++          set: jest.fn(() => Promise.resolve()),
++          remove: jest.fn(() => Promise.resolve())
++        }
++      },
++      runtime: { lastError: null }
++    },
++    CompressedStorage: {
++      set: jest.fn(() => Promise.resolve()),
++      get: jest.fn(() => Promise.resolve(null)),
++      remove: jest.fn(() => Promise.resolve())
++    },
++    TabMapManager: {
++      get: jest.fn((name) => context.jobState.llms?.[name]?.tabId || null),
++      entries: jest.fn(() => []),
++      removeByName: jest.fn(),
++      clear: jest.fn(() => Promise.resolve())
++    },
++    appendLogEntry: jest.fn(),
++    updateModelState: jest.fn(),
++    sendMessageToResultsTab: jest.fn(),
++    getLogSnapshot: jest.fn(() => []),
++    broadcastGlobalState: jest.fn(),
++    broadcastHumanVisitStatus: jest.fn(),
++    emitTelemetry: jest.fn(),
++    broadcastDiagnostic: jest.fn(),
++    stopHumanPresenceLoop: jest.fn(),
++    stopHeartbeatMonitor: jest.fn(),
++    extendPingWindowForLLM: jest.fn(),
++    sendPassiveMessageWithRetries: jest.fn(),
++    isValidTabId: (tabId) => Number.isInteger(tabId) && tabId > 0,
++    getBoundTabId: (_llmName, entry) => entry?.tabId || null,
++    self: null
++  };
++  context.self = context;
++  vm.createContext(context);
++  vm.runInContext(ORCHESTRATOR_SOURCE, context, { filename: 'background/job-orchestrator.js' });
++  return context;
++}
++
++describe('MV3 recovery behavior', () => {
++  beforeEach(() => {
++    jest.useFakeTimers();
++  });
++
++  afterEach(() => {
++    jest.useRealTimers();
++  });
++
++  test('rehydration resumes open submitted models and leaves terminal models closed', async () => {
++    const context = createRecoverySandbox();
++    context.jobState.llms.GPT.promptSubmittedAt = Date.now() - 100;
++    context.armScriptRuntimeHardStopForConfirmedPrompt = jest.fn();
++    context.schedulePromptDispatchSupervisor = jest.fn();
++
++    const recovered = context.rehydrateActiveJobRuntime('behavior_test');
++
++    expect(recovered).toBe(true);
++    expect(context.jobState.session.roundsInProgress).toBe(false);
++    expect(context.jobState.session.roundsRecoveredFromStuckAt).toBeTruthy();
++    expect(context.jobState.llms.GPT).toEqual(expect.objectContaining({
++      dispatchInFlight: false,
++      rehydratedAt: expect.any(Number)
++    }));
++    expect(context.jobState.llms.Claude.rehydratedAt).toBeUndefined();
++    expect(context.armScriptRuntimeHardStopForConfirmedPrompt).toHaveBeenCalledWith(
++      'GPT',
++      expect.objectContaining({ dispatchId: 'GPT:8801:1', tabId: 81 })
++    );
++
++    await jest.advanceTimersByTimeAsync(250);
++
++    expect(context.sendPassiveMessageWithRetries).toHaveBeenCalledWith(
++      81,
++      'GPT',
++      expect.objectContaining({
++        action: 'getResponses',
++        meta: expect.objectContaining({
++          source: 'mv3_rehydration_collect',
++          dispatchId: 'GPT:8801:1'
++        })
++      }),
++      expect.objectContaining({ allowRecovery: true })
++    );
++    expect(context.jobState.llms.GPT.adaptiveCollectActive).toBe(true);
++    expect(context.sendPassiveMessageWithRetries).not.toHaveBeenCalledWith(
++      82,
++      'Claude',
++      expect.anything(),
++      expect.anything()
++    );
++  });
++
++  test('persistence writes are serialized and stop removal wins over an in-flight save', async () => {
++    const context = createRecoverySandbox();
++    const order = [];
++    let releaseFirstWrite;
++    context.CompressedStorage.set
++      .mockImplementationOnce(() => new Promise((resolve) => {
++        order.push('set:first');
++        releaseFirstWrite = resolve;
++      }))
++      .mockImplementationOnce(() => {
++        order.push('set:second');
++        return Promise.resolve();
++      });
++    context.CompressedStorage.remove.mockImplementation(() => {
++      order.push('remove');
++      return Promise.resolve();
++    });
++
++    const first = context.saveJobState(context.jobState);
++    await Promise.resolve();
++    const second = context.saveJobState(context.jobState);
++    await Promise.resolve();
++    expect(order).toEqual(['set:first']);
++
++    releaseFirstWrite();
++    await Promise.all([first, second]);
++    expect(order).toEqual(['set:first', 'set:second']);
++
++    let releaseLateWrite;
++    context.CompressedStorage.set.mockImplementationOnce(() => new Promise((resolve) => {
++      order.push('set:late');
++      releaseLateWrite = resolve;
++    }));
++    const lateSave = context.saveJobState(context.jobState);
++    for (let i = 0; i < 5 && !releaseLateWrite; i += 1) await Promise.resolve();
++    expect(typeof releaseLateWrite).toBe('function');
++    const stop = context.invalidatePersistedJobState('user_cancel');
++    releaseLateWrite();
++    await Promise.all([lateSave, stop]);
++
++    expect(order.slice(-2)).toEqual(['set:late', 'remove']);
++    expect(context.chrome.storage.session.set).toHaveBeenCalledWith(expect.objectContaining({
++      llm_run_tombstone_v1: expect.objectContaining({ reason: 'user_cancel' })
++    }));
++  });
++});
+
+## tests/pipeline-fsm.test.js
+User-facing description: Pipeline FSM finality/control regressions.
+
+--- a/tests/pipeline-fsm.test.js
++++ b/tests/pipeline-fsm.test.js
+@@ -134,6 +134,56 @@
+     expect(result.ok).toBe(false);
+     expect(result.reason).toBe('pipeline_terminal_cancelled');
+     expect(cancelled.state).toBe('CANCELLED');
++  });
++
++  test('a multi-model run completes only after every required model is terminal', () => {
++    const control = PipelineFSM.startRun({
++      pipelineRunId: 'run-multi-final',
++      sessionId: 3100,
++      stage: 'awaiting_final',
++      payload: { selectedModels: ['GPT', 'Claude'] }
++    });
++    PipelineFSM.registerDispatch(control, {
++      llmName: 'GPT',
++      dispatchId: 'dispatch-gpt',
++      pipelineRunId: 'run-multi-final'
++    });
++    PipelineFSM.registerDispatch(control, {
++      llmName: 'Claude',
++      dispatchId: 'dispatch-claude',
++      pipelineRunId: 'run-multi-final'
++    });
++
++    const first = PipelineFSM.markFinal(control, {
++      llmName: 'GPT',
++      dispatchId: 'dispatch-gpt',
++      pipelineRunId: 'run-multi-final',
++      finalStatus: 'SUCCESS',
++      reason: 'gpt_done'
++    });
++
++    expect(first.ok).toBe(true);
++    expect(first.aggregate).toEqual(expect.objectContaining({
++      complete: false,
++      terminalModels: ['GPT'],
++      pendingModels: ['Claude']
++    }));
++    expect(control.state).toBe('AWAITING_FINAL');
++    expect(control.completedAt).toBeNull();
++    expect(control.terminalStatus).toBeNull();
++
++    const second = PipelineFSM.markFinal(control, {
++      llmName: 'Claude',
++      dispatchId: 'dispatch-claude',
++      pipelineRunId: 'run-multi-final',
++      finalStatus: 'SUCCESS',
++      reason: 'claude_done'
++    });
++
++    expect(second.aggregate.complete).toBe(true);
++    expect(control.state).toBe('COMPLETED');
++    expect(control.completedAt).toEqual(expect.any(Number));
++    expect(control.terminalStatus).toBe('SUCCESS');
+   });
+ 
+   test('allows recovered success to override a recoverable failure final', () => {
+
+## tests/recovery-policy.test.js
+User-facing description: Recovery decision policy.
+
+--- /dev/null
++++ b/tests/recovery-policy.test.js
+@@ -0,0 +1,36 @@
++const RecoveryIntent = require('../shared/recovery-intent');
++
++describe('shared recovery policy', () => {
++  let RecoveryPolicy;
++
++  beforeEach(() => {
++    jest.resetModules();
++    global.RecoveryIntent = RecoveryIntent;
++    global.DispatchRetry = {
++      getDispatchRetryDecision: jest.fn(() => ({ shouldRetry: true, delayMs: 1500, classification: 'TRANSIENT' }))
++    };
++    RecoveryPolicy = require('../shared/recovery-policy');
++  });
++
++  test('observes instead of resending after terminal-eligible answer evidence', () => {
++    const decision = RecoveryPolicy.decide({ answer: 'x'.repeat(200) }, {
++      intent: 'resend_prompt', attempt: 1, maxAttempts: 4, minChars: 80
++    });
++    expect(decision.action).toBe('OBSERVE');
++    expect(decision.reason).toBe('no_resend_after_answer_evidence');
++  });
++
++  test('requests reload for repeated transport failures', () => {
++    const decision = RecoveryPolicy.decide({}, {
++      intent: 'resend_prompt', attempt: 2, maxAttempts: 4, error: { type: 'ack_timeout' }
++    });
++    expect(decision.action).toBe('RELOAD');
++  });
++
++  test('finalizes error when the retry budget is exhausted', () => {
++    const decision = RecoveryPolicy.decide({}, {
++      intent: 'resend_prompt', attempt: 4, maxAttempts: 4, error: { type: 'connection_failed' }
++    });
++    expect(decision.action).toBe('FINALIZE_ERROR');
++  });
++});
+
+## tests/run-identity.test.js
+User-facing description: Run identity validation.
+
+--- a/tests/run-identity.test.js
++++ b/tests/run-identity.test.js
+@@ -60,4 +60,30 @@
+       reason: 'missing_dispatch_identity'
+     }));
+   });
++
++  test.each([
++    ['tabSessionId', 'tab-new', 'tab-old', 'stale_tab_session'],
++    ['contentScriptInstanceId', 'content-new', 'content-old', 'stale_content_instance'],
++    ['navigationSeq', 3, 2, 'stale_navigation']
++  ])('rejects stale %s identity', (field, expectedValue, incomingValue, reason) => {
++    const decision = RunIdentity.validateEvent({
++      runIdentity: { [field]: expectedValue }
++    }, {
++      [field]: incomingValue
++    });
++
++    expect(decision).toEqual(expect.objectContaining({ ok: false, reason }));
++  });
++
++  test.each([
++    ['tabSessionId', 'tab-session', 'missing_tab_session_identity'],
++    ['contentScriptInstanceId', 'content-instance', 'missing_content_instance_identity'],
++    ['navigationSeq', 4, 'missing_navigation_identity']
++  ])('rejects missing %s when it is part of the active identity', (field, value, reason) => {
++    const decision = RunIdentity.validateEvent({
++      runIdentity: { [field]: value }
++    }, {});
++
++    expect(decision).toEqual(expect.objectContaining({ ok: false, reason }));
++  });
+ });
+
+## tests/telemetry-markdown-export-regression.test.js
+User-facing description: Export regression after runtime changes.
+
+--- a/tests/telemetry-markdown-export-regression.test.js
++++ b/tests/telemetry-markdown-export-regression.test.js
+@@ -6,8 +6,10 @@
+ const ROUTER_SRC = fs.readFileSync(path.join(__dirname, '..', 'background', 'message-router.js'), 'utf8');
+ 
+ describe('telemetry Markdown export regression', () => {
+-  test('page reload does not destroy telemetry before export', () => {
+-    expect(RESULTS_SRC).not.toContain('clearTelemetryOnReload().catch');
++  test('results page reload starts a clean session before registration', () => {
++    expect(RESULTS_SRC).toContain("type: 'CLEAR_ALL_SESSIONS', reason: 'results_page_reload'");
++    expect(RESULTS_SRC).toContain("type: 'CLEAR_DIAG_EVENTS', reason: 'results_page_reload'");
++    expect(RESULTS_SRC).toContain("type: 'REGISTER_RESULTS_TAB'");
+   });
+ 
+   test('Run Summary alone is sufficient to create the MD export', () => {
+
+## tests/timeout-policy.test.js
+User-facing description: Timeout policy behavior.
+
+--- /dev/null
++++ b/tests/timeout-policy.test.js
+@@ -0,0 +1,31 @@
++describe('TimeoutPolicy', () => {
++  afterEach(() => {
++    delete global.ModelPolicy;
++    jest.resetModules();
++  });
++
++  test('assigns an explicit duration to every timeout role', () => {
++    const policy = require('../shared/timeout-policy');
++
++    Object.values(policy.ROLES).forEach((role) => {
++      expect(policy.resolve(role)).toBeGreaterThan(0);
++    });
++  });
++
++  test('lets the model policy own submit timeout tuning', () => {
++    global.ModelPolicy = {
++      getPromptSubmitTimeoutMs: jest.fn(() => 23456)
++    };
++    const policy = require('../shared/timeout-policy');
++
++    expect(policy.resolve(policy.ROLES.SUBMIT, { model: 'Claude' })).toBe(23456);
++    expect(global.ModelPolicy.getPromptSubmitTimeoutMs).toHaveBeenCalledWith('Claude', 15000);
++  });
++
++  test('keeps long generation timeout separate from submit and recovery', () => {
++    const policy = require('../shared/timeout-policy');
++
++    expect(policy.resolve(policy.ROLES.GENERATION, { long: true })).toBe(480000);
++    expect(policy.resolve(policy.ROLES.RECOVERY)).toBe(12000);
++  });
++});
+

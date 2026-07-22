@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Disput — static prototype</title>
+  <link rel="stylesheet" href="../../styles.css?v=2.81.16">
+  <style>
+    /* Только убираем runtime-обвязку. Внешний вид берётся из стилей Disput. */
+    body.prototype-disput .app-shell { display: block; padding: 12px 18px 40px; }
+    body.prototype-disput .main-inner { max-width: var(--center-max-width); margin: 0 auto; padding: 0 16px 40px; }
+    body.prototype-disput .top-control-bar { margin-bottom: 8px; }
+    body.prototype-disput .app-main .input-section { min-height: 0; }
+    body.prototype-disput .prompt-group,
+    body.prototype-disput.pipeline-page .prompt-group:has(.prompt-container.prompt-sandwich.debate-composer:not(.has-debate-feed)) { margin-top: 0; }
+    body.prototype-disput .moderator-input .mod-middle { height: auto; min-height: 94px; padding: 0; }
+    body.prototype-disput .moderator-input .mod-compose-row { min-height: 94px; height: auto; align-items: stretch; }
+    body.prototype-disput .moderator-input textarea#modTa { height: 94px; min-height: 94px; padding: 12px 15px; color: #111827; font-size: 14px !important; line-height: 1.45; }
+    body.prototype-disput .llm-controls { margin-top: 15px; }
+    body.prototype-disput .pipeline-panel-inline { max-width: none; }
+    body.prototype-disput .pipeline-panel .panel-header { flex-wrap: wrap; }
+    body.prototype-disput .pipeline-panel .panel-title-group { flex: 0 0 auto; }
+    body.prototype-disput .pipeline-panel .panel-header-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-wrap: wrap; }
+    body.prototype-disput .pipeline-panel .panel-header-actions .msg-head-center { display: flex; align-items: center; justify-content: center; gap: 4px; width: auto; height: auto; }
+    body.prototype-disput .pipeline-panel .panel-header-actions .msg-head-center .mod-select { width: auto; min-width: 58px; max-width: 110px; }
+    body.prototype-disput .disput-state-map-panel { margin-bottom: 12px; }
+  </style>
+</head>
+<body class="pipeline-page prototype-disput">
+  <div class="app-shell">
+    <main class="app-main">
+      <div class="main-inner">
+        <header class="top-control-bar" aria-label="Выбор моделей">
+          <div class="top-bar-left">
+            <div class="logo-badge">
+              <span class="logo-icon" aria-hidden="true"></span>
+              <span class="logo-name">Cortex</span>
+              <span class="logo-version">v8.0</span>
+            </div>
+          </div>
+          <div class="top-models-bar">
+            <div class="llm-selection-bar models-row models-row-header">
+              <div class="llm-buttons">
+                <button type="button" class="llm-button active" title="GPT"><img class="llm-button-icon" src="../../icons/models/openai.svg" alt="GPT"><span class="llm-button-label">GPT</span></button>
+                <button type="button" class="llm-button" title="Gemini"><img class="llm-button-icon" src="../../icons/models/gemini.svg" alt="Gemini"><span class="llm-button-label">Gemini</span></button>
+                <button type="button" class="llm-button active" title="Claude"><img class="llm-button-icon" src="../../icons/models/claude.svg" alt="Claude"><span class="llm-button-label">Claude</span></button>
+                <button type="button" class="llm-button" title="Grok"><img class="llm-button-icon" src="../../icons/models/grok.svg" alt="Grok"><span class="llm-button-label">Grok</span></button>
+                <button type="button" class="llm-button" title="Z.ai"><img class="llm-button-icon" src="../../icons/models/zai.svg" alt="Z.ai"><span class="llm-button-label">Z.ai</span></button>
+                <button type="button" class="llm-button" title="Qwen"><img class="llm-button-icon" src="../../icons/models/qwen.svg" alt="Qwen"><span class="llm-button-label">Qwen</span></button>
+                <button type="button" class="llm-button" title="DeepSeek"><img class="llm-button-icon" src="../../icons/models/deepseek.svg" alt="DeepSeek"><span class="llm-button-label">DeepSeek</span></button>
+                <button type="button" class="llm-button" title="Le Chat"><img class="llm-button-icon" src="../../icons/models/le_chat.svg" alt="Le Chat"><span class="llm-button-label">Le Chat</span></button>
+                <button type="button" class="llm-button" title="Perplexity"><img class="llm-button-icon" src="../../icons/models/perplexity.svg" alt="Perplexity"><span class="llm-button-label">Perplex</span></button>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <section class="input-section" aria-label="Moderator input">
+          <div class="prompt-group">
+            <div class="prompt-container prompt-sandwich debate-composer">
+              <div class="moderator-input" id="moderator-input">
+                <div class="mod-middle">
+                  <div class="mod-compose-row">
+                    <textarea id="modTa" readonly aria-label="Moderator input">Design a universal architecture for coordinated LLM work. Find the smallest robust architecture that lets several models investigate, challenge, verify and synthesize an answer.</textarea>
+                  </div>
+                </div>
+                <div class="msg-header">
+                  <div class="msg-head-left">
+                    <button type="button" class="prompt-mode-btn prompt-console-toggle-btn" title="Tuning Control" aria-label="Tuning Control" aria-pressed="false">
+                      <span class="toggle-icon toggle-icon-console toggle-icon-slider" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" role="presentation"><line x1="5" y1="7" x2="19" y2="7"></line><circle cx="10" cy="7" r="2"></circle><line x1="5" y1="12" x2="19" y2="12"></line><circle cx="15" cy="12" r="2"></circle><line x1="5" y1="17" x2="19" y2="17"></line><circle cx="7" cy="17" r="2"></circle></svg>
+                      </span>
+                    </button>
+                    <button type="button" id="pipeline-panel-toggle-title" class="pipeline-panel-toggle-title panel-title" aria-expanded="true">
+                      <span class="pipeline-panel-toggle-icons" aria-hidden="true">
+                        <svg class="pipeline-panel-toggle-compare-icon" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="160" cy="40" r="22" stroke="currentColor" stroke-width="14"></circle><circle cx="40" cy="100" r="22" stroke="currentColor" stroke-width="14"></circle><circle cx="160" cy="160" r="22" stroke="currentColor" stroke-width="14"></circle><line x1="62" y1="89" x2="138" y2="52" stroke="currentColor" stroke-width="9"></line><line x1="62" y1="111" x2="138" y2="148" stroke="currentColor" stroke-width="9"></line></svg>
+                      </span>
+                      <span>Pro</span>
+                    </button>
+                  </div>
+                  <div class="msg-head-center" aria-hidden="true"></div>
+                  <div class="msg-head-right">
+                    <div class="msg-head-right-top">
+                      <label class="top-new-pages-toggle" title="Open each model response in a new tab">
+                        <span class="top-new-pages-text">New pages</span><input type="checkbox" class="top-new-pages-checkbox" checked>
+                        <span class="top-toggle-track"><span class="top-toggle-thumb"></span></span>
+                      </label>
+                      <button type="button" class="debate-btn debate-btn-primary" title="Run debate" aria-label="Run debate"><i class="ti ti-send" aria-hidden="true"></i></button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="llm-controls" aria-label="Pipeline canvas and pipeline items">
+          <div class="control-buttons">
+            <div class="pipeline-panel pipeline-panel-inline" id="pipeline-panel">
+              <div class="panel-header">
+                <div class="panel-title-group">
+                  <div class="pipeline-name" id="currentPipelineName">FreeTalk</div>
+                </div>
+                <div class="panel-header-actions">
+                  <button type="button" class="debate-auto-toggle-btn" aria-pressed="false" title="Debate auto mode">Auto <span class="debate-auto-toggle-square" aria-hidden="true">☐</span></button>
+                  <label class="debate-select-wrap" title="Debate length">
+                    <select class="mod-select mod-select-compact debate-select" aria-label="Debate length"><option value="300">300</option><option value="500" selected>500</option><option value="700">700</option><option value="1000">1000</option><option value="inf">∞</option></select>
+                  </label>
+                  <label class="debate-select-wrap" title="Serial debate round limit">
+                    <select class="mod-select mod-select-compact debate-select" aria-label="Debate rounds"><option value="1">1 round</option><option value="2">2 rounds</option><option value="3" selected>3 rounds</option><option value="5">5 rounds</option><option value="infinite">∞</option></select>
+                    <input type="number" min="1" max="50" value="6" aria-label="Maximum debate turns" hidden aria-hidden="true">
+                  </label>
+                  <label class="top-new-pages-toggle registry-capable" title="Registry" hidden aria-hidden="true">
+                    <span class="top-new-pages-text">Реестр</span><input type="checkbox" class="top-new-pages-checkbox"><span class="top-toggle-track"><span class="top-toggle-thumb"></span></span>
+                  </label>
+                  <label class="debate-select-wrap free-talk-budget-control" title="FreeTalk action budget" hidden>
+                    <select class="mod-select mod-select-compact debate-select" aria-label="FreeTalk budget"><option value="5">5 actions</option><option value="10" selected>10 actions</option><option value="20">20 actions</option><option value="infinite">∞</option></select>
+                  </label>
+                  <div class="msg-head-center">
+                    <select class="mod-select" aria-label="Sender model"><option>Sender</option><option>GPT</option><option>Claude</option></select>
+                    <span class="direction-icon" title="Direction">→</span>
+                    <select class="mod-select" aria-label="Receiver model"><option>All models</option><option selected>None</option></select>
+                    <select class="mod-select" aria-label="Receiver role"><option>Role</option><option>Expert</option><option>Critic</option><option>Synthesizer</option><option>Provocateur</option></select>
+                  </div>
+                  <label class="debate-select-wrap synthesizer-capable" title="Synthesizer model">
+                    <select class="mod-select mod-select-compact debate-select" aria-label="Debate synthesizer model"><option>Claude — Synthesizer</option><option>GPT — Synthesizer</option></select>
+                  </label>
+                  <button type="button" class="btn btn-icon pipeline-add-round-btn" title="Add round" aria-label="Add round">+</button>
+                </div>
+              </div>
+              <div class="pipeline-canvas" aria-label="Pipeline canvas">
+                <div class="pipeline-flow">
+                  <div class="stage-column">
+                    <div class="stage-label">In</div>
+                    <div class="entry-wrapper"><div class="entry-point">▶</div></div>
+                  </div>
+
+                  <div class="connector-group" aria-hidden="true">
+                    <svg class="connector-svg" viewBox="0 0 50 240"><path class="connector-line active" d="M0 28H42"></path><path class="arrow-head active" d="M42 28l-6-4v8z"></path></svg>
+                  </div>
+
+                  <div class="stage-column pipeline-stage-current" data-round="1">
+                    <div class="stage-label"><span class="round-badge">01</span> Models</div>
+                    <div class="model-stack">
+                      <div class="model-block active"><div class="model-header"><span class="model-name">GPT</span></div><select class="role-selector" aria-label="GPT role"><option>Participant</option></select></div>
+                      <div class="model-block active"><div class="model-header"><span class="model-name">Claude</span></div><select class="role-selector" aria-label="Claude role"><option>Participant</option></select></div>
+                    </div>
+                  </div>
+
+                  <div class="connector-group" aria-hidden="true">
+                    <svg class="connector-svg" viewBox="0 0 50 240"><path class="connector-line active" d="M0 28H42"></path><path class="arrow-head active" d="M42 28l-6-4v8z"></path></svg>
+                  </div>
+
+                  <div class="stage-column pipeline-stage-future">
+                    <div class="stage-label"><span class="round-badge">02</span> Actions</div>
+                    <div class="model-stack">
+                      <div class="model-block"><div class="model-header"><span class="model-name">Claim review</span></div><select class="role-selector" aria-label="Claim review role"><option>Adaptive action</option></select></div>
+                      <div class="model-block"><div class="model-header"><span class="model-name">Evidence check</span></div><select class="role-selector" aria-label="Evidence check role"><option>Adaptive action</option></select></div>
+                    </div>
+                  </div>
+
+                  <div class="connector-group" aria-hidden="true">
+                    <svg class="connector-svg" viewBox="0 0 50 240"><path class="connector-line" d="M0 28H42"></path><path class="arrow-head" d="M42 28l-6-4v8z"></path></svg>
+                  </div>
+
+                  <div class="stage-column synthesis-capable pipeline-stage-future">
+                    <div class="stage-label"><span class="round-badge">Final</span> Synthesis</div>
+                    <div class="model-stack synthesis-stack">
+                      <div class="model-block pipeline-final-synthesizer"><div class="model-header"><span class="model-name">Claude</span></div><select class="role-selector" aria-label="Synthesizer role"><option>Synthesizer</option></select></div>
+                    </div>
+                  </div>
+
+                  <div class="connector-group" aria-hidden="true">
+                    <svg class="connector-svg" viewBox="0 0 50 240"><path class="connector-line" d="M0 28H42"></path><path class="arrow-head" d="M42 28l-6-4v8z"></path></svg>
+                  </div>
+
+                  <div class="stage-column" id="outputColumn">
+                    <div class="stage-label">Output</div>
+                    <div class="output-stack">
+                      <div class="output-block"><div class="output-header"><span class="output-icon">✓</span><span class="output-name">Answer</span></div><span class="output-desc">Final result</span></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="pipeline-list">
+                <div class="pipeline-list-header">
+                  <h3>Pipelines</h3>
+                  <div class="pipeline-list-header-actions" aria-label="Pipeline actions">
+                    <button type="button" class="btn btn-icon" aria-label="New pipeline">+</button>
+                    <button type="button" class="btn btn-icon" aria-label="Save pipeline"><i class="ti ti-device-floppy" aria-hidden="true"></i></button>
+                    <button type="button" class="btn" aria-label="Export pipelines"><i class="ti ti-download" aria-hidden="true"></i></button>
+                    <button type="button" class="btn" aria-label="Import pipelines"><i class="ti ti-upload" aria-hidden="true"></i></button>
+                    <button type="button" class="btn" aria-label="Pipeline profiles">Profiles</button>
+                  </div>
+                </div>
+                <div class="pipeline-items">
+                  <div class="pipeline-item active"><input type="radio" class="pipeline-radio" checked><span class="pipeline-item-name">FreeTalk</span></div>
+                  <div class="pipeline-item"><input type="radio" class="pipeline-radio"><span class="pipeline-item-name">Research</span></div>
+                  <div class="pipeline-item"><input type="radio" class="pipeline-radio"><span class="pipeline-item-name">Specialized profile</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="disput-state-map-panel" aria-label="Collapsed state map">
+          <button type="button" class="disput-state-map-toggle" aria-expanded="false">
+            <span><strong>Карта состояния</strong><small>Нет активного дела</small></span>
+            <span aria-hidden="true">▼</span>
+          </button>
+        </section>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

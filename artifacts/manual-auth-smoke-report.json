@@ -1,0 +1,22 @@
+{
+  "ts": "2026-06-09T04:17:30.500Z",
+  "userDataDir": "/Users/restart/Downloads/LLM_Codex+Vision/.playwright-auth-profile",
+  "models": {
+    "Qwen": {
+      "title": "Qwen Studio",
+      "url": "https://chat.qwen.ai/",
+      "composerReady": true,
+      "composerTag": "textarea",
+      "composerRole": null,
+      "blockers": [],
+      "bodyTextLength": 255
+    }
+  },
+  "extensionId": "pgpfkmpbchclclbkiegagfbikakaecam",
+  "run": {
+    "ok": false,
+    "outputs": {
+      "Qwen": ""
+    }
+  }
+}

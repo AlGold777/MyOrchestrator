@@ -1,0 +1,106 @@
+[
+  {
+    "id": "harden",
+    "label": "Harden Critique",
+    "type": "suffix",
+    "text": "Атакуй предыдущий тезис жёстче: найди логическую ошибку или ложное допущение.",
+    "order": 10,
+    "groupLabel": "Action"
+  },
+  {
+    "id": "compare",
+    "label": "Compare by Criteria",
+    "type": "suffix",
+    "text": "Построй сравнительную таблицу: стоимость, сложность, риски, масштабируемость.",
+    "order": 20,
+    "groupLabel": "Action"
+  },
+  {
+    "id": "example",
+    "label": "Add Concrete Example",
+    "type": "suffix",
+    "text": "Подкрепи тезис одним конкретным примером из практики с цифрами.",
+    "order": 30,
+    "groupLabel": "Action"
+  },
+  {
+    "id": "assumptions",
+    "label": "Find Assumptions",
+    "type": "suffix",
+    "text": "Перечисли все неявные допущения, на которых держится предыдущий аргумент.",
+    "order": 40,
+    "groupLabel": "Action"
+  },
+  {
+    "id": "counter",
+    "label": "Request Counterexample",
+    "type": "suffix",
+    "text": "Приведи контрпример, опровергающий предыдущий тезис.",
+    "order": 50,
+    "groupLabel": "Action"
+  },
+  {
+    "id": "mvp",
+    "label": "Translate to MVP",
+    "type": "suffix",
+    "text": "Какой минимальный MVP-шаг может проверить гипотезу прямо сейчас?",
+    "order": 60,
+    "groupLabel": "Action"
+  },
+  {
+    "id": "grounding",
+    "label": "Grounding Plan",
+    "type": "suffix",
+    "text": "Хватит теории: дай конкретный план внедрения с инструментами.",
+    "order": 70,
+    "groupLabel": "Action"
+  },
+  {
+    "id": "final",
+    "label": "Summarize Current State",
+    "type": "suffix",
+    "text": "Кратко зафиксируй текущее состояние обсуждения: точки согласия, разногласия и следующий открытый вопрос. Не выдавай это резюме за финальное решение.",
+    "order": 80,
+    "groupLabel": "Action"
+  },
+  {
+    "id": "moderator_correction",
+    "label": "Модератор — коррекция",
+    "type": "suffix",
+    "text": "[МОДЕРАТОР — КОРРЕКЦИЯ]\nОбсуждение уходит в сторону. Вернись к заявленной теме дебатов, выполни последние указания модератора и закрой уже поднятые, но не отвеченные пункты, прежде чем добавлять новые.",
+    "order": 90,
+    "groupLabel": "Moderator"
+  },
+  {
+    "id": "moderator_challenge",
+    "label": "Challenge",
+    "type": "suffix",
+    "text": "[MODERATOR CHALLENGE]\nТы избегаешь центрального вопроса дискуссии. Начни следующий ответ с прямого ответа на него — без оговорок и смены темы, — и только потом продолжай аргументацию.",
+    "order": 100,
+    "groupLabel": "Moderator"
+  },
+  {
+    "id": "moderator_evidence_request",
+    "label": "Evidence Request",
+    "type": "suffix",
+    "text": "[MODERATOR EVIDENCE REQUEST]\nЗаявленной позиции недостаточно. Подкрепи каждый ключевой тезис проверяемым фактом и явной логической цепочкой; тезисы без опоры пометь как гипотезы.",
+    "order": 110,
+    "groupLabel": "Moderator"
+  },
+  {
+    "id": "final_word_request",
+    "label": "Запрос финального слова",
+    "type": "suffix",
+    "text": "Тема: {pipelineName}\nДай финальную позицию: что сохранилось, что изменилось и какой аргумент вызвал каждое изменение. Отдельно укажи нерешённые вопросы.",
+    "order": 120,
+    "groupLabel": "Final"
+  },
+  {
+    "id": "moderator_summary",
+    "label": "Итоговое резюме",
+    "type": "suffix",
+    "text": "Тема: {pipelineName}. Кратко зафиксируй: что устояло, где остался спор и что нужно сделать дальше.",
+    "order": 130,
+    "groupLabel": "Final"
+  }
+]
