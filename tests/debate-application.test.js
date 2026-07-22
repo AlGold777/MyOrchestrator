@@ -27,9 +27,9 @@ const config = (overrides = {}) => ({
 });
 
 describe('DebateApplication — universal lifecycle bridge', () => {
-  test('starts one universal aggregate and ignores obsolete topology input', async () => {
+  test('starts one universal aggregate', async () => {
     const { application, store } = makeApplication();
-    await expect(application.start(config({ topology: 'duel' }))).resolves.toMatchObject({ ok: true, runId: 'run-1' });
+    await expect(application.start(config())).resolves.toMatchObject({ ok: true, runId: 'run-1' });
     expect(store.getState()).toMatchObject({
       runId: 'run-1', sessionId: 'session-1', topology: 'universal', status: 'running'
     });

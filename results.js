@@ -1,5 +1,4 @@
 var routeApprovedSerialTurn = null;
-var routeApprovedTriadTurn = null;
 var debateRunState = {
     activeRole: '',
     status: 'idle',
@@ -2542,9 +2541,9 @@ document.addEventListener('click', (event) => {
     const debateCaseStore = window.DebateCaseStore?.createStore?.({ storage: chrome?.storage?.local }) || null;
     const debateRuleHistoryStore = window.DebateRuleHistory?.createStore?.({ storage: chrome?.storage?.local }) || null;
     void debateRuleHistoryStore?.restore?.();
-    const pipelineProfileView = window.DisputEvolutionFlags?.enabled?.('pipelineProfiles') === false ? null : window.PipelineProfileView?.init?.({ storage: chrome?.storage?.local }) || null;
+    const pipelineProfileView = window.PipelineProfileView?.init?.({ storage: chrome?.storage?.local }) || null;
     window.__debateCaseStore = debateCaseStore;
-    const disputStateMapView = window.DisputEvolutionFlags?.enabled?.('stateMapReadOnly') === false ? null : window.DisputStateMapView?.init?.({
+    const disputStateMapView = window.DisputStateMapView?.init?.({
         getAggregate: () => ({ ...(debateAggregateStore?.getState?.() || {}), ruleHistory: debateRuleHistoryStore?.summary?.() || null }),
         getRuleHistory: () => debateRuleHistoryStore?.summary?.() || null,
         caseStore: debateCaseStore,
@@ -2552,14 +2551,8 @@ document.addEventListener('click', (event) => {
             if (action === 'stop') { await window.cancelPipelineRun?.(); return; }
             if (action === 'pause') { setDebatePausedState(!debatePaused, debatePaused ? 'state_map_resume' : 'state_map_pause'); return; }
             if (action === 'synthesize') {
-                const freeTalkState = getFreeTalkState?.();
-                if (freeTalkState?.triggerState) {
-                    freeTalkState.triggerState.queue = [];
-                    freeTalkState.triggerState.forceSynthesis = true;
-                    freeTalkState.stopReason = 'manual_synthesis';
-                    syncAggregateProtocolState(freeTalkState, 'FREE_TALK_MANUAL_SYNTHESIS_REQUESTED');
-                    showNotification('FreeTalk завершит текущий шаг и перейдёт к синтезу.', 'success');
-                }
+                const result = await debateApplication?.requestSynthesis?.({}, { createdBy: 'human', deferExecution: false });
+                showNotification(result?.ok ? 'Этап синтеза добавлен в универсальный план.' : 'Не удалось добавить этап синтеза.', result?.ok ? 'success' : 'warn');
                 return;
             }
             if (!debateCaseStore?.getState?.()) return;
@@ -2613,7 +2606,6 @@ document.addEventListener('click', (event) => {
         }
     }) || null;
     debateCaseStore?.subscribe?.((caseState) => {
-        if (window.DisputEvolutionFlags?.enabled?.('liveStateMap') === false) return;
         if (caseState) disputStateMapView?.render?.(caseState);
     });
     void debateCaseStore?.list?.().then((caseIds) => {
@@ -3546,21 +3538,13 @@ document.addEventListener('click', (event) => {
 
         const formatPipelineProtocolSummary = (config = null) => {
             const protocol = config?.protocol || {};
-            const scheme = String(protocol.scheme || (protocol.type === 'triad' ? '3' : '2')).trim();
-            const llmLabel = scheme === '2'
-                ? '2 LLM'
-                : scheme === '3'
-                    ? '3 LLM'
-                    : scheme === 'many'
-                        ? 'Multi Verdict'
-                        : scheme === 'free'
-                            ? 'Unlimited models'
-                        : `${scheme || '2'} LLM`;
+            const participantCount = Array.isArray(protocol.selectedModels) ? protocol.selectedModels.length : 0;
+            const llmLabel = participantCount ? `${participantCount} participants` : 'Universal pipeline';
             const policy = protocol.runPolicy === 'manual' ? 'Pause each round' : 'Auto rounds';
             const rounds = String(protocol.roundLimit || config?.roundCounter || '').trim();
             const presetMeta = window.PipelinePresets?.getPipelinePreset?.(protocol.presetId || '') || null;
             const showRounds = presetMeta?.duration === 'open_ended';
-            const roundLabel = showRounds && rounds ? `${rounds} ${scheme === '3' ? 'waves' : 'rounds'}` : '';
+            const roundLabel = showRounds && rounds ? `${rounds} stage limit` : '';
             const synthValue = window.ResultsDebateUi?.getProtocolSynthesizer
                 ? window.ResultsDebateUi.getProtocolSynthesizer(protocol)
                 : protocol.synthesizer;
@@ -3581,25 +3565,12 @@ document.addEventListener('click', (event) => {
             const pipelineConfig = config || getPipelineConfigByName(name);
             if (!pipelineConfig) return '';
             const protocol = pipelineConfig.protocol || {};
-            const scheme = String(protocol.scheme || (protocol.type === 'triad' ? '3' : '2')).trim();
             const models = Array.isArray(protocol.selectedModels) && protocol.selectedModels.length
                 ? protocol.selectedModels.join(', ')
                 : 'selected models';
             const rounds = String(protocol.roundLimit || pipelineConfig.roundCounter || '').trim();
-            if (scheme === '3') {
-                const ending = protocol.synthesizer ? ` -> Final synthesis: ${protocol.synthesizer}` : ' -> completion without synthesis';
-                return `3 LLM: independent start positions -> cross-critique${rounds ? ` for ${rounds} waves` : ''} -> final words${ending}. Models: ${models}.`;
-            }
-            if (scheme === 'many') {
-                const ending = protocol.synthesizer ? ` -> Final synthesis: ${protocol.synthesizer}` : ' -> completion without synthesis';
-                return `Multi: all selected models run in parallel${rounds ? ` for ${rounds} waves` : ''}${ending}. Models: ${models}.`;
-            }
-            if (scheme === 'free') {
-                const ending = protocol.synthesizer ? `then state-triggered actions -> Final synthesis: ${protocol.synthesizer}` : 'then completes after the opening positions without synthesis';
-                return `FreeTalk: all selected models start independently, ${ending}. Models: ${models}.`;
-            }
-            const label = scheme === '2' ? '2 LLM' : scheme === 'many' ? 'Multi Verdict' : scheme === 'free' ? 'Unlimited models' : `${scheme || '2'} LLM`;
-            return `${label}: custom pipeline${rounds ? ` for ${rounds} rounds` : ''}${protocol.synthesizer ? ` -> Final synthesis: ${protocol.synthesizer}` : ' -> completion without synthesis'}. Models: ${models}.`;
+            const ending = protocol.synthesizer ? ` Synthesis: ${protocol.synthesizer}.` : ' Completion is rule-driven.';
+            return `Universal pipeline with planner-selected sequential or parallel stages${rounds ? `, limit ${rounds}` : ''}.${ending} Participants: ${models}.`;
         };
 
         const updateActivePipelineDescription = (name = '') => {
@@ -3611,11 +3582,7 @@ document.addEventListener('click', (event) => {
             activeSummary.title = description;
         };
 
-        const getDebateModelSlotCount = () => {
-            const scheme = getDebateScheme();
-            if (scheme === 'many' || scheme === 'free') return 1;
-            return scheme === '3' ? 3 : 2;
-        };
+        const getDebateModelSlotCount = () => Math.max(1, getSelectedLLMs().length);
 
         const buildPipelineEmptySlotBlocksHtml = (count = 0) => {
             const total = Math.max(0, Number(count) || 0);
@@ -3644,13 +3611,11 @@ document.addEventListener('click', (event) => {
             });
         };
 
-        const syncTriadSynthesizerBlocks = () => {
+        const syncSynthesizerBlocks = () => {
             if (!pipelinePanel) return;
-            const scheme = getDebateScheme();
-            const isDuel = scheme === '2';
             const synthesizer = normalizeExplicitSynthesizer(document.getElementById('debate-synthesizer-select')?.value);
-            const flowLabel = getTriadSynthesizerFlowName();
-            const flowSelect = getTriadSynthesizerFlowSelect();
+            const flowLabel = getSynthesizerFlowName();
+            const flowSelect = getSynthesizerFlowSelect();
             if (flowLabel) flowLabel.textContent = synthesizer || 'Synthesizer: None';
             if (flowSelect && flowSelect.value !== synthesizer) flowSelect.value = synthesizer;
             pipelinePanel.querySelectorAll('.model-block').forEach((block) => {
@@ -3658,12 +3623,12 @@ document.addEventListener('click', (event) => {
                 const isSynthesizer = !!synthesizer
                     && modelName === synthesizer
                     && !block.classList.contains('pipeline-empty-slot');
-                block.classList.toggle('triad-synthesizer', isSynthesizer);
+                block.classList.toggle('selected-synthesizer', isSynthesizer);
                 block.classList.toggle('pipeline-final-synthesizer', isSynthesizer);
                 block.setAttribute('aria-pressed', isSynthesizer ? 'true' : 'false');
                 if (isSynthesizer) {
-                    block.title = (scheme === 'many' || scheme === 'free') ? 'Multi Final Synthesis model' : (isDuel ? 'Duel final synthesizer' : 'Triad final synthesizer');
-                } else if (['Duel final synthesizer', 'Triad final synthesizer', 'Multi Final Synthesis model'].includes(block.title)) {
+                    block.title = 'Final synthesis model';
+                } else if (block.title === 'Final synthesis model') {
                     block.removeAttribute('title');
                 }
             });
@@ -3671,9 +3636,8 @@ document.addEventListener('click', (event) => {
 
         const setSynthesisModelFromName = (modelName = '') => {
             const trimmed = normalizeExplicitSynthesizer(modelName);
-            const scheme = getDebateScheme();
             const select = document.getElementById('debate-synthesizer-select');
-            const flowSelect = getTriadSynthesizerFlowSelect();
+            const flowSelect = getSynthesizerFlowSelect();
             if (!select) return false;
             if (trimmed && !Array.from(select.options || []).some((option) => option.value === trimmed)) {
                 const option = document.createElement('option');
@@ -3686,7 +3650,7 @@ document.addEventListener('click', (event) => {
             if (flowSelect) flowSelect.value = trimmed;
             const activeName = String(pipelineStore.active || pipelineName?.textContent || '').trim();
             const activeConfig = activeName ? getPipelineConfigByName(activeName) : null;
-            if (activeConfig?.protocol && String(activeConfig.protocol.scheme || '') === scheme) {
+            if (activeConfig?.protocol) {
                 if (isDefaultPipelineName(activeName)) {
                     if (!pipelineStore.overrides || typeof pipelineStore.overrides !== 'object') {
                         pipelineStore.overrides = { longRoundLimits: {}, synthesizers: {}, profiles: {} };
@@ -3702,13 +3666,11 @@ document.addEventListener('click', (event) => {
                 persistPipelineStore();
                 renderPipelineList(pipelineStore.order, activeName, pipelineStore.lastSaved);
             }
-            syncTriadSynthesizerBlocks();
-            syncTriadSynthesizerFlowStage();
+            syncSynthesizerBlocks();
+            syncSynthesizerFlowStage();
             updatePipelineAll();
             return true;
         };
-        const setTriadSynthesizerFromModelName = setSynthesisModelFromName;
-        window.setTriadSynthesizerFromModelName = setTriadSynthesizerFromModelName;
         window.setSynthesisModelFromName = setSynthesisModelFromName;
 
 
@@ -4489,123 +4451,29 @@ document.addEventListener('click', (event) => {
                     });
                 }
             }
-            syncTriadSynthesizerBlocks();
+            syncSynthesizerBlocks();
             syncRoundFilterChips();
             syncPipelineFlowVisualState();
         };
 
         const syncPipelineFlowVisualState = () => {
             if (!pipelinePanel) return;
-            const aggregateState = getDebateAggregateState();
-            const planView = window.DebatePlanViewModel?.project?.(aggregateState) || null;
-            let planStatus = pipelinePanel.querySelector('.debate-plan-stage-status');
-            if (!planStatus) {
-                planStatus = document.createElement('div');
-                planStatus.className = 'debate-plan-stage-status';
-                planStatus.setAttribute('role', 'status');
-                planStatus.setAttribute('aria-live', 'polite');
-                pipelinePanel.prepend(planStatus);
+            const runtime = debateApplication?.getOrchestrator?.()?.getState?.() || null;
+            const activeStage = runtime?.stages?.find?.((stage) => stage.status === 'running' || stage.status === 'awaiting_participant') || null;
+            pipelinePanel.dataset.pipelineActiveStage = activeStage?.stageInstanceId || '';
+            pipelinePanel.dataset.pipelineActiveRoundId = activeStage?.stageInstanceId || '';
+            let status = pipelinePanel.querySelector('.debate-plan-stage-status');
+            if (!status) {
+                status = document.createElement('div');
+                status.className = 'debate-plan-stage-status';
+                status.setAttribute('role', 'status');
+                status.setAttribute('aria-live', 'polite');
+                pipelinePanel.prepend(status);
             }
-            if (planView?.current) {
-                pipelinePanel.dataset.pipelinePlanId = planView.planId;
-                pipelinePanel.dataset.pipelineCurrentStageId = planView.current.stageId;
-                pipelinePanel.dataset.pipelineCurrentStageKind = planView.current.system ? 'system' : 'public';
-                pipelinePanel.setAttribute('aria-label', `Debate pipeline: ${planView.statusText}`);
-                pipelinePanel.title = planView.next
-                    ? `${planView.statusText}. Next: ${planView.next.label}`
-                    : planView.statusText;
-                planStatus.hidden = false;
-                planStatus.classList.toggle('is-system-stage', planView.current.system);
-                planStatus.textContent = `${planView.statusText} · ${planView.current.participants.join(', ')}${planView.next ? ` · Next: ${planView.next.label}` : ''}`;
-            } else {
-                delete pipelinePanel.dataset.pipelinePlanId;
-                delete pipelinePanel.dataset.pipelineCurrentStageId;
-                delete pipelinePanel.dataset.pipelineCurrentStageKind;
-                planStatus.hidden = true;
-                planStatus.textContent = '';
-            }
-            const serialState = getSerialDebateState();
-            const activeTriadState = window.__triadState || null;
-            const activeMultiState = window.__multiPipelineState || null;
-            const isSerialRunning = !!serialState?.active;
-            const isTriadRunning = !!activeTriadState?.active;
-            const isMultiRunning = !!activeMultiState?.active;
-            const hasSynthesisStage = (getDebateScheme() === '3' || getDebateScheme() === 'many')
-                && !!synthesisColumn
-                && !!synthesisStack;
-            const maxRound = Number(roundCounter) || 1;
-            const resolveActiveStage = () => {
-                if (planView?.current) {
-                    return {
-                        stage: Math.max(1, Math.min(maxRound + 1, Number(planView.current.round) || 1)),
-                        roundId: planView.current.stageId
-                    };
-                }
-                if (isMultiRunning) {
-                    if (activeMultiState.currentPhase === 'synthesis') {
-                        return { stage: maxRound + 1, roundId: 'multi-synthesis' };
-                    }
-                    return {
-                        stage: Math.max(1, Math.min(maxRound, Number(activeMultiState.wave) || 1)),
-                        roundId: activeMultiState.currentWaveKey || `multi-r${Number(activeMultiState.wave) || 1}`
-                    };
-                }
-                if (isTriadRunning) {
-                    const triadKind = String(activeTriadState.currentWaveKind || '').trim();
-                    if (triadKind === 'synthesis') {
-                        return { stage: maxRound + 1, roundId: 'triad-synthesis' };
-                    }
-                    if (triadKind === 'final' || activeTriadState.finalWordsRequested) {
-                        return { stage: Math.max(1, Math.min(maxRound, Number(activeTriadState.wave) || 1)), roundId: triadKind || 'triad-final' };
-                    }
-                    if (triadKind === 'wave') {
-                        return { stage: Math.max(2, Math.min(maxRound, Number(activeTriadState.wave || 0) + 2)), roundId: activeTriadState.currentWaveKey || `triad-w${Number(activeTriadState.wave || 0) + 1}` };
-                    }
-                    return { stage: 1, roundId: activeTriadState.currentWaveKey || 'triad-w0' };
-                }
-                if (isSerialRunning) {
-                    if (serialState.finalWordsRequested) return { stage: maxRound + 1, roundId: 'serial-final' };
-                    return { stage: Math.max(1, Math.min(maxRound, Number(serialState.round) || 1)), roundId: `serial-r${Number(serialState.round) || 1}` };
-                }
-                return { stage: 0, roundId: '' };
-            };
-            const activeStage = resolveActiveStage();
-            pipelinePanel.dataset.pipelineActiveStage = String(activeStage.stage);
-            pipelinePanel.dataset.pipelineActiveRoundId = activeStage.roundId || '';
-            const applyStageState = (el, stageNumber) => {
-                if (!el) return;
-                const normalizedStage = Math.max(1, Number(stageNumber) || 1);
-                const runtimeActive = isSerialRunning || isTriadRunning || isMultiRunning;
-                const isFuture = normalizedStage > activeStage.stage;
-                const isCurrent = runtimeActive && normalizedStage === activeStage.stage;
-                const isPast = runtimeActive && normalizedStage < activeStage.stage;
-                el.classList.toggle('pipeline-stage-future', isFuture);
-                el.classList.toggle('pipeline-stage-current', isCurrent);
-                el.classList.toggle('pipeline-stage-past', isPast);
-            };
-
-            pipelinePanel.querySelectorAll('.stage-column[data-round]').forEach((column) => {
-                applyStageState(column, Number(column.dataset.round || 0));
-            });
-            if (synthesisColumn && synthesisColumn.hidden !== true) {
-                applyStageState(synthesisColumn, maxRound + 1);
-            }
-            if (connectorToSynthesis && connectorToSynthesis.hidden !== true) {
-                applyStageState(connectorToSynthesis, maxRound + 1);
-            }
-            applyStageState(outputColumn, hasSynthesisStage ? maxRound + 2 : maxRound + 1);
-
-            const inputConnectorGroup = document.getElementById('svg-in-models')?.closest('.connector-group');
-            applyStageState(inputConnectorGroup, 1);
-
-            if (connectorToOutput) {
-                connectorToOutput.dataset.round = String(hasSynthesisStage ? maxRound + 2 : maxRound + 1);
-                applyStageState(connectorToOutput, Number(connectorToOutput.dataset.round || 0));
-            }
-
-            pipelinePanel.querySelectorAll('.connector-group[data-round]').forEach((group) => {
-                applyStageState(group, Number(group.dataset.round || 0));
-            });
+            status.hidden = !activeStage;
+            status.textContent = activeStage
+                ? (activeStage.purpose || 'stage') + ' - ' + (activeStage.participants || []).map((item) => item.participantId || item).join(', ')
+                : '';
         };
 
         const formatPipelineTimestamp = () => {
@@ -4627,219 +4495,59 @@ document.addEventListener('click', (event) => {
             }
             return debateExecutionContext;
         };
-        let multiContinuationResolver = null;
-        let serialApprovalRoutingInFlight = false;
-        const dispatchDebateRunEvent = (type, payload = {}) => {
-            if (type === window.DebateRunStore?.EVENTS?.FINALIZATION_COMPLETED && payload.epistemicOutcome == null) {
-                const aggregate = getDebateAggregateState?.() || {};
-                const protocolState = aggregate.protocolState || {};
-                const synthesisText = payload.synthesisText || protocolState.synthesisText || protocolState.finalSynthesis || '';
-                const processAudit = window.DebateProcessAudit?.audit?.({ state: { ...protocolState, synthesisText }, registry: protocolState.registry, plan: aggregate.executionPlan || {}, traceEvents: aggregate.events || [] }) || null;
-                const outcome = window.DebateEpistemicOutcome?.derive?.({ synthesisText, state: { ...protocolState, processAudit } }) || {};
-                payload = { ...payload, processAudit, epistemicOutcome: outcome.outcome || '', epistemicSignals: outcome.signals || [] };
-                if (processAudit && typeof document !== 'undefined') {
-                    let panel = document.getElementById('debate-process-audit-panel');
-                    if (!panel) {
-                        panel = document.createElement('details');
-                        panel.id = 'debate-process-audit-panel';
-                        panel.className = 'debate-process-audit-panel';
-                        (document.querySelector('#pipeline-panel, .pipeline-panel, #debate-model-cards') || document.body)?.appendChild(panel);
-                    }
-                    const icon = { pass: '✓', warn: '⚠', fail: '✗', skipped: '—' };
-                    const safe = (value) => String(value == null ? '' : value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
-                    panel.open = false;
-                    panel.innerHTML = `<summary>Аудит процесса · ${safe(outcome.outcome || 'завершено')}</summary><div class="debate-process-audit-checks">${processAudit.checks.map((item) => `<div class="audit-check audit-${safe(item.verdict)}"><span>${icon[item.verdict] || '·'}</span> <strong>${safe(item.id)}</strong><span>${safe(item.detail || '')}</span></div>`).join('')}</div>`;
-                    if (protocolState.synthesisAudit) {
-                        let synthesisPanel = document.getElementById('debate-synthesis-audit-panel');
-                        if (!synthesisPanel) {
-                            synthesisPanel = document.createElement('details');
-                            synthesisPanel.id = 'debate-synthesis-audit-panel';
-                            synthesisPanel.className = 'debate-process-audit-panel';
-                            panel.insertAdjacentElement('beforebegin', synthesisPanel);
-                        }
-                        const auditStatus = protocolState.synthesisAudit.status || 'skipped';
-                        const label = protocolState.synthesisAuditCorrected ? 'исправлен по аудиту' : auditStatus === 'pass' ? 'прошёл аудит' : 'аудит пропущен';
-                        synthesisPanel.innerHTML = `<summary>Аудит синтеза · ${safe(label)}</summary><div class="debate-process-audit-checks"><pre>${safe(protocolState.synthesisAudit.text || protocolState.synthesisAudit.reason || '')}</pre>${protocolState.synthesisDraft ? `<details><summary>Исходный черновик</summary><pre>${safe(protocolState.synthesisDraft)}</pre></details>` : ''}</div>`;
-                    }
-                }
-            }
-            return recordDebateDomainEvent(type, payload);
-        };
+        const dispatchDebateRunEvent = (type, payload = {}) => recordDebateDomainEvent(type, payload);
         const replaceAggregateProtocolState = (protocolState) => {
             if (!debateAggregateStore) return protocolState;
             dispatchDebateRunEvent(window.DebateRunStore.EVENTS.PROTOCOL_STATE_REPLACED, { protocolState });
             return debateAggregateStore.getState().protocolState;
         };
-        const syncAggregateProtocolState = (protocolState, reason = 'protocol_transition', options = {}) => {
+        const syncAggregateProtocolState = (protocolState, reason = 'runtime_projection') => {
             if (!debateAggregateStore || !protocolState) return protocolState;
             dispatchDebateRunEvent(window.DebateRunStore.EVENTS.PROTOCOL_STATE_SYNCED, {
-                protocolState,
-                reason,
-                protocolStatus: String(protocolState.status || ''),
-                ...(options.expectedProtocolRevision == null
-                    ? {}
-                    : { expectedProtocolRevision: Number(options.expectedProtocolRevision) })
+                protocolState, reason, protocolStatus: String(protocolState.status || '')
             });
             return debateAggregateStore.getState().protocolState;
         };
-        const transitionDebateProtocol = (topology, protocolState, event) => {
-            const protocol = window.DebateProtocols?.getProtocol?.(topology);
-            const service = window.DebateProtocolTransitionService;
-            if (!service?.applyProtocolTransition) {
-                throw new Error('PROTOCOL_TRANSITION_SERVICE_UNAVAILABLE');
-            }
-            return service.applyProtocolTransition({
-                protocol,
-                protocolState,
-                event,
-                syncState: syncAggregateProtocolState,
-                getProtocolRevision: () => debateAggregateStore?.getState?.().protocolRevision ?? null
-            });
-        };
         const getDebateAggregateState = () => debateAggregateStore?.getState?.() || null;
-        const getTopologyProtocolState = (topology) => {
-            const aggregate = getDebateAggregateState();
-            const normalized = window.DebateProtocols?.topologyOf?.(topology) || topology;
-            return aggregate && aggregate.topology === normalized ? aggregate.protocolState : null;
-        };
-        const getDuelState = () => getTopologyProtocolState('duel');
-        const getTriadState = () => getTopologyProtocolState('triad');
-        const getMultiState = () => getTopologyProtocolState('multi');
-        const getFreeTalkState = () => getTopologyProtocolState('free_talk');
-        const syncAggregateTerminalFromProtocol = (protocolState, fallback = '') => {
-            const status = String(protocolState?.status || fallback || '');
-            if (status === 'completed') {
-                return dispatchDebateRunEvent(window.DebateRunStore.EVENTS.FINALIZATION_COMPLETED, { reason: protocolState?.stopReason || '' });
-            }
-            if (status === 'cancelled') {
-                return dispatchDebateRunEvent(window.DebateRunStore.EVENTS.CANCEL_REQUESTED, { reason: protocolState?.stopReason || 'cancelled' });
-            }
-            if (status === 'error') {
-                return dispatchDebateRunEvent(window.DebateRunStore.EVENTS.RUN_FAILED, { reason: protocolState?.stopReason || 'run_failed' });
-            }
-            if (status === 'stopped_by_moderator') {
-                return dispatchDebateRunEvent(window.DebateRunStore.EVENTS.CANCEL_REQUESTED, { reason: protocolState?.stopReason || 'moderator_stop' });
-            }
-            return getDebateAggregateState();
-        };
         debateAggregateStore?.subscribe?.((aggregate) => {
-            const status = String(aggregate?.status || 'idle');
-            debateRunState.status = status;
-            debateRunState.pauseReason = ['paused', 'technical_pause'].includes(status)
-                ? String(aggregate?.terminalReason || '')
-                : '';
+            debateRunState.status = String(aggregate?.status || 'idle');
+            debateRunState.pauseReason = ['paused', 'technical_pause'].includes(debateRunState.status)
+                ? String(aggregate?.terminalReason || '') : '';
             window.__debateRunAggregate = aggregate;
         });
         window.__getDebateRunAggregate = getDebateAggregateState;
         window.__exportDebateDomainEvents = () => (getDebateAggregateState()?.events || []).slice();
         window.__projectDebateTurns = (sessionId = null) => window.DebateProjections?.projectTurns?.(
-            getDebateAggregateState(),
-            sessionId == null ? {} : { sessionId }
+            getDebateAggregateState(), sessionId == null ? {} : { sessionId }
         ) || [];
         void debateTransportPort?.recoverRun?.().then((recovered) => {
-            if (!recovered || window.DebateRunStore.isTerminal(recovered) || !recovered.protocolState) return;
+            if (!recovered || window.DebateRunStore.isTerminal(recovered)) return;
             debateAggregateStore.replace(recovered);
-            const topology = window.DebateProtocols?.topologyOf?.(recovered.topology) || recovered.topology;
-            void topology;
             activePipelineRunContext = {
-                pipelineRunId: recovered.runId,
-                sessionId: recovered.sessionId,
-                startedAt: recovered.startedAt || Date.now(),
-                recovered: true
+                pipelineRunId: recovered.runId, sessionId: recovered.sessionId,
+                startedAt: recovered.startedAt || Date.now(), recovered: true
             };
-            const recoveredSession = ensureDebateSession(recovered.sessionId);
-            if (recovered.config?.topic) recoveredSession.disputeTopic = String(recovered.config.topic);
             pipelineRunActive = false;
             debatePaused = true;
             dispatchDebateRunEvent(window.DebateRunStore.EVENTS.TECHNICAL_PAUSE, { reason: 'page_runtime_recovered' });
             syncPipelineFlowVisualState();
             updateDebateButtonsUi();
         }).catch?.((err) => console.warn('[RESULTS] Debate run recovery failed', err));
-        Object.defineProperties(window, {
-            __serialDebateState: { configurable: true, get: getDuelState },
-            __triadState: { configurable: true, get: getTriadState },
-            __multiPipelineState: { configurable: true, get: getMultiState }
-        });
-        // Canonical state shape now lives in disput/debate-runtime.js (DebateFSM)
-        // — the single source of truth shared with the explicit FSM transitions
-        // (phase gate, A/B routing) and unit tests. See global-code-review F-C.
-        const makeInitialSerialDebateState = () => window.DebateFSM.createState();
-        const ensureSerialDebateState = () => {
-            let serialState = getDuelState();
-            if (!serialState || typeof serialState !== 'object') {
-                serialState = makeInitialSerialDebateState();
-                replaceAggregateProtocolState(serialState);
-            }
-            if (!(serialState.newPagesOpenedModels instanceof Set)) {
-                serialState.newPagesOpenedModels = new Set(serialState.newPagesOpenedModels || []);
-            }
-            window.DebateFSM?.normalizeParticipants?.(serialState);
-            window.DebateFSM?.normalizeTurns?.(serialState);
-            if (!Array.isArray(serialState.eventLog)) serialState.eventLog = [];
-            try {
-                window.DebateSchema?.validateState?.(serialState, {
-                    requireParticipants: window.DebateFSM?.canRoutePublic?.(serialState) === true
-                });
-            } catch (err) {
-                console.warn('[RESULTS] Serial debate state schema warning', err?.message || err);
-            }
-            return serialState;
-        };
-        const getSerialDebateState = () => {
-            const serialState = getDuelState();
-            if (serialState && typeof serialState === 'object') {
-                return serialState;
-            }
-            return ensureSerialDebateState();
-        };
+        const makeInitialRuntimeState = () => window.DebateFSM.createState();
+        const getSerialDebateState = () => getDebateAggregateState()?.protocolState || makeInitialRuntimeState();
         window.__getSerialDebateState = getSerialDebateState;
-        window.__exportDebateEventLog = () => {
-            const serial = getSerialDebateState();
-            const triad = window.__triadState || getTriadState();
-            return {
-                duel: Array.isArray(serial?.eventLog) ? serial.eventLog.slice() : [],
-                triad: Array.isArray(triad?.registry?.eventLog) ? triad.registry.eventLog.slice() : []
-            };
-        };
-        window.__exportDebateRegistry = () => {
-            const serial = getSerialDebateState();
-            const triad = window.__triadState || getTriadState();
-            return {
-                duel: window.DebateRegistry?.exportRegistry?.(serial?.registry) || null,
-                triad: window.DebateRegistry?.exportRegistry?.(triad?.registry) || null
-            };
-        };
-        window.__exportDebateDerivedLogs = () => {
-            const serial = getSerialDebateState();
-            const triad = window.__triadState || getTriadState();
-            return {
-                duel: serial?.registry?.derived || null,
-                triad: triad?.registry?.derived || null
-            };
-        };
+        Object.defineProperty(window, '__serialDebateState', { configurable: true, get: getSerialDebateState });
         window.__setSerialDebateStateForTest = (nextState = {}) => {
-            if (!(typeof process !== 'undefined' && process?.env?.NODE_ENV === 'test') && window.__RESULTS_TEST_DEBUG__ !== true) {
-                return getSerialDebateState();
-            }
-            const mergedState = {
-                ...ensureSerialDebateState(),
-                ...(nextState && typeof nextState === 'object' ? nextState : {})
-            };
-            replaceAggregateProtocolState(mergedState);
-            return ensureSerialDebateState();
+            if (!(typeof process !== 'undefined' && process?.env?.NODE_ENV === 'test') && window.__RESULTS_TEST_DEBUG__ !== true) return getSerialDebateState();
+            return replaceAggregateProtocolState({ ...getSerialDebateState(), ...nextState });
         };
-        const markSerialNewPageModelOpened = (serialState, targetModel, forceNewTabs) => {
+        const markNewPageModelOpened = (state, targetModel, forceNewTabs) => {
             if (!forceNewTabs || !newPagesCheckbox || !targetModel) return;
-            const state = serialState || ensureSerialDebateState();
-            if (!(state.newPagesOpenedModels instanceof Set)) {
-                state.newPagesOpenedModels = new Set(state.newPagesOpenedModels || []);
-            }
-            state.newPagesOpenedModels.add(targetModel);
-            const requiredModels = [state.modelA, state.modelB].filter(Boolean);
-            if (requiredModels.length >= 2 && requiredModels.every((name) => state.newPagesOpenedModels.has(name))) {
-                resetNewPagesCheckboxAfterOpen();
-            }
+            const opened = new Set(state?.newPagesOpenedModels || []);
+            opened.add(targetModel);
+            if (getSelectedLLMs().every((name) => opened.has(name))) resetNewPagesCheckboxAfterOpen();
         };
+
         const getDebateRoundLimit = () => {
             const value = String(debateRoundLimitSelect?.value || '').trim();
             if (value === 'infinite') return 'infinite';
@@ -4853,10 +4561,6 @@ document.addEventListener('click', (event) => {
             // round is one complete A/B exchange (two public turns).
             return Math.max(0, (roundLimit - 1) * 2);
         };
-        function getMultiWaveLimit() {
-            const value = getDebateRoundLimit();
-            return value === 'infinite' ? 999 : value;
-        }
         function getSelectedPipelinePresetId() {
             const api = window.PipelinePresets;
             const fallback = api?.DEFAULT_PRESET_ID || 'UNIVERSAL_STANDARD';
@@ -5097,9 +4801,6 @@ document.addEventListener('click', (event) => {
                 });
             }
             dispatchDebateRunEvent(window.DebateRunStore.EVENTS.CANCEL_REQUESTED, { reason: 'recovery_restart' });
-            getDuelState() && (getDuelState().active = false);
-            getTriadState() && (getTriadState().active = false);
-            getMultiState() && (getMultiState().active = false);
             pipelineRunActive = false;
             debatePaused = false;
             activePipelineAbortController = null;
@@ -5131,25 +4832,16 @@ document.addEventListener('click', (event) => {
             } else {
                 updateDebateButtonsUi();
             }
-            if (!debatePaused && typeof resumeAutoSerialDebate === 'function') {
-                // Continue a paused auto serial debate, if one is parked.
-                resumeAutoSerialDebate();
-            }
-            if (!debatePaused && typeof window.__resumeAutoTriad === 'function') {
-                window.__resumeAutoTriad();
-            }
-            if (!debatePaused && typeof multiContinuationResolver === 'function') {
-                const resolve = multiContinuationResolver;
-                multiContinuationResolver = null;
-                resolve();
-            }
+            if (debatePaused) void debateApplication?.pause?.(reason);
+            else void debateApplication?.resume?.();
         };
+        let debateApplication = null;
         const updateDebateButtonsUi = () => {
             const waiting = debateExecutionContext?.hasApprovalWaiter?.() === true;
             const controls = window.DebateController?.deriveRunControls?.({
                 aggregate: debateAggregateStore?.getState?.(),
                 approvalWaiting: waiting,
-                protocolActive: Boolean(pipelineRunActive || getDuelState()?.active || getTriadState()?.active || getMultiState()?.active || getFreeTalkState()?.active),
+                protocolActive: Boolean(pipelineRunActive || ['STARTING', 'RUNNING', 'PAUSED', 'QUIESCING'].includes(debateApplication?.getOrchestrator?.()?.getState?.()?.lifecycle)),
                 autoMode: isDebateAutoPolicy()
             }) || {
                 action: debatePaused ? 'resume' : (isDebateAutoPolicy() && (pipelineRunActive || waiting) ? 'pause' : 'run'),
@@ -5214,9 +4906,7 @@ document.addEventListener('click', (event) => {
                 showNotification(`Debate paused after ${debateRunState.maxTurns} auto turns.`, 'warn');
             }
             if (debateExecutionContext?.hasApprovalWaiter?.()) return true;
-            dispatchDebateRunEvent(window.DebateRunStore?.EVENTS?.APPROVAL_REQUESTED, {
-                model: String(getDuelState()?.waitingApprovalModel || '')
-            });
+            dispatchDebateRunEvent(window.DebateRunStore?.EVENTS?.APPROVAL_REQUESTED, { model: '' });
             await new Promise((resolve, reject) => {
                 let timeoutId = null;
                 const abort = () => {
@@ -5737,912 +5427,6 @@ document.addEventListener('click', (event) => {
                 return '';
             }
         };
-        const buildInitAPromptText = ({ pipelineName: topic, modelB, roleA, moderatorMessage = '' }) => {
-            const api = getDisputeTemplateApi();
-            const preset = buildPipelinePresetRuntimeConfig();
-            const task = window.DebateContracts?.createTaskContract?.({ rawRequest: moderatorMessage || topic, objective: moderatorMessage || topic, maxWords: getDebateMaxWords(), profileId: preset.profileId || preset.presetId });
-            const compiled = task && window.DebatePromptCompiler?.compile?.({ task, stage: { stageId: 'r1:openings', operation: 'opening', role: 'participant', outputContract: { maxWords: getDebateMaxWords(), allowShort: task.taskClass === 'direct_answer' } }, model: '', map: {} });
-            if (compiled?.prompt) return compiled.prompt;
-            return api?.buildInitAPrompt?.({
-                pipelineName: topic,
-                modelB,
-                roleA,
-                mission: getActiveProtocolMission(),
-                roundOutputs: getRoundPlanOutputs(preset, 1),
-                format: getDisputeDefaultFormat(),
-                moderatorMessage
-                ,maxWords: getDebateMaxWords()
-            }) || '';
-        };
-        const buildInitBPromptText = ({ pipelineName: topic, modelA, roleB, moderatorMessage = '' }) => {
-            const api = getDisputeTemplateApi();
-            const preset = buildPipelinePresetRuntimeConfig();
-            const task = window.DebateContracts?.createTaskContract?.({ rawRequest: moderatorMessage || topic, objective: moderatorMessage || topic, maxWords: getDebateMaxWords(), profileId: preset.profileId || preset.presetId });
-            const compiled = task && window.DebatePromptCompiler?.compile?.({ task, stage: { stageId: 'r1:openings', operation: 'opening', role: 'participant', outputContract: { maxWords: getDebateMaxWords(), allowShort: task.taskClass === 'direct_answer' } }, model: '', map: {} });
-            if (compiled?.prompt) return compiled.prompt;
-            return api?.buildInitBPrompt?.({
-                pipelineName: topic,
-                modelA,
-                roleB,
-                mission: getActiveProtocolMission(),
-                roundOutputs: getRoundPlanOutputs(preset, 1),
-                format: getDisputeDefaultFormat(),
-                moderatorMessage
-                ,maxWords: getDebateMaxWords()
-            }) || '';
-        };
-        const buildStandardDebateTurnPromptText = ({
-            pipelineName: topic,
-            roleY,
-            modelX,
-            previousModelText = '',
-            moderatorText = '',
-            registryContext = '',
-            primaryTrigger = '',
-            previousFilter = '',
-            roundOutputs = [],
-            stagePhase = ''
-        }) => {
-            const api = getDisputeTemplateApi();
-            const task = window.DebateContracts?.createTaskContract?.({ rawRequest: topic, objective: topic, currentInstruction: moderatorText, maxWords: getDebateMaxWords() });
-            const operation = stagePhase === 'defence' || stagePhase === 'response' ? 'response' : stagePhase === 'retest' ? 'verification' : stagePhase === 'resolution' ? 'final_position' : 'critique';
-            const actionType = operation === 'response' ? 'resolve_blocker' : operation === 'verification' ? 'recheck_revision' : 'critique_claim';
-            const compiled = task && window.DebatePromptCompiler?.compile?.({
-                task,
-                action: { action: actionType, role: operation === 'response' ? 'defender' : operation === 'verification' ? 'verifier' : 'critic', instruction: primaryTrigger || undefined },
-                stage: { stageId: `duel:${stagePhase || operation}`, operation, role: operation === 'response' ? 'defender' : operation === 'verification' ? 'verifier' : 'critic', lens: roleY, outputContract: { maxWords: getDebateMaxWords() } },
-                contextParts: [
-                    { id: 'opponent_last', type: 'turn', label: `Позиция ${modelX}`, text: previousModelText, trust: 'model', priority: 'high' },
-                    { id: 'registry', type: 'state', label: 'Состояние дела', text: registryContext, trust: 'system', priority: 'high' },
-                    { id: 'filter', type: 'state', label: 'Предыдущее состояние', text: previousFilter, trust: 'system' }
-                ].filter((part) => part.text)
-            });
-            if (compiled?.prompt) return compiled.prompt;
-            return api?.buildStandardTurnPrompt?.({
-                pipelineName: topic,
-                roleY,
-                modelX,
-                mission: getActiveProtocolMission(),
-                previousModelText,
-                moderatorText,
-                registryContext,
-                primaryTrigger,
-                previousFilter,
-                roundOutputs,
-                stagePhase
-                ,maxWords: getDebateMaxWords()
-            }) || '';
-        };
-        const applyStagnationWarning = (state, assessment, topology) => {
-            if (assessment?.recommendation !== 'suggest_finalize') return;
-            const checkpointCount = Number(state.checkpointStats?.parsed || 0);
-            state.stagnationWarning = { ...assessment, at: Date.now(), checkpointCount };
-            if (checkpointCount - Number(state.lastStagnationWarningCheckpoint || -2) >= 2) {
-                state.lastStagnationWarningCheckpoint = checkpointCount;
-                showNotification?.('Дебаты не производят нового содержания. Рекомендуется завершить синтезом.', 'warn');
-            }
-            let banner = document.getElementById('debate-stagnation-warning-banner');
-            if (!banner) {
-                banner = document.createElement('div');
-                banner.id = 'debate-stagnation-warning-banner';
-                banner.className = 'debate-degraded-banner';
-                (document.querySelector('#pipeline-panel, .pipeline-panel, #debate-model-cards') || document.body)?.prepend(banner);
-            }
-            banner.innerHTML = '<span>Дебаты перестали производить новое содержание. Рекомендуется завершить.</span> <button type="button">Завершить с синтезом</button>';
-            banner.querySelector('button')?.addEventListener('click', () => {
-                if (topology === 'duel') duelRunner?.requestFinalWords?.(state, { useApiFallback: apiModeCheckbox ? apiModeCheckbox.checked : true, signal: activePipelineAbortController?.signal || null });
-                else if (topology === 'triad') triadRunner?.finalize?.(state, { useApiFallback: apiModeCheckbox ? apiModeCheckbox.checked : true, signal: activePipelineAbortController?.signal || null });
-            }, { once: true });
-            dispatchDebateRunEvent?.('LEGACY_DIAGNOSTIC_EVENT', { reasonCode: 'stagnation_warning_shown', reasons: assessment.reasons });
-        };
-        const runSerialCheckpoint = (state) => debateRunServices.runDuelCheckpoint(state, {
-            useApiFallback: apiModeCheckbox ? apiModeCheckbox.checked : true,
-            context: activePipelineRunContext,
-            signal: activePipelineAbortController?.signal || null,
-            synthesizer: state.synthesizer
-        }).then((result) => {
-            evaluateCheckpointRules?.(state, { waveNumber: Number(state.turns?.publicTurnsDispatched || 0) }, result);
-            if (result && String(state.presetId || '').includes('LONG')) {
-                applyStagnationWarning(state, window.DebateStagnationWarning?.assess?.({
-                    roundDeltas: state.roundDeltas || [], checkpointStats: { count: state.checkpointStats?.parsed || 0 }, budget: state.checkpointPolicy || {}
-                }), 'duel');
-            }
-            return result;
-        });
-        const getPipelineModifierTextById = (id) => {
-            const modifier = pipelineActionModifiersById?.[id];
-            return String(modifier?.text || '').trim();
-        };
-        const getRoundPlanOutputs = (presetConfig, round) => {
-            const entry = (Array.isArray(presetConfig?.roundPlan) ? presetConfig.roundPlan : [])
-                .find((item) => Number(item?.round) === Number(round));
-            return Array.isArray(entry?.outputs) ? entry.outputs.filter(Boolean) : [];
-        };
-        const resolveDebateParticipantDropout = async ({ topology = 'debate', stage = '', failedModels = [], remainingModels = [] } = {}) => {
-            const failed = Array.from(new Set((failedModels || []).map((name) => String(name || '').trim()).filter(Boolean)));
-            const remaining = Array.from(new Set((remainingModels || []).map((name) => String(name || '').trim()).filter(Boolean)));
-            if (!failed.length) return 'continue';
-            const aggregate = getDebateAggregateState?.() || {};
-            const protocolState = aggregate.protocolState || {};
-            const revalidation = window.DebateDropoutRevalidation?.revalidate?.({
-                topology, stage, failedModels: failed, remainingModels: remaining,
-                roles: protocolState.roles || aggregate.config?.roles || [],
-                synthesizer: protocolState.synthesizer || aggregate.executionPlan?.synthesizer || '',
-                plan: aggregate.executionPlan || {}
-            });
-            if (!remaining.length) {
-                showNotification(`${failed.join(', ')} выбыла, и активных участников не осталось. Процесс будет остановлен.`, 'error');
-                pushSerialDebateTimeline('Participant dropout', { model: failed.join(', '), note: `${topology}:${stage}: no participants remain` });
-                return 'stop';
-            }
-            const failedLabel = failed.join(', ');
-            const warningText = revalidation?.warnings?.length ? `\n\nПредупреждения: ${revalidation.warnings.join(', ')}.` : '';
-            const safetyPolicy = getDebateSafetyPolicy();
-            const decision = await showConfirm(
-                `${failedLabel} не дала пригодного ответа и выбывает из процесса. Продолжить без неё?${warningText}\n\nОставшиеся модели: ${remaining.join(', ')}.${revalidation?.verdict === 'continue_degraded' ? '\n\nRun будет помечен как деградировавший.' : ''}`,
-                {
-                    confirmText: `Продолжить без ${failedLabel}`,
-                    cancelText: safetyPolicy.canCancel ? 'Остановить процесс' : 'Остановка недоступна',
-                    cancelDisabled: !safetyPolicy.canCancel,
-                    retryText: safetyPolicy.canRecover ? 'Повторить ещё раз' : ''
-                }
-            );
-            if (decision === 'retry') {
-                pushSerialDebateTimeline('Participant dropout', {
-                    model: failedLabel,
-                    note: `${topology}:${stage}: retry requested`
-                });
-                return 'retry';
-            }
-            const continueRun = decision === true;
-            const resolvedDecision = continueRun ? 'continue' : 'stop';
-            if (continueRun && revalidation?.verdict === 'continue_degraded') {
-                const degradedMode = { reason: revalidation.warnings.join(','), stage, failedModels: failed.slice(), at: Date.now() };
-                dispatchDebateRunEvent(window.DebateRunStore.EVENTS.EXECUTION_STATE_CHANGED, { degradedMode });
-                if (protocolState && typeof protocolState === 'object') protocolState.degradedMode = degradedMode;
-            }
-            pushSerialDebateTimeline('Participant dropout', {
-                model: failedLabel,
-                note: `${topology}:${stage}: ${resolvedDecision}; remaining=${remaining.join(',')}`
-            });
-            return resolvedDecision;
-        };
-        const formatRoundFilterContext = (roundFilters = []) => window.DebatePromptCatalog.formatRoundFilters(roundFilters);
-        const debateRunServices = window.DebateRunServices?.createRunServices?.({
-            promptCatalog: window.DebatePromptCatalog,
-            triadTemplates: window.TriadMessageTemplates,
-            registry: window.DebateRegistry,
-            runModelBatch,
-            isErrorOutput,
-            acceptResponse: (text, meta) => window.DebateResponseAcceptance?.evaluate?.({ text, meta: { ...(meta || {}), isErrorOutput } }) || { ok: Boolean(String(text || '').trim()), reason: '' },
-            assembleContext: (options) => window.DebateContextAssembly?.assemble?.(options) || { parts: [], omitted: [] },
-            timeline: pushSerialDebateTimeline,
-            now: Date.now,
-            handleOutputs: (...args) => handlePipelineOutputs(...args),
-            notify: showNotification,
-            warn: (...args) => console.warn(...args),
-            recordEvent: (type, payload) => recordDebateDomainEvent(window.DebateRunStore?.EVENTS?.[type] || type, payload)
-        });
-        const recordAcceptedDebateResponse = ({ stageId, participant, attemptId, text }) => dispatchDebateRunEvent(
-            window.DebateRunStore.EVENTS.MODEL_RESPONSE_RECEIVED,
-            { stageId, participant, model: participant, attemptId, text, answerLength: String(text || '').length, accepted: true }
-        );
-        const runRoundFilterPass = async ({ topic, topology, round, outputs = [], turns = [], previousFilter = '', synthesizer, runId, signal }) => {
-            const roles = window.DebateServiceRoles?.resolveServiceRoles?.({ preset: window.__activePipelinePresetConfig || getSelectedPipelinePresetMeta?.() || {}, participants: getSelectedLLMs(), synthesizer }) || { synthesizer };
-            return debateRunServices.runRoundFilter({
-                topic, topology, round, outputs, turns, previousFilter, synthesizer: roles.synthesizer || synthesizer, runId, signal,
-                context: activePipelineRunContext,
-                useApiFallback: apiModeCheckbox ? apiModeCheckbox.checked : true,
-                maxWords: getDebateMaxWords()
-            });
-        };
-        const buildFinalWordPromptText = (serialState, modelName) => {
-            const template = getPipelineModifierTextById('final_word_request');
-            const compiled = window.DebatePromptCompiler?.compile?.({
-                task: serialState?.taskContract || { objective: serialState?.topic, maxWords: serialState?.maxWords },
-                stage: { stageId: 'final:words', operation: 'final_position', role: 'participant', outputContract: { maxWords: serialState?.maxWords ?? getDebateMaxWords(), requiredSections: ['Эволюция позиции'] } },
-                model: modelName,
-                contextParts: [
-                    { id: 'own_line', type: 'turn', label: 'Собственная линия', text: (serialState?.eventLog || []).filter((event) => event.model === modelName).map((event) => event.text).join('\n\n'), owner: modelName, trust: 'model', priority: 'high' },
-                    { id: 'filters', type: 'state', label: 'Состояние раундов', text: window.DebatePromptCatalog?.formatRoundFilters?.(serialState?.roundFilters || []), trust: 'system', priority: 'high' }
-                ]
-            });
-            if (compiled?.prompt) return compiled.prompt;
-            return window.DebatePromptCatalog.buildDuelFinalWord({
-                state: serialState,
-                modelName,
-                template,
-                fallbackTopic: (pipelineName?.textContent || '').trim()
-                ,maxWords: serialState?.maxWords ?? getDebateMaxWords()
-            });
-        };
-        const buildModeratorSummaryText = (serialState) => {
-            const template = getPipelineModifierTextById('moderator_summary');
-            return window.DebatePromptCatalog.buildDuelModeratorSummary({
-                state: serialState,
-                template,
-                fallbackTopic: (pipelineName?.textContent || '').trim(),
-                roundLimit: getDebateRoundLimit()
-            });
-        };
-        const buildSerialFinalSynthesisPromptText = (serialState) => window.DebatePromptCompiler?.compile?.({
-            task: serialState?.taskContract || { objective: serialState?.topic, maxWords: serialState?.maxWords },
-            stage: { stageId: 'final:synthesis', operation: 'synthesis', role: 'synthesizer', outputContract: { maxWords: serialState?.maxWords ?? getDebateMaxWords(), requiredSections: window.DebatePromptCatalog?.SYNTHESIS_REQUIRED_SECTIONS || [] } },
-            model: serialState?.synthesizer,
-            contextParts: [
-                { id: 'final-a', type: 'turn', label: `Финальная позиция ${serialState?.modelA || 'A'}`, text: serialState?.finalWordA, owner: serialState?.modelA, trust: 'model', priority: 'high' },
-                { id: 'final-b', type: 'turn', label: `Финальная позиция ${serialState?.modelB || 'B'}`, text: serialState?.finalWordB, owner: serialState?.modelB, trust: 'model', priority: 'high' },
-                { id: 'filters', type: 'state', label: 'Состояние раундов', text: window.DebatePromptCatalog?.formatRoundFilters?.(serialState?.roundFilters || []), trust: 'system', priority: 'high' }
-            ].filter((part) => part.text)
-        })?.prompt || window.DebatePromptCatalog.buildDuelFinalSynthesis(serialState);
-        const buildMultiWavePromptText = (input = {}) => window.DebatePromptCatalog.buildMultiWave({ maxWords: getDebateMaxWords(), ...input });
-        const buildMultiFinalSynthesisPromptText = ({ topic, synthesizer, turns = [], roundFilters = [], problemSpec = '', contextParts = [], maxWords } = {}) => {
-            const finalAction = getPipelineModifierTextById('final') || 'Final synthesis: agreed points, disputed points, and next step.';
-            return window.DebatePromptCatalog.buildMultiFinalSynthesis({ topic, synthesizer, turns, roundFilters, problemSpec, contextParts, maxWords: maxWords ?? getDebateMaxWords(), finalInstruction: finalAction });
-        };
-        const duelRunner = window.DuelRunner?.createDuelRunner?.({
-            stageById: (plan, stageId) => window.DebatePlanCompiler?.stageById?.(plan, stageId),
-            resolveServiceRoles: (input) => window.DebateServiceRoles?.resolveServiceRoles?.(input),
-            createTaskContract: (input) => window.DebateContracts?.createTaskContract?.(input),
-            acceptResponse: (text, meta) => window.DebateResponseAcceptance?.evaluate?.({ text, meta: { ...(meta || {}), isErrorOutput } }) || { ok: Boolean(String(text || '').trim()), reason: '' },
-            validateCorrelation: (received, expected) => window.DebateCorrelationGuard?.validate?.(expected, received) || { ok: true },
-            validateSynthesisSections: (text) => window.DebatePromptCatalog?.validateSynthesisSections?.(text) || [],
-            resolveStagePhase: (input) => window.DebatePromptCatalog?.resolveStagePhase?.(input) || 'critique',
-            assertBlindOpening: (prompts, openings) => window.DebatePromptCatalog?.assertBlindOpening?.(prompts, openings),
-            validateRequiredSections: (text, headers) => window.DebatePromptCatalog?.validateRequiredSections?.(text, headers) || [],
-            protocol: window.DebateProtocols.getProtocol('duel'),
-            runModelBatch,
-            isErrorOutput,
-            buildFinalWordPrompt: buildFinalWordPromptText,
-            buildFinalSynthesisPrompt: buildSerialFinalSynthesisPromptText,
-            transition: (state, event) => transitionDebateProtocol('duel', state, event),
-            timeline: pushSerialDebateTimeline,
-            notifyControl: notifyPipelineControlState,
-            notify: showNotification,
-            appendVerdict: appendVerdictFeedEntry,
-            getRoundLimit: getDebateRoundLimit,
-            handleTerminalOutputs: (...args) => handleDebateTerminalOutputs(...args),
-            syncVisualState: syncPipelineFlowVisualState,
-            resolveParticipantDropout: resolveDebateParticipantDropout,
-            now: Date.now,
-            getState: getSerialDebateState,
-            fsm: window.DebateFSM,
-            isAuto: isDebateAutoPolicy,
-            autoRetryLimit: DEBATE_AUTO_TURN_RETRY_LIMIT,
-            autoRetryDelayMs: DEBATE_AUTO_TURN_RETRY_DELAY_MS,
-            sleep: sleepDebateMs,
-            syncState: syncAggregateProtocolState,
-            setPaused: setDebatePausedState,
-            renderCards: renderDebateModelCards,
-            markNewPageOpened: markSerialNewPageModelOpened,
-            runRoundFilter: runRoundFilterPass,
-            runCheckpoint: runSerialCheckpoint,
-            runSynthesisAudit: (input) => debateRunServices.runSynthesisAudit({ maxWords: getDebateMaxWords(), ...input, useApiFallback: apiModeCheckbox ? apiModeCheckbox.checked : true, signal: activePipelineAbortController?.signal || null }),
-            recordAcceptedResponse: recordAcceptedDebateResponse,
-            createRegistry: (config) => window.DebateRegistry?.createRegistry?.(config),
-            appendRegistryEvent: (registry, event) => window.DebateRegistry?.appendEvent?.(registry, event),
-            replaceAggregateState: replaceAggregateProtocolState,
-            setState: () => {},
-            clearTimeline: () => { serialDebateTimeline.length = 0; },
-            buildInitAPrompt: buildInitAPromptText,
-            buildInitBPrompt: buildInitBPromptText,
-            recordRunFailure: (reason) => dispatchDebateRunEvent(window.DebateRunStore.EVENTS.RUN_FAILED, { reason }),
-            recordStageEvent: (type, payload) => dispatchDebateRunEvent(window.DebateRunStore.EVENTS[type] || type, payload),
-            appendModerator: appendModeratorFeedEntry,
-            clearModerator: clearModeratorComposer,
-            syncModeratorRoute: syncModeratorRouteAfterModelResponse,
-            getRoundOutputs: getRoundPlanOutputs,
-            prepareRoute: (state, { currentModel, currentText }) => {
-                const manualReceiver = String(debateReceiverSelect?.value || '').trim();
-                const headerSelectedModels = getSelectedLLMs();
-                const roundOneModels = getRoundModelsState(1);
-                const selectedModels = headerSelectedModels.length
-                    ? headerSelectedModels
-                    : (roundOneModels?.sendModels?.length
-                        ? roundOneModels.sendModels.slice()
-                        : (roundOneModels?.inputModels || []).slice());
-                const manualTarget = manualReceiver && manualReceiver !== '__none__'
-                    && selectedModels.includes(manualReceiver) && manualReceiver !== currentModel
-                    ? manualReceiver : '';
-                const targetModel = manualTarget || (currentModel === state.modelA ? state.modelB : state.modelA);
-                if (!targetModel) return null;
-                const moderatorAddition = getModeratorDispatchText();
-                const modifierIntervention = isPipelinePage
-                    ? getPipelineActionSelectionItems().map((modifier) => modifier.text || modifier.label || modifier.id).filter(Boolean).join('\n')
-                    : '';
-                const moderatorIntervention = [moderatorAddition, modifierIntervention].filter(Boolean).join('\n').trim();
-                if (moderatorIntervention) {
-                    appendModeratorFeedEntry(moderatorIntervention);
-                    pushSerialDebateTimeline('Moderator comment', { from: 'Moderator', to: targetModel, note: moderatorIntervention.slice(0, 120) });
-                    clearModeratorComposer();
-                }
-                const protocolRound = Math.min(
-                    Number(getDebateRoundLimit()) || 1,
-                    Math.ceil((Number(state.turns?.publicTurnsDispatched || 0) + 1) / 2) + 1
-                );
-                const roundOutputs = getRoundPlanOutputs(state.presetConfigSnapshot, protocolRound);
-                const previousFilter = state.roundFilters?.at?.(-1)?.text || '';
-                const regView = state.registry && window.DebateRegistry
-                    ? window.DebateRegistry.serializeForPromptModel(state.registry, targetModel)
-                    : { context: '', primaryTrigger: '' };
-                const targetIsA = targetModel === state.modelA;
-                const contextAssembly = window.DebateContextAssembly?.assemble?.({
-                    topology: 'duel', stageKind: 'duel_turn',
-                    stagePhase: window.DebatePromptCatalog?.resolveStagePhase?.({ roundOutputs, round: protocolRound }),
-                    state: { ...state, opponentLast: currentText }, policy: state.presetConfigSnapshot?.contextPolicy || 'filtered'
-                }) || { parts: [], omitted: [] };
-                const prompt = buildStandardDebateTurnPromptText({
-                    pipelineName: state.topic || (pipelineName?.textContent || '').trim() || state.moderatorMessage,
-                    roleY: targetIsA ? state.roleA : state.roleB,
-                    modelX: currentModel,
-                    previousModelText: currentText,
-                    moderatorText: moderatorIntervention,
-                    registryContext: regView.context,
-                    primaryTrigger: regView.primaryTrigger,
-                    previousFilter,
-                    roundOutputs,
-                    stagePhase: window.DebatePromptCatalog?.resolveStagePhase?.({ roundOutputs, round: protocolRound })
-                });
-                if (!prompt) showNotification('Dispute template is unavailable.', 'error');
-                return {
-                    targetModel,
-                    targetIsA,
-                    targetSlot: window.DebateFSM.slotForModel(state, targetModel),
-                    currentSlot: window.DebateFSM.slotForModel(state, currentModel),
-                    manualTarget,
-                    moderatorIntervention,
-                    protocolRound,
-                    roundOutputs,
-                    previousFilter,
-                    regView,
-                    contextParts: contextAssembly.parts,
-                    prompt
-                };
-            },
-            recordRoute: (state, route) => window.DebateRegistry?.recordRoute?.(state.registry, {
-                mode: 'duel',
-                publicTurnIndex: route.publicTurnIndex,
-                fromSlot: route.currentSlot,
-                toSlot: route.targetSlot,
-                fromModel: route.currentModel,
-                toModel: route.targetModel,
-                reason: route.manualTarget ? 'manual' : 'auto',
-                primaryTriggerId: route.regView?.primaryTrigger ? route.regView.primaryTrigger.slice(0, 80) : null
-            }),
-            recordAnswer: (state, route) => {
-                const turnId = `${state.runId || 'duel'}:public:${route.publicTurnIndex}:${String(route.targetModel).trim().toUpperCase()}`;
-                window.DebateFSM.appendEvent(state, {
-                    turnId,
-                    phase: 'public',
-                    slot: route.targetSlot,
-                    model: route.targetModel,
-                    role: route.targetIsA ? state.roleA : state.roleB,
-                    text: route.answer,
-                    source: 'model',
-                    publicTurnIndex: route.publicTurnIndex,
-                    round: state.round
-                });
-                window.DebateRegistry?.appendEvent?.(state.registry, {
-                    turnId,
-                    waveKey: `duel-public-${route.publicTurnIndex}`,
-                    model: route.targetModel,
-                    text: route.answer
-                });
-                syncModeratorRouteAfterModelResponse(route.targetModel);
-            }
-        });
-        const getTriadWaveLimit = () => {
-            const value = getDebateRoundLimit();
-            return value === 'infinite' ? 999 : value;
-        };
-        const getTriadTemplateApi = () => window.TriadMessageTemplates || null;
-        // Registry is live only when the user opted in AND a synthesizer (the
-        // checkpoint model C) is chosen AND the module loaded. Any of these
-        // missing → base Triad, untouched.
-        const isDebateRegistryEnabled = (synthesizer = '') => !!(
-            triadRegistryCheckbox
-            && triadRegistryCheckbox.checked
-            && window.DebateRegistry
-            && String(synthesizer || '').trim()
-        );
-        const isTriadRegistryEnabled = () => isDebateRegistryEnabled(debateSynthesizerSelect?.value || '');
-        // Stable per-turn id for the event log / anchor references.
-        const makeTriadTurnId = (waveKey, model) => `${waveKey}:${String(model || '').trim().toUpperCase()}`;
-        // Runs the C-analyzer over a completed wave: append raw turns to the
-        // event log, ask the synthesizer for a strict JSON delta, validate and
-        // apply it. Fully degrade-safe: any failure leaves the registry as-is so
-        // the next wave simply carries less (or no) registry context.
-        const evaluateCheckpointRules = (state, input = {}, checkpoint = null) => {
-            const topology = String(state?.topology || (state?.models?.length === 3 ? 'triad' : state?.models?.length > 3 ? 'multi' : 'duel'));
-            if (topology === 'free_talk' || !window.DebateRuleEngine || !window.DebateStateMap) return;
-            const preset = state.presetConfigSnapshot || window.__activePipelinePresetConfig || getSelectedPipelinePresetMeta?.() || {};
-            const profileId = preset.profileId || (topology === 'triad' ? 'TRIAD_STANDARD' : topology === 'multi' ? 'MULTI_STANDARD' : 'DUEL_STANDARD');
-            const profile = window.DebateProfileSchema?.BUILTIN_PROFILES?.[profileId] || {};
-            const ruleMode = preset.policies?.ruleMode || profile.policies?.ruleMode || 'shadow';
-            if (ruleMode !== 'shadow') return;
-            const rules = preset.rules || profile.rules || [];
-            const progressPolicy = preset.progressPolicy || profile.progressPolicy || { windowSize: 3, minChangedSteps: 1 };
-            state.__ruleProgressWindow = Array.isArray(state.__ruleProgressWindow) ? state.__ruleProgressWindow : [];
-            const stateChanged = Number(checkpoint?.applied || 0) > 0 || Number(checkpoint?.delta?.counts?.total || 0) > 0;
-            state.__ruleProgressWindow.push({ checkpoint: input.waveNumber, stateChanged, at: Date.now() });
-            state.__ruleProgressWindow = state.__ruleProgressWindow.slice(-Math.max(1, Number(progressPolicy.windowSize || 3)));
-            const stagnant = state.__ruleProgressWindow.length >= Math.max(1, Number(progressPolicy.windowSize || 3))
-                && state.__ruleProgressWindow.filter((item) => item.stateChanged).length < Math.max(1, Number(progressPolicy.minChangedSteps || 1));
-            const map = window.DebateStateMap.project({ runId: state.runId, sessionId: state.sessionId, config: { topic: state.topic }, executionPlan: { profileId }, protocolState: state });
-            const evaluation = window.DebateRuleEngine.evaluate(map, { seq: Number(input.waveNumber || 0), stagnant, contradictions: map.contradictions || [] }, rules);
-            evaluation.traces.forEach((trace) => {
-                dispatchDebateRunEvent(window.DebateRunStore.EVENTS.RULE_EVALUATED, { ...trace, topology, ruleMode: 'shadow', checkpoint: input.waveNumber });
-                dispatchDebateRunEvent(window.DebateRunStore.EVENTS[trace.status === 'fired' ? 'RULE_FIRED' : 'RULE_SUPPRESSED'], { ...trace, topology, ruleMode: 'shadow', checkpoint: input.waveNumber });
-            });
-            dispatchDebateRunEvent(window.DebateRunStore.EVENTS.PROGRESS_WINDOW_UPDATED, { topology, ruleMode: 'shadow', window: state.__ruleProgressWindow.slice(), policy: progressPolicy, stagnant });
-        };
-        const runDebateCheckpoint = (state, input = {}) => debateRunServices.runCheckpoint(state, {
-            ...input,
-            useApiFallback: apiModeCheckbox ? apiModeCheckbox.checked : true,
-            context: makeTriadBatchContext(state, `${input.waveKey}-checkpoint`),
-            signal: activePipelineAbortController?.signal || null,
-            synthesizer: state.synthesizer
-        }).then((result) => {
-            evaluateCheckpointRules(state, input, result);
-            const convergence = window.DebateConvergence?.assess?.({
-                wave: Number(input.waveNumber || state.wave || 0),
-                roundLimit: Number(state.waveLimit || state.maxWaves || 0),
-                triggers: state.registry?.pendingActions || [],
-                roundDeltas: state.roundDeltas || []
-            });
-            state.convergenceWarning = convergence?.warning || convergence?.stagnating ? window.DebateConvergence?.STEELMAN_INSTRUCTION || '' : '';
-            if (state.convergenceWarning) dispatchDebateRunEvent?.('LEGACY_DIAGNOSTIC_EVENT', { reasonCode: 'premature_convergence_warning', kind: convergence.kind });
-            if (result && String(state.presetId || '').includes('LONG')) {
-                const assessment = window.DebateStagnationWarning?.assess?.({ roundDeltas: state.roundDeltas || [], checkpointStats: { count: state.checkpointStats?.parsed || 0 }, budget: state.checkpointPolicy || {} });
-                applyStagnationWarning(state, assessment, 'triad');
-            }
-            return result;
-        });
-        const makeTriadBatchContext = (triad, roundId) => ({
-            pipelineRunId: triad.runId,
-            pipelineRoundId: roundId,
-            pipelineBatchId: `${triad.runId}:${roundId}:${Date.now()}`,
-            sessionId: triad.sessionId
-        });
-        const escapeAttrSelectorValue = (value) => String(value || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-        const getTriadWaveCardSelector = (triad, waveKey = triad?.currentWaveKey || '') =>
-            `.debate-model-card[data-session-id="${escapeAttrSelectorValue(triad?.sessionId || '1')}"][data-triad-wave="${escapeAttrSelectorValue(waveKey || '')}"]`;
-        const tagTriadWaveCards = (triad, waveKey, models = []) => {
-            if (!debateModelCards || !triad || !waveKey) return;
-            const sessionId = String(triad.sessionId || debateTabsState.activeSessionId || '1');
-            models.forEach((modelName) => {
-                const card = resolveSingleDebateAnswerCard(ensureDebateSession(sessionId), modelName);
-                if (card) {
-                    card.dataset.triadWave = waveKey;
-                    card.dataset.triadRunId = triad.runId || '';
-                }
-            });
-        };
-        const markTriadWaveCardsApproved = (triad, waveKey = triad?.currentWaveKey || '') => {
-            if (!debateModelCards || !triad || !waveKey) return;
-            debateModelCards.querySelectorAll(getTriadWaveCardSelector(triad, waveKey)).forEach((card) => {
-                if (card.dataset.approved !== 'true') {
-                    card.dataset.approved = 'true';
-                    card.dataset.approvalSelectable = 'false';
-                    patchDebateCardMessage(card, { status: 'approved', kind: 'model' });
-                    normalizeDebateCardState(card);
-                    insertDebateCard(card, { zone: 'approved' });
-                }
-            });
-            applyDebateSessionFilter();
-        };
-        const triadWaveBarrierMet = (triad) => {
-            if (!debateModelCards || !triad?.currentWaveKey) return false;
-            const cards = Array.from(debateModelCards.querySelectorAll(getTriadWaveCardSelector(triad)));
-            const liveCards = cards.filter((card) => card.isConnected);
-            return liveCards.length >= triad.models.length
-                && liveCards.every((card) => card.dataset.approved === 'true' || card.dataset.triadAutoResolved === 'true');
-        };
-        const finalizeTriadRuntime = () => {
-            syncAggregateTerminalFromProtocol(window.__triadState || getTriadState());
-            debateExecutionContext?.dispose?.('triad_finalized');
-            debateRunState.activeRole = '';
-            if (!debateAggregateStore) {
-                debateRunState.status = 'idle';
-                debateRunState.pauseReason = '';
-            }
-            debatePaused = false;
-            pipelineRunActive = false;
-            activePipelineAbortController = null;
-            activePipelineRunContext = null;
-            pipelineWaiter.reset();
-            writeLongGenerationMode(longModeCheckbox ? longModeCheckbox.checked : true);
-            lastGenerationWaitProfile = (longModeCheckbox && longModeCheckbox.checked) ? 'long' : 'short';
-            syncPipelineFlowVisualState();
-            setPipelineEditingEnabled(true);
-            setPipelineRunUi(false);
-            updateDebateButtonsUi();
-            window.syncDebateSchemeUi?.();
-        };
-        const triadRunner = window.TriadRunner?.createTriadRunner?.({
-            stageById: (plan, stageId) => window.DebatePlanCompiler?.stageById?.(plan, stageId),
-            resolveServiceRoles: (input) => window.DebateServiceRoles?.resolveServiceRoles?.(input),
-            createTaskContract: (input) => window.DebateContracts?.createTaskContract?.(input),
-            evolveTaskContract: (task, patch) => window.DebateContracts?.evolveTaskContract?.(task, patch),
-            compilePrompt: (input) => window.DebatePromptCompiler?.compile?.(input),
-            acceptResponse: (text, meta) => window.DebateResponseAcceptance?.evaluate?.({ text, meta: { ...(meta || {}), isErrorOutput } }) || { ok: Boolean(String(text || '').trim()), reason: '' },
-            validateCorrelation: (received, expected) => window.DebateCorrelationGuard?.validate?.(expected, received) || { ok: true },
-            validateRequiredSections: (text, headers) => window.DebatePromptCatalog?.validateRequiredSections?.(text, headers) || [],
-            validateSynthesisSections: (text) => window.DebatePromptCatalog?.validateSynthesisSections?.(text) || [],
-            assembleContext: (options) => window.DebateContextAssembly?.assemble?.(options) || { parts: [], omitted: [] },
-            protocol: window.DebateProtocols.getProtocol('triad'),
-            templates: getTriadTemplateApi(),
-            fsm: window.TriadFSM,
-            createRegistry: (config) => window.DebateRegistry?.createRegistry?.(config),
-            serializeRegistryForModel: (registry, model) => window.DebateRegistry?.serializeForPromptModel?.(registry, model),
-            recordRegistryRoute: (registry, route) => window.DebateRegistry?.recordRoute?.(registry, route),
-            sanitizePromptsByModel: (prompts) => window.TransportPolicy?.sanitizePromptsByModel?.(prompts),
-            getDefaultFormat: getDisputeDefaultFormat,
-            getRoundOutputs: getRoundPlanOutputs,
-            getProtocolMission: (preset) => window.DebatePromptCatalog?.resolveProtocolMission?.(preset) || '',
-            resolveStagePhase: (input) => window.DebatePromptCatalog?.resolveStagePhase?.(input) || 'critique',
-            assertBlindOpening: (prompts, openings) => window.DebatePromptCatalog?.assertBlindOpening?.(prompts, openings),
-            resolveRole: (index, role) => window.DebatePromptCatalog?.resolveParticipantRoleText?.(role, index) || getDebateParticipantRoleText(index),
-            resolveParticipantDropout: resolveDebateParticipantDropout,
-            getModeratorText: getModeratorDispatchText,
-            runModelBatch,
-            isErrorOutput,
-            transition: (state, event) => transitionDebateProtocol('triad', state, event),
-            timeline: pushSerialDebateTimeline,
-            formatRoundFilters: formatRoundFilterContext,
-            makeBatchContext: makeTriadBatchContext,
-            renderCards: renderDebateModelCards,
-            tagWaveCards: tagTriadWaveCards,
-            markWaveCardsApproved: markTriadWaveCardsApproved,
-            appendFeed: appendDebateFeedEntry,
-            appendVerdict: appendVerdictFeedEntry,
-            notifyControl: notifyPipelineControlState,
-            notify: showNotification,
-            recordStageEvent: (type, payload) => dispatchDebateRunEvent(window.DebateRunStore.EVENTS[type] || type, payload),
-            handleTerminalOutputs: (...args) => handleDebateTerminalOutputs(...args),
-            finalizeRuntime: finalizeTriadRuntime,
-            syncVisualState: syncPipelineFlowVisualState,
-            hasReachedWaveLimit: (state) => window.TriadFSM.hasReachedWaveLimit(state),
-            markPaused: (state) => window.TriadFSM.markPaused(state),
-            syncState: syncAggregateProtocolState,
-            updateButtons: updateDebateButtonsUi,
-            replaceAggregateState: replaceAggregateProtocolState,
-            setState: () => {},
-            clearTimeline: () => { serialDebateTimeline.length = 0; },
-            setRunPresentation: ({ activeRole, maxTurns }) => {
-                debateRunState.activeRole = activeRole;
-                debateRunState.maxTurns = maxTurns;
-            },
-            appendModerator: appendModeratorFeedEntry,
-            clearModerator: clearModeratorComposer,
-            makeTurnId: makeTriadTurnId,
-            runRoundFilter: runRoundFilterPass,
-            runCheckpoint: runDebateCheckpoint,
-            runSynthesisAudit: (input) => debateRunServices.runSynthesisAudit({ maxWords: getDebateMaxWords(), ...input, useApiFallback: apiModeCheckbox ? apiModeCheckbox.checked : true, signal: activePipelineAbortController?.signal || null }),
-            recordAcceptedResponse: recordAcceptedDebateResponse,
-            markSkippedCard: (state, modelName, waveKey) => {
-                const card = resolveSingleDebateAnswerCard(ensureDebateSession(state.sessionId), modelName);
-                if (card) {
-                    card.dataset.triadAutoResolved = 'true';
-                    card.dataset.triadWave = waveKey;
-                }
-            }
-        });
-        const completeTriadBarrier = async (triad) => {
-            return triadRunner.completeBarrier(triad, {
-                auto: isDebateAutoPolicy(),
-                paused: debatePaused,
-                forceNewTabs: newPagesCheckbox ? newPagesCheckbox.checked : true,
-                useApiFallback: apiModeCheckbox ? apiModeCheckbox.checked : true,
-                signal: activePipelineAbortController?.signal || null
-            });
-        };
-        const finalizeMultiPipelineRuntime = () => {
-            syncAggregateTerminalFromProtocol(getMultiState());
-            debateExecutionContext?.dispose?.('multi_finalized');
-            if (typeof multiContinuationResolver === 'function') {
-                const resolve = multiContinuationResolver;
-                multiContinuationResolver = null;
-                resolve();
-            }
-            if (getMultiState()) {
-                getMultiState().active = false;
-            }
-            debateRunState.activeRole = '';
-            if (!debateAggregateStore) {
-                debateRunState.status = 'idle';
-                debateRunState.pauseReason = '';
-            }
-            debatePaused = false;
-            pipelineRunActive = false;
-            activePipelineAbortController = null;
-            activePipelineRunContext = null;
-            pipelineWaiter.reset();
-            writeLongGenerationMode(longModeCheckbox ? longModeCheckbox.checked : true);
-            lastGenerationWaitProfile = (longModeCheckbox && longModeCheckbox.checked) ? 'long' : 'short';
-            syncPipelineFlowVisualState();
-            setPipelineEditingEnabled(true);
-            setPipelineRunUi(false);
-            updateDebateButtonsUi();
-            window.syncDebateSchemeUi?.();
-        };
-        const finalizeFreeTalkRuntime = () => {
-            syncAggregateTerminalFromProtocol(getFreeTalkState());
-            debateExecutionContext?.dispose?.('free_talk_finalized');
-            if (typeof multiContinuationResolver === 'function') { const resolve = multiContinuationResolver; multiContinuationResolver = null; resolve(); }
-            if (getFreeTalkState()) getFreeTalkState().active = false;
-            debateRunState.activeRole = '';
-            if (!debateAggregateStore) {
-                debateRunState.status = 'idle';
-                debateRunState.pauseReason = '';
-            }
-            debatePaused = false;
-            pipelineRunActive = false;
-            activePipelineAbortController = null;
-            activePipelineRunContext = null;
-            pipelineWaiter.reset();
-            writeLongGenerationMode(longModeCheckbox ? longModeCheckbox.checked : true);
-            lastGenerationWaitProfile = (longModeCheckbox && longModeCheckbox.checked) ? 'long' : 'short';
-            syncPipelineFlowVisualState();
-            setPipelineEditingEnabled(true);
-            setPipelineRunUi(false);
-            updateDebateButtonsUi();
-            window.syncDebateSchemeUi?.();
-        };
-        const waitForMultiContinuation = (signal, reason = 'multi_round_review') => new Promise((resolve, reject) => {
-            if (signal?.aborted) {
-                reject(new DOMException('Pipeline run cancelled', 'AbortError'));
-                return;
-            }
-            setDebatePausedState(true, reason);
-            if (getMultiState()) getMultiState().currentPhase = 'awaiting_approval';
-            syncPipelineFlowVisualState();
-            const onAbort = () => {
-                if (multiContinuationResolver === resume) multiContinuationResolver = null;
-                reject(new DOMException('Pipeline run cancelled', 'AbortError'));
-            };
-            const resume = () => {
-                signal?.removeEventListener?.('abort', onAbort);
-                resolve();
-            };
-            multiContinuationResolver = resume;
-            signal?.addEventListener?.('abort', onAbort, { once: true });
-            updateDebateButtonsUi();
-        });
-        const multiRunner = window.MultiRunner?.createMultiRunner?.({
-            stageById: (plan, stageId) => window.DebatePlanCompiler?.stageById?.(plan, stageId),
-            resolveServiceRoles: (input) => window.DebateServiceRoles?.resolveServiceRoles?.(input),
-            createTaskContract: (input) => window.DebateContracts?.createTaskContract?.(input),
-            compilePrompt: (input) => window.DebatePromptCompiler?.compile?.(input),
-            acceptResponse: (text, meta) => window.DebateResponseAcceptance?.evaluate?.({ text, meta: { ...(meta || {}), isErrorOutput } }) || { ok: Boolean(String(text || '').trim()), reason: '' },
-            validateCorrelation: (received, expected) => window.DebateCorrelationGuard?.validate?.(expected, received) || { ok: true },
-            protocol: window.DebateProtocols.getProtocol('multi'),
-            createRegistry: (config) => window.DebateRegistry?.createRegistry?.(config),
-            setState: () => {},
-            transition: (state, event) => transitionDebateProtocol('multi', state, event),
-            replaceAggregateState: replaceAggregateProtocolState,
-            appendModerator: appendModeratorFeedEntry,
-            clearModerator: clearModeratorComposer,
-            setRunPresentation: ({ activeRole, maxTurns }) => {
-                debateRunState.activeRole = activeRole;
-                debateRunState.maxTurns = maxTurns;
-            },
-            buildWavePrompt: buildMultiWavePromptText,
-            assembleContext: (options) => window.DebateContextAssembly?.assemble?.(options) || { parts: [], omitted: [] },
-            buildFinalSynthesisPrompt: buildMultiFinalSynthesisPromptText,
-            validateSynthesisSections: (text) => window.DebatePromptCatalog?.validateSynthesisSections?.(text) || [],
-            resolveStagePhase: (input) => window.DebatePromptCatalog?.resolveStagePhase?.(input) || 'critique',
-            assertBlindOpening: (prompts, openings) => window.DebatePromptCatalog?.assertBlindOpening?.(prompts, openings),
-            resolveRole: (index) => getDebateParticipantRoleText(index),
-            timeline: pushSerialDebateTimeline,
-            renderCards: renderDebateModelCards,
-            runModelBatch,
-            isErrorOutput,
-            appendFeed: appendDebateFeedEntry,
-            appendVerdict: appendVerdictFeedEntry,
-            runRoundFilter: runRoundFilterPass,
-            getRoundOutputs: getRoundPlanOutputs,
-            getProtocolMission: (preset) => window.DebatePromptCatalog?.resolveProtocolMission?.(preset) || '',
-            resolveParticipantDropout: resolveDebateParticipantDropout,
-            runCheckpoint: runDebateCheckpoint,
-            runSynthesisAudit: (input) => debateRunServices.runSynthesisAudit({ maxWords: getDebateMaxWords(), ...input, useApiFallback: apiModeCheckbox ? apiModeCheckbox.checked : true, signal: activePipelineAbortController?.signal || null }),
-            recordAcceptedResponse: recordAcceptedDebateResponse,
-            syncState: syncAggregateProtocolState,
-            waitForContinuation: waitForMultiContinuation,
-            syncVisualState: syncPipelineFlowVisualState,
-            recordFinalization: (payload) => dispatchDebateRunEvent(window.DebateRunStore.EVENTS.FINALIZATION_COMPLETED, payload),
-            recordStageEvent: (type, payload) => dispatchDebateRunEvent(window.DebateRunStore.EVENTS[type] || type, payload),
-            notifyControl: notifyPipelineControlState,
-            notify: showNotification,
-            handleTerminalOutputs: (...args) => handleDebateTerminalOutputs(...args),
-            finalizeRuntime: finalizeMultiPipelineRuntime,
-            now: Date.now
-        });
-        const freeTalkRunner = window.FreeTalkRunner?.createFreeTalkRunner?.({
-            protocol: window.DebateProtocols.getProtocol('free_talk'),
-            createRegistry: (config) => window.DebateRegistry?.createRegistry?.(config),
-            resolveServiceRoles: (input) => window.DebateServiceRoles?.resolveServiceRoles?.(input),
-            acceptResponse: (text, meta) => window.DebateResponseAcceptance?.evaluate?.({ text, meta: { ...(meta || {}), isErrorOutput } }) || { ok: Boolean(String(text || '').trim()), reason: '' },
-            createTaskContract: (input) => window.DebateContracts?.createTaskContract?.(input),
-            compilePrompt: (input) => window.DebatePromptCompiler?.compile?.(input),
-            chooseModel: ({ task, models, owner, synthesizer }) => window.DebateCapabilityRegistry?.choose?.({ models, owner, synthesizer, action: task.actionContract || task }),
-            transition: (state, event) => transitionDebateProtocol('free_talk', state, event),
-            replaceAggregateState: replaceAggregateProtocolState,
-            syncState: syncAggregateProtocolState,
-            appendModerator: appendModeratorFeedEntry,
-            clearModerator: clearModeratorComposer,
-            setRunPresentation: ({ activeRole, maxTurns }) => {
-                debateRunState.activeRole = activeRole;
-                debateRunState.maxTurns = maxTurns;
-            },
-            renderCards: renderDebateModelCards,
-            runModelBatch,
-            appendFeed: appendDebateFeedEntry,
-            appendVerdict: appendVerdictFeedEntry,
-            runCheckpoint: runDebateCheckpoint,
-            projectStateMap: (aggregate) => window.DebateStateMap?.project?.(aggregate) || {},
-            planNext: (map, state) => window.DisputEvolutionFlags?.enabled?.('triggers') === false ? { state, next: null } : (window.FreeTalkRuntime?.plan?.(map, state) || { state, next: null }),
-            settleTask: (state, task, outcome, meta) => window.FreeTalkRuntime?.settle?.(state, task, outcome, meta) || state,
-            confirmTask: (state, taskId, resolution) => window.FreeTalkRuntime?.confirm?.(state, taskId, resolution) || state,
-            requestConfirmation: (request, signal) => {
-                if (request.mode === 'auto') return Promise.resolve(window.DebateDecisionRequest?.chooseDefault?.(request, 'system') || true);
-                return new Promise((resolve, reject) => {
-                const panel = document.getElementById('disput-state-map-panel');
-                const onDecision = (event) => {
-                    if (event.detail?.requestId !== request.requestId) return;
-                    cleanup();
-                    try { resolve(window.DebateDecisionRequest?.resolve?.(request, event.detail.optionId, 'human') || event.detail); }
-                    catch (error) { reject(error); }
-                };
-                const onLegacyDecision = (event) => {
-                    if (event.detail?.taskId !== request.metadata?.taskId) return;
-                    cleanup();
-                    const optionId = event.detail.approved ? 'execute' : (request.options?.some((item) => item.id === 'defer') ? 'defer' : 'synthesize');
-                    resolve(window.DebateDecisionRequest?.resolve?.(request, optionId, 'human') || Boolean(event.detail.approved));
-                };
-                const onAbort = () => { cleanup(); reject(new DOMException('Pipeline run cancelled', 'AbortError')); };
-                const cleanup = () => { panel?.removeEventListener('disput:decision-resolved', onDecision); panel?.removeEventListener('disput:trigger-decision', onLegacyDecision); signal?.removeEventListener?.('abort', onAbort); };
-                panel?.addEventListener('disput:decision-resolved', onDecision);
-                panel?.addEventListener('disput:trigger-decision', onLegacyDecision);
-                signal?.addEventListener?.('abort', onAbort, { once: true });
-                disputStateMapView?.open?.();
-                showNotification(`FreeTalk ждёт решения: ${request.reason || request.question}`, 'warn');
-                });
-            },
-            waitForContinuation: waitForMultiContinuation,
-            buildFinalSynthesisPrompt: buildMultiFinalSynthesisPromptText,
-            runSynthesisAudit: (input) => debateRunServices.runSynthesisAudit({ serviceMaxWords: 600, ...input, useApiFallback: apiModeCheckbox ? apiModeCheckbox.checked : true, signal: activePipelineAbortController?.signal || null }),
-            recordFinalization: (payload) => dispatchDebateRunEvent(window.DebateRunStore.EVENTS.FINALIZATION_COMPLETED, payload),
-            recordStageEvent: (type, payload) => dispatchDebateRunEvent(window.DebateRunStore.EVENTS[type] || type, payload),
-            notifyControl: notifyPipelineControlState,
-            notify: showNotification,
-            handleTerminalOutputs: (...args) => handleDebateTerminalOutputs(...args),
-            finalizeRuntime: finalizeFreeTalkRuntime
-        });
-        appendModeratorNoneNoteFromComposer = () => {
-            const moderatorNote = getModeratorDispatchText();
-            if (!moderatorNote) return false;
-            appendModeratorFeedEntry(moderatorNote);
-            pushSerialDebateTimeline('Moderator note', { from: 'Moderator', to: 'None', note: moderatorNote.slice(0, 120) });
-            clearModeratorComposer();
-            setModeratorRoute(debateSenderSelect?.value || 'Moderator', '__none__');
-            applyDebateSessionFilter();
-            debateInitialTargetPromptPending = false;
-            return true;
-        };
-
-        const resolveSerialDebateScenarioFromFeed = () => {
-            const selected = getSelectedLLMs();
-            const initialTargetModel = String(debateReceiverSelect?.value || '').trim();
-            if (!initialTargetModel || initialTargetModel === '__none__') {
-                return { ok: false, reason: 'initial_target_required', message: 'Serial debate: select initial target model.' };
-            }
-            if (selected.length !== 2 || !selected.includes(initialTargetModel)) {
-                return { ok: false, reason: 'two_models_required', message: 'Serial debate: select exactly two header models (A and B), and choose one as receiver.' };
-            }
-            const modelB = selected.find((name) => name !== initialTargetModel);
-            const composerRoleRaw = String(debateRoleSelect?.value || '').trim();
-            const composerRole = composerRoleRaw
-                ? window.DebatePromptCatalog?.resolveParticipantRoleText?.(composerRoleRaw, 0) || composerRoleRaw
-                : '';
-            const slotIndexOf = (modelName) => {
-                const stack = captureModelStackState('r2-models');
-                const found = (stack?.items || []).findIndex((item) => item?.name === modelName);
-                return found >= 0 ? found : null;
-            };
-            const indexA = slotIndexOf(initialTargetModel);
-            const indexB = slotIndexOf(modelB);
-            return {
-                ok: true,
-                modelA: initialTargetModel,
-                modelB,
-                roleA: composerRole || getDebateParticipantRoleText(indexA == null ? 0 : indexA),
-                roleB: getDebateParticipantRoleText(indexB == null ? 1 : indexB),
-                initialTarget: 'A'
-            };
-        };
-
-        const getDuelRouteOptions = () => ({
-            forceNewTabs: newPagesCheckbox ? newPagesCheckbox.checked : true,
-            useApiFallback: apiModeCheckbox ? apiModeCheckbox.checked : true,
-            signal: activePipelineAbortController?.signal || null,
-            isPaused: () => debatePaused
-        });
-
-        routeApprovedSerialTurn = (approved) => {
-            if (!getDuelState()?.active) return;
-            // Auto mode drives routing itself; ignore manual approvals while auto.
-            if (isDebateAutoPolicy()) return;
-            // Serialize manual approvals: a second approval must not start a
-            // concurrent route while the previous one is still dispatching.
-            if (serialApprovalRoutingInFlight) return;
-            serialApprovalRoutingInFlight = true;
-            duelRunner.routeApprovedTurn(approved, getDuelRouteOptions())
-                .catch((err) => {
-                    console.warn('[RESULTS] Serial debate approved routing failed', err);
-                })
-                .finally(() => {
-                    serialApprovalRoutingInFlight = false;
-                    if (!getDuelState()?.active) finalizeSerialDebateRuntime();
-                });
-        };
-        routeApprovedTriadTurn = (approved) => {
-            const triad = window.__triadState || getTriadState();
-            if (!triad?.active || isDebateAutoPolicy()) return;
-            if (!approved?.card) return;
-            if (approved.card.dataset.triadRunId !== triad.runId || approved.card.dataset.triadWave !== triad.currentWaveKey) return;
-            if (!window.TriadFSM.canRouteWave(triad)) {
-                showNotification('Идёт подготовка стартовых позиций трёх участников...', 'warn');
-                return;
-            }
-            pushSerialDebateTimeline('Approved', { from: approved.llmName, to: 'Moderator', note: approved.text.slice(0, 120) });
-            if (!triadWaveBarrierMet(triad)) return;
-            completeTriadBarrier(triad).catch((err) => {
-                transitionDebateProtocol('triad', triad, { type: 'FAILED', payload: { reason: err?.message || 'triad_barrier_failed' } });
-                pushSerialDebateTimeline('Error', { note: err?.message || 'triad barrier failed' });
-                showNotification(`Triad: error (${err?.message || String(err)})`, 'error');
-                finalizeTriadRuntime();
-            });
-        };
-
-        // Continues a paused auto debate from the parked continuation. Runs
-        // outside the page start call, so it owns finalisation when the debate ends.
-        const resumeAutoSerialDebate = () => {
-            const serialState = getSerialDebateState();
-            if (!serialState?.active || !isDebateAutoPolicy()) return;
-            const pending = serialState.pendingAutoContinuation;
-            if (!pending) return;
-            serialState.pendingAutoContinuation = null;
-            transitionDebateProtocol('duel', serialState, { type: 'RUNNING' });
-            duelRunner.routeApprovedTurn(pending, getDuelRouteOptions())
-                .catch((err) => {
-                    console.warn('[RESULTS] Auto debate resume failed', err);
-                })
-                .finally(() => {
-                    if (!getSerialDebateState()?.active) finalizeSerialDebateRuntime();
-                });
-        };
-        window.__resumeAutoSerialDebate = resumeAutoSerialDebate;
-        const resumeAutoTriad = () => {
-            const triad = window.__triadState || getTriadState();
-            if (!triad?.active || !isDebateAutoPolicy() || !triad.pendingWaveContinuation) return;
-            triad.pendingWaveContinuation = null;
-            transitionDebateProtocol('triad', triad, { type: 'RUNNING' });
-            triadRunner.advance(triad, {
-                auto: true,
-                paused: false,
-                registryEnabled: isTriadRegistryEnabled(),
-                forceNewTabs: newPagesCheckbox ? newPagesCheckbox.checked : true,
-                useApiFallback: apiModeCheckbox ? apiModeCheckbox.checked : true,
-                signal: activePipelineAbortController?.signal || null
-            }).catch((err) => {
-                transitionDebateProtocol('triad', triad, { type: 'FAILED', payload: { reason: err?.message || 'triad_resume_failed' } });
-                showNotification(`Triad: error (${err?.message || String(err)})`, 'error');
-                finalizeTriadRuntime();
-            });
-        };
-        window.__resumeAutoTriad = resumeAutoTriad;
-
         const formatPipelineFinalText = (result) => {
             const lines = [];
             if (result.pipelineName) lines.push(`Pipeline: ${result.pipelineName}`);
@@ -6796,33 +5580,6 @@ document.addEventListener('click', (event) => {
         };
         window.__handleDebateTerminalOutputs = handleDebateTerminalOutputs;
 
-        // Tears down all runtime state for a serial debate. Used both when the
-        // application start owns the lifecycle in auto mode and
-        // when a manual/paused debate ends outside the initial start call (approval routing
-        // or resume). Idempotent.
-        const finalizeSerialDebateRuntime = () => {
-            syncAggregateTerminalFromProtocol(getDuelState());
-            debateExecutionContext?.dispose?.('duel_finalized');
-            debateRunState.activeRole = '';
-            if (!debateAggregateStore) {
-                debateRunState.status = 'idle';
-                debateRunState.pauseReason = '';
-            }
-            debatePaused = false;
-            pipelineRunActive = false;
-            activePipelineAbortController = null;
-            activePipelineRunContext = null;
-            pipelineWaiter.reset();
-            // Profile isolation: a debate forces the LONG flag per turn (runModelBatch).
-            // When the debate ends, restore the shared flag to the user's main-page
-            // choice so a later main run is not silently locked to LONG by a past debate.
-            writeLongGenerationMode(longModeCheckbox ? longModeCheckbox.checked : true);
-            lastGenerationWaitProfile = (longModeCheckbox && longModeCheckbox.checked) ? 'long' : 'short';
-            syncPipelineFlowVisualState();
-            setPipelineEditingEnabled(true);
-            setPipelineRunUi(false);
-            updateDebateButtonsUi();
-        };
 
         const startDebateFromPage = async () => {
             if (pipelineRunActive) {
@@ -7013,6 +5770,7 @@ document.addEventListener('click', (event) => {
                 if (typeof recoverUiIfHidden === 'function') {
                     requestAnimationFrame(() => requestAnimationFrame(() => recoverUiIfHidden('run_complete')));
                 }
+                writeLongGenerationMode(longModeCheckbox ? longModeCheckbox.checked : true);
             }
         };
         const cancelPipelineRun = async () => {
@@ -7032,7 +5790,7 @@ document.addEventListener('click', (event) => {
             updateDebateButtonsUi();
             return true;
         };
-        const debateApplication = window.DebateApplication?.createApplication?.({
+        debateApplication = window.DebateApplication?.createApplication?.({
             store: debateAggregateStore,
             deps: {
                 startFromPage: startDebateFromPage,
@@ -7267,13 +6025,7 @@ document.addEventListener('click', (event) => {
             pipelineApplyingConfig = true;
             const protocol = config.protocol && typeof config.protocol === 'object' ? config.protocol : null;
             if (protocol) {
-                const scheme = protocol.scheme || (protocol.type === 'triad' ? '3' : '2');
-                if (typeof window.setDebateSchemeValue === 'function') window.setDebateSchemeValue(scheme);
-                else {
-                    const earlyScheme = ['2', '3', 'many', 'free'].includes(String(scheme || '').trim()) ? String(scheme).trim() : '2';
-                    debateSchemeValue = earlyScheme;
-                    window.__debateSchemeValue = earlyScheme;
-                }
+                if (typeof window.setDebateSchemeValue === 'function') window.setDebateSchemeValue('universal');
                 const lengthSelect = document.getElementById('debate-length-select');
                 const synthesizerSelect = document.getElementById('debate-synthesizer-select');
                 if (debateRunPolicySelect && (protocol.runPolicy === 'auto' || protocol.runPolicy === 'manual')) {
@@ -7294,18 +6046,12 @@ document.addEventListener('click', (event) => {
                     setHeaderSelectedLLMsFromNames(protocol.selectedModels);
                 }
                 const hasPersistedSynthesizer = typeof protocol.synthesizer === 'string'
-                    || typeof protocol.triadSynthesizer === 'string'
-                    || typeof protocol.multiSynthesizer === 'string'
                     || (typeof protocol.serviceRoles?.extractor === 'string' && protocol.serviceRoles.extractor !== 'same_as_synthesizer');
                 const persistedSynthesizerRaw = typeof protocol.synthesizer === 'string'
                     ? protocol.synthesizer
-                    : (typeof protocol.triadSynthesizer === 'string'
-                        ? protocol.triadSynthesizer
-                        : (typeof protocol.multiSynthesizer === 'string'
-                            ? protocol.multiSynthesizer
-                            : (typeof protocol.serviceRoles?.extractor === 'string' && protocol.serviceRoles.extractor !== 'same_as_synthesizer'
-                                ? protocol.serviceRoles.extractor
-                                : '')));
+                    : (typeof protocol.serviceRoles?.extractor === 'string' && protocol.serviceRoles.extractor !== 'same_as_synthesizer'
+                        ? protocol.serviceRoles.extractor
+                        : '');
                 const persistedSynthesizer = normalizeExplicitSynthesizer(persistedSynthesizerRaw);
                 if (synthesizerSelect && hasPersistedSynthesizer) {
                     if (Array.from(synthesizerSelect.options || []).some((option) => option.value === persistedSynthesizer)) {
@@ -7418,7 +6164,6 @@ document.addEventListener('click', (event) => {
             const modelStacks = config.modelStacks && typeof config.modelStacks === 'object' ? config.modelStacks : {};
             const roundPlan = Array.isArray(config?.protocol?.roundPlan) ? config.protocol.roundPlan : [];
             const entries = Object.entries(modelStacks);
-            const isTriadScheme = String(config?.protocol?.scheme || '') === '3';
             if (!entries.length) return '<p class="pipeline-info-muted">No model stages are stored.</p>';
             return entries.map(([stackId, stack], stageIndex) => {
                 const items = Array.isArray(stack?.items) ? stack.items : [];
@@ -7432,9 +6177,7 @@ document.addEventListener('click', (event) => {
                         ? window.DebatePromptCatalog?.resolveParticipantRoleText?.(prompt?.label || item.role, index) || ''
                         : '';
                     const promptText = appliedRoleText
-                        ? (isTriadScheme
-                            ? `Роль слота (Triad применяет общую роль из mod-role-select ко всем участникам; пер-роли — v2): ${appliedRoleText}`
-                            : `Роль в prompt: ${appliedRoleText}`)
+                        ? `Роль в prompt: ${appliedRoleText}`
                         : 'Initial protocol prompt is generated at runtime.';
                     return `
                         <article class="pipeline-info-model">
@@ -7458,40 +6201,12 @@ document.addEventListener('click', (event) => {
         };
 
         const buildPipelineInfoSynthesizerHtml = (config = {}) => {
-            const protocol = config.protocol || {};
-            const scheme = String(protocol.scheme || (protocol.type === 'triad' ? '3' : protocol.type === 'multi' ? 'many' : '2')).trim();
-            const synth = String(protocol.synthesizer || '').trim();
-            if (!['2', '3', 'many', 'free'].includes(scheme)) {
-                return '';
-            }
-            const triadTemplates = getTriadTemplateApi();
-            const topic = String(pipelineName?.textContent || pipelineStore.active || 'Saved pipeline').trim();
-            const finals = (Array.isArray(protocol.selectedModels) ? protocol.selectedModels : [])
-                .map((name) => ({
-                    model: name,
-                    text: `Final answer from ${name} will be inserted at runtime.`
-                }));
-            const prompt = scheme === 'many' || scheme === 'free'
-                ? buildMultiFinalSynthesisPromptText({ topic, synthesizer: synth, turns: finals })
-                : scheme === '2'
-                ? window.DebatePromptCatalog?.buildDuelFinalSynthesis?.({
-                    topic,
-                    modelA: finals[0]?.model || 'Model A',
-                    modelB: finals[1]?.model || 'Model B',
-                    eventLog: [],
-                    roundFilters: [],
-                    finalWordA: finals[0]?.text || '',
-                    finalWordB: finals[1]?.text || ''
-                }) || ''
-                : triadTemplates?.buildTriadSynthesisPrompt?.({
-                    topic,
-                    finals
-                }) || '';
+            const synth = String(config?.protocol?.synthesizer || '').trim();
             return `
                 <section class="pipeline-info-section">
-                    <h4>Final synthesis round</h4>
-                    <p class="pipeline-info-muted">This final round is shown as its own flow block. The explicitly selected model receives the synthesis prompt after the last discussion stage.</p>
-                    <pre class="pipeline-info-json">${escapeHtml(prompt || 'Final synthesis prompt is built at runtime.')}</pre>
+                    <h4>Synthesis stage</h4>
+                    <p class="pipeline-info-muted">The planner creates this stage when the StateMap requires consolidation. A subsequent audit must validate the current synthesis artifact.</p>
+                    <pre class="pipeline-info-json">${escapeHtml(synth ? `Selected synthesizer: ${synth}` : 'The planner will assign an available synthesizer at runtime.')}</pre>
                 </section>
             `;
         };
@@ -7537,21 +6252,10 @@ document.addEventListener('click', (event) => {
                 modal.querySelector('#pipeline-info-close')?.addEventListener('click', closeModal);
             }
             const protocol = config.protocol || {};
-            const scheme = String(protocol.scheme || (protocol.type === 'triad' ? '3' : protocol.type === 'multi' ? 'many' : '2'));
             const summary = formatPipelineProtocolSummary(config);
             const description = describePipelineProtocol(fullName, config);
             const models = Array.isArray(protocol.selectedModels) ? protocol.selectedModels : [];
-            const triadTemplates = getTriadTemplateApi();
             const selectedSynthesizer = String(protocol.synthesizer || '').trim();
-            const schemeLabel = scheme === '3'
-                ? '3 LLM Triad'
-                : scheme === '2'
-                    ? '2 LLM Duel'
-                    : scheme === 'many'
-                        ? 'Multi Verdict'
-                        : scheme === 'free'
-                            ? 'FreeTalk'
-                        : `${scheme || '2'} LLM Custom`;
             const doc = modal.querySelector('#pipeline-info-document');
             if (doc) {
                 doc.innerHTML = `
@@ -7562,10 +6266,10 @@ document.addEventListener('click', (event) => {
                     <section class="pipeline-info-section">
                         <h4>Protocol</h4>
                         <dl class="pipeline-info-grid">
-                            <dt>Scheme</dt><dd>${escapeHtml(schemeLabel)}</dd>
+                            <dt>Architecture</dt><dd>Universal planner → stages → StateMap</dd>
                             <dt>Run policy</dt><dd>${escapeHtml(protocol.runPolicy === 'manual' ? 'Manual' : 'Auto')}</dd>
                             <dt>Reasoning budget</dt><dd>${escapeHtml(formatReasoningBudgetLabel(protocol.reasoningBudget))}</dd>
-                            <dt>Rounds / waves</dt><dd>${escapeHtml(String(protocol.roundLimit || config.roundCounter || ''))}</dd>
+                            <dt>Stage limit</dt><dd>${escapeHtml(String(protocol.roundLimit || config.roundCounter || ''))}</dd>
                             <dt>Length</dt><dd>${escapeHtml(String(protocol.length || 'default'))}</dd>
                             <dt>Synthesizer</dt><dd>${escapeHtml(selectedSynthesizer || 'None — complete without synthesis')}</dd>
                             <dt>Models</dt><dd>${escapeHtml(models.join(', ') || 'not selected')}</dd>
@@ -7594,7 +6298,7 @@ document.addEventListener('click', (event) => {
             const { fullName, displayName } = truncatePipelineName(name, 13);
             const config = getPipelineConfigByName(fullName);
             const metaText = formatPipelineProtocolSummary(config);
-            const disabled = !!config?.disabled || config?.protocol?.presetId === 'MULTI_LONG';
+            const disabled = !!config?.disabled;
             const item = document.createElement('div');
             item.className = `pipeline-item${active ? ' active' : ''}${disabled ? ' pipeline-item-disabled' : ''}`;
             item.dataset.name = fullName;
@@ -7602,7 +6306,7 @@ document.addEventListener('click', (event) => {
             if (disabled) {
                 item.dataset.disabled = 'true';
                 item.setAttribute('aria-disabled', 'true');
-                item.title = 'Multi Long will be available later.';
+                item.title = 'This pipeline is unavailable.';
             }
             const main = document.createElement('span');
             main.className = 'pipeline-item-main';
@@ -7668,7 +6372,7 @@ document.addEventListener('click', (event) => {
             const custom = !!activeName && !isDefaultPipelineName(activeName);
             const draft = pipelinePanel?.dataset.pipelineDraft === 'true';
             const config = activeName ? getPipelineConfigByName(activeName) : null;
-            const editable = draft || (!!activeName && !config?.disabled && config?.protocol?.presetId !== 'MULTI_LONG');
+            const editable = draft || (!!activeName && !config?.disabled);
             if (pipelinePanel) {
                 pipelinePanel.classList.toggle('has-custom-pipeline', editable);
             }
@@ -7880,8 +6584,8 @@ document.addEventListener('click', (event) => {
             if (!item) return;
             const name = item.dataset.name || '';
             const config = getPipelineConfigByName(name);
-            if (config?.disabled || (config?.protocol?.presetId === 'MULTI_LONG')) {
-                showNotification('Multi Long будет доступен позже.', 'warn');
+            if (config?.disabled) {
+                showNotification('Этот pipeline недоступен.', 'warn');
                 return;
             }
             [pipelineItems, customerPipelineItems].filter(Boolean).forEach((container) => {
@@ -7919,11 +6623,8 @@ document.addEventListener('click', (event) => {
             const activeName = String(pipelineStore.active || pipelineName?.textContent || '').trim();
             const activeConfig = getPipelineConfigByName(activeName);
             if (!profile || !activeName || !activeConfig?.protocol) return;
-            const activeTopology = activeConfig.protocol.scheme === 'free'
-                ? 'free_talk'
-                : window.DebateProtocols?.topologyOf?.(activeConfig.protocol.type || activeConfig.protocol.scheme || activeConfig.protocol.presetId) || 'duel';
-            if (profile.topology && profile.topology !== activeTopology) {
-                showNotification(`Профиль ${profile.title} предназначен для topology ${profile.topology}, а текущий pipeline — ${activeTopology}.`, 'warn');
+            if (profile.architecture && profile.architecture !== 'universal') {
+                showNotification(`Профиль ${profile.title} несовместим с универсальной архитектурой.`, 'warn');
                 return;
             }
             if (isDefaultPipelineName(activeName)) {
@@ -7967,7 +6668,7 @@ document.addEventListener('click', (event) => {
                     radio.checked = false;
                 });
             });
-            window.setDebateSchemeValue?.('2');
+            window.setDebateSchemeValue?.('universal');
             setHeaderSelectedLLMsFromNames([]);
             if (pipelineFeedClearReady && typeof clearDebateFeed === 'function') {
                 const activeSessionId = document.querySelector('.debate-session-tab.active')?.dataset?.sessionId || '1';
@@ -8008,22 +6709,13 @@ document.addEventListener('click', (event) => {
             }
         };
 
-        const getPipelineBuilderDefaultModels = (scheme = '2') => {
-            if (String(scheme || '').trim() === 'many') {
-                return [];
-            }
-            const parsed = Math.max(2, Number.parseInt(String(scheme || '2').trim(), 10) || 2);
-            const limit = Math.min(parsed, Array.isArray(PIPELINE_MODELS) ? PIPELINE_MODELS.length || parsed : parsed);
+        const getPipelineBuilderDefaultModels = () => {
             const available = (Array.isArray(PIPELINE_MODELS) ? PIPELINE_MODELS : [])
                 .map((model) => model?.name)
                 .filter(Boolean);
             const selected = getSelectedLLMs().filter((name) => available.includes(name));
-            const preferred = parsed >= 3
-                ? ['GPT', 'Gemini', 'Claude', 'Perplexity', 'Grok']
-                : ['GPT', 'Claude', 'Gemini', 'Grok'];
-            const combined = [...selected, ...preferred, ...available]
+            return [...selected, ...available]
                 .filter((name, index, list) => name && list.indexOf(name) === index);
-            return combined.slice(0, limit);
         };
 
         const showPipelineBuilderModal = () => new Promise((resolve) => {
@@ -8035,224 +6727,58 @@ document.addEventListener('click', (event) => {
                 modal.setAttribute('aria-hidden', 'true');
                 modal.innerHTML = `
                     <div class="modal-content">
-                        <h3 class="pipeline-builder-title">New pipeline</h3>
+                        <h3 class="pipeline-builder-title">New universal pipeline</h3>
                         <div class="pipeline-builder-grid">
-                            <label>
-                                <span>Name</span>
-                                <input type="text" class="modal-text-input" id="pipeline-builder-name" autocomplete="off">
-                            </label>
-                            <label>
-                                <span>Scheme</span>
-                                <select class="modal-text-input" id="pipeline-builder-scheme"></select>
-                            </label>
-                            <label>
-                                <span>Run</span>
-                                <select class="modal-text-input" id="pipeline-builder-policy">
-                                    <option value="auto">Auto</option>
-                                    <option value="manual">Manual</option>
-                                </select>
-                            </label>
-                            <label>
-                                <span>Rounds</span>
-                                <input type="number" class="modal-text-input" id="pipeline-builder-rounds" min="1" max="50" value="3">
-                            </label>
-                            <label>
-                                <span>Length</span>
-                                <select class="modal-text-input" id="pipeline-builder-length">
-                                    <option value="500">500</option>
-                                    <option value="700" selected>700</option>
-                                    <option value="1000">1000</option>
-                                    <option value="inf">inf</option>
-                                </select>
-                            </label>
-                            <label class="pipeline-builder-synth-row">
-                                <span>Synthesizer</span>
-                                <select class="modal-text-input" id="pipeline-builder-synth"></select>
-                            </label>
+                            <label><span>Name</span><input type="text" class="modal-text-input" id="pipeline-builder-name" autocomplete="off"></label>
+                            <label><span>Run</span><select class="modal-text-input" id="pipeline-builder-policy"><option value="auto">Auto</option><option value="manual">Manual</option></select></label>
+                            <label><span>Stage limit</span><input type="number" class="modal-text-input" id="pipeline-builder-rounds" min="1" max="50" value="3"></label>
+                            <label><span>Length</span><select class="modal-text-input" id="pipeline-builder-length"><option value="500">500</option><option value="700" selected>700</option><option value="1000">1000</option><option value="inf">inf</option></select></label>
+                            <label class="pipeline-builder-synth-row"><span>Synthesizer</span><select class="modal-text-input" id="pipeline-builder-synth"></select></label>
                         </div>
-                        <div class="pipeline-builder-section">
-                            <div class="pipeline-builder-section-title">Models</div>
-                            <div class="pipeline-builder-models" id="pipeline-builder-models"></div>
-                        </div>
+                        <div class="pipeline-builder-section"><div class="pipeline-builder-section-title">Participants</div><div class="pipeline-builder-models" id="pipeline-builder-models"></div></div>
                         <p class="pipeline-builder-error" id="pipeline-builder-error" role="alert"></p>
-                        <div class="modal-buttons">
-                            <button type="button" class="modal-button" id="pipeline-builder-cancel">Cancel</button>
-                            <button type="button" class="modal-button accent" id="pipeline-builder-save">Create</button>
-                        </div>
-                    </div>
-                `;
+                        <div class="modal-buttons"><button type="button" class="modal-button" id="pipeline-builder-cancel">Cancel</button><button type="button" class="modal-button accent" id="pipeline-builder-save">Create</button></div>
+                    </div>`;
                 document.body.appendChild(modal);
             }
-
             const nameInput = modal.querySelector('#pipeline-builder-name');
-            const schemeSelect = modal.querySelector('#pipeline-builder-scheme');
             const policySelect = modal.querySelector('#pipeline-builder-policy');
             const roundsInput = modal.querySelector('#pipeline-builder-rounds');
             const lengthSelect = modal.querySelector('#pipeline-builder-length');
-            const synthRow = modal.querySelector('.pipeline-builder-synth-row');
             const synthSelect = modal.querySelector('#pipeline-builder-synth');
             const modelsHost = modal.querySelector('#pipeline-builder-models');
             const errorEl = modal.querySelector('#pipeline-builder-error');
             const cancelBtn = modal.querySelector('#pipeline-builder-cancel');
             const saveBtn = modal.querySelector('#pipeline-builder-save');
-            const modelNames = (Array.isArray(PIPELINE_MODELS) ? PIPELINE_MODELS : [])
-                .map((model) => model?.name)
-                .filter(Boolean);
-            const schemeOptions = [
-                'many',
-                ...Array.from({ length: Math.max(2, modelNames.length) }, (_, index) => String(index + 2))
-            ];
-            const state = {
-                selectedModels: getPipelineBuilderDefaultModels(String(getDebateScheme() || '2'))
-            };
-
-            const setError = (message = '') => {
-                if (errorEl) errorEl.textContent = message;
-            };
-            const selectedLimit = () => {
-                const scheme = String(schemeSelect?.value || '2');
-                if (scheme === 'many') return modelNames.length || 2;
-                return Math.max(2, Math.min(modelNames.length || 2, Number(scheme) || 2));
-            };
-            const isManyScheme = () => String(schemeSelect?.value || '2') === 'many';
-            const getSelectedModelNames = () => Array.from(modelsHost?.querySelectorAll('input[type="checkbox"]:checked') || [])
-                .map((input) => input.value)
-                .filter(Boolean);
-            const renderSchemeOptions = () => {
-                if (!schemeSelect) return;
-                schemeSelect.innerHTML = schemeOptions.map((value) => {
-                    const numeric = Number(value);
-                    const label = value === 'many'
-                        ? 'Multi Verdict'
-                        : `${numeric} LLM${numeric === 2 ? ' Duel' : numeric === 3 ? ' Triad' : ''}`;
-                    return `<option value="${value}">${escapeHtml(label)}</option>`;
-                }).join('');
-            };
-            const renderSynth = () => {
-                const scheme = String(schemeSelect?.value || '2');
-                const isSynthesisMode = scheme === '3' || scheme === 'many';
-                if (synthRow) {
-                    synthRow.hidden = !isSynthesisMode;
-                    synthRow.setAttribute('aria-hidden', String(!isSynthesisMode));
-                }
-                if (!synthSelect) return;
-                const previous = String(synthSelect.value || '').trim();
-                const options = ['<option value="">--</option>']
-                    .concat(modelNames.map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`))
-                    .join('');
-                synthSelect.innerHTML = options;
-                synthSelect.value = modelNames.includes(previous) ? previous : '';
-            };
+            const modelNames = getPipelineBuilderDefaultModels();
+            const setError = (message = '') => { if (errorEl) errorEl.textContent = message; };
+            const getSelectedModelNames = () => Array.from(modelsHost?.querySelectorAll('input[type="checkbox"]:checked') || []).map((input) => input.value).filter(Boolean);
             const renderModels = () => {
-                if (!modelsHost) return;
-                const limit = selectedLimit();
-                const selectedSet = new Set(state.selectedModels.slice(0, limit));
-                modelsHost.innerHTML = modelNames.map((name) => `
-                    <label class="pipeline-builder-model-option">
-                        <input type="checkbox" value="${escapeHtml(name)}"${selectedSet.has(name) ? ' checked' : ''}>
-                        <span>${escapeHtml(name)}</span>
-                    </label>
-                `).join('');
-                modelsHost.querySelectorAll('input[type="checkbox"]').forEach((input) => {
-                    input.addEventListener('change', () => {
-                        setError('');
-                        let selected = getSelectedModelNames();
-                        if (selected.length > limit) {
-                            input.checked = false;
-                            selected = getSelectedModelNames();
-                            setError(isManyScheme() ? `Select up to ${limit} models.` : `Select exactly ${limit} models for this scheme.`);
-                        }
-                        state.selectedModels = selected;
-                        renderSynth();
-                    });
-                });
-                renderSynth();
+                const selected = new Set(getSelectedLLMs());
+                if (modelsHost) modelsHost.innerHTML = modelNames.map((name) => `<label class="pipeline-builder-model-option"><input type="checkbox" value="${escapeHtml(name)}"${selected.has(name) ? ' checked' : ''}><span>${escapeHtml(name)}</span></label>`).join('');
+                if (synthSelect) synthSelect.innerHTML = ['<option value="">--</option>', ...modelNames.map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`)].join('');
             };
             const close = (value) => {
-                modal.style.display = 'none';
-                modal.classList.remove('is-visible');
-                modal.setAttribute('aria-hidden', 'true');
-                document.body.classList.remove('modal-open');
-                cancelBtn?.removeEventListener('click', onCancel);
-                saveBtn?.removeEventListener('click', onSave);
-                schemeSelect?.removeEventListener('change', onSchemeChange);
-                modal.removeEventListener('click', onBackdrop);
-                resolve(value);
+                modal.style.display = 'none'; modal.classList.remove('is-visible'); modal.setAttribute('aria-hidden', 'true'); document.body.classList.remove('modal-open');
+                cancelBtn?.removeEventListener('click', onCancel); saveBtn?.removeEventListener('click', onSave); modal.removeEventListener('click', onBackdrop); resolve(value);
             };
             const onCancel = () => close(null);
-            const onBackdrop = (event) => {
-                if (event.target === modal) close(null);
-            };
-            const onSchemeChange = () => {
-                const scheme = String(schemeSelect?.value || '2');
-                state.selectedModels = getPipelineBuilderDefaultModels(scheme);
-                if (roundsInput) roundsInput.value = String(Math.max(1, scheme === 'many' ? 3 : Number(scheme) || 3));
-                setError('');
-                renderModels();
-            };
+            const onBackdrop = (event) => { if (event.target === modal) close(null); };
             const onSave = () => {
                 const name = String(nameInput?.value || '').trim();
-                const scheme = String(schemeSelect?.value || '2');
-                const limit = selectedLimit();
                 const selectedModels = getSelectedModelNames();
-                if (!name) {
-                    setError('Name is required.');
-                    nameInput?.focus();
-                    return;
-                }
-                if (isManyScheme() ? selectedModels.length < 2 : selectedModels.length !== limit) {
-                    setError(isManyScheme() ? 'Select at least 2 models.' : `Select exactly ${limit} models.`);
-                    return;
-                }
+                if (!name) { setError('Name is required.'); nameInput?.focus(); return; }
+                if (!selectedModels.length) { setError('Select at least one participant.'); return; }
                 const roundLimit = Math.max(1, Math.min(50, Math.round(Number(roundsInput?.value || 3))));
-                const roles = selectedModels.map((_, index) => resolveJudgePromptId(index === 1 ? 'meta' : 'critical', index)).filter(Boolean);
-                close({
-                    name,
-                    config: buildPresetPipelineConfig({
-                        scheme,
-                        runPolicy: policySelect?.value === 'manual' ? 'manual' : 'auto',
-                        length: String(lengthSelect?.value || '700'),
-                        roundLimit: String(roundLimit),
-                        selectedModels,
-                        synthesizer: String(synthSelect?.value || ''),
-                        roles
-                    })
-                });
+                close({ name, config: buildPresetPipelineConfig({ runPolicy: policySelect?.value === 'manual' ? 'manual' : 'auto', length: String(lengthSelect?.value || '700'), roundLimit: String(roundLimit), selectedModels, synthesizer: String(synthSelect?.value || '') }) });
             };
-
-            if (nameInput) {
-                const stamp = new Date().toISOString().slice(0, 10);
-                nameInput.value = `Custom Pipeline ${stamp}`;
-            }
-            renderSchemeOptions();
-            if (schemeSelect) {
-                const currentScheme = String(getDebateScheme() || '2');
-                schemeSelect.value = currentScheme === 'many'
-                    ? 'many'
-                    : String(Math.max(2, Math.min(modelNames.length || 2, Number(currentScheme) || 2)));
-            }
+            if (nameInput) nameInput.value = `Custom Pipeline ${new Date().toISOString().slice(0, 10)}`;
             if (policySelect) policySelect.value = isDebateAutoPolicy() ? 'auto' : 'manual';
             if (roundsInput) roundsInput.value = String(getDebateRoundLimit() === 'infinite' ? 3 : getDebateRoundLimit());
-            if (lengthSelect) {
-                const currentLength = String(document.getElementById('debate-length-select')?.value || '700');
-                if (Array.from(lengthSelect.options || []).some((option) => option.value === currentLength)) {
-                    lengthSelect.value = currentLength;
-                }
-            }
-            if (synthSelect) synthSelect.value = '';
             renderModels();
-            cancelBtn?.addEventListener('click', onCancel);
-            saveBtn?.addEventListener('click', onSave);
-            schemeSelect?.addEventListener('change', onSchemeChange);
-            modal.addEventListener('click', onBackdrop);
-            modal.style.display = 'flex';
-            modal.classList.add('is-visible');
-            modal.setAttribute('aria-hidden', 'false');
-            document.body.classList.add('modal-open');
-            setTimeout(() => {
-                nameInput?.focus();
-                nameInput?.select();
-            }, 0);
+            cancelBtn?.addEventListener('click', onCancel); saveBtn?.addEventListener('click', onSave); modal.addEventListener('click', onBackdrop);
+            modal.style.display = 'flex'; modal.classList.add('is-visible'); modal.setAttribute('aria-hidden', 'false'); document.body.classList.add('modal-open');
+            setTimeout(() => { nameInput?.focus(); nameInput?.select(); }, 0);
         });
 
         const addNewPipeline = async () => {
@@ -8384,102 +6910,28 @@ document.addEventListener('click', (event) => {
 
         const getPipelineBlockPromptDetails = (block) => {
             const protocol = getPipelineProtocolConfig();
-            const stageColumn = block?.closest?.('.stage-column');
-            const round = Number(stageColumn?.dataset?.round || 0) || 0;
             const isSynthesisStage = !!block?.closest?.('#synthesisColumn') || !!block?.dataset?.synthesisStage;
             const roleSelector = block?.querySelector?.('.role-selector') || null;
             const selectedPromptId = roleSelector?.value || '';
             const selectedPrompt = selectedPromptId ? getJudgePromptById(selectedPromptId) : null;
-            const triadTemplates = getTriadTemplateApi();
-            const modelName = block.querySelector('.model-name')?.textContent?.trim() || '';
             const details = [];
-            const scheme = String(protocol.scheme || '2').trim();
             if (isSynthesisStage) {
-                const finalSynthesizer = protocol.synthesizer;
-                const finals = (Array.isArray(protocol.selectedModels) ? protocol.selectedModels : [])
-                    .map((name) => ({
-                        model: name,
-                        text: `Final answer from ${name} will be inserted at runtime.`
-                    }));
                 details.push({
-                    title: 'Final synthesis stage',
-                    text: (scheme === 'many' || scheme === 'free')
-                        ? 'This is the separate Multi Final Synthesis stage. The selected final model receives the collected Multi wave answers after the participant waves are complete.'
-                        : 'This block is the last round of the Triad flow. The selected model receives the final synthesis prompt after all waves are complete.'
+                    title: 'Synthesis stage',
+                    text: 'The synthesizer receives canonical artifacts from the StateMap, preserves dissent and provenance, and emits a versioned synthesis artifact for mandatory audit.'
                 });
                 details.push({
-                    title: 'Synthesizer role',
-                    text: finalSynthesizer ? `Selected synthesizer: ${finalSynthesizer}` : 'No synthesizer selected yet.'
-                });
-                details.push({
-                    title: 'Synthesis prompt',
-                    text: (scheme === 'many' || scheme === 'free')
-                        ? buildMultiFinalSynthesisPromptText({
-                            topic: String(pipelineName?.textContent || pipelineStore.active || 'Saved pipeline').trim(),
-                            synthesizer: finalSynthesizer,
-                            turns: finals
-                        })
-                        : triadTemplates?.buildTriadSynthesisPrompt?.({
-                            topic: String(pipelineName?.textContent || pipelineStore.active || 'Saved pipeline').trim(),
-                            finals
-                        }) || 'Final synthesis prompt is built at runtime for the selected synthesizer.'
-                });
-            } else if (scheme === '3') {
-                if (round <= 1) {
-                    details.push({
-                        title: 'Triad init prompt',
-                        text: 'Independent start position. The model does not receive names or texts of the other two models in this wave.'
-                    });
-                } else {
-                    details.push({
-                        title: 'Triad criticism wave prompt',
-                        text: 'Cross-critique prompt. The model receives the two other models\' latest texts, attacks weak points, updates its position, and asks one question to each opponent.'
-                    });
-                }
-                if (protocol.synthesizer && modelName === protocol.synthesizer) {
-                    details.push({
-                    title: 'Synthesizer role',
-                        text: 'This model is selected as the final synthesizer for the Verdict stage.'
-                    });
-                    details.push({
-                    title: 'Final synthesis prompt',
-                        text: triadTemplates?.buildTriadSynthesisPrompt?.({
-                            topic: String(pipelineName?.textContent || pipelineStore.active || 'Saved pipeline').trim(),
-                            finals: (Array.isArray(protocol.selectedModels) ? protocol.selectedModels : [])
-                                .map((name) => ({
-                                    model: name,
-                                    text: `Final answer from ${name} will be inserted at runtime.`
-                                }))
-                        }) || 'Final synthesis prompt is built at runtime for the selected synthesizer.'
-                    });
-                }
-            } else if (Number(scheme) > 3) {
-                details.push({
-                    title: 'Custom pipeline prompt',
-                    text: 'This block belongs to a user-defined pipeline. Prompt templates are edited directly in the canvas for each round.'
-                });
-            } else if (round <= 1) {
-                details.push({
-                    title: 'Duel opening prompt',
-                    text: 'Serial two-model debate opening. The exact A/B route is resolved when Run starts.'
+                    title: 'Synthesizer assignment',
+                    text: protocol.synthesizer ? `Selected synthesizer: ${protocol.synthesizer}` : 'The planner assigns an available synthesizer at runtime.'
                 });
             } else {
                 details.push({
-                    title: 'Duel response prompt',
-                    text: 'Serial response turn. The model receives the opponent context and moderator instruction for the next debate step.'
+                    title: 'Universal stage prompt',
+                    text: 'The PromptPack compiles the operation, role, task contract, context slice, output contract and StateMap version immediately before dispatch.'
                 });
             }
-            if (selectedPrompt) {
-                details.push({
-                    title: selectedPrompt.label || selectedPrompt.id,
-                    text: selectedPrompt.text || ''
-                });
-            } else if (selectedPromptId) {
-                details.push({
-                    title: selectedPromptId,
-                    text: 'Saved prompt template id is stored on this block, but the template text is not loaded.'
-                });
-            }
+            if (selectedPrompt) details.push({ title: selectedPrompt.label || selectedPrompt.id, text: selectedPrompt.text || '' });
+            else if (selectedPromptId) details.push({ title: selectedPromptId, text: 'The saved prompt template is resolved by PromptPack at runtime.' });
             return details;
         };
 
@@ -8528,7 +6980,7 @@ document.addEventListener('click', (event) => {
                 ['Pipeline', pipelineTitle || 'Unsaved'],
                 ['Stage', stageLabel],
                 ['Model', modelName],
-                ['Mode', protocol.scheme === '3' ? '3 LLM Triad' : protocol.scheme === 'many' ? 'Multi Verdict' : protocol.scheme === 'free' ? 'FreeTalk · unlimited models' : '2 LLM Duel'],
+                ['Architecture', 'Universal pipeline'],
                 ['Run policy', protocol.runPolicy === 'auto' ? 'Auto' : 'Manual'],
                 ['Reasoning budget', formatReasoningBudgetLabel(protocol.reasoningBudget)],
                 ['Input', block.querySelector('.model-input-checkbox')?.checked ? 'on' : 'off'],
@@ -8699,7 +7151,7 @@ document.addEventListener('click', (event) => {
                 setDebatePausedState(false, 'resume_button');
                 return;
             }
-            const protocolActive = Boolean(getDuelState()?.active || getTriadState()?.active || getMultiState()?.active || getFreeTalkState()?.active);
+            const protocolActive = ['STARTING', 'RUNNING', 'PAUSED', 'QUIESCING'].includes(debateApplication?.getOrchestrator?.()?.getState?.()?.lifecycle);
             if (!isDebateAutoPolicy() && debateExecutionContext?.hasApprovalWaiter?.()) {
                 event.preventDefault();
                 resolveDebateApproval();
@@ -19425,13 +17877,13 @@ function checkCompareButtonState() {
     var connectorToSynthesis = document.getElementById('connectorToSynthesis');
     var synthesisStack = document.getElementById('synthesis-stack');
     function getDebateScheme() {
-        return String(window.__debateSchemeValue || debateSchemeValue || '2').trim();
+        return 'universal';
     }
-    function getTriadSynthesizerFlowSelect() {
-        return synthesisStack?.querySelector('#triad-synthesizer-flow-select, #multi-final-synthesis-flow-select') || null;
+    function getSynthesizerFlowSelect() {
+        return synthesisStack?.querySelector('#synthesis-flow-select') || null;
     }
-    function getTriadSynthesizerFlowName() {
-        return synthesisStack?.querySelector('#triad-synthesizer-flow-name, #multi-final-synthesis-flow-name') || null;
+    function getSynthesizerFlowName() {
+        return synthesisStack?.querySelector('#synthesis-flow-name') || null;
     }
     const debateLengthSelect = document.getElementById('debate-length-select');
     const debateSelToolbar = document.getElementById('debateSelTb');
@@ -19480,34 +17932,31 @@ function checkCompareButtonState() {
             .map((model) => model?.name)
             .filter(Boolean);
     }
-    function renderTriadSynthesisStage() {
+    function renderSynthesisStage() {
         if (!synthesisStack) return;
-        const scheme = getDebateScheme();
-        const isMulti = scheme === 'many' || scheme === 'free';
-        const isDuel = scheme === '2';
         const activeSelect = debateSynthesizerSelect;
         const current = normalizeExplicitSynthesizer(activeSelect?.value);
         const emptyLabel = 'Synthesizer: None';
-        const inspectLabel = isMulti ? 'Inspect final synthesis prompt' : 'Inspect synthesis prompt';
-        const flowSelectId = isMulti ? 'multi-final-synthesis-flow-select' : 'triad-synthesizer-flow-select';
-        const flowNameId = isMulti ? 'multi-final-synthesis-flow-name' : 'triad-synthesizer-flow-name';
-        const flowSelectClass = isMulti ? 'multi-final-synthesis-flow-select' : 'triad-synthesizer-flow-select';
+        const inspectLabel = 'Inspect synthesis stage';
+        const flowSelectId = 'synthesis-flow-select';
+        const flowNameId = 'synthesis-flow-name';
+        const flowSelectClass = 'synthesis-flow-select';
         const options = ['<option value="">None</option>']
             .concat(getAllModelNames().map((modelName) => `<option value="${escapeHtml(modelName)}">${escapeHtml(modelName)}</option>`))
             .join('');
         synthesisStack.innerHTML = `
-            <div class="model-block inactive pipeline-synthesis-block${isMulti ? ' pipeline-final-synthesizer' : ''}" data-synthesis-stage="true" data-synthesis-kind="${isMulti ? 'multi' : 'triad'}">
+            <div class="model-block inactive pipeline-synthesis-block pipeline-final-synthesizer" data-synthesis-stage="true" data-synthesis-kind="universal">
                 <div class="model-header">
                     <span class="status-indicator" aria-hidden="true"></span>
                 <span class="model-name" id="${flowNameId}">${escapeHtml(current || emptyLabel)}</span>
                     <button type="button" class="model-block-inspect-btn" title="${escapeHtml(inspectLabel)}" aria-label="Inspect synthesis block">📝</button>
                 </div>
-                <select id="${flowSelectId}" class="${flowSelectClass}" aria-label="${isMulti ? 'Multi Final Synthesis model in flow' : 'Triad synthesizer in flow'}">
+                <select id="${flowSelectId}" class="${flowSelectClass}" aria-label="Synthesis model in flow">
                     ${options}
                 </select>
             </div>
         `;
-        const flowSelect = getTriadSynthesizerFlowSelect();
+        const flowSelect = getSynthesizerFlowSelect();
         if (flowSelect) {
             flowSelect.value = current;
             flowSelect.addEventListener('change', (event) => {
@@ -19516,38 +17965,31 @@ function checkCompareButtonState() {
         }
         const block = synthesisStack.querySelector('.pipeline-synthesis-block');
         if (block) {
-            block.classList.toggle('triad-synthesizer', !!current);
-            block.title = current
-                ? `${isMulti ? 'Multi' : (isDuel ? 'Duel' : 'Triad')} final synthesizer: ${current}`
-                : 'Select a synthesizer model';
+            block.classList.toggle('selected-synthesizer', !!current);
+            block.title = current ? `Final synthesizer: ${current}` : 'Select a synthesizer model';
         }
     }
-    function syncTriadSynthesizerFlowStage() {
+    function syncSynthesizerFlowStage() {
         if (!synthesisStack) return;
-        const scheme = getDebateScheme();
-        const isMulti = scheme === 'many' || scheme === 'free';
-        const isDuel = scheme === '2';
         const current = normalizeExplicitSynthesizer(debateSynthesizerSelect?.value);
-        const label = getTriadSynthesizerFlowName();
-        const flowSelect = getTriadSynthesizerFlowSelect();
+        const label = getSynthesizerFlowName();
+        const flowSelect = getSynthesizerFlowSelect();
         const block = synthesisStack.querySelector('.pipeline-synthesis-block');
         if (label) label.textContent = current || 'Synthesizer: None';
         if (flowSelect && flowSelect.value !== current) flowSelect.value = current;
         if (block) {
-            block.classList.toggle('triad-synthesizer', !!current);
-            block.title = current
-                ? `${isMulti ? 'Multi' : (isDuel ? 'Duel' : 'Triad')} final synthesizer: ${current}`
-                : 'Select a synthesizer model';
+            block.classList.toggle('selected-synthesizer', !!current);
+            block.title = current ? `Final synthesizer: ${current}` : 'Select a synthesizer model';
         }
     }
-    function populateTriadSynthesizerSelect() {
+    function populateSynthesizerSelect() {
         if (!debateSynthesizerSelect) {
-            renderTriadSynthesisStage();
+            renderSynthesisStage();
             return;
         }
         const previousSynthesizer = normalizeExplicitSynthesizer(debateSynthesizerSelect.value);
         const models = getAllModelNames();
-        const flowSelect = getTriadSynthesizerFlowSelect();
+        const flowSelect = getSynthesizerFlowSelect();
         debateSynthesizerSelect.replaceChildren();
         if (flowSelect) flowSelect.replaceChildren();
         const noneOption = document.createElement('option');
@@ -19577,19 +18019,15 @@ function checkCompareButtonState() {
         delete debateSynthesizerSelect.dataset.pendingPipelineValue;
         if (flowSelect) delete flowSelect.dataset.pendingPipelineValue;
         if (flowSelect) flowSelect.value = String(debateSynthesizerSelect.value || '');
-        renderTriadSynthesisStage();
+        renderSynthesisStage();
     }
     function syncDebateSchemeUi() {
-        const scheme = getDebateScheme();
         const presetMeta = getSelectedPipelinePresetMeta();
         const currentRoundLimit = String(debateRoundLimitSelect?.value || '').trim();
         const usesSynthesisStage = window.ResultsDebateUi?.usesSynthesisStage
-            ? window.ResultsDebateUi.usesSynthesisStage({ scheme, presetMeta, roundLimit: currentRoundLimit })
-            : ['2', '3', 'many', 'free'].includes(scheme) && (presetMeta.duration !== 'open_ended' || currentRoundLimit !== 'infinite');
-        document.body?.classList?.toggle('scheme-triad', scheme === '3');
-        document.body?.classList?.toggle('scheme-multi', scheme === 'many');
-        document.body?.classList?.toggle('scheme-free-talk', scheme === 'free');
-        const runActive = !!pipelineRunActive || !!getPageSerialDebateState()?.active || !!window.__triadState?.active || !!window.__multiPipelineState?.active;
+            ? window.ResultsDebateUi.usesSynthesisStage({ presetMeta, roundLimit: currentRoundLimit })
+            : (presetMeta.duration !== 'open_ended' || currentRoundLimit !== 'infinite');
+        const runActive = !!pipelineRunActive || ['planning', 'running', 'paused', 'cancelling'].includes(String(window.DebateApplication?.getState?.()?.lifecycle || ''));
         if (debateSynthesizerSelect) {
             debateSynthesizerSelect.disabled = runActive;
         }
@@ -19603,7 +18041,7 @@ function checkCompareButtonState() {
             debateRoundLimitSelect.hidden = !showRoundLimitControl;
             debateRoundLimitSelect.disabled = !showRoundLimitControl;
         }
-        const flowSelect = getTriadSynthesizerFlowSelect();
+        const flowSelect = getSynthesizerFlowSelect();
         if (flowSelect) flowSelect.disabled = runActive || !usesSynthesisStage;
         document.querySelectorAll('.synthesizer-capable').forEach((el) => {
             el.hidden = !usesSynthesisStage;
@@ -19614,31 +18052,23 @@ function checkCompareButtonState() {
             el.setAttribute('aria-hidden', String(!usesSynthesisStage));
         });
 
-        document.querySelectorAll('.registry-capable').forEach((el) => {
-            const showRegistryToggle = scheme === '3' || scheme === 'many' || scheme === 'free';
-            el.hidden = !showRegistryToggle;
-            el.setAttribute('aria-hidden', String(!showRegistryToggle));
-        });
-        renderTriadSynthesisStage();
-        const currentFlowSelect = getTriadSynthesizerFlowSelect();
+        document.querySelectorAll('.registry-capable').forEach((el) => { el.hidden = false; el.setAttribute('aria-hidden', 'false'); });
+        renderSynthesisStage();
+        const currentFlowSelect = getSynthesizerFlowSelect();
         const activeSynthesisValue = String(debateSynthesizerSelect?.value || '').trim();
         if (currentFlowSelect && currentFlowSelect.value !== activeSynthesisValue) {
             currentFlowSelect.value = activeSynthesisValue;
         }
     }
     window.syncDebateSchemeUi = syncDebateSchemeUi;
-    const setDebateSchemeValue = (value) => {
-        const normalized = ['2', '3', 'many', 'free'].includes(String(value || '').trim())
-            ? String(value || '').trim()
-            : '2';
-        debateSchemeValue = normalized;
-        window.__debateSchemeValue = debateSchemeValue;
-        safeStorageLocalSet({ [DEBATE_SCHEME_STORAGE_KEY]: debateSchemeValue });
+    const setDebateSchemeValue = () => {
+        debateSchemeValue = 'universal';
+        window.__debateSchemeValue = 'universal';
         window.syncPipelineModelsFromSelectedLLMs?.({ force: true });
         syncDebateSchemeUi();
     };
     window.setDebateSchemeValue = setDebateSchemeValue;
-    populateTriadSynthesizerSelect();
+    populateSynthesizerSelect();
     const debateTranscriptStore = DebateEngineRuntime?.createStore?.({
         session: {
             sessionId: '1',
@@ -19677,7 +18107,7 @@ function checkCompareButtonState() {
         const maxTurnsValue = Number(debateMaxTurnsInput?.value || debateRunState.maxTurns || 6);
         const roundValue = String(debateRoundLimitSelect?.value || '').trim();
         return debateTranscriptStore.updateSettings(String(sessionId || '1'), {
-            mode: 'serial_debate_2',
+            mode: 'universal_pipeline',
             runPolicy: debateRunPolicySelect?.value || 'manual',
             turnLimit: roundValue === 'infinite' ? 'infinite' : Math.max(1, Math.min(50, Math.round(Number(roundValue || 3)))),
             maxTurns: Number.isFinite(maxTurnsValue) ? Math.max(1, Math.min(1000000, Math.round(maxTurnsValue))) : 6
@@ -20704,9 +19134,6 @@ function checkCompareButtonState() {
         const approved = { card, llmName, text };
         if (typeof routeApprovedSerialTurn === 'function') {
             routeApprovedSerialTurn(approved, card);
-        }
-        if (typeof routeApprovedTriadTurn === 'function') {
-            routeApprovedTriadTurn(approved, card);
         }
         return approved;
     }

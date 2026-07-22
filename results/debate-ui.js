@@ -1,6 +1,6 @@
 // results/debate-ui.js
 // Small pure helpers for Debate page UI decisions. Keep DOM mutation in results.js;
-// this module owns mode/visibility decisions that are easy to test and reuse.
+// this module owns visibility decisions that are easy to test and reuse.
 
 (function initResultsDebateUi(root) {
   'use strict';
@@ -13,9 +13,7 @@
     return getPresetDuration(presetMeta) === 'open_ended';
   }
 
-  function usesSynthesisStage({ scheme = '2', presetMeta = {}, roundLimit = '' } = {}) {
-    const normalizedScheme = String(scheme || '2').trim();
-    if (!['2', '3', 'many', 'free'].includes(normalizedScheme)) return false;
+  function usesSynthesisStage({ presetMeta = {}, roundLimit = '' } = {}) {
     const duration = getPresetDuration(presetMeta);
     if (duration !== 'open_ended') return true;
     return String(roundLimit || '').trim() !== 'infinite';
@@ -28,10 +26,6 @@
     };
     const canonical = explicit(protocol.synthesizer);
     if (canonical) return canonical;
-    // Compatibility for pipelines saved before the single-synthesizer model.
-    const scheme = String(protocol?.scheme || (protocol?.type === 'multi' ? 'many' : protocol?.type === 'triad' ? '3' : '2')).trim();
-    if (scheme === 'many' || scheme === 'free') return explicit(protocol.multiSynthesizer || protocol.serviceRoles?.extractor);
-    if (scheme === '3' || scheme === '2') return explicit(protocol.triadSynthesizer || protocol.serviceRoles?.extractor);
     return explicit(protocol.serviceRoles?.extractor);
   }
 

@@ -3,14 +3,12 @@
   'use strict';
 
   const LABELS = Object.freeze({
-    opening_batch: 'Opening positions',
-    public_turn: 'Debate turn',
-    wave_batch: 'Debate wave',
-    round_filter: 'System round analysis',
-    checkpoint: 'Registry checkpoint',
-    final_words: 'Final words',
-    final_synthesis: 'Final synthesis',
-    synthesis_audit: 'Synthesis audit'
+    participant: 'Participant analysis',
+    critique: 'Critique',
+    research: 'Research',
+    synthesis: 'Synthesis',
+    audit: 'Synthesis audit',
+    correct_synthesis: 'Synthesis correction'
   });
 
   function project(run = {}) {
@@ -21,7 +19,7 @@
     const next = current ? stages[currentIndex + 1] || null : null;
     const describe = (stage) => stage ? {
       stageId: stage.stageId,
-      label: LABELS[stage.kind] || stage.kind,
+      label: LABELS[stage.purpose || stage.kind] || stage.purpose || stage.kind,
       round: Number(stage.round || 0),
       system: stage.visibility === 'system',
       participants: (stage.participants || []).slice()
@@ -37,7 +35,7 @@
       degradedMode: run.degradedMode || null,
       processAudit: run.processAudit || null,
       statusText: current
-        ? `${plan.runPolicy === 'auto' ? 'Auto' : 'Manual'} · ${LABELS[current.kind] || current.kind} · ${currentIndex + 1}/${stages.length}`
+        ? `${plan.runPolicy === 'auto' ? 'Auto' : 'Manual'} · ${LABELS[current.purpose || current.kind] || current.purpose || current.kind} · ${currentIndex + 1}/${stages.length}`
         : ''
     });
   }

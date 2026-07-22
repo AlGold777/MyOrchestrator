@@ -3,12 +3,12 @@ const RunStore = require('../disput/debate-run-store');
 describe('DebateRunStore', () => {
   test('reduces lifecycle events into one canonical status', () => {
     const store = RunStore.createStore();
-    store.dispatch({ type: RunStore.EVENTS.START_REQUESTED, payload: { runId: 'r1', topology: 'triad' } });
+    store.dispatch({ type: RunStore.EVENTS.START_REQUESTED, payload: { runId: 'r1' } });
     store.dispatch({ type: RunStore.EVENTS.BATCH_DISPATCHED, payload: { batch: { id: 'b1' } } });
     store.dispatch({ type: RunStore.EVENTS.APPROVAL_REQUESTED, payload: { model: 'GPT' } });
     expect(store.getState()).toMatchObject({
       runId: 'r1',
-      topology: 'triad',
+      topology: 'universal',
       status: 'awaiting_approval',
       approval: { waiting: true, model: 'GPT' },
       execution: { status: 'dispatching', activeBatch: { id: 'b1' } }
@@ -48,7 +48,7 @@ describe('DebateRunStore', () => {
     store.dispatch({ type: RunStore.EVENTS.START_REQUESTED, payload: { runId: 'r-sync', protocolState } });
     store.dispatch({
       type: RunStore.EVENTS.PROTOCOL_STATE_SYNCED,
-      payload: { protocolState: { status: 'paused', turn: 2 }, reason: 'DUEL_PAUSED' }
+      payload: { protocolState: { status: 'paused', turn: 2 }, reason: 'PIPELINE_PAUSED' }
     });
     expect(store.getState()).toMatchObject({
       protocolRevision: 1,
@@ -56,7 +56,7 @@ describe('DebateRunStore', () => {
     });
     expect(store.getState().events.at(-1)).toMatchObject({
       type: RunStore.EVENTS.PROTOCOL_STATE_SYNCED,
-      payload: { reason: 'DUEL_PAUSED' }
+      payload: { reason: 'PIPELINE_PAUSED' }
     });
   });
 
@@ -134,7 +134,7 @@ describe('DebateRunStore', () => {
   });
 
   test('tracks typed decisions, rule traces, progress and model signals', () => {
-    let state = RunStore.transition(RunStore.createState(), { type: RunStore.EVENTS.START_REQUESTED, payload: { runId: 'r-new', topology: 'free_talk' } });
+    let state = RunStore.transition(RunStore.createState(), { type: RunStore.EVENTS.START_REQUESTED, payload: { runId: 'r-new' } });
     state = RunStore.transition(state, { type: RunStore.EVENTS.DECISION_REQUESTED, payload: { requestId: 'd1', question: 'Continue?', options: [{ id: 'yes' }, { id: 'no' }] } });
     expect(state.status).toBe('awaiting_approval');
     state = RunStore.transition(state, { type: RunStore.EVENTS.DECISION_RESOLVED, payload: { requestId: 'd1', decisionId: 'answer1', optionId: 'yes', effect: 'execute_action' } });

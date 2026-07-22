@@ -4,6 +4,7 @@ const path = require('path');
 const RESULTS_SRC = fs.readFileSync(path.join(__dirname, '..', 'results.js'), 'utf8');
 const PANEL_SRC = fs.readFileSync(path.join(__dirname, '..', 'pipeline_panel.html'), 'utf8');
 const RESULT_SRC = fs.readFileSync(path.join(__dirname, '..', 'result_new.html'), 'utf8');
+const EXECUTOR_SRC = fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-stage-executor.js'), 'utf8');
 
 describe('Disput T10 safety controls', () => {
   test('pause control follows the active preset safety policy', () => {
@@ -12,9 +13,9 @@ describe('Disput T10 safety controls', () => {
     expect(RESULTS_SRC).toContain('if (!getDebateSafetyPolicy().canPause) return;');
   });
 
-  test('dropout recovery exposes a guarded manual retry action', () => {
-    expect(RESULTS_SRC).toContain("retryText: safetyPolicy.canRecover ? 'Повторить ещё раз' : ''");
-    expect(RESULTS_SRC).toContain("return 'retry';");
+  test('participant failures are explicit and the generic retry control remains available', () => {
+    expect(EXECUTOR_SRC).toContain("status: 'failed'");
+    expect(EXECUTOR_SRC).toContain('failedParticipants:');
     expect(PANEL_SRC).toContain('id="retry-confirm"');
     expect(RESULT_SRC).toContain('id="retry-confirm"');
   });

@@ -1,20 +1,20 @@
-const Compiler = require('../disput/debate-plan-compiler');
 const ViewModel = require('../results/debate-plan-view-model');
 
-test('projects system stages explicitly instead of hiding the synthesizer call', () => {
-  const executionPlan = Compiler.compile({
-    topology: 'duel', runPolicy: 'auto',
-    scenario: { modelA: 'Le Chat', modelB: 'Perplexity' }, synthesizer: 'Claude',
-    presetConfig: {
-      presetId: 'DUEL_STANDARD', topology: 'duel', roundLimit: 1,
-      roundPlan: [{ round: 1, outputs: ['positions_map'] }]
-    }
-  });
-  const view = ViewModel.project({ executionPlan, currentStageId: 'r1:filter' });
+test('projects universal stages including synthesis and its audit', () => {
+  const executionPlan = {
+    planId: 'plan-1',
+    runPolicy: 'auto',
+    stages: [
+      { stageId: 'analysis-1', purpose: 'participant', participants: ['Le Chat', 'Perplexity'] },
+      { stageId: 'synthesis-1', purpose: 'synthesis', visibility: 'system', participants: ['Claude'] },
+      { stageId: 'audit-1', purpose: 'audit', visibility: 'system', participants: ['GPT'] }
+    ]
+  };
+  const view = ViewModel.project({ executionPlan, currentStageId: 'synthesis-1' });
   expect(view).toMatchObject({
     runPolicy: 'auto',
-    current: { label: 'System round analysis', system: true, participants: ['Claude'] },
-    next: { label: 'Final words' }
+    current: { label: 'Synthesis', system: true, participants: ['Claude'] },
+    next: { label: 'Synthesis audit', system: true, participants: ['GPT'] }
   });
-  expect(view.statusText).toContain('2/4');
+  expect(view.statusText).toContain('2/3');
 });

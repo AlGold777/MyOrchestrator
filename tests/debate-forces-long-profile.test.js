@@ -1,6 +1,5 @@
-// Locks: the serial-debate dispatcher (runModelBatch) forces the LONG generation-wait
-// profile, so debate turns are never truncated by the SHORT default. The Debate page
-// has no Long toggle of its own, so this is the only place the profile gets set for it.
+// Locks: universal stage dispatch forces the LONG generation-wait profile so slow
+// participant answers are not truncated by the SHORT default.
 const fs = require('fs');
 const path = require('path');
 
@@ -17,10 +16,10 @@ describe('debate forces LONG profile', () => {
     expect(window).toContain('chrome.storage.local.set({ [LONG_GENERATION_MODE_KEY]: true }');
   });
 
-  test('debate end restores the flag to the user main-page choice (profile isolation)', () => {
-    const idx = RESULTS_SRC.indexOf('const finalizeSerialDebateRuntime =');
+  test('pipeline completion restores the flag to the user main-page choice', () => {
+    const idx = RESULTS_SRC.indexOf('const startDebateFromPage = async');
     expect(idx).toBeGreaterThan(-1);
-    const block = RESULTS_SRC.slice(idx, idx + 1400);
+    const block = RESULTS_SRC.slice(idx, idx + 18000);
     expect(block).toContain('writeLongGenerationMode(longModeCheckbox ? longModeCheckbox.checked : true)');
   });
 });

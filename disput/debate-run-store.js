@@ -54,14 +54,14 @@
 
   const now = () => Date.now();
   const currentVersions = () => root.DebateVersionManifest?.getVersions?.() || { implementation: 'dev', protocol: 5, planSchema: 3, runStoreSchema: VERSION, traceSchema: 3 };
-  const normalizeTopology = (value) => root.DebateProtocols?.topologyOf?.(value) || (String(value) === '3' ? 'triad' : String(value) === 'many' ? 'multi' : String(value || 'duel'));
-
+  const normalizeTopology = () => 'universal';
   function createState(seed = {}) {
     return {
       version: VERSION,
       runId: String(seed.runId || ''),
       sessionId: String(seed.sessionId || '1'),
-      topology: normalizeTopology(seed.topology || 'duel'),
+      architecture: 'universal',
+      topology: 'universal',
       preset: seed.preset && typeof seed.preset === 'object' ? seed.preset : null,
       executionPlan: seed.executionPlan && typeof seed.executionPlan === 'object' ? seed.executionPlan : null,
       currentStageId: String(seed.currentStageId || ''),

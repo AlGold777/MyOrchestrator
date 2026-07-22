@@ -90,7 +90,7 @@
     return flagValue === true;
   }
 
-  // --- Per-model prompt map (Triad waves / graph-mode waves) -----------------
+  // --- Per-model prompt map for parallel stages ------------------------------
   // One batch can carry a model -> individual prompt map. Names are normalized
   // to stable uppercase keys; missing or blank entries fall back to the shared
   // prompt so callers never dispatch a model with empty text by accident.

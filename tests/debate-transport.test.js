@@ -14,7 +14,7 @@ describe('DebateTransport', () => {
     };
     const store = RunStore.createStore();
     const port = DebateTransport.create({ runtime, storage, runStore: store });
-    store.dispatch({ type: RunStore.EVENTS.START_REQUESTED, payload: { runId: 'r1', topology: 'duel' } });
+    store.dispatch({ type: RunStore.EVENTS.START_REQUESTED, payload: { runId: 'r1' } });
     await port.persist();
     await port.dispatchBatch({ prompt: 'p', models: ['GPT'], pipelineContext: { pipelineRunId: 'r1' } });
     expect(messages[0]).toMatchObject({ type: 'START_FULLPAGE_PROCESS', selectedLLMs: ['GPT'] });

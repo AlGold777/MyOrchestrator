@@ -6,8 +6,8 @@ const Projections = require('../disput/debate-trace-projections');
 const plan = {
   version: 1,
   planId: 'plan-1',
-  presetId: 'TRIAD_RED_TEAM',
-  topology: 'triad',
+  presetId: 'UNIVERSAL_RED_TEAM',
+  topology: 'universal',
   participants: ['Qwen', 'DeepSeek', 'Le Chat'],
   synthesizer: 'Claude',
   stages: [
@@ -18,7 +18,7 @@ const plan = {
 
 function completedTrace(extraEvents = []) {
   const store = TraceStore.createStore();
-  store.beginRun({ debateRunId: 'run-1', plan, topology: 'triad', presetId: plan.presetId, sessionId: '1' });
+  store.beginRun({ debateRunId: 'run-1', plan, topology: 'universal', presetId: plan.presetId, sessionId: '1' });
   store.append({ eventType: 'RUN_STARTED', source: 'application', correlation: { debateRunId: 'run-1', planId: plan.planId }, sourceTimestamp: 1000, payload: {} });
   plan.stages.forEach((stage, index) => {
     store.append({ eventType: 'STAGE_STARTED', source: 'runner', correlation: { debateRunId: 'run-1', planId: plan.planId, stageId: stage.stageId }, sourceTimestamp: 1100 + index * 100, payload: { participants: stage.participants, kind: stage.kind } });
@@ -79,7 +79,7 @@ describe('Debate trace projections', () => {
     expect(report.health.classification).toBe('success');
     expect(report.stageExecutions).toHaveLength(2);
     expect(report.integrity.missingRequiredStageEvents).toEqual([]);
-    expect(report.metadata.presetId).toBe('TRIAD_RED_TEAM');
+    expect(report.metadata.presetId).toBe('UNIVERSAL_RED_TEAM');
   });
 
   test('deterministically classifies manual recovery and state divergence as degraded success', () => {
@@ -102,7 +102,7 @@ describe('Debate trace projections', () => {
     expect(markdown).toContain('Qwen');
   });
 
-  test('classifies the recorded Triad recovery pattern as degraded and exposes its evidence', () => {
+  test('classifies a recorded parallel-stage recovery pattern as degraded and exposes its evidence', () => {
     const store = completedTrace([
       { eventType: 'BARRIER_OPENED', sourceTimestamp: 1200, correlation: { debateRunId: 'run-1', stageId: 'r1:wave' }, payload: { participants: ['Qwen', 'DeepSeek', 'Le Chat'] } },
       { eventType: 'BARRIER_PARTICIPANT_READY', sourceTimestamp: 1250, correlation: { debateRunId: 'run-1', stageId: 'r1:wave' }, payload: { model: 'DeepSeek' } },

@@ -8,7 +8,7 @@ describe('Disput telemetry view', () => {
       <div id="disput-critical-path"></div><div id="disput-raw-events"></div>
       <span id="disput-trace-status"></span>`;
     const report = {
-      metadata: { topology: 'triad', presetId: 'TRIAD_RED_TEAM', dataCompleteness: 'complete' },
+      metadata: { topology: 'universal', presetId: 'UNIVERSAL_RED_TEAM', dataCompleteness: 'complete' },
       health: { classification: 'degraded_success', terminalOutcome: 'completed', severity: 'warning', manualRecoveryCount: 1, forcedCompletionCount: 0, stateDivergenceCount: 1 },
       runOutcome: { durationMs: 10000 },
       diagnoses: [{ severity: 'high', code: 'STATE_DIVERGENCE', affectedStageId: 'r1:wave', affectedParticipant: 'DeepSeek', summary: 'status mismatch' }],

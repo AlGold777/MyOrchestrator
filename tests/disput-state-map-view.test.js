@@ -13,7 +13,7 @@ describe('Disput state map view', () => {
   });
 
   const aggregate = {
-    runId: 'run-ui', status: 'running', config: { topic: 'UI case' }, executionPlan: { profileId: 'FREE_TALK_MVP' },
+    runId: 'run-ui', status: 'running', config: { topic: 'UI case' }, executionPlan: { profileId: 'UNIVERSAL_STANDARD' },
     protocolState: { registry: { artifacts: {
       c1: { id: 'c1', type: 'claim', status: 'contested', formulation: 'Claim' },
       o1: { id: 'o1', type: 'objection', status: 'raised', formulation: 'Blocker', targetId: 'c1', severity: 'blocking', provenance: { turnId: 't2' } }

@@ -6,7 +6,6 @@ const Acceptance = require('../disput/debate-response-acceptance');
 const CaseSchema = require('../disput/debate-case-schema');
 const StateDelta = require('../disput/debate-state-delta');
 const Capabilities = require('../disput/debate-capability-registry');
-const FreeTalk = require('../disput/free-talk-runtime');
 const Profiles = require('../disput/debate-profile-schema');
 
 describe('Disput prompt runtime v3', () => {
@@ -79,13 +78,6 @@ describe('Disput prompt runtime v3', () => {
   test('routes an independent family when available and marks a one-model self-check degraded', () => {
     expect(Capabilities.choose({ models: ['GPT-5', 'Claude'], owner: 'GPT-5', action: { independence: 'different_family_required' } })).toMatchObject({ model: 'Claude', degraded: false });
     expect(Capabilities.choose({ models: ['GPT-5'], owner: 'GPT-5', action: { independence: 'different_family_required' } })).toMatchObject({ model: 'GPT-5', degraded: true });
-  });
-
-  test('limits FreeTalk triggers to the selected profile', () => {
-    const state = FreeTalk.createState({ allowedTriggers: ['UNCRITICIZED_CLAIM'] });
-    const tasks = FreeTalk.evaluate({ claims: [{ id: 'c1' }], objections: [], blockers: [{ id: 'o1' }], evidence: [], revisions: [], dissent: [], readiness: { id: 'not_ready' } }, state);
-    expect(tasks.map((task) => task.triggerId)).toEqual(['UNCRITICIZED_CLAIM']);
-    expect(tasks[0].actionContract.instruction).toContain('Проверь целевое утверждение');
   });
 
   test('migrates profiles to the executable prompt pack', () => {

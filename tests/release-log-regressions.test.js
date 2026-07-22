@@ -75,12 +75,6 @@ describe('release log regression guards', () => {
     expect(readOrder(resultHtml, expectedPanelIds)).toEqual(expectedPanelIds);
   });
 
-  test('FreeTalk header selection has no two-model cap', () => {
-    const source = fs.readFileSync(path.join(__dirname, '..', 'results.js'), 'utf8');
-    expect(source).toContain("if (rawScheme === 'many' || rawScheme === 'free') return llmButtons.length || 999;");
-    expect(source).toContain("if (scheme === 'many' || scheme === 'free') return (llmButtons?.length || 999);");
-  });
-
   test('state map actions use icon buttons and keep Case before Export', () => {
     const htmlFiles = ['pipeline_panel.html', 'result_new.html'];
     htmlFiles.forEach((file) => {
@@ -129,109 +123,6 @@ describe('release log regression guards', () => {
 
     expect(resultsSource).not.toContain("normalizedLabel === 'MODEL_FINAL' || normalizedLabel === 'FINAL_STATUS'");
     expect(devtoolsSource).not.toContain("normalizedLabel === 'MODEL_FINAL' || normalizedLabel === 'FINAL_STATUS'");
-  });
-
-  test('debate pause is a soft pause instead of a stop/cancel action', () => {
-    const source = fs.readFileSync(path.join(__dirname, '..', 'results.js'), 'utf8');
-    const duelRunner = fs.readFileSync(path.join(__dirname, '..', 'disput', 'duel-runner.js'), 'utf8');
-    const controller = fs.readFileSync(path.join(__dirname, '..', 'results', 'debate-controller.js'), 'utf8');
-    const renderer = fs.readFileSync(path.join(__dirname, '..', 'results', 'debate-renderer.js'), 'utf8');
-    const html = fs.readFileSync(path.join(__dirname, '..', 'pipeline_panel.html'), 'utf8');
-    const css = readResolvedCss();
-
-    expect(html).toContain('id="debate-run-toggle-btn"');
-    expect(html).toContain('<link rel="stylesheet" href="styles.css?v=2.81.25">');
-    expect(html).toContain('<script src="new-pages-default.js?v=2.80.38"></script>');
-    expect(html).not.toContain('debate-auto-default.js');
-    expect(html).toContain('aria-label="Run debate"');
-    expect(html).toContain('<button type="button" id="debate-run-toggle-btn" class="debate-btn debate-btn-primary" title="Run debate" aria-label="Run debate"><i class="ti ti-send" aria-hidden="true"></i></button>');
-    expect(html).toContain('id="pipeline-toggle-modifiers-btn"');
-    expect(html).toContain('id="pipeline-modifiers-section"');
-    expect(html).toContain('id="pipeline-modifiers-container"');
-    expect(html).toContain('</div>\n<div class="pipeline-modifiers-section" id="pipeline-modifiers-section" hidden>');
-    expect(html).toContain('id="prompt-modal"');
-    expect(html).toContain('id="prompt-dialog-input"');
-    expect(html).toContain('id="debate-length-select"');
-    expect(html).toContain('id="debate-round-limit-select"');
-    expect(html).toContain('id="debate-run-policy-select"');
-    expect(html).toContain('id="debate-auto-toggle-btn"');
-    expect(html).toContain('id="debate-auto-toggle-btn" class="pipeline-radio debate-auto-radio"');
-    expect(html).toContain('<option value="3" selected="">3 rounds</option>');
-    expect(html).toContain('<option value="manual" selected="">Manual</option>');
-    expect(html).toContain('id="auto-checkbox"');
-    expect(html).toContain('hidden="" aria-hidden="true"');
-    expect(html).toContain('<span class="top-new-pages-text">New pages</span>');
-    expect(html.indexOf('<span class="top-new-pages-text">New pages</span>')).toBeLessThan(html.indexOf('id="new-pages-checkbox"'));
-    expect(html).not.toContain('<span class="top-new-pages-text">New</span>');
-    expect(html).not.toContain('id="debate-start-btn"');
-    expect(html).not.toContain('id="debate-pause-btn"');
-    expect(html).not.toContain('id="debate-action-select"');
-    expect(html).not.toContain('id="debate-length-stepper-down"');
-    expect(html).not.toContain('id="debate-length-stepper-value"');
-    expect(html).not.toContain('id="debate-length-stepper-up"');
-    expect(html).not.toContain('id="debate-turn-stepper-down"');
-    expect(html).not.toContain('id="debate-turn-stepper-value"');
-    expect(html).not.toContain('id="debate-turn-stepper-up"');
-    expect(html.indexOf('id="pipeline-toggle-modifiers-btn"')).toBeLessThan(html.indexOf('id="pipeline-panel-toggle-title"'));
-    expect(html.indexOf('id="pipeline-panel-toggle-title"')).toBeLessThan(html.indexOf('id="debate-length-select"'));
-    expect(html.indexOf('id="debate-round-limit-select"')).toBeLessThan(html.indexOf('id="debate-length-select"'));
-    expect(html.indexOf('<div class="msg-head-center">')).toBeGreaterThan(html.indexOf('</div>\n            <div class="msg-head-center">') - 1);
-    expect(html.indexOf('id="debate-round-limit-select"')).toBeLessThan(html.indexOf('id="mod-sender-select"'));
-    expect(html.indexOf('<div class="msg-head-center">')).toBeLessThan(html.indexOf('id="mod-sender-select"'));
-    expect(html.indexOf('id="mod-role-select"')).toBeLessThan(html.indexOf('id="debate-synthesizer-select"'));
-    expect(html.indexOf('<span class="top-new-pages-text">New pages</span>')).toBeLessThan(html.indexOf('id="debate-run-toggle-btn"'));
-    expect(html.indexOf('id="pipeline-modifiers-section"')).toBeGreaterThan(html.indexOf('id="moderator-input"'));
-    expect(html.indexOf('</div>\n<div class="pipeline-modifiers-section" id="pipeline-modifiers-section" hidden>')).toBeLessThan(html.indexOf('<div class="attachment-bar" id="prompt-attachment-bar"'));
-    expect(source).toContain('const debateRunToggleBtn = document.getElementById(\'debate-run-toggle-btn\');');
-    expect(source).toContain('const pipelineToggleModifiersBtn = document.getElementById(\'pipeline-toggle-modifiers-btn\');');
-    expect(source).toContain('const debateRunPolicySelect = document.getElementById(\'debate-run-policy-select\');');
-    expect(source).toContain('const debateAutoToggleBtn = document.getElementById(\'debate-auto-toggle-btn\');');
-    expect(source).toContain("const isDebateAutoPolicy = () => getDebateRunPolicy() === 'auto';");
-    expect(source).toContain("const getDebateLengthOptions = () => Array.from(document.getElementById('debate-length-select')?.options || []).map((option) => ({");
-    expect(source).toContain('const syncDebateLengthStepperUi = () => {');
-    expect(source).toContain('const setDebateLengthByDelta = (delta) => {');
-    expect(source).toContain('debateAutoToggleBtn.checked = isAuto;');
-    expect(source).toContain("debateRunPolicySelect.value = isDebateAutoPolicy() ? 'manual' : 'auto';");
-    expect(source).toContain('const debateRoundLimitSelect = document.getElementById(\'debate-round-limit-select\');');
-    expect(source).toContain('const getDebateRoundLimit = () => {');
-    expect(source).toContain('const setDebateRoundLimitByDelta = (delta) => {');
-    expect(source).toContain("const wrapper = debateRoundLimitSelect.closest?.('.debate-round-control')");
-    expect(source).toContain('wrapper.hidden = !showRoundLimitControl;');
-    expect(source).toContain("wrapper.setAttribute('aria-hidden', String(!showRoundLimitControl));");
-    expect(html).toContain('id="new-pages-checkbox" class="top-new-pages-checkbox" checked=""');
-    expect(source).toContain('newPagesCheckbox.checked = true;');
-    expect(source).not.toContain('chrome.storage.local.get(newPagesStorageKey');
-    const bootstrap = fs.readFileSync(path.join(__dirname, '..', 'new-pages-default.js'), 'utf8');
-    expect(bootstrap).toContain('[0, 50, 150, 350, 750, 1500, 2500].forEach');
-    expect(bootstrap).toContain('window.__stopNewPagesDefaultBootstrap = stopDefaultBootstrap;');
-    expect(source).toContain("typeof window.__stopNewPagesDefaultBootstrap === 'function'");
-    expect(duelRunner).toContain('deps.markNewPageOpened?.(state, scenario.modelA, input.forceNewTabs);');
-    expect(duelRunner).toContain('deps.markNewPageOpened?.(state, route.targetModel, false);');
-    expect(source).toContain('resetNewPagesCheckboxAfterOpen();');
-    expect(source.indexOf('const resetNewPagesCheckboxAfterOpen = () => {')).toBeLessThan(source.indexOf("startButton?.addEventListener('click'"));
-    expect(css).toContain('.top-new-pages-checkbox:checked + .top-toggle-track {\n    background: #1f3b4c;');
-    expect(css).toContain('.msg-head-right-top .top-new-pages-checkbox:checked + .top-toggle-track {\n    background: #1f3b4c;');
-    expect(source).toContain('window.DebateController?.deriveRunControls?.({');
-    expect(source).toContain('window.DebateRenderer?.renderRunControls?.({');
-    expect(controller).toContain("icon: 'ti ti-send'");
-    expect(controller).toContain("icon: 'ti ti-player-pause'");
-    expect(renderer).toContain("runButton.setAttribute('aria-label', view.title);");
-    expect(source).toContain('const deletePipelineByName = async (pipelineNameToDelete) => {');
-    expect(source).toContain("deleteBtn.className = 'pipeline-item-delete';");
-    expect(source.indexOf('item.appendChild(deleteBtn);')).toBeLessThan(source.indexOf("badge.className = 'last-badge';"));
-    expect(source).toContain('const alignPipelineDeleteColumn = () => {');
-    expect(source).toContain("container.style.removeProperty('--pipeline-item-main-width');");
-    expect(source).toContain("const promptDialogInput = document.getElementById('prompt-dialog-input');");
-    expect(html).not.toContain('id="prompt-input" class="modal-text-input"');
-    expect(source).toContain('function showPrompt(message, defaultValue = \'\') {');
-    expect(source).toContain('const debateMaxTurnsInput = document.getElementById(\'debate-max-turns-input\');');
-    expect(source).toContain("setDebatePausedState(true, 'pause_button');");
-    expect(source).toContain("setDebatePausedState(false, 'resume_button');");
-    expect(source).toContain('Debate paused after ${debateRunState.maxTurns} auto turns.');
-    expect(source).toContain('syncDebateLengthStepperUi();');
-    expect(source).toContain('await loadPipelineActionModifiers();');
-    expect(source).toContain("disput/pipeline-actions.json");
-    expect(source).not.toContain("debatePauseBtn?.addEventListener('click', async () => {\n            if (pipelineRunActive) {\n                await cancelPipelineRun();");
   });
 
   test('disput is consolidated onto a single runtime (no shadow background executor)', () => {
@@ -323,78 +214,6 @@ describe('release log regression guards', () => {
       expect(html).toContain('id="disput-critical-path"');
       expect(html).toContain('id="disput-raw-events"');
     });
-  });
-
-  test('serial debate feed run dispatches one selected model and exposes Disput flow export', () => {
-    const html = fs.readFileSync(path.join(__dirname, '..', 'pipeline_panel.html'), 'utf8');
-    const source = fs.readFileSync(path.join(__dirname, '..', 'results.js'), 'utf8');
-    const duelRunner = fs.readFileSync(path.join(__dirname, '..', 'disput', 'duel-runner.js'), 'utf8');
-
-    expect(html).toContain('id="disput-export-md"');
-    expect(html).toContain('Export Disput telemetry as Markdown');
-    expect(html).toContain('round-badge">R2</span> Disput');
-    expect(html).not.toContain('<div class="stage-label"><span class="round-badge">R2</span> Judge</div>');
-    expect(source).toContain('const resolveSerialDebateScenarioFromFeed = () => {');
-    expect(source).toContain("btn.textContent = expanded ? 'Minimise' : 'Show more';");
-    expect(source).toContain("setDebateCardExpanded(card, card.dataset.expanded !== 'true');");
-    expect(duelRunner).toContain('models: [scenario.modelA, scenario.modelB]');
-    // The serial-debate path is the only live branch; the legacy multi-round
-    // pipeline loop after it was unreachable dead code and has been removed.
-    expect(source).not.toContain('if (moderatorOnly) {');
-    expect(duelRunner).toContain('state.waitingApprovalModel = scenario.modelA;');
-    expect(source).toContain('routeApprovedSerialTurn = (approved) => {');
-    expect(duelRunner).toContain("timeline('Dispatch', { from: 'Moderator', to: route.targetModel");
-    expect(source).toContain("const disputBtn = event.target.closest('#disput-export-md');");
-    // Error responses ("Error: ...") must become explicit participant dropout,
-    // never valid opening turns or silent automatic continuation.
-    expect(duelRunner).toContain("[scenario.modelA]: !deps.isErrorOutput?.(firstAnswer) ? firstAnswer : ''");
-    expect(duelRunner).toContain("[scenario.modelB]: !deps.isErrorOutput?.(openingB) ? openingB : ''");
-    expect(duelRunner).toContain('const failedModels = [scenario.modelA, scenario.modelB].filter');
-    expect(duelRunner).toContain("const policy = deps.stageById?.(state.executionPlan, stageId)?.failurePolicy || 'ask_user';");
-    expect(duelRunner).toContain('return deps.resolveParticipantDropout?.(input)');
-    expect(duelRunner).toContain("const accepted = acceptance(answer, { kind: 'participant', taskClass: state.taskContract?.taskClass, maxWords: state.maxWords, allowShort: state.taskContract?.taskClass === 'direct_answer' });");
-    expect(duelRunner).toContain('if (accepted.ok) {');
-  });
-
-  test('serial debate runtime survives manual approval and stays cancellable/pausable', () => {
-    const source = fs.readFileSync(path.join(__dirname, '..', 'results.js'), 'utf8');
-    const duelRunner = fs.readFileSync(path.join(__dirname, '..', 'disput', 'duel-runner.js'), 'utf8');
-
-    // Lifecycle helper that tears down runtime when the debate truly ends.
-    expect(source).toContain('const finalizeSerialDebateRuntime = () => {');
-    // runPipeline.finally keeps the abort controller + run context alive while
-    // the debate is still live (manual awaiting approval / auto paused).
-    expect(source).toContain('if (protocolState?.active) {\n                    debateRunState.status = debatePaused ? \'paused\' : \'awaiting_approval\';');
-    // Cancel works even when pipelineRunActive is false (manual/paused debate).
-    expect(source).toContain('if (!pipelineRunActive && !getDuelState()?.active && !getTriadState()?.active && !getMultiState()?.active && !getFreeTalkState()?.active) return false;');
-    // #5: manual approvals are serialized to avoid concurrent routing.
-    expect(source).toContain('if (serialApprovalRoutingInFlight) return;');
-    expect(source).toContain('serialApprovalRoutingInFlight = true;');
-    // #6: auto loop honours pause and can be resumed from the parked continuation.
-    expect(duelRunner).toContain('state.pendingAutoContinuation = { llmName: route.targetModel, text: answer };');
-    expect(source).toContain('const resumeAutoSerialDebate = () => {');
-  });
-
-  test('opening-phase gate prevents A0 from routing to B before B0 is captured', () => {
-    const source = fs.readFileSync(path.join(__dirname, '..', 'results.js'), 'utf8');
-    const duelRunner = fs.readFileSync(path.join(__dirname, '..', 'disput', 'duel-runner.js'), 'utf8');
-    const fsm = fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-runtime.js'), 'utf8');
-
-    // The phase gate is now owned by the explicit DebateFSM (disput/debate-runtime.js);
-    // results.js routes through it instead of hand-mutating serialState.phase.
-    expect(duelRunner).toContain('deps.fsm?.beginOpenings?.(state)'); // phase=init + clear openings
-    expect(duelRunner).toContain("slot === 'A' ? 'DUEL_OPENING_A' : 'DUEL_OPENING_B'");
-    // Public routing boundary is gated on the FSM.
-    expect(duelRunner).toContain('if (!deps.fsm?.canRoutePublic?.(state)) return false;');
-    // Approval is rejected (check-before-mutate) during the opening phase so the
-    // card is not consumed.
-    expect(source).toContain('if (activeSerialState?.active && !window.DebateFSM.canRoutePublic(activeSerialState)) {');
-
-    // The invariant itself lives in the FSM module: only 'public' routes, and
-    // recording B's opening is what promotes the phase.
-    expect(fsm).toContain("PUBLIC: 'public'");
-    expect(fsm).toContain('state.phase === PHASES.PUBLIC');
-    expect(fsm).toContain('state.phase = PHASES.PUBLIC');
   });
 
   test('debate round limit syncs Pro columns without adding an extra Disput round', () => {
@@ -593,32 +412,6 @@ describe('release log regression guards', () => {
     });
   });
 
-  test('Debate composer, terminal flow, and legacy UI cleanup invariants remain enforced', () => {
-    const source = fs.readFileSync(path.join(__dirname, '..', 'results.js'), 'utf8');
-    const panel = fs.readFileSync(path.join(__dirname, '..', 'pipeline_panel.html'), 'utf8');
-    const runStore = fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-run-store.js'), 'utf8');
-    const duelRunner = fs.readFileSync(path.join(__dirname, '..', 'disput', 'duel-runner.js'), 'utf8');
-    const triadRunner = fs.readFileSync(path.join(__dirname, '..', 'disput', 'triad-runner.js'), 'utf8');
-    const multiRunner = fs.readFileSync(path.join(__dirname, '..', 'disput', 'multi-runner.js'), 'utf8');
-
-    expect(source).toContain('const escapeHtmlFallback = (value = \'\') => String(value)');
-    expect(source).toContain('ResultsShared.escapeHtml is unavailable; using the local safe fallback.');
-    expect(source).toContain('if (isModeratorTextarea) return moderatorInputText;');
-    expect(source).not.toContain('debateModMessageBody.innerHTML = pieces.join');
-    expect(source).not.toContain('debateModMessageBody.innerHTML = html');
-    expect(duelRunner).toContain("await deps.handleTerminalOutputs?.(state, 'duel');");
-    expect(triadRunner).toContain("await deps.handleTerminalOutputs?.(state, 'triad');");
-    expect(multiRunner).toContain("await deps.handleTerminalOutputs?.(state, 'multi');");
-    expect(duelRunner).toContain("deps.recordRunFailure?.('invalid_serial_scenario');");
-    expect(source).toContain('PROTOCOL_STATE_SYNCED');
-    expect(runStore).toContain("PROTOCOL_STATE_SYNCED: 'PROTOCOL_STATE_SYNCED'");
-    expect(panel).not.toContain('oninput="growTA(this)"');
-    expect(panel).toContain('data-color="#2196f3" title="Blue highlight"');
-    expect(source).not.toContain('window.growTA');
-    expect(source).not.toContain("getElementById('debate-step-btn')");
-    expect(source.match(/addEventListener\('change', \(event\) => \{\n\s*const checkbox = event\.target\.closest\?\.\('\.debate-approval-check'\)/g)).toHaveLength(1);
-  });
-
   test('Pro Disput rounds mirror header-selected models instead of default judge models', () => {
     const source = fs.readFileSync(path.join(__dirname, '..', 'results.js'), 'utf8');
     const runtime = fs.readFileSync(path.join(__dirname, '..', 'pipeline', 'pipeline-runtime.js'), 'utf8');
@@ -671,30 +464,6 @@ describe('release log regression guards', () => {
     expect(source).toContain('if (message.responseId) card.dataset.responseId = message.responseId;');
     expect(source).toContain('responseId: message.responseId || null,');
     expect(engine).toContain('responseId: input.responseId ? String(input.responseId) : null,');
-  });
-
-  test('moderator route selectors follow serial debate turn order and preserve None notes', () => {
-    const source = fs.readFileSync(path.join(__dirname, '..', 'results.js'), 'utf8');
-    const html = fs.readFileSync(path.join(__dirname, '..', 'pipeline_panel.html'), 'utf8');
-
-    expect(html).toContain('<option value="__none__" selected="">None</option>');
-    expect(source).toContain('const moderatorRouteState = {');
-    expect(source).toContain('function setModeratorRoute(sender = \'Moderator\', receiver = \'__none__\', options = {})');
-    expect(source).toContain('let debateInitialTargetPromptPending = false;');
-    expect(source).toContain('appendModeratorNoneNoteFromComposer = () => {');
-    expect(source).toContain('if ((hasDebateContext || debateInitialTargetPromptPending) && moderatorEntryText) {');
-    expect(source).not.toContain('const selectedForInitialTarget = getSelectedLLMs();');
-    expect(source).not.toContain('const initialTarget = selectedForInitialTarget[0];');
-    expect(source).toContain('syncModeratorSelectors({ preserveRoute: !isPageReloadNavigation() });');
-    expect(source).toContain("if (isPageReloadNavigation() && (id === 'mod-receiver-select' || id === 'mod-sender-select')) return;");
-    expect(source).toContain('function syncModeratorRouteAfterModelResponse(modelName = \'\')');
-    expect(source).toContain("showNotification('Выберите первую модель (A), которая будет отвечать.', 'warn');");
-    expect(source).toContain("pushSerialDebateTimeline('Moderator note', { from: 'Moderator', to: 'None'");
-    expect(source).toContain('const manualReceiver = String(debateReceiverSelect?.value || \'\').trim();');
-    expect(source).toContain('const manualTarget = manualReceiver && manualReceiver !== \'__none__\'');
-    expect(source).toContain('const targetModel = manualTarget || (currentModel === state.modelA ? state.modelB : state.modelA);');
-    expect(source).toContain('syncModeratorRoute: syncModeratorRouteAfterModelResponse');
-    expect(source).toContain('syncModeratorRouteAfterModelResponse(route.targetModel);');
   });
 
   test('sidebar restored model cards remain visible when stream preview is active', () => {
