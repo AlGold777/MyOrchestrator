@@ -263,6 +263,7 @@
         "disput/debate-plan-compiler.js",
         "disput/debate-application.js",
         "disput/debate-run-services.js",
+        "disput/debate-participant-registry.js",
         "disput/duel-runner.js",
         "disput/triad-runner.js",
         "disput/multi-runner.js",

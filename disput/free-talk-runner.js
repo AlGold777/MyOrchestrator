@@ -9,6 +9,7 @@
   const Decisions = root.DebateDecisionRequest || (typeof require === 'function' ? require('./debate-decision-request') : null);
   const ModelSignal = root.DebateModelSignal || (typeof require === 'function' ? require('./debate-model-signal') : null);
   const Policies = root.DebatePolicies || (typeof require === 'function' ? require('./debate-policies') : null);
+  const Participants = root.DebateParticipantRegistry || (typeof require === 'function' ? require('./debate-participant-registry') : null);
   const semanticOverlap = (left, right) => {
     const tokens = (value) => new Set(String(value || '').toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) || []);
     const a = tokens(left); const b = tokens(right);
@@ -104,18 +105,10 @@
         state.serviceMaxWords = preset.serviceMaxWords || null;
         state.promptTrace = [];
         state.degradedReasons = [];
-        state.configuredParticipants = models.slice();
-        state.activeParticipants = models.slice();
-        state.droppedParticipants = Array.isArray(state.droppedParticipants) ? state.droppedParticipants : [];
-        state.droppedModels = Array.isArray(state.droppedModels) ? state.droppedModels : [];
-        const markParticipantsDropped = (failedModels, details = {}) => {
-          const normalized = Array.from(new Set((failedModels || []).map((model) => String(model || '').trim()).filter(Boolean)));
-          state.droppedModels = Array.from(new Set([...state.droppedModels, ...normalized]));
-          normalized.forEach((modelId) => {
-            if (state.droppedParticipants.some((item) => item.modelId === modelId)) return;
-            state.droppedParticipants.push({ modelId, terminal: true, ...details });
-          });
-          state.activeParticipants = state.configuredParticipants.filter((model) => !state.droppedModels.includes(model));
+        Participants?.initialize?.(state, models);
+        const markParticipantsDropped = (failures, details = {}) => {
+          const normalized = (failures || []).map((failure) => typeof failure === 'string' ? { modelId: failure, ...details } : failure);
+          Participants?.markDropped?.(state, normalized, details);
           state.models = state.activeParticipants.slice();
           return state.activeParticipants;
         };
@@ -206,7 +199,7 @@
         const openingResponses = {};
         let openingTurns = [];
         let failedOpeningModels = [];
-        let terminalOpeningFailures = {};
+        const terminalOpeningFailures = new Map();
         let openingDecision = 'continue';
         let attemptModels = configuredOpeningModels.slice();
 
@@ -233,7 +226,9 @@
             }
           });
           Object.assign(openingResponses, attemptResult?.responses || {});
-          terminalOpeningFailures = { ...terminalOpeningFailures, ...(attemptResult?.failed || {}) };
+          Participants?.terminalFailures?.(attemptResult, {
+            stageId: openingId, attemptId: `${openingId}:a${attempt}`
+          }).forEach((failure) => terminalOpeningFailures.set(failure.modelId, failure));
           openingTurns = configuredOpeningModels.map((model) => ({
             model,
             text: acceptedText(openingResponses[model], {
@@ -241,13 +236,17 @@
               model, stageId: openingId
             })
           })).filter((turn) => turn.text);
-          openingTurns.forEach((turn) => { delete terminalOpeningFailures[turn.model]; });
-          failedOpeningModels = configuredOpeningModels.filter((model) => !openingTurns.some((turn) => turn.model === model));
+          openingTurns.forEach((turn) => terminalOpeningFailures.delete(turn.model));
+          const unusableOpeningModels = configuredOpeningModels.filter((model) => !openingTurns.some((turn) => turn.model === model));
+          failedOpeningModels = unusableOpeningModels.filter((model) => terminalOpeningFailures.has(model));
+          unusableOpeningModels.filter((model) => !terminalOpeningFailures.has(model)).forEach((model) => {
+            stageEvent('ANSWER_REJECTED', openingId, { model, reasonCode: 'no_usable_response', attempt });
+          });
           if (!failedOpeningModels.length) break;
 
           const remainingModels = openingTurns.map((turn) => turn.model);
           failedOpeningModels.forEach((model) => stageEvent('BARRIER_PARTICIPANT_FAILED', openingId, {
-            model, reason: terminalOpeningFailures[model] ? 'terminal_transport_failure' : 'no_usable_response', attempt
+            model, reason: terminalOpeningFailures.get(model)?.reasonCode || 'terminal_transport_failure', terminal: true, attempt
           }));
           const failurePolicy = deps.stageById?.(state.executionPlan, openingId)?.failurePolicy || 'ask_user';
           openingDecision = failurePolicy === 'fail_run' ? 'stop' : 'continue';
@@ -265,7 +264,7 @@
           }
 
           if (openingDecision === 'retry') {
-            const retryableModels = failedOpeningModels.filter((model) => terminalOpeningFailures[model]);
+            const retryableModels = failedOpeningModels.filter((model) => terminalOpeningFailures.has(model));
             if (attempt >= maxOpeningAttempts || !retryableModels.length) {
               stageEvent('DROPOUT_RETRY_EXHAUSTED', openingId, {
                 failedModels: failedOpeningModels, retryableModels, attempt, maxAttempts: maxOpeningAttempts
@@ -312,7 +311,9 @@
           if (!openingTurns.length) throw new Error('FreeTalk positions produced no usable responses');
           models = remainingModels;
           state.degradedReasons.push(`participant_dropout:${failedOpeningModels.join(',')}`);
-          markParticipantsDropped(failedOpeningModels, { stageId: openingId, attemptId: `${openingId}:a${state.openingRetryAttempts + 1}`, reasonCode: 'opening_terminal_failure' });
+          markParticipantsDropped(failedOpeningModels.map((model) => terminalOpeningFailures.get(model)), {
+            stageId: openingId, attemptId: `${openingId}:a${state.openingRetryAttempts + 1}`, reasonCode: 'opening_terminal_failure'
+          });
           deps.notify?.(`${failedOpeningModels.join(', ')} не ответил(и) после восстановления. Продолжаем с: ${remainingModels.join(', ')}.`, 'warn');
           deps.syncState?.(state, 'FREE_TALK_PARTICIPANTS_REDUCED');
         }
@@ -448,9 +449,11 @@
             signal: input.signal
           });
           actionResult = await repairInvalidBatch(actionResult, compiledByModel, { stageId: 'free-talk:dynamic-batch', useApiFallback: input.useApiFallback, generationProfile: 'long', signal: input.signal, context: { ...(input.runContext || {}), pipelineRoundId: `free-talk-a${state.actionCount + 1}`, pipelineBatchId: `${state.runId}:action:repair:${Date.now()}` } });
-          const terminalActionFailures = Array.from(new Set(assignments
-            .map((entry) => entry.model)
-            .filter((model) => actionResult?.failed && Object.prototype.hasOwnProperty.call(actionResult.failed, model))));
+          const terminalActionFailureRecords = Participants?.terminalFailures?.(actionResult, {
+            stageId: 'free-talk:trigger-loop', attemptId: `free-talk:dynamic-batch:a${state.actionCount + 1}`
+          }) || [];
+          const assignedModels = new Set(assignments.map((entry) => entry.model));
+          const terminalActionFailures = terminalActionFailureRecords.map((failure) => failure.modelId).filter((model) => assignedModels.has(model));
           if (terminalActionFailures.length) {
             const dynamicStageId = 'free-talk:trigger-loop';
             const remainingModels = models.filter((model) => !terminalActionFailures.includes(model));
@@ -491,7 +494,9 @@
               return false;
             }
             models = remainingModels;
-            markParticipantsDropped(terminalActionFailures, { stageId: dynamicStageId, reasonCode: 'terminal_transport_failure' });
+            markParticipantsDropped(terminalActionFailureRecords.filter((failure) => terminalActionFailures.includes(failure.modelId)), {
+              stageId: dynamicStageId, reasonCode: 'terminal_transport_failure'
+            });
             state.degradedReasons.push(`participant_dropout:${terminalActionFailures.join(',')}`);
             stageEvent('DROPOUT_CONTINUE_SELECTED', dynamicStageId, { failedModels: terminalActionFailures, remainingModels });
             deps.notify?.(`${terminalActionFailures.join(', ')} выбыл(и) из FreeTalk после terminal failure.`, 'warn');
@@ -590,9 +595,15 @@
         let dispatched = await dispatchSynthesis(synthesisModel, synthesisCompiled, 'a1');
         let synthesisPrompt = dispatched.prompt;
         let synthesisResult = dispatched.result;
-        if (synthesisResult?.failed?.[synthesisModel]) {
+        const firstSynthesisFailures = Participants?.terminalFailures?.(synthesisResult, {
+          stageId: 'final:synthesis', attemptId: 'final:synthesis:a1'
+        }) || [];
+        if (firstSynthesisFailures.some((failure) => failure.modelId === synthesisModel)) {
           const failedSynthesizer = synthesisModel;
-          markParticipantsDropped([failedSynthesizer], { stageId: 'final:synthesis', attemptId: 'final:synthesis:a1', reasonCode: 'terminal_transport_failure' });
+          const synthesisFailure = firstSynthesisFailures.find((failure) => failure.modelId === failedSynthesizer);
+          markParticipantsDropped([synthesisFailure || failedSynthesizer], {
+            stageId: 'final:synthesis', attemptId: 'final:synthesis:a1', reasonCode: 'terminal_transport_failure'
+          });
           models = models.filter((model) => model !== failedSynthesizer);
           synthesisModel = reassignSynthesizer(failedSynthesizer, 'terminal_transport_failure');
           if (!synthesisModel) return finalizeWithoutSynthesis('synthesis_unavailable');
@@ -600,7 +611,9 @@
           dispatched = await dispatchSynthesis(synthesisModel, synthesisCompiled, 'reassigned-a1');
           synthesisPrompt = dispatched.prompt;
           synthesisResult = dispatched.result;
-          if (synthesisResult?.failed?.[synthesisModel]) {
+          if ((Participants?.terminalFailures?.(synthesisResult, {
+            stageId: 'final:synthesis', attemptId: 'final:synthesis:reassigned-a1'
+          }) || []).some((failure) => failure.modelId === synthesisModel)) {
             stageEvent('SYNTHESIZER_UNAVAILABLE', 'final:synthesis', { from: synthesisModel, reasonCode: 'terminal_transport_failure_after_reassignment' });
             return finalizeWithoutSynthesis('synthesis_unavailable');
           }

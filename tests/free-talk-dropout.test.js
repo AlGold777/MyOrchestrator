@@ -122,6 +122,26 @@ describe('FreeTalk opening barrier — participant dropout', () => {
     repairBatches.forEach((batch) => expect(batch.models).not.toContain('C'));
   });
 
+  test('an unusable opening without terminal transport evidence does not drop the participant', async () => {
+    const { deps, stageEvents, getProtocolState } = makeDeps({
+      runModelBatch: async ({ models, context }) => ({
+        responses: Object.fromEntries(models.map((model) => [model,
+          context?.pipelineStageId === 'free-talk:positions' && model === 'B' ? ''
+            : (context?.pipelineStageId === 'final:synthesis' ? 'Final synthesis' : `Position ${model}`)])),
+        missing: [], failed: {}, timedOut: false
+      })
+    });
+    const started = await Runner.createFreeTalkRunner(deps).start(startInput({ selectedModels: ['A', 'B'], synthesizer: 'A' }));
+    expect(started).toBe(true);
+    expect(getProtocolState().activeParticipants).toEqual(['A', 'B']);
+    expect(getProtocolState().droppedParticipants).toEqual([]);
+    expect(stageEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'ANSWER_REJECTED', model: 'B', reasonCode: 'no_usable_response' })
+    ]));
+    expect(stageEvents.filter((event) => event.type === 'BARRIER_PARTICIPANT_FAILED')).toHaveLength(0);
+    expect(stageEvents.filter((event) => event.type.startsWith('DROPOUT_'))).toHaveLength(0);
+  });
+
   test('all participants failed still throws (no silent empty run)', async () => {
     const { deps } = makeDeps({
       stageById: () => ({ failurePolicy: 'skip_stage' }),
