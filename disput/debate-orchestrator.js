@@ -203,6 +203,7 @@
         configuredParticipants: clone(state.configuredParticipants),
         activeParticipants: clone(state.activeParticipants),
         droppedParticipants: clone(state.droppedParticipants),
+        pendingHumanDecision: clone(state.pendingHumanDecision || null),
         totalStagesExecuted: state.totalStagesExecuted,
         stagnationSignals: clone(state.stagnationSignals),
         createdAt: nowIso()
@@ -235,6 +236,7 @@
         totalStagesExecuted: state.totalStagesExecuted,
         stagnationSignals: clone(state.stagnationSignals),
         recentActionFingerprints: state.recentActionFingerprints.slice(),
+        pendingHumanDecision: clone(state.pendingHumanDecision || null),
         ruleSetVersion: planner.ruleSetVersion,
         currentTime: nowIso()
       };
@@ -743,8 +745,12 @@
 
       resolveHumanDecision(command = {}) {
         if (!state.pendingHumanDecision) return { ok: false, code: 'NO_PENDING_DECISION' };
-        emit('HUMAN_DECISION_RECORDED', { requestId: state.pendingHumanDecision.requestId, optionId: command.optionId });
         const request = state.pendingHumanDecision;
+        if (String(command.requestId || '') !== String(request.requestId || '')) return { ok: false, code: 'DECISION_REQUEST_STALE' };
+        if (command.expectedCaseVersion != null && Number(command.expectedCaseVersion) !== state.caseVersion) return { ok: false, code: 'CASE_VERSION_STALE' };
+        if (command.expectedPlanRevisionId != null && command.expectedPlanRevisionId !== revisions.getActive?.()?.revisionId) return { ok: false, code: 'REVISION_STALE' };
+        if (Array.isArray(request.options) && !request.options.some((option) => option.id === command.optionId)) return { ok: false, code: 'DECISION_OPTION_INVALID' };
+        emit('HUMAN_DECISION_RECORDED', { requestId: request.requestId, optionId: command.optionId });
         state.pendingHumanDecision = null;
         if (request.type === 'APPROVE_FINALIZATION' && command.optionId === 'finalize') {
           return finalize({ reason: 'MANUAL_STOP', finalizationMode: 'STATE_MAP', humanApprovalRequired: false });
@@ -799,6 +805,7 @@
           state.configuredParticipants = clone(snapshot.configuredParticipants || []);
           state.activeParticipants = clone(snapshot.activeParticipants || []);
           state.droppedParticipants = clone(snapshot.droppedParticipants || []);
+          state.pendingHumanDecision = clone(snapshot.pendingHumanDecision || null);
           // Migration for snapshots written before participant collections existed.
           if (!state.configuredParticipants.length) initializeParticipants(state.debateCase?.participants);
           state.openGoals = clone(snapshot.openGoals);

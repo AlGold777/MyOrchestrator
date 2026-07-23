@@ -313,6 +313,24 @@ describe('Orchestrator — human participant (Slice F)', () => {
     expect(after.openGoals.find((g) => g.goalId === 'g-h').status).toBe('resolved');
   });
 
+  test('persists a blocking human decision and rejects stale or duplicate resolution', async () => {
+    const persistence = makePersistence();
+    const first = makeOrchestrator({ persistence, ownerId: 'owner-1' });
+    await first.orchestrator.startRun({ debateCase: makeCase(), deferExecution: true });
+    first.orchestrator._internals.state.pendingHumanDecision = {
+      requestId: 'decision-1', question: 'Continue?', blocking: true,
+      options: [{ id: 'continue' }, { id: 'stop' }]
+    };
+    await first.orchestrator.requestPause({});
+    const second = makeOrchestrator({ persistence, ownerId: 'owner-2', now: () => Date.now() + 60000 });
+    await second.orchestrator.recoverRun({ deferExecution: true });
+    expect(second.orchestrator.getState().pendingHumanDecision).toMatchObject({ requestId: 'decision-1' });
+    expect(second.orchestrator.resolveHumanDecision({ requestId: 'other', optionId: 'continue' })).toMatchObject({ ok: false, code: 'DECISION_REQUEST_STALE' });
+    const resolved = second.orchestrator.resolveHumanDecision({ requestId: 'decision-1', optionId: 'continue', expectedCaseVersion: 1, expectedPlanRevisionId: second.orchestrator.getState().activePlanRevisionId });
+    expect(resolved.ok).toBe(true);
+    expect(second.orchestrator.resolveHumanDecision({ requestId: 'decision-1', optionId: 'continue' })).toMatchObject({ ok: false, code: 'NO_PENDING_DECISION' });
+  });
+
   test('duplicate human response is rejected (§21 idempotency)', async () => {
     const { orchestrator } = makeOrchestrator();
     await orchestrator.startRun({ debateCase: humanCase() });

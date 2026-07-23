@@ -97,6 +97,11 @@ Snapshot v2 хранит три канонические коллекции: `co
 старого snapshot без этих полей они детерминированно восстанавливаются из
 `participantStatus`; выпавший participant не может вернуться в routing только
 из-за reload.
+4.10. Blocking human decisions
+Blocking decision request входит в snapshot и planner input. Resolution обязана
+содержать тот же requestId и может быть привязана к expected case version и
+active plan revision. Несовпадение отклоняется до изменения состояния; отсутствие
+UI никогда не является разрешением автоматически продолжить run.
 
 5. Orchestrator API
 interface DebateOrchestrator {

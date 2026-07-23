@@ -1,5 +1,13 @@
 # CHANGELOG — Project
 
+### 2026-07-23 — Disput persisted human decisions, version 2.81.29
+
+- Blocking human decision включён в snapshot и planner input, поэтому reload не
+  может молча продолжить run без ответа человека.
+- Resolution проверяет request ID, ожидаемую версию case и plan revision;
+  неверный, устаревший или повторный ответ не меняет active plan.
+- Проверка: orchestrator human-decision recovery suite — 25 тестов.
+
 ### 2026-07-23 — Disput persisted participant collections, version 2.81.28
 
 - Orchestrator snapshot v2 хранит канонические `configuredParticipants`,
