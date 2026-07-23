@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-07-23 — Align release-log regression with DraftPlan restore chain, version 2.81.40
+
+- Обновлена проверка `release-log-regressions.test.js`: после синхронизации
+  раундов учитывается восстановление legacy synthesizer в DraftPlan перед
+  вызовом `syncDebateSchemeUi`.
+
 ### 2026-07-23 — Materialize Canvas DraftPlan and synthesis graph, version 2.81.39
 
 - Canvas R1/R2/… теперь сохраняются как generic `DraftPlan` и становятся
