@@ -1178,7 +1178,7 @@ body.pro-features-hidden .comparison-section {
     justify-self: center;
     grid-column: 2;
     max-width: max-content;
-    transform: translateX(15px);
+    transform: none;
 }
 .msg-head-right {
     flex-direction: column;

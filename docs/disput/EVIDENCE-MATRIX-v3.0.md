@@ -23,6 +23,7 @@ names the implementation, deterministic test and gate.
 | Transport race safety | planned | terminal and late-event guards | unit coverage only | R2 / Gate C |
 | Human decision UI and recovery | partial | persisted decision request in `debate-orchestrator.js` | orchestrator reload/stale/duplicate-resolution test | DOM rendering and browser E2E acceptance required |
 | Universal panel-header round counter | implemented | `results.js` round-limit UI/config synchronization | results UI regression coverage | Gate D |
+| Message header ownership and moderator-role cleanup | implemented | `pipeline_panel.html`, `results.js`, `styles/modals-responsive.css` | release regression and results UI tests | Gate D |
 | Persisted legacy-config translation | planned | profile/config boundary | no migration suite | R7 |
 | Telemetry redaction, canary thresholds and owner | planned | trace projection primitives | no operational acceptance suite | R6 / Gate E |
 | Release-artifact rollback | planned | ADR-001 decision | no rollback drill | R10 / Gate E |

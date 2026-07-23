@@ -95,14 +95,6 @@ body.is-resizing {
     white-space: nowrap;
 }
 
-.pipeline-panel .panel-header-actions .msg-head-center {
-    align-items: center;
-    justify-content: center;
-    width: auto;
-    max-width: none;
-    transform: none;
-}
-
 .pipeline-panel .panel-header-actions .mod-mini-prompts {
     flex: 0 1 100%;
     justify-content: flex-end;

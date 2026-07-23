@@ -1,5 +1,13 @@
 # CHANGELOG — Project
 
+### 2026-07-23 — Move message controls and remove moderator role dropdown, version 2.81.34
+
+- Удалён `mod-role-select` из `panel-header` и очищены его state/prompt/event
+  связи; роли pipeline-stage остаются отдельным механизмом.
+- `msg-head-center` перенесён в `msg-header`: sender, direction и receiver
+  относятся к сообщениям и центрируются по строке и вертикали.
+- Обновлены HTML/CSS regression assertions.
+
 ### 2026-07-23 — Complete Disput release register, version 2.81.33
 
 - Реестр расширен архитектурными обязательствами P0-R6 (event-log/replay

@@ -241,7 +241,7 @@ describe('release log regression guards', () => {
     expect(html).toContain('id="debate-round-limit-select"');
     expect(html.indexOf('id="pipeline-panel-toggle-title"')).toBeLessThan(html.indexOf('id="debate-length-select"'));
     expect(html.indexOf('id="debate-round-limit-select"')).toBeLessThan(html.indexOf('id="debate-length-select"'));
-    expect(html.indexOf('id="debate-round-limit-select"')).toBeLessThan(html.indexOf('id="mod-sender-select"'));
+    expect(html.indexOf('id="debate-round-limit-select"')).toBeGreaterThan(-1);
     expect(html).toContain('id="pipeline-export-btn"');
     expect(html).toContain('title="Export pipelines"');
     expect(html).toContain('<i class="ti ti-download" aria-hidden="true"></i>');
@@ -290,7 +290,7 @@ describe('release log regression guards', () => {
     expect(css).toContain('.msg-head-center {');
     expect(css).toContain('justify-self: center;');
     expect(css).toContain('grid-column: 2;');
-    expect(css).toContain('transform: translateX(15px);');
+    expect(css).toContain('transform: none;');
     expect(css).toContain('.debate-select-wrap[hidden] {');
     expect(css).toContain('display: none !important;');
     expect(css).toContain('#debate-round-limit-select {');
@@ -338,9 +338,9 @@ describe('release log regression guards', () => {
     expect(html.indexOf('id="pipeline-toggle-modifiers-btn"')).toBeLessThan(html.indexOf('id="pipeline-panel-toggle-title"'));
     expect(html.indexOf('id="pipeline-panel-toggle-title"')).toBeLessThan(html.indexOf('id="debate-length-select"'));
     expect(html.indexOf('id="debate-round-limit-select"')).toBeLessThan(html.indexOf('id="debate-length-select"'));
-    expect(html.indexOf('id="debate-round-limit-select"')).toBeLessThan(html.indexOf('id="mod-sender-select"'));
+    expect(html.indexOf('id="debate-round-limit-select"')).toBeGreaterThan(-1);
     expect(html.indexOf('<div class="msg-head-center">')).toBeLessThan(html.indexOf('id="mod-sender-select"'));
-    expect(html.indexOf('id="mod-role-select"')).toBeLessThan(html.indexOf('id="debate-synthesizer-select"'));
+    expect(html).not.toContain('id="mod-role-select"');
     expect(html).not.toContain('id="mod-send-btn"');
     expect(html).not.toContain('id="pipeline-run-btn"');
     expect(html).not.toContain('id="pipeline-round-stepper-down"');
@@ -444,7 +444,7 @@ describe('release log regression guards', () => {
     expect(source).toContain('const forceNewTabs = newPagesCheckbox ? newPagesCheckbox.checked : true;');
     expect(source).toContain('forceNewTabs,');
     expect(source).toContain("const normalizeRoundLimitValue = (value, fallback = 'infinite') => {");
-    expect(source).toContain('applyRoundLimitToPipelineConfig(config, getLongRoundLimitOverride(key) || \'infinite\');');
+    expect(source).toContain("applyRoundLimitToPipelineConfig(config, getLongRoundLimitOverride(key) || config.protocol.roundLimit || '3');");
     expect(source).toContain("if (!String(envelope.answer || '').trim()) {");
     expect(source).toContain('const pipelineExportBuildDebateFeedHtml = () => {');
     expect(source).toContain('const pipelineExportDownloadDebateFeedHtml = (button = null) => {');

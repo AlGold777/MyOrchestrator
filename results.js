@@ -1,6 +1,5 @@
 var routeApprovedSerialTurn = null;
 var debateRunState = {
-    activeRole: '',
     status: 'idle',
     turnCount: 0,
     maxTurns: 6,
@@ -1284,7 +1283,6 @@ document.addEventListener('click', (event) => {
 
         const syncPipelineActionMiniPrompts = () => {
             if (!debateMiniPrompts) return;
-            const role = debateRoleSelect?.value || '';
             const selectedLabels = getPipelineActionSelectionItems().map((modifier) => modifier.label || modifier.id);
             const pieces = [];
             if (role) pieces.push(`<span class="mod-mini-prompt">Role: ${escapeHtml(role)}</span>`);
@@ -1727,7 +1725,6 @@ document.addEventListener('click', (event) => {
             if (!el || !snapshot) return;
             if (id === 'auto-checkbox' || id === 'debate-run-policy-select') return;
             if (isPageReloadNavigation() && (id === 'mod-receiver-select' || id === 'mod-sender-select')) return;
-            if (id === 'mod-role-select') return;
             if ((el.type === 'checkbox' || el.type === 'radio') && typeof snapshot.checked === 'boolean') {
                 el.checked = snapshot.checked;
                 return;
@@ -4869,14 +4866,12 @@ document.addEventListener('click', (event) => {
         };
         const buildDebateActionPromptSuffix = () => {
         const lenValue = (debateLengthSelect?.value || '500').trim();
-        const roleValue = (debateRoleSelect?.value || '').trim();
         const senderValue = (debateSenderSelect?.value || '').trim();
         const receiverValue = (debateReceiverSelect?.value || '').trim();
         const extra = [];
         if (lenValue && lenValue !== 'inf') extra.push(`Твой ответ — не более ${lenValue} слов.`);
         if (senderValue) extra.push(`Sender: ${senderValue}`);
         if (receiverValue) extra.push(`Receiver: ${receiverValue || 'All models'}`);
-        if (roleValue) extra.push(`Receiver role: ${roleValue}`);
         if (isPipelinePage) {
             const pipelineActionLines = getPipelineActionSelectionItems()
                 .map((modifier) => modifier.text || modifier.label || modifier.id)
@@ -5703,7 +5698,6 @@ document.addEventListener('click', (event) => {
                     selectedModels,
                     synthesizer,
                     maxWords: getDebateMaxWords(),
-                    role: String(debateRoleSelect?.value || '').trim(),
                     auto: compiledRunPolicy === 'auto',
                     isPaused: () => debatePaused,
                     makeBatchContext
@@ -5747,7 +5741,6 @@ document.addEventListener('click', (event) => {
                     setPipelineRunUi(false);
                     updateDebateButtonsUi();
                 } else {
-                    debateRunState.activeRole = '';
                     debateRunState.status = window.DebateRunStore.isTerminal(getDebateAggregateState())
                         ? getDebateAggregateState().status
                         : 'idle';
@@ -17855,7 +17848,6 @@ function checkCompareButtonState() {
     const debateSessionCopyBtn = document.getElementById('debate-session-copy-btn');
     const debateSessionExportBtn = document.getElementById('debate-session-export-btn');
     const debateSessionClearBtn = document.getElementById('debate-session-clear-btn');
-    const debateRoleSelect = document.getElementById('mod-role-select');
     const debateSenderSelect = document.getElementById('mod-sender-select');
     const debateReceiverSelect = document.getElementById('mod-receiver-select');
     const debateDirectionIcon = document.getElementById('direction-icon');
@@ -17884,7 +17876,6 @@ function checkCompareButtonState() {
     const debateSessionsStore = window.DebateSessionsStore.create({ activeSessionId: '1' });
     const debateTabsState = debateSessionsStore.state;
     Object.assign(debateRunState, {
-        activeRole: '',
         status: 'idle',
         turnCount: 0,
         maxTurns: 6,
@@ -19140,7 +19131,7 @@ function checkCompareButtonState() {
         checkbox.dataset.bound = 'true';
     }
     function renderDebateModelCards(
-        roleValue = debateRunState.activeRole || (debateRoleSelect?.value || ''),
+        roleValue = '',
         models = getDebateTargetModels(),
         options = {}
     ) {
@@ -19381,7 +19372,7 @@ function checkCompareButtonState() {
             const mm = String(now.getMinutes()).padStart(2, '0');
             const timeEl = liveCard.querySelector('.debate-model-card-time');
             if (timeEl) timeEl.textContent = `${hh}:${mm}`;
-            updateCardRole(liveCard, meta.role || debateRunState.activeRole || (debateRoleSelect?.value || ''));
+            updateCardRole(liveCard, meta.role || '');
             const body = liveCard.querySelector('.debate-model-card-output');
             if (body) {
                 body.classList.remove('debate-model-card-empty');
@@ -19393,7 +19384,7 @@ function checkCompareButtonState() {
                 kind: 'model',
                 status: isFinal ? 'pending' : 'printing',
                 model: llmName,
-                role: meta.role || debateRunState.activeRole || (debateRoleSelect?.value || ''),
+                role: meta.role || '',
                 text: normalizedText || String(body?.innerText || body?.textContent || '').trim(),
                 html: String(body?.innerHTML || '').trim(),
                 timeLabel: `${hh}:${mm}`
@@ -19403,7 +19394,7 @@ function checkCompareButtonState() {
                     turnId: liveCard.dataset.turnId || liveCard.dataset.messageId || liveCard.dataset.entryId,
                     sessionId: session.id,
                     model: llmName,
-                    role: meta.role || debateRunState.activeRole || (debateRoleSelect?.value || ''),
+                    role: meta.role || '',
                     text: normalizedText || String(body?.innerText || body?.textContent || '').trim(),
                     html: String(body?.innerHTML || '').trim(),
                     status: 'pending'
@@ -19444,7 +19435,7 @@ function checkCompareButtonState() {
             </div>
             <div class="debate-model-card-output"></div>
         `;
-        updateCardRole(card, meta.role || debateRunState.activeRole || (debateRoleSelect?.value || ''));
+        updateCardRole(card, meta.role || '');
         const body = card.querySelector('.debate-model-card-output');
         renderDebateResponseBody(body, normalizedText, normalizedHtml);
         syncDebateCardOutputLayout(card);
@@ -19454,7 +19445,7 @@ function checkCompareButtonState() {
             kind: 'model',
             status: isFinal ? 'pending' : 'printing',
             model: llmName,
-            role: meta.role || debateRunState.activeRole || (debateRoleSelect?.value || ''),
+            role: meta.role || '',
             text: normalizedText || String(body?.innerText || body?.textContent || '').trim(),
             html: String(body?.innerHTML || '').trim(),
             timeLabel: `${hh}:${mm}`,
@@ -19465,7 +19456,7 @@ function checkCompareButtonState() {
                 turnId: card.dataset.turnId || card.dataset.messageId || card.dataset.entryId,
                 sessionId: session.id,
                 model: llmName,
-                role: meta.role || debateRunState.activeRole || (debateRoleSelect?.value || ''),
+                role: meta.role || '',
                 text: normalizedText || String(body?.innerText || body?.textContent || '').trim(),
                 html: String(body?.innerHTML || '').trim(),
                 status: 'pending'
@@ -19566,7 +19557,7 @@ function checkCompareButtonState() {
         const normalizedHtml = sanitizeInlineHtml(String(html || '').trim());
         appendDebateFeedEntry(llmName, normalizedText, normalizedHtml, {
             ...meta,
-            role: meta?.role || debateRunState.activeRole || (debateRoleSelect?.value || '')
+            role: meta?.role || ''
         });
     }
     function approvePendingDebateCandidate() {
@@ -19672,14 +19663,12 @@ function checkCompareButtonState() {
         const state = {
             sender: debateSenderSelect?.value || 'Moderator',
             receiver: debateReceiverSelect?.value || '__none__',
-            role: debateRoleSelect?.value || ''
         };
         safeStorageLocalSet({ [DEBATE_SELECTORS_STORAGE_KEY]: state });
     }
     function restoreDebateSelectorState() {
         return safeStorageLocalGet(DEBATE_SELECTORS_STORAGE_KEY).then((data) => {
             const state = data?.[DEBATE_SELECTORS_STORAGE_KEY] || {};
-            if (state.role && debateRoleSelect) debateRoleSelect.value = state.role;
             if (state.sender && debateSenderSelect) debateSenderSelect.value = state.sender;
             if (state.receiver !== undefined && debateReceiverSelect) debateReceiverSelect.value = state.receiver;
         });
@@ -19728,12 +19717,10 @@ function checkCompareButtonState() {
     }
     function syncModeratorMiniPrompts() {
         if (!debateMiniPrompts) return;
-        const role = debateRoleSelect?.value || '';
         const actionLabels = isPipelinePage
             ? getPipelineActionSelectionItems().map((modifier) => modifier.label || modifier.id)
             : [];
         const pieces = [];
-        if (role) pieces.push(`<span class="mod-mini-prompt">Role: ${escapeHtml(role)}</span>`);
         if (actionLabels.length) pieces.push(`<span class="mod-mini-prompt">Action: ${escapeHtml(actionLabels.join(', '))}</span>`);
         debateMiniPrompts.innerHTML = pieces.join('');
     }
@@ -21371,14 +21358,6 @@ function exportSingleTemplate(templateName, sourceData = null) {
         if (!checkbox?.checked) return;
         approveDebateCard(checkbox.closest('.debate-model-card'));
     });
-    debateRoleSelect?.addEventListener('change', () => {
-        syncModeratorMiniPrompts();
-        const roleText = debateRoleSelect.value || '';
-        if (promptInput && roleText) {
-            promptInput.dispatchEvent(new Event('input', { bubbles: true }));
-        }
-        saveDebateSelectorState();
-    });
     debateSenderSelect?.addEventListener('change', () => {
         syncDirectionIcon();
         saveDebateSelectorState();
@@ -21394,7 +21373,6 @@ function exportSingleTemplate(templateName, sourceData = null) {
         syncDirectionIcon();
         saveDebateSelectorState();
     });
-    debateRoleSelect?.addEventListener('change', syncDirectionIcon);
     debateDirectionIcon?.addEventListener('click', () => {
         debateDirectionState.mode = debateDirectionState.mode === 'forward'
             ? 'reverse'

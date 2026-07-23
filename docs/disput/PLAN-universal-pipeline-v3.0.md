@@ -99,6 +99,8 @@ Acceptance evidence: synthesis audit loop, terminal evidence and production wiri
 - Custom pipeline builder selects participants, policy, stage budget, output length and optional synthesizer.
 - No UI control selects a fixed conversation shape.
 - Synthesis is shown as a universal stage.
+- Message routing controls (sender, direction and receiver) live in the message
+  header; pipeline settings do not contain a moderator-role dropdown.
 - StateMap human action requests synthesis through a plan revision.
 - Existing RunStore/event projections preserve current page diagnostics and exports.
 

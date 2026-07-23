@@ -1011,17 +1011,9 @@ describe('Pipeline debate favorites view', () => {
     });
   });
 
-  test('Role and Action chips never become moderator dispatch text', () => {
+  test('Action chips never become moderator dispatch text', () => {
     const debug = window.__pipelineLifecycleDebug;
-    const roleSelect = document.getElementById('mod-role-select');
-    const role = document.createElement('option');
-    role.value = 'critical';
-    role.textContent = 'Critical';
-    roleSelect.appendChild(role);
-    roleSelect.value = 'critical';
-    roleSelect.dispatchEvent(new Event('change', { bubbles: true }));
-
-    expect(document.getElementById('mod-mini-prompts').textContent).toContain('Role: critical');
+    expect(document.getElementById('mod-mini-prompts').textContent).not.toContain('Role:');
     expect(document.getElementById('mod-message-body').textContent).toBe('');
     expect(debug.getModeratorDispatchText()).toBe('');
   });

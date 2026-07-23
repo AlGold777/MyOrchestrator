@@ -184,7 +184,7 @@
                 <textarea id="modTa" placeholder="Enter a prompt"></textarea>
             </div>
         </div>
-        <div class="msg-header">
+    <div class="msg-header">
             <div class="msg-head-left">
                 <button type="button" id="pipeline-toggle-modifiers-btn" class="prompt-mode-btn prompt-console-toggle-btn" title="Tuning Control" aria-label="Tuning Control" aria-pressed="false">
                     <span class="toggle-icon toggle-icon-console toggle-icon-slider" aria-hidden="true">
@@ -210,6 +210,14 @@
                     </span>
                     <span>Pro</span>
                 </button>
+            </div>
+            <div class="msg-head-center">
+                <select id="mod-sender-select" class="mod-select" aria-label="Sender model"></select>
+                <span class="direction-icon" id="direction-icon" title="Direction">→</span>
+                <select id="mod-receiver-select" class="mod-select" aria-label="Receiver model">
+                    <option value="">All models</option>
+                    <option value="__none__" selected="">None</option>
+                </select>
             </div>
             <div class="msg-head-right">
                 <div class="msg-head-right-top">
@@ -279,20 +287,6 @@
                             <option value="inf">∞</option>
                         </select>
                     </label>
-                    <div class="msg-head-center">
-                        <select id="mod-sender-select" class="mod-select" aria-label="Sender model"></select>
-                        <span class="direction-icon" id="direction-icon" title="Direction">→</span>
-                        <select id="mod-receiver-select" class="mod-select" aria-label="Receiver model">
-                            <option value="">All models</option>
-                            <option value="__none__" selected="">None</option>
-                        </select>
-                        <select id="mod-role-select" class="mod-select" aria-label="Receiver role">
-                            <option value="">Role</option>
-                            <option value="expert">Expert</option>
-                            <option value="critic">Critic</option>
-                            <option value="provocateur">Provocateur</option>
-                        </select>
-                    </div>
                     <label class="debate-select-wrap synthesizer-capable" title="Модель синтезатора: финальный ответ, фильтры и checkpoint" hidden="" aria-hidden="true">
                         <select id="debate-synthesizer-select" class="mod-select mod-select-compact debate-select" aria-label="Debate synthesizer model">
                             <option value="">Synthesizer: None</option>
