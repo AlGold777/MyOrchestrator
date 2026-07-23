@@ -91,6 +91,12 @@ Stage, созданная по устаревшей revision, не может б
 причины, correlation, causality, payload и provenance, без transport timing.
 Повтор с тем же ID и тем же hash является no-op. Повтор с тем же ID и другим
 hash отклоняется как конфликт и не расходует collector sequence.
+4.9. Persistent participant collections
+Snapshot v2 хранит три канонические коллекции: `configuredParticipants`,
+`activeParticipants` и `droppedParticipants` с terminal evidence. При recovery
+старого snapshot без этих полей они детерминированно восстанавливаются из
+`participantStatus`; выпавший participant не может вернуться в routing только
+из-за reload.
 
 5. Orchestrator API
 interface DebateOrchestrator {

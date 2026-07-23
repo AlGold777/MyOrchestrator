@@ -141,6 +141,9 @@ describe('Orchestrator — run lifecycle', () => {
     const input = orchestrator._internals.plannerInput();
     expect(input.availableParticipants.find((participant) => participant.participantId === 'beta').available).toBe(false);
     expect(input.availableParticipants.find((participant) => participant.participantId === 'alpha').available).toBe(true);
+    expect(state.configuredParticipants).toEqual(['alpha', 'beta']);
+    expect(state.activeParticipants).toEqual(['alpha']);
+    expect(state.droppedParticipants).toEqual([expect.objectContaining({ participantId: 'beta', terminal: true })]);
   });
 
   test('parallel stage deltas from one base version commit atomically with one version increment', async () => {
@@ -261,6 +264,22 @@ describe('Orchestrator — recovery (§15)', () => {
     const resumed = await second.orchestrator.requestContinue({});
     expect(resumed.ok).toBe(true);
     expect(second.orchestrator.getState().lifecycle).toBe('RUNNING');
+  });
+
+  test('recovery migrates pre-collection snapshots from persisted participant status', async () => {
+    const persistence = makePersistence();
+    const first = makeOrchestrator({ persistence, ownerId: 'owner-1' });
+    await first.orchestrator.startRun({ debateCase: makeCase(), deferExecution: true });
+    await first.orchestrator.requestPause({});
+    const snapshot = persistence.store.snapshots.at(-1);
+    delete snapshot.configuredParticipants;
+    delete snapshot.activeParticipants;
+    delete snapshot.droppedParticipants;
+    snapshot.participantStatus = { beta: { available: false, terminal: true, reasonCode: 'ERROR' } };
+    const second = makeOrchestrator({ persistence, ownerId: 'owner-2', now: () => Date.now() + 60000 });
+    await second.orchestrator.recoverRun({ deferExecution: true });
+    expect(second.orchestrator.getState().activeParticipants).toEqual(['alpha']);
+    expect(second.orchestrator.getState().droppedParticipants).toEqual([expect.objectContaining({ participantId: 'beta' })]);
   });
 
   test('recovery with nothing persisted is rejected cleanly', async () => {

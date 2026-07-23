@@ -45,6 +45,9 @@
       eventSequence: 0,
       decisions: {},        // planningDecisionId -> decision (idempotent commit)
       participantStatus: {}, // participantId -> runtime availability projection
+      configuredParticipants: [],
+      activeParticipants: [],
+      droppedParticipants: [],
       pendingInterventions: [],
       lateResponses: [],
       pausePolicy: null,
@@ -98,6 +101,15 @@
       persistence.appendEvent(event);
       deps.emit?.(type, event);
       return event;
+    }
+
+    function initializeParticipants(participants = []) {
+      state.configuredParticipants = arr(participants).map((participant) => String(participant?.participantId || '')).filter(Boolean);
+      state.droppedParticipants = state.configuredParticipants
+        .filter((participantId) => state.participantStatus[participantId]?.available === false)
+        .map((participantId) => ({ participantId, ...clone(state.participantStatus[participantId]) }));
+      const dropped = new Set(state.droppedParticipants.map((participant) => participant.participantId));
+      state.activeParticipants = state.configuredParticipants.filter((participantId) => !dropped.has(participantId));
     }
 
     // ---- Lease (§6) ----
@@ -175,7 +187,7 @@
     function buildSnapshot() {
       return {
         runId: state.runId,
-        snapshotVersion: 1,
+        snapshotVersion: 2,
         eventSequence: state.eventSequence,
         debateCase: clone(state.debateCase),
         activePlanRevisionId: revisions.getActive?.()?.revisionId || null,
@@ -188,6 +200,9 @@
         stateMapVersion: state.stateMapVersion,
         stateMap: clone(state.stateMap),
         participantStatus: clone(state.participantStatus),
+        configuredParticipants: clone(state.configuredParticipants),
+        activeParticipants: clone(state.activeParticipants),
+        droppedParticipants: clone(state.droppedParticipants),
         totalStagesExecuted: state.totalStagesExecuted,
         stagnationSignals: clone(state.stagnationSignals),
         createdAt: nowIso()
@@ -317,6 +332,7 @@
           attemptId: failure.attemptId || '',
           recordedAt: nowIso()
         };
+        initializeParticipants(state.debateCase?.participants);
         emit('PARTICIPANT_UNAVAILABLE', { participantId, ...state.participantStatus[participantId] });
       }
       const applied = [];
@@ -586,7 +602,9 @@
         stages: clone(state.stages), openGoals: clone(state.openGoals),
         events: state.events.slice(), finalization: clone(state.finalization),
         pendingHumanDecision: clone(state.pendingHumanDecision || null),
-        stateMap: clone(state.stateMap), participantStatus: clone(state.participantStatus)
+        stateMap: clone(state.stateMap), participantStatus: clone(state.participantStatus),
+        configuredParticipants: clone(state.configuredParticipants), activeParticipants: clone(state.activeParticipants),
+        droppedParticipants: clone(state.droppedParticipants)
       }),
       getOwnerId: () => ownerId,
 
@@ -600,6 +618,7 @@
         state.debateCase = clone(command.debateCase);
         state.caseVersion = Number(state.debateCase.version || 1);
         state.openGoals = clone(arr(command.debateCase.openGoals));
+        initializeParticipants(state.debateCase.participants);
         state.stateMap = clone(command.stateMap || {});
         state.stateMapVersion = 1;
         if (!revisions.getActive?.()) {
@@ -777,6 +796,11 @@
           state.stateMapVersion = snapshot.stateMapVersion;
           state.stateMap = clone(snapshot.stateMap || {});
           state.participantStatus = clone(snapshot.participantStatus || {});
+          state.configuredParticipants = clone(snapshot.configuredParticipants || []);
+          state.activeParticipants = clone(snapshot.activeParticipants || []);
+          state.droppedParticipants = clone(snapshot.droppedParticipants || []);
+          // Migration for snapshots written before participant collections existed.
+          if (!state.configuredParticipants.length) initializeParticipants(state.debateCase?.participants);
           state.openGoals = clone(snapshot.openGoals);
           state.stages = clone(snapshot.stages || snapshot.activeStages);
           state.eventSequence = snapshot.eventSequence;

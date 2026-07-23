@@ -1,5 +1,15 @@
 # CHANGELOG — Project
 
+### 2026-07-23 — Disput persisted participant collections, version 2.81.28
+
+- Orchestrator snapshot v2 хранит канонические `configuredParticipants`,
+  `activeParticipants` и `droppedParticipants`; planner и UI получают одну
+  согласованную проекцию доступности.
+- Recovery мигрирует snapshot v1 без этих полей из ранее сохранённого
+  `participantStatus`, поэтому terminal dropout не возвращает участника в
+  маршрутизацию после reload.
+- Проверка: orchestrator suite — 24 теста.
+
 ### 2026-07-23 — Disput lease fencing, version 2.81.27
 
 - Lease теперь имеет монотонный `leaseRevision` (с сохранением совместимого

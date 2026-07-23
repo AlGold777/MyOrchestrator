@@ -13,7 +13,7 @@ names the implementation, deterministic test and gate.
 | Policy-driven sequential and parallel batches | implemented | `debate-stage-executor.js` | stage-executor and partial-barrier tests | Gate A/B |
 | Artifact → StateDelta → StateMap provenance | implemented | artifact pipeline, `debate-state-delta.js`, `debate-state-map.js` | artifact-pipeline and state-delta tests | Gate B |
 | Atomic same-version parallel delta commit | implemented | `debate-case.js` | atomic-commit tests | Gate B |
-| Participant accounting and transport retry/dropout | implemented | `debate-participant-registry.js`, `debate-stage-executor.js` | participant-registry and stage-executor tests | Gate B/C |
+| Participant accounting and transport retry/dropout | implemented | `debate-participant-registry.js`, `debate-stage-executor.js`, `debate-orchestrator.js` | participant-registry, stage-executor and persisted-recovery migration tests | Gate B/C |
 | Revision-checked plan commands | partial | `debate-plan-revision.js`, `debate-run-store.js` | plan-revision tests, including persisted command-id replay | Browser recovery proof required |
 | Event replay and duplicate protection | partial | `debate-trace-store.js`, `debate-trace-schema.js` | trace tests, including semantic-ID conflict | Full replay/recovery E2E required |
 | Single-owner lease | partial | `debate-orchestrator.js` | orchestrator ownership/expiry/fenced-late-dispatch tests | Browser-level cross-context invalidation and recovery proof required |
