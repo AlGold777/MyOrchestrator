@@ -84,7 +84,30 @@
     return deepFreeze(revision);
   }
 
-  function validateCommand(command = {}, activeRevision) {
+  const invalid = (message, reasonCode) => ({ ok: false, code: 'SEMANTIC_INVALID', message, reasonCode });
+
+  function graphErrors(stages = []) {
+    const ids = new Set(stages.map((stage) => stage.plannedStageId));
+    const errors = [];
+    if (ids.size !== stages.length) errors.push({ reasonCode: 'PLANNED_STAGE_ID_DUPLICATE' });
+    stages.forEach((stage) => (stage.upstream || []).forEach((upstreamId) => {
+      if (!ids.has(upstreamId)) errors.push({ reasonCode: 'INVALID_INSERTION_POINT', plannedStageId: stage.plannedStageId, upstreamId });
+      if (upstreamId === stage.plannedStageId) errors.push({ reasonCode: 'DEPENDENCY_CYCLE', plannedStageId: stage.plannedStageId, upstreamId });
+    }));
+    const visiting = new Set(); const visited = new Set();
+    const visit = (stageId) => {
+      if (visiting.has(stageId)) { errors.push({ reasonCode: 'DEPENDENCY_CYCLE', plannedStageId: stageId }); return; }
+      if (visited.has(stageId)) return;
+      visiting.add(stageId);
+      const stage = stages.find((item) => item.plannedStageId === stageId);
+      (stage?.upstream || []).forEach(visit);
+      visiting.delete(stageId); visited.add(stageId);
+    };
+    stages.forEach((stage) => visit(stage.plannedStageId));
+    return errors;
+  }
+
+  function validateCommand(command = {}, activeRevision, context = {}) {
     // Schema validation
     if (!command.commandId) return { ok: false, code: 'SCHEMA_INVALID', message: 'commandId required' };
     if (!COMMANDS.includes(command.commandType)) return { ok: false, code: 'SCHEMA_INVALID', message: `Unknown commandType: ${command.commandType}` };
@@ -98,31 +121,54 @@
     const payload = command.payload || {};
     switch (command.commandType) {
       case 'INSERT_STAGE':
-      case 'INSERT_HUMAN_STAGE':
-        if (!payload.stage || !payload.stage.purpose) return { ok: false, code: 'SEMANTIC_INVALID', message: 'stage.purpose required' };
+      case 'INSERT_HUMAN_STAGE': {
+        if (!payload.stage || !payload.stage.purpose) return invalid('stage.purpose required', 'STAGE_PURPOSE_REQUIRED');
+        const stage = payload.stage;
+        if (stage.purpose === 'synthesis' && stage.assignmentPolicy === 'explicit_required'
+          && !(stage.participantIds || []).length) return invalid('synthesis participant required', 'SYNTHESIS_PARTICIPANT_REQUIRED');
+        if (payload.afterPlannedStageId && !(activeRevision?.plannedStages || []).some((item) => item.plannedStageId === payload.afterPlannedStageId)) {
+          return invalid('afterPlannedStageId not found', 'INVALID_INSERTION_POINT');
+        }
+        if (stage.plannedStageId && (activeRevision?.plannedStages || []).some((item) => item.plannedStageId === stage.plannedStageId)) {
+          return invalid('plannedStageId already exists', 'PLANNED_STAGE_ID_DUPLICATE');
+        }
         break;
+      }
       case 'REMOVE_PENDING_STAGE': {
         const target = (activeRevision?.plannedStages || []).find((s) => s.plannedStageId === payload.plannedStageId);
-        if (!target) return { ok: false, code: 'SEMANTIC_INVALID', message: 'plannedStageId not found' };
-        if (target.status && target.status !== 'pending') return { ok: false, code: 'SEMANTIC_INVALID', message: 'only pending stages can be removed' };
+        if (!target) return invalid('plannedStageId not found', 'PLANNED_STAGE_NOT_FOUND');
+        if (target.status && target.status !== 'pending') return invalid('only pending stages can be removed', 'STAGE_NOT_PENDING');
+        if ((context.stageHistory || []).some((stage) => stage.plannedStageId === payload.plannedStageId && ['completed', 'running', 'awaiting_participant'].includes(stage.status))) {
+          return invalid('completed or running stage cannot be removed', 'STAGE_NOT_FUTURE');
+        }
         break;
       }
       case 'CHANGE_PARTICIPANT':
-        if (!payload.stageId && !payload.fromParticipantId) return { ok: false, code: 'SEMANTIC_INVALID', message: 'target stage or participant required' };
-        if (!payload.toParticipantId) return { ok: false, code: 'SEMANTIC_INVALID', message: 'toParticipantId required' };
+        if (!payload.stageId && !payload.fromParticipantId) return invalid('target stage or participant required', 'STAGE_TARGET_REQUIRED');
+        if (!payload.toParticipantId) return invalid('toParticipantId required', 'PARTICIPANT_REQUIRED');
+        if (payload.stageId && (context.stageHistory || []).some((stage) => stage.plannedStageId === payload.stageId && ['completed', 'running', 'awaiting_participant'].includes(stage.status))) {
+          return invalid('completed or running stage cannot be changed', 'STAGE_NOT_FUTURE');
+        }
+        break;
+      case 'CHANGE_STAGE_ORDER':
+        if (!Array.isArray(payload.order) || !payload.order.length) return invalid('order required', 'ORDER_REQUIRED');
+        if (new Set(payload.order).size !== payload.order.length) return invalid('order contains duplicate stage ids', 'ORDER_DUPLICATE');
+        if (payload.order.some((stageId) => !(activeRevision?.plannedStages || []).some((stage) => stage.plannedStageId === stageId))) {
+          return invalid('order contains unknown stage', 'PLANNED_STAGE_NOT_FOUND');
+        }
         break;
       case 'ADD_CONSTRAINT':
-        if (!payload.constraint) return { ok: false, code: 'SEMANTIC_INVALID', message: 'constraint required' };
+        if (!payload.constraint) return invalid('constraint required', 'CONSTRAINT_REQUIRED');
         break;
       case 'MERGE_STAGES':
         if (!Array.isArray(payload.plannedStageIds) || payload.plannedStageIds.length < 2) {
-          return { ok: false, code: 'SEMANTIC_INVALID', message: 'MERGE_STAGES needs >= 2 stages' };
+          return invalid('MERGE_STAGES needs >= 2 stages', 'MERGE_STAGE_COUNT_INVALID');
         }
         break;
       default: break;
     }
     if (payload.runningStagePolicy && !RUNNING_STAGE_POLICIES.includes(payload.runningStagePolicy)) {
-      return { ok: false, code: 'SEMANTIC_INVALID', message: `Invalid runningStagePolicy: ${payload.runningStagePolicy}` };
+      return invalid(`Invalid runningStagePolicy: ${payload.runningStagePolicy}`, 'RUNNING_STAGE_POLICY_INVALID');
     }
     return { ok: true };
   }
@@ -172,19 +218,46 @@
           ...payload.stage
         };
         if (command.commandType === 'INSERT_HUMAN_STAGE') stage.participantType = 'human';
-        const index = Number.isInteger(payload.index) ? payload.index : stages.length;
+        const afterIndex = payload.afterPlannedStageId
+          ? stages.findIndex((item) => item.plannedStageId === payload.afterPlannedStageId)
+          : -1;
+        const index = afterIndex >= 0 ? afterIndex + 1 : (Number.isInteger(payload.index) ? payload.index : stages.length);
+        if (afterIndex >= 0) {
+          stage.upstream = Array.from(new Set([...(stage.upstream || []), payload.afterPlannedStageId]));
+          stages.forEach((downstream) => {
+            if (downstream.plannedStageId === stage.plannedStageId) return;
+            if ((downstream.upstream || []).includes(payload.afterPlannedStageId)) {
+              downstream.upstream = downstream.upstream.map((upstreamId) => upstreamId === payload.afterPlannedStageId ? stage.plannedStageId : upstreamId);
+            }
+          });
+        }
         stages.splice(index, 0, stage);
         break;
       }
       case 'REMOVE_PENDING_STAGE': {
         const index = stages.findIndex((s) => s.plannedStageId === payload.plannedStageId);
-        if (index >= 0) stages.splice(index, 1);
+        if (index >= 0) {
+          const removed = stages[index];
+          stages.forEach((downstream) => {
+            if (!(downstream.upstream || []).includes(removed.plannedStageId)) return;
+            downstream.upstream = Array.from(new Set([
+              ...downstream.upstream.filter((upstreamId) => upstreamId !== removed.plannedStageId),
+              ...(removed.upstream || [])
+            ]));
+          });
+          stages.splice(index, 1);
+        }
         break;
       }
       case 'CHANGE_STAGE_ORDER': {
         const ordered = (payload.order || []).map((id) => stages.find((s) => s.plannedStageId === id)).filter(Boolean);
         const rest = stages.filter((s) => !(payload.order || []).includes(s.plannedStageId));
         draft.plannedStages = [...ordered, ...rest];
+        if (payload.rewireDependencies === 'linear') {
+          draft.plannedStages.forEach((stage, index) => {
+            stage.upstream = index ? [draft.plannedStages[index - 1].plannedStageId] : [];
+          });
+        }
         break;
       }
       case 'CHANGE_PARTICIPANT': {
@@ -201,7 +274,7 @@
       case 'CHANGE_EXECUTION_POLICY': draft.executionPolicies.execution = payload.policyValue ?? payload.execution; break;
       case 'CHANGE_COMPLETION_POLICY': draft.executionPolicies.completion = payload.policyValue ?? payload.completion; break;
       case 'REQUEST_SYNTHESIS':
-        stages.push({ plannedStageId: payload.plannedStageId || `planned-synthesis-${draft.revisionNumber}`, purpose: 'synthesis', status: 'pending', participantIds: payload.participantIds || [], upstream: payload.upstream || [], goalIds: [] });
+        stages.push({ plannedStageId: payload.plannedStageId || `planned-synthesis-${draft.revisionNumber}`, purpose: 'synthesis', status: 'pending', participantIds: payload.participantIds || [], assignmentPolicy: payload.assignmentPolicy || 'planner_select', upstream: payload.upstream || [], goalIds: [] });
         break;
       case 'REQUEST_AUDIT':
         stages.push({ plannedStageId: payload.plannedStageId || `planned-audit-${draft.revisionNumber}`, purpose: 'audit', status: 'pending', participantIds: payload.participantIds || [], upstream: payload.upstream || [], goalIds: [] });
@@ -344,11 +417,11 @@
           return { ok: false, code: 'COMMAND_ID_REPLAY_MIXED' };
         }
         for (const command of commands) {
-          const verdict = validateCommand(command, active);
+          const verdict = validateCommand(command, active, context);
           if (!verdict.ok) {
             emit(verdict.code === 'REVISION_STALE' ? EVENTS.REVISION_STALE : EVENTS.REVISION_REJECTED,
               { commandId: command.commandId, code: verdict.code, message: verdict.message });
-            return { ok: false, code: verdict.code, message: verdict.message, commandId: command.commandId };
+            return { ok: false, code: verdict.code, reasonCode: verdict.reasonCode, message: verdict.message, commandId: command.commandId };
           }
         }
         const conflicts = detectConflicts(commands);
@@ -381,6 +454,11 @@
         } catch (error) {
           emit(EVENTS.REVISION_REJECTED, { code: 'APPLY_FAILED', message: error?.message });
           return { ok: false, code: 'APPLY_FAILED', message: error?.message };
+        }
+        const graphValidation = graphErrors(draft.plannedStages || []);
+        if (graphValidation.length) {
+          emit(EVENTS.REVISION_REJECTED, { code: 'SEMANTIC_INVALID', reasonCode: graphValidation[0].reasonCode, errors: graphValidation });
+          return { ok: false, code: 'SEMANTIC_INVALID', reasonCode: graphValidation[0].reasonCode, errors: graphValidation };
         }
         emit(EVENTS.REVISION_CREATED, { revisionId: draft.revisionId, parentRevisionId: draft.parentRevisionId });
         draft.status = STATUS.VALIDATED;
@@ -435,7 +513,7 @@
 
   const api = Object.freeze({
     SCHEMA_VERSION, STATUS, COMMANDS, EVENTS, INVALIDATION, RUNNING_STAGE_POLICIES,
-    requiresRevision, makeInitialRevision, validateCommand, detectConflicts, commandFingerprint,
+    requiresRevision, makeInitialRevision, validateCommand, detectConflicts, commandFingerprint, graphErrors,
     dependencyClosure, invalidateStages, createRevisionStore
   });
   root.DebatePlanRevision = api;

@@ -81,6 +81,7 @@
     const openQuestions = artifacts.filter((item) => item.type === 'open_question');
     const decisionCriteria = artifacts.filter((item) => item.type === 'decision_criterion');
     const dissent = artifacts.filter((item) => item.type === 'dissent' || item.status === 'dissent');
+    const workingSyntheses = artifacts.filter((item) => item.type === 'synthesis_working');
     const limitations = artifacts.filter((item) => item.status === 'accepted_as_limitation' || item.status === 'limitation');
     const evidenceGaps = artifacts.filter((item) => item.type === 'evidence_gap');
     const open = artifacts.filter(isOpen);
@@ -119,7 +120,7 @@
         awaitingHuman: pendingDecisions.length ? pendingDecisions : (protocol.triggerState.queue || []).filter((task) => task.status === 'awaiting_confirmation'),
         budget: { ...(protocol.triggerState.budget || {}) }
       } : null,
-      claims, assumptions, objections, evidence, revisions, dissent, contradictions, openQuestions, decisionCriteria, limitations, evidenceGaps, links, axes, blockers, attention, timeline, readiness: ready,
+      claims, assumptions, objections, evidence, revisions, dissent, workingSyntheses, contradictions, openQuestions, decisionCriteria, limitations, evidenceGaps, links, axes, blockers, attention, timeline, readiness: ready,
       diff: caseDiff, snapshots,
       stats: { open: open.length, blockers: blockers.length, dissent: dissent.length, contradictions: contradictions.length, openQuestions: openQuestions.length, evidenceGaps: evidenceGaps.length, claims: claims.length, evidence: evidence.length }
     });

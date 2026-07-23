@@ -19,12 +19,17 @@
     }
     return (hash >>> 0).toString(16).padStart(8, '0');
   };
-  const artifactTypeFor = (purpose) => ({
+  const artifactTypeFor = (stageOrPurpose) => {
+    const stage = stageOrPurpose && typeof stageOrPurpose === 'object' ? stageOrPurpose : {};
+    const purpose = typeof stageOrPurpose === 'object' ? stage.purpose : stageOrPurpose;
+    if (text(purpose) === 'synthesis' && text(stage.outputIntent) === 'working_synthesis') return 'synthesis_working';
+    return ({
     position: 'claim', critique: 'objection', verification: 'evidence', evidence_review: 'evidence',
     response: 'revision', contradiction_resolution: 'revision', dissent_examination: 'dissent',
     context_compaction: 'finding', synthesis: 'synthesis_conclusion', audit: 'audit',
     human_judgment: 'human_decision'
-  }[text(purpose)] || 'finding');
+    }[text(purpose)] || 'finding');
+  };
   const operationForPurpose = (purpose) => ({
     position: 'opening', critique: 'critique', verification: 'verification', evidence_review: 'verification',
     response: 'response', contradiction_resolution: 'resolve_contradiction',
@@ -82,7 +87,7 @@
       .map((raw, index) => normalizeStructuredArtifact(raw, { stage, participantId, body, index }))
       .filter(Boolean);
     if (structured.length) return Object.freeze(structured);
-    const type = artifactTypeFor(stage.purpose);
+    const type = artifactTypeFor(stage);
     const audit = type === 'audit' ? ResponseAcceptance?.parseAuditVerdict?.(body) : null;
     const targetId = type === 'audit' ? text(list(stage.inputArtifactIds)[0]) : '';
     const fingerprint = stableHash(`${stage.runId}|${stage.stageInstanceId}|${participantId}|${type}|${body}`);
@@ -131,12 +136,14 @@
     const synthesis = artifacts.findLast?.((artifact) => artifact.type === 'synthesis_conclusion')
       || artifacts.slice().reverse().find((artifact) => artifact.type === 'synthesis_conclusion');
     const currentAudits = artifacts.filter((artifact) => artifact.type === 'audit' && artifact.targetId === synthesis?.id);
+    const workingSynthesisArtifactIds = artifacts.filter((artifact) => artifact.type === 'synthesis_working').map((artifact) => artifact.id);
     const latestAudit = currentAudits.at(-1);
     const validAudit = latestAudit && latestAudit.auditVerdict === 'pass' && latestAudit.status === 'verified' ? latestAudit : null;
     return Object.freeze({
       ...projected,
       artifacts: artifactRecord,
       synthesisArtifactId: synthesis?.id || '',
+      workingSynthesisArtifactIds: Object.freeze(workingSynthesisArtifactIds),
       validAuditArtifactId: validAudit?.id || '',
       currentSynthesisAuditId: latestAudit?.id || '',
       currentSynthesisAuditVerdict: latestAudit?.auditVerdict || ''

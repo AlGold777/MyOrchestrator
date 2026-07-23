@@ -102,6 +102,11 @@ Blocking decision request входит в snapshot и planner input. Resolution 
 содержать тот же requestId и может быть привязана к expected case version и
 active plan revision. Несовпадение отклоняется до изменения состояния; отсутствие
 UI никогда не является разрешением автоматически продолжить run.
+4.11. Canvas plan boundary
+До запуска Canvas хранит DraftPlan. При start он полностью materialize-ится в
+initial PlanRevision и Planner исполняет именно эти stages. Во время PAUSED
+Canvas может менять будущие stages только через DebateApplication revision
+commands; непосредственная mutation active revision или StageStore запрещена.
 
 5. Orchestrator API
 interface DebateOrchestrator {

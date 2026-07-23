@@ -12,6 +12,8 @@
 4. [ADR-001: Universal-only cutover](ADR-001-universal-only-cutover.md) — принятое решение об отсутствии legacy fallback.
 5. [Evidence matrix](EVIDENCE-MATRIX-v3.0.md) — требование → код → тест → release gate.
 6. [Незавершённые обязательства](OPEN-ITEMS-v3.0.md) — открытые P0/P1/P2 и критерии их закрытия.
+7. [Canvas synthesis insertion v1.1](TZ-synthesis-insertion-v1.1.md) — DraftPlan,
+   materialизация графа, промежуточный synthesis и UI/revision boundary.
 
 ## Обязательная дисциплина изменений
 

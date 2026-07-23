@@ -3202,7 +3202,8 @@ document.addEventListener('click', (event) => {
                 longRoundLimits: {},
                 synthesizers: {},
                 profiles: {}
-            }
+            },
+            draftPlans: {}
         };
         let pipelineR1ManualDirty = false;
         let pipelineApplyingConfig = false;
@@ -3240,7 +3241,8 @@ document.addEventListener('click', (event) => {
                     longRoundLimits: {},
                     synthesizers: {},
                     profiles: {}
-                }
+                },
+                draftPlans: {}
             };
             if (!value || typeof value !== 'object') return base;
             const pipelines = value.pipelines && typeof value.pipelines === 'object' ? value.pipelines : {};
@@ -3256,6 +3258,7 @@ document.addEventListener('click', (event) => {
             const storedProfiles = value.overrides?.profiles && typeof value.overrides.profiles === 'object'
                 ? value.overrides.profiles
                 : {};
+            const storedDraftPlans = value.draftPlans && typeof value.draftPlans === 'object' ? value.draftPlans : {};
             if (value.overrides?.auditors && Object.keys(value.overrides.auditors).length) {
                 console.warn('[Disput migration] overrides.auditors found in stored data — ignored (auditor selector removed).');
             }
@@ -3276,7 +3279,10 @@ document.addEventListener('click', (event) => {
                     profiles: Object.fromEntries(Object.entries(storedProfiles)
                         .map(([key, value]) => [String(key || '').trim(), String(value || '').trim()])
                         .filter(([key, value]) => key && value))
-                }
+                },
+                draftPlans: Object.fromEntries(Object.entries(storedDraftPlans)
+                    .map(([key, plan]) => [String(key || '').trim(), window.DebateDraftPlan?.normalize?.(plan)])
+                    .filter(([key, plan]) => key && plan))
             };
         };
 
@@ -3300,6 +3306,7 @@ document.addEventListener('click', (event) => {
             pipelineStore.lastSaved = normalized.lastSaved;
             pipelineStore.active = normalized.active;
             pipelineStore.overrides = normalized.overrides;
+            pipelineStore.draftPlans = normalized.draftPlans;
         };
 
         const persistPipelineStore = async () => {
@@ -3309,7 +3316,8 @@ document.addEventListener('click', (event) => {
                 order: pipelineStore.order,
                 lastSaved: pipelineStore.lastSaved,
                 active: pipelineStore.active,
-                overrides: pipelineStore.overrides
+                overrides: pipelineStore.overrides,
+                draftPlans: pipelineStore.draftPlans
             };
             if (window.CompressedStorage?.set) {
                 await window.CompressedStorage.set(PIPELINE_STORAGE_KEY, payload);
@@ -3328,7 +3336,8 @@ document.addEventListener('click', (event) => {
             order: pipelineStore.order,
             lastSaved: pipelineStore.lastSaved,
             active: pipelineStore.active,
-            overrides: pipelineStore.overrides
+            overrides: pipelineStore.overrides,
+            draftPlans: pipelineStore.draftPlans
         });
 
         const PipelineRuntime = window.PipelineRuntime;
@@ -3488,7 +3497,6 @@ document.addEventListener('click', (event) => {
 
         const getPipelineProtocolConfig = () => {
             const lengthSelect = document.getElementById('debate-length-select');
-            const synthesizerSelect = document.getElementById('debate-synthesizer-select');
             const presetId = getSelectedPipelinePresetId();
             const presetMeta = window.PipelinePresets?.getPipelinePreset?.(presetId) || null;
             const activeName = String(pipelineStore.active || pipelineName?.textContent || '').trim();
@@ -3509,7 +3517,10 @@ document.addEventListener('click', (event) => {
                 length: String(lengthSelect?.value || '300'),
                 roundLimit: String(debateRoundLimitSelect?.value || '3'),
                 maxTurns: String(debateMaxTurnsInput?.value || ''),
-                synthesizer: normalizeExplicitSynthesizer(synthesizerSelect?.value),
+                // The persisted DraftPlan owns the terminal stage assignment.
+                // protocol.synthesizer is retained only as a compatibility mirror.
+                synthesizer: getDraftPlanSynthesizer(getActiveDraftPlan())
+                    || normalizeExplicitSynthesizer(activeProtocol.synthesizer),
                 serviceRoles: {},
                 reasoningBudget: Object.assign({}, window.PipelinePresets?.getPipelinePreset?.(presetId)?.reasoningBudget || {
                     class: 'standard',
@@ -3610,7 +3621,7 @@ document.addEventListener('click', (event) => {
 
         const syncSynthesizerBlocks = () => {
             if (!pipelinePanel) return;
-            const synthesizer = normalizeExplicitSynthesizer(document.getElementById('debate-synthesizer-select')?.value);
+            const synthesizer = getDraftPlanSynthesizer(draftPlanForCanvas(getActiveDraftPlan()));
             const flowLabel = getSynthesizerFlowName();
             const flowSelect = getSynthesizerFlowSelect();
             if (flowLabel) flowLabel.textContent = synthesizer || 'Synthesizer: None';
@@ -3633,30 +3644,27 @@ document.addEventListener('click', (event) => {
 
         const setSynthesisModelFromName = (modelName = '') => {
             const trimmed = normalizeExplicitSynthesizer(modelName);
-            const select = document.getElementById('debate-synthesizer-select');
             const flowSelect = getSynthesizerFlowSelect();
-            if (!select) return false;
-            if (trimmed && !Array.from(select.options || []).some((option) => option.value === trimmed)) {
-                const option = document.createElement('option');
-                option.value = trimmed;
-                option.textContent = trimmed;
-                select.appendChild(option.cloneNode(true));
-                if (flowSelect) flowSelect.appendChild(option.cloneNode(true));
+            if (!flowSelect) renderSynthesisStage();
+            const resolvedFlowSelect = getSynthesizerFlowSelect();
+            if (trimmed && !Array.from(resolvedFlowSelect?.options || []).some((option) => option.value === trimmed)) return false;
+            if (resolvedFlowSelect) resolvedFlowSelect.value = trimmed;
+            let draftPlan = draftPlanForCanvas(getActiveDraftPlan());
+            const finalStage = draftPlan.plannedStages?.find((stage) => stage.plannedStageId === 'planned-final-synthesis');
+            if (finalStage) {
+                const updated = window.DebateDraftPlan?.setStageParticipants?.(draftPlan, finalStage.plannedStageId, trimmed ? [trimmed] : []);
+                // An empty final assignment intentionally removes the final stage;
+                // explicit intermediate stages remain valid persisted data but + is gated.
+                if (updated?.ok) draftPlan = updated.plan;
+                else if (!trimmed) {
+                    draftPlan.plannedStages = draftPlan.plannedStages.filter((stage) => stage.plannedStageId !== 'planned-final-synthesis');
+                }
             }
-            select.value = trimmed;
-            if (flowSelect) flowSelect.value = trimmed;
+            persistActiveDraftPlan(draftPlan);
             const activeName = String(pipelineStore.active || pipelineName?.textContent || '').trim();
             const activeConfig = activeName ? getPipelineConfigByName(activeName) : null;
             if (activeConfig?.protocol) {
-                if (isDefaultPipelineName(activeName)) {
-                    if (!pipelineStore.overrides || typeof pipelineStore.overrides !== 'object') {
-                        pipelineStore.overrides = { longRoundLimits: {}, synthesizers: {}, profiles: {} };
-                    }
-                    if (!pipelineStore.overrides.synthesizers || typeof pipelineStore.overrides.synthesizers !== 'object') {
-                        pipelineStore.overrides.synthesizers = {};
-                    }
-                    pipelineStore.overrides.synthesizers[activeName] = trimmed;
-                } else {
+                if (!isDefaultPipelineName(activeName)) {
                     const storedConfig = pipelineStore.pipelines[activeName];
                     if (storedConfig?.protocol) storedConfig.protocol.synthesizer = trimmed;
                 }
@@ -3665,6 +3673,7 @@ document.addEventListener('click', (event) => {
             }
             syncSynthesizerBlocks();
             syncSynthesizerFlowStage();
+            renderDraftPlanCanvas?.();
             updatePipelineAll();
             return true;
         };
@@ -3812,6 +3821,69 @@ document.addEventListener('click', (event) => {
             return state;
         };
 
+        const draftPlanForCanvas = (existingPlan = null) => {
+            const rounds = [];
+            for (let round = 1; round <= roundCounter; round++) {
+                const stack = captureModelStackState(`r${round}-models`);
+                const participantIds = (stack?.items || []).filter((item) => item.send).map((item) => item.name).filter(Boolean);
+                if (!participantIds.length) continue;
+                rounds.push({
+                    plannedStageId: `canvas-r${round}`,
+                    label: round === 1 ? 'R1 Models' : `R${round} Disput`,
+                    purpose: round === 1 ? 'position' : 'response',
+                    participantIds,
+                    participantBindings: (stack?.items || []).filter((item) => item.send).map((item) => ({ participantId: item.name, promptId: item.role || null }))
+                });
+            }
+            const selectedFromExisting = (existingPlan?.plannedStages || [])
+                .find((stage) => stage.plannedStageId === 'planned-final-synthesis')?.participantIds?.[0] || '';
+            const selectedFromFlow = normalizeExplicitSynthesizer(
+                getSynthesizerFlowSelect?.()?.value || window.__pendingPipelineSynthesizer
+            );
+            let plan = window.DebateDraftPlan?.createCanvasPlan?.({
+                planId: `canvas-${String(pipelineStore.active || 'unsaved').replace(/[^a-z0-9_-]+/gi, '-')}`,
+                revision: Number(existingPlan?.revision || 0),
+                rounds,
+                synthesizer: selectedFromExisting || selectedFromFlow
+            }) || { plannedStages: [] };
+            // Reapply explicitly authored intermediate stages after rebuilding
+            // Canvas-owned stages, preserving their IDs and assignments.
+            (existingPlan?.plannedStages || []).filter((stage) => stage.outputIntent === 'working_synthesis').forEach((stage) => {
+                const inserted = window.DebateDraftPlan?.insertSynthesis?.(plan, {
+                    afterPlannedStageId: stage.upstream?.[0], participantIds: stage.participantIds, plannedStageId: stage.plannedStageId
+                });
+                if (inserted?.ok) plan = inserted.plan;
+            });
+            return plan;
+        };
+
+        const draftPlanStorageKey = () => String(pipelineStore.active || pipelineName?.textContent || 'unsaved').trim() || 'unsaved';
+        const getActiveDraftPlan = () => pipelineStore.draftPlans?.[draftPlanStorageKey()]
+            || getPipelineConfigByName(draftPlanStorageKey())?.draftPlan
+            || null;
+        const persistActiveDraftPlan = (plan) => {
+            const normalized = window.DebateDraftPlan?.normalize?.(plan);
+            if (!normalized) return false;
+            const key = draftPlanStorageKey();
+            if (!pipelineStore.draftPlans || typeof pipelineStore.draftPlans !== 'object') pipelineStore.draftPlans = {};
+            pipelineStore.draftPlans[key] = normalized;
+            const storedConfig = pipelineStore.pipelines?.[key];
+            if (storedConfig) {
+                storedConfig.draftPlan = normalized;
+                if (storedConfig.protocol) storedConfig.protocol.synthesizer = getDraftPlanSynthesizer(normalized);
+            }
+            persistPipelineStore();
+            return true;
+        };
+
+        const getDraftPlanSynthesizer = (plan = null) => normalizeExplicitSynthesizer(
+            (plan?.plannedStages || []).find((stage) => stage.plannedStageId === 'planned-final-synthesis')?.participantIds?.[0]
+        );
+        window.__pipelineDraftPlanForCanvas = draftPlanForCanvas;
+        window.__getActivePipelineDraftPlan = getActiveDraftPlan;
+        window.__persistActivePipelineDraftPlan = persistActiveDraftPlan;
+        window.__getDraftPlanSynthesizer = getDraftPlanSynthesizer;
+
         const capturePipelineConfig = () => {
             const modelStacks = {
                 'r1-models': captureModelStackState('r1-models')
@@ -3820,9 +3892,11 @@ document.addEventListener('click', (event) => {
                 modelStacks[`r${r}-models`] = captureModelStackState(`r${r}-models`);
             }
 
+            const draftPlan = draftPlanForCanvas(getActiveDraftPlan());
             return {
                 version: 3,
-                protocol: getPipelineProtocolConfig(),
+                protocol: { ...getPipelineProtocolConfig(), synthesizer: getDraftPlanSynthesizer(draftPlan) },
+                draftPlan,
                 roundCounter,
                 modelStacks,
                 outputStack: captureOutputStackState('output-stack')
@@ -5634,7 +5708,8 @@ document.addEventListener('click', (event) => {
                 return false;
             }
             const presetConfig = buildPipelinePresetRuntimeConfig(presetId);
-            const selectedSynthesizer = normalizeExplicitSynthesizer(debateSynthesizerSelect?.value);
+            const draftPlan = draftPlanForCanvas(getActiveDraftPlan());
+            const selectedSynthesizer = getDraftPlanSynthesizer(draftPlan);
             const selectedModelsForValidation = getSelectedLLMs();
             const capabilityVerdict = window.DebateCapabilityRegistry?.validateRequirements?.({
                 models: selectedModelsForValidation,
@@ -5723,7 +5798,8 @@ document.addEventListener('click', (event) => {
                         problemSpec,
                         taskContract,
                         selectedModels: selectedModels.slice(),
-                        synthesizer
+                        synthesizer,
+                        draftPlan
                     },
                     moderatorEntryText,
                     pipelineNameText,
@@ -5745,6 +5821,7 @@ document.addEventListener('click', (event) => {
                     useApiFallback,
                     selectedModels,
                     synthesizer,
+                    draftPlan,
                     maxWords: getDebateMaxWords(),
                     auto: compiledRunPolicy === 'auto',
                     isPaused: () => debatePaused,
@@ -6004,8 +6081,8 @@ document.addEventListener('click', (event) => {
                     <div class="connector-group" data-round="${roundCounter}">
                         <svg class="connector-svg" id="svg-r${currentLastJudge}-r${roundCounter}"></svg>
                     </div>
-                    <div class="stage-column" id="round${roundCounter}" data-round="${roundCounter}">
-                        <div class="stage-label"><span class="round-badge">R${roundCounter}</span> Disput <button type="button" class="pipeline-round-delete-btn" title="Delete round" aria-label="Delete round" hidden>×</button></div>
+                    <div class="stage-column" id="round${roundCounter}" data-round="${roundCounter}" data-planned-stage-id="canvas-r${roundCounter}">
+                        <div class="stage-header-row"><div class="stage-label"><span class="round-badge">R${roundCounter}</span> Disput <button type="button" class="pipeline-round-delete-btn" title="Delete round" aria-label="Delete round" hidden>×</button></div><button type="button" class="pipeline-stage-insert" data-after-stage-id="canvas-r${roundCounter}" aria-label="Add stage after R${roundCounter} Disput" title="Add stage" disabled>+</button></div>
                         <div class="model-stack" id="r${roundCounter}-models">
                             ${judgeBlocksHtml}
                         </div>
@@ -6062,7 +6139,6 @@ document.addEventListener('click', (event) => {
             if (protocol) {
                 if (typeof window.setDebateSchemeValue === 'function') window.setDebateSchemeValue('universal');
                 const lengthSelect = document.getElementById('debate-length-select');
-                const synthesizerSelect = document.getElementById('debate-synthesizer-select');
                 if (debateRunPolicySelect && (protocol.runPolicy === 'auto' || protocol.runPolicy === 'manual')) {
                     debateRunPolicySelect.value = protocol.runPolicy;
                     delete debateRunPolicySelect.dataset.explicitOverride;
@@ -6088,13 +6164,7 @@ document.addEventListener('click', (event) => {
                         ? protocol.serviceRoles.extractor
                         : '');
                 const persistedSynthesizer = normalizeExplicitSynthesizer(persistedSynthesizerRaw);
-                if (synthesizerSelect && hasPersistedSynthesizer) {
-                    if (Array.from(synthesizerSelect.options || []).some((option) => option.value === persistedSynthesizer)) {
-                        synthesizerSelect.value = persistedSynthesizer;
-                    } else {
-                        synthesizerSelect.dataset.pendingPipelineValue = persistedSynthesizer;
-                    }
-                }
+                if (hasPersistedSynthesizer) window.__pendingPipelineSynthesizer = persistedSynthesizer;
                 if (protocol.serviceRoles?.auditor) {
                     console.warn('[Disput migration] Loaded pipeline config contains serviceRoles.auditor — ignored (auditor selector removed).');
                 }
@@ -6124,6 +6194,11 @@ document.addEventListener('click', (event) => {
             if (debateMaxTurnsInput) debateMaxTurnsInput.value = String(debateRunState.maxTurns);
             syncPipelineRoundModelsFromSelectedLLMs({ force: true });
             syncPipelineRoundsToDebateLimit();
+            if (window.__pendingPipelineSynthesizer !== undefined) {
+                const restoredPlan = draftPlanForCanvas(getActiveDraftPlan());
+                persistActiveDraftPlan(restoredPlan);
+                delete window.__pendingPipelineSynthesizer;
+            }
             window.syncDebateSchemeUi?.();
             if (protocol?.scheme === 'free') {
                 if (synthesisColumn) { synthesisColumn.hidden = false; synthesisColumn.setAttribute('aria-hidden', 'false'); }
@@ -17903,7 +17978,6 @@ function checkCompareButtonState() {
     const debateDirectionIcon = document.getElementById('direction-icon');
     var debateModMessageBody = document.getElementById('mod-message-body');
     const debateMiniPrompts = document.getElementById('mod-mini-prompts');
-    var debateSynthesizerSelect = document.getElementById('debate-synthesizer-select');
     function normalizeExplicitSynthesizer(value) {
         const normalized = String(value || '').trim();
         return normalized.toLowerCase() === 'auto' ? '' : normalized;
@@ -17968,8 +18042,9 @@ function checkCompareButtonState() {
     }
     function renderSynthesisStage() {
         if (!synthesisStack) return;
-        const activeSelect = debateSynthesizerSelect;
-        const current = normalizeExplicitSynthesizer(activeSelect?.value);
+        const current = normalizeExplicitSynthesizer(window.__getDraftPlanSynthesizer?.(
+            window.__pipelineDraftPlanForCanvas?.(window.__getActivePipelineDraftPlan?.())
+        ));
         const emptyLabel = 'Synthesizer: None';
         const inspectLabel = 'Inspect synthesis stage';
         const flowSelectId = 'synthesis-flow-select';
@@ -18002,10 +18077,127 @@ function checkCompareButtonState() {
             block.classList.toggle('selected-synthesizer', !!current);
             block.title = current ? `Final synthesizer: ${current}` : 'Select a synthesizer model';
         }
+        renderDraftPlanCanvas();
     }
+
+    function activeDraftPlanForCanvas() {
+        return window.__pipelineDraftPlanForCanvas?.(window.__getActivePipelineDraftPlan?.()) || { plannedStages: [] };
+    }
+    function syncStageInsertControls(plan = activeDraftPlanForCanvas()) {
+        const lifecycle = String(window.DebateApplication?.getState?.()?.lifecycle || 'IDLE').toUpperCase();
+        const editable = !['PLANNING', 'RUNNING', 'CANCELLING'].includes(lifecycle);
+        const enabled = !!window.__getDraftPlanSynthesizer?.(plan) && editable;
+        pipelinePanel?.querySelectorAll('.pipeline-stage-insert').forEach((button) => {
+            button.disabled = !enabled;
+            button.title = !editable ? 'Stages can be changed before a run or while it is paused'
+                : enabled ? 'Add synthesis stage' : 'Select a synthesizer to add intermediate stages';
+        });
+        pipelinePanel?.querySelectorAll('.pipeline-stage-remove, .pipeline-stage-synthesis-select').forEach((control) => {
+            control.disabled = !editable;
+        });
+    }
+    function stageOptionsHtml(selected = '') {
+        return getAllModelNames().map((model) => `<option value="${escapeHtml(model)}"${model === selected ? ' selected' : ''}>${escapeHtml(model)}</option>`).join('');
+    }
+    function renderDraftPlanCanvas() {
+        if (!pipelinePanel || !window.DebateDraftPlan) return;
+        const plan = activeDraftPlanForCanvas();
+        pipelinePanel.querySelectorAll('.pipeline-intermediate-synthesis, .pipeline-intermediate-connector').forEach((element) => element.remove());
+        (plan.plannedStages || []).filter((stage) => stage.outputIntent === 'working_synthesis').forEach((stage) => {
+            const afterId = stage.upstream?.[0];
+            const source = Array.from(pipelinePanel.querySelectorAll('[data-planned-stage-id]'))
+                .find((element) => element.dataset.plannedStageId === afterId);
+            if (!source) return;
+            const participant = stage.participantIds?.[0] || '';
+            source.insertAdjacentHTML('afterend', `
+                <div class="connector-group pipeline-intermediate-connector" aria-hidden="true"><svg class="connector-svg"></svg></div>
+                <div class="stage-column pipeline-intermediate-synthesis" data-planned-stage-id="${escapeHtml(stage.plannedStageId)}">
+                    <div class="stage-header-row"><div class="stage-label"><span class="round-badge">S</span> Synthesis</div><button type="button" class="pipeline-stage-insert" data-after-stage-id="${escapeHtml(stage.plannedStageId)}" aria-label="Add stage after Synthesis" title="Add stage">+</button></div>
+                    <div class="model-stack"><div class="model-block active"><div class="model-header"><span class="status-indicator" aria-hidden="true"></span><span class="model-name">${escapeHtml(participant || 'Select model')}</span><button type="button" class="pipeline-stage-remove" data-planned-stage-id="${escapeHtml(stage.plannedStageId)}" aria-label="Remove synthesis stage" title="Remove stage">×</button></div><select class="pipeline-stage-synthesis-select" data-planned-stage-id="${escapeHtml(stage.plannedStageId)}" aria-label="Synthesis model">${stageOptionsHtml(participant)}</select></div></div>
+                </div>
+            `);
+        });
+        syncStageInsertControls(plan);
+    }
+    function closeStageInsertMenus() {
+        pipelinePanel?.querySelectorAll('.pipeline-stage-insert-menu').forEach((menu) => menu.remove());
+    }
+    function openStageInsertMenu(button) {
+        closeStageInsertMenus();
+        if (!button || button.disabled) return;
+        const menu = document.createElement('div');
+        menu.className = 'pipeline-stage-insert-menu';
+        menu.innerHTML = '<button type="button" data-action="insert-synthesis">Add stage: Synthesis</button>';
+        button.after(menu);
+        menu.querySelector('[data-action="insert-synthesis"]')?.addEventListener('click', async () => {
+            const plan = activeDraftPlanForCanvas();
+            const result = window.DebateDraftPlan.insertSynthesis(plan, {
+                afterPlannedStageId: button.dataset.afterStageId,
+                participantIds: [window.__getDraftPlanSynthesizer?.(plan)]
+            });
+            if (!result.ok) {
+                showNotification(result.reasonCode || 'Cannot insert synthesis stage.', 'warn');
+                return;
+            }
+            if (String(window.DebateApplication?.getState?.()?.lifecycle || '').toUpperCase() === 'PAUSED') {
+                const stage = result.plan.plannedStages.find((item) => item.plannedStageId !== button.dataset.afterStageId
+                    && item.outputIntent === 'working_synthesis'
+                    && !(plan.plannedStages || []).some((previous) => previous.plannedStageId === item.plannedStageId));
+                const revision = await window.DebateApplication.insertStage(stage, { afterPlannedStageId: button.dataset.afterStageId });
+                if (!revision?.ok) { showNotification(revision?.reasonCode || revision?.code || 'Stage revision rejected.', 'warn'); return; }
+            }
+            window.__persistActivePipelineDraftPlan?.(result.plan);
+            closeStageInsertMenus();
+            renderDraftPlanCanvas();
+            updatePipelineAll();
+        });
+    }
+    pipelinePanel?.addEventListener('click', async (event) => {
+        const insert = event.target.closest('.pipeline-stage-insert');
+        if (insert) { event.preventDefault(); openStageInsertMenu(insert); return; }
+        const remove = event.target.closest('.pipeline-stage-remove');
+        if (!remove) return;
+        const plan = activeDraftPlanForCanvas();
+        const target = plan.plannedStages.find((stage) => stage.plannedStageId === remove.dataset.plannedStageId);
+        if (!target || target.outputIntent !== 'working_synthesis') return;
+        const next = JSON.parse(JSON.stringify(plan));
+        next.plannedStages.forEach((stage) => {
+            if ((stage.upstream || []).includes(target.plannedStageId)) {
+                stage.upstream = [...stage.upstream.filter((id) => id !== target.plannedStageId), ...(target.upstream || [])];
+            }
+        });
+        next.plannedStages = next.plannedStages.filter((stage) => stage.plannedStageId !== target.plannedStageId);
+        if (String(window.DebateApplication?.getState?.()?.lifecycle || '').toUpperCase() === 'PAUSED') {
+            const revision = await window.DebateApplication.removePlannedStage(target.plannedStageId);
+            if (!revision?.ok) { showNotification(revision?.reasonCode || revision?.code || 'Stage revision rejected.', 'warn'); return; }
+        }
+        window.__persistActivePipelineDraftPlan?.(next);
+        renderDraftPlanCanvas();
+        updatePipelineAll();
+    });
+    pipelinePanel?.addEventListener('change', async (event) => {
+        const select = event.target.closest('.pipeline-stage-synthesis-select');
+        if (!select) return;
+        const plan = activeDraftPlanForCanvas();
+        const result = window.DebateDraftPlan.setStageParticipants(plan, select.dataset.plannedStageId, [select.value]);
+        if (!result.ok) { showNotification(result.reasonCode || 'Cannot update synthesis stage.', 'warn'); return; }
+        if (String(window.DebateApplication?.getState?.()?.lifecycle || '').toUpperCase() === 'PAUSED') {
+            const previous = plan.plannedStages.find((stage) => stage.plannedStageId === select.dataset.plannedStageId)?.participantIds?.[0] || '';
+            const revision = await window.DebateApplication.changeParticipant({
+                stageId: select.dataset.plannedStageId,
+                fromParticipantId: previous,
+                toParticipantId: select.value
+            });
+            if (!revision?.ok) { showNotification(revision?.reasonCode || revision?.code || 'Stage revision rejected.', 'warn'); return; }
+        }
+        window.__persistActivePipelineDraftPlan?.(result.plan);
+        renderDraftPlanCanvas();
+    });
     function syncSynthesizerFlowStage() {
         if (!synthesisStack) return;
-        const current = normalizeExplicitSynthesizer(debateSynthesizerSelect?.value);
+        const current = normalizeExplicitSynthesizer(window.__getDraftPlanSynthesizer?.(
+            window.__pipelineDraftPlanForCanvas?.(window.__getActivePipelineDraftPlan?.())
+        ));
         const label = getSynthesizerFlowName();
         const flowSelect = getSynthesizerFlowSelect();
         const block = synthesisStack.querySelector('.pipeline-synthesis-block');
@@ -18017,42 +18209,8 @@ function checkCompareButtonState() {
         }
     }
     function populateSynthesizerSelect() {
-        if (!debateSynthesizerSelect) {
-            renderSynthesisStage();
-            return;
-        }
-        const previousSynthesizer = normalizeExplicitSynthesizer(debateSynthesizerSelect.value);
-        const models = getAllModelNames();
-        const flowSelect = getSynthesizerFlowSelect();
-        debateSynthesizerSelect.replaceChildren();
-        if (flowSelect) flowSelect.replaceChildren();
-        const noneOption = document.createElement('option');
-        noneOption.value = '';
-        noneOption.textContent = 'Synthesizer: None';
-        debateSynthesizerSelect.appendChild(noneOption.cloneNode(true));
-        if (flowSelect) flowSelect.appendChild(noneOption.cloneNode(true));
-        models.forEach((modelName) => {
-            const option = document.createElement('option');
-            option.value = modelName;
-            option.textContent = modelName;
-            debateSynthesizerSelect.appendChild(option.cloneNode(true));
-            if (flowSelect) flowSelect.appendChild(option.cloneNode(true));
-        });
-        const pendingSynthesizer = normalizeExplicitSynthesizer(debateSynthesizerSelect.dataset.pendingPipelineValue);
-        const resolvedSynthesizer = models.includes(pendingSynthesizer) || pendingSynthesizer === ''
-            ? pendingSynthesizer
-            : models.includes(previousSynthesizer) || previousSynthesizer === ''
-            ? previousSynthesizer
-            : '';
-        const flowPending = normalizeExplicitSynthesizer(flowSelect?.dataset.pendingPipelineValue);
-        const resolvedFlow = models.includes(flowPending) || flowPending === ''
-            ? flowPending || resolvedSynthesizer
-            : resolvedSynthesizer;
-        debateSynthesizerSelect.value = resolvedSynthesizer;
-        if (flowSelect) flowSelect.value = resolvedFlow;
-        delete debateSynthesizerSelect.dataset.pendingPipelineValue;
-        if (flowSelect) delete flowSelect.dataset.pendingPipelineValue;
-        if (flowSelect) flowSelect.value = String(debateSynthesizerSelect.value || '');
+        // The Canvas select is recreated from the persisted DraftPlan, so it
+        // cannot retain a second, hidden source of state.
         renderSynthesisStage();
     }
     function syncDebateSchemeUi() {
@@ -18065,12 +18223,11 @@ function checkCompareButtonState() {
         // terminal synthesis stage. This must win over the transient startup
         // round-limit value, otherwise reload hides the restored block when
         // the saved configuration uses an open-ended/infinite limit.
-        const hasExplicitSynthesizer = !!normalizeExplicitSynthesizer(debateSynthesizerSelect?.value);
+        const hasExplicitSynthesizer = !!normalizeExplicitSynthesizer(window.__getDraftPlanSynthesizer?.(
+            window.__pipelineDraftPlanForCanvas?.(window.__getActivePipelineDraftPlan?.())
+        ));
         const shouldRenderSynthesisStage = usesSynthesisStage || hasExplicitSynthesizer;
         const runActive = !!pipelineRunActive || ['planning', 'running', 'paused', 'cancelling'].includes(String(window.DebateApplication?.getState?.()?.lifecycle || ''));
-        if (debateSynthesizerSelect) {
-            debateSynthesizerSelect.disabled = runActive;
-        }
         const roundLimitControl = debateRoundLimitSelect?.closest?.('.debate-select-wrap') || debateRoundLimitSelect || null;
         const showRoundLimitControl = shouldShowDebateRoundLimitControl();
         if (roundLimitControl) {
@@ -18095,7 +18252,9 @@ function checkCompareButtonState() {
         document.querySelectorAll('.registry-capable').forEach((el) => { el.hidden = false; el.setAttribute('aria-hidden', 'false'); });
         renderSynthesisStage();
         const currentFlowSelect = getSynthesizerFlowSelect();
-        const activeSynthesisValue = String(debateSynthesizerSelect?.value || '').trim();
+        const activeSynthesisValue = String(window.__getDraftPlanSynthesizer?.(
+            window.__pipelineDraftPlanForCanvas?.(window.__getActivePipelineDraftPlan?.())
+        ) || '').trim();
         if (currentFlowSelect && currentFlowSelect.value !== activeSynthesisValue) {
             currentFlowSelect.value = activeSynthesisValue;
         }

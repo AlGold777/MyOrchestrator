@@ -347,6 +347,14 @@ body.is-resizing {
     align-items: center;
 }
 
+.stage-header-row {
+    position: relative;
+    display: flex;
+    align-items: center;
+    min-height: 26px;
+    width: 100%;
+}
+
 .stage-label {
     font-size: 10px;
     font-weight: 600;
@@ -357,6 +365,87 @@ body.is-resizing {
     display: flex;
     align-items: center;
     gap: 6px;
+}
+
+.stage-header-row .stage-label {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.pipeline-stage-insert {
+    position: absolute;
+    right: -12px;
+    top: 50%;
+    transform: translate(50%, -50%);
+    z-index: 3;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border-radius: 50%;
+    border: 1px solid var(--pipeline-border);
+    color: var(--pipeline-muted);
+    background: var(--pipeline-surface, #fff);
+    font-size: 17px;
+    line-height: 20px;
+    opacity: .42;
+    cursor: pointer;
+}
+
+.pipeline-stage-insert:hover,
+.pipeline-stage-insert:focus-visible {
+    opacity: 1;
+    color: #fff;
+    background: var(--pipeline-blue);
+    border-color: var(--pipeline-blue);
+    outline: none;
+}
+
+.pipeline-stage-insert:disabled {
+    opacity: .18;
+    cursor: not-allowed;
+}
+
+.pipeline-stage-insert-menu {
+    position: absolute;
+    z-index: 10;
+    margin-top: 24px;
+    padding: 4px;
+    border: 1px solid var(--pipeline-border);
+    border-radius: 6px;
+    background: var(--pipeline-surface, #fff);
+    box-shadow: 0 6px 18px rgba(15, 23, 42, .16);
+    white-space: nowrap;
+}
+
+.pipeline-stage-insert-menu button {
+    border: 0;
+    background: transparent;
+    color: var(--pipeline-text, #172033);
+    cursor: pointer;
+    padding: 5px 7px;
+    font: inherit;
+}
+
+.pipeline-stage-insert-menu button:hover,
+.pipeline-stage-insert-menu button:focus-visible {
+    background: var(--pipeline-blue-soft);
+}
+
+.pipeline-stage-remove {
+    margin-left: auto;
+    border: 0;
+    color: #b91c1c;
+    background: transparent;
+    cursor: pointer;
+}
+
+.pipeline-intermediate-synthesis .model-stack {
+    min-width: 170px;
+}
+
+.pipeline-intermediate-synthesis .pipeline-stage-synthesis-select {
+    width: 100%;
+    margin-top: 6px;
 }
 
 .round-filter-chip {

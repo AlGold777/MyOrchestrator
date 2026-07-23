@@ -302,7 +302,8 @@
           purpose: proposed.purpose,
           participants: arr(proposed.participantIds).map((id) => {
             const definition = arr(state.debateCase?.participants).find((p) => p.participantId === id);
-            return { participantId: id, type: definition?.type || 'llm', model: definition?.model || id };
+            const binding = arr(proposed.participantBindings).find((item) => item?.participantId === id) || {};
+            return { participantId: id, type: definition?.type || 'llm', model: definition?.model || id, promptId: binding.promptId || null };
           }),
           inputArtifactIds: arr(proposed.inputArtifactIds),
           expectedOutputs: arr(proposed.expectedArtifactTypes),
@@ -773,7 +774,7 @@
       // Plan revision activation (§17): delegates to revision store, then invalidates + replans.
       async activatePlanRevision(commandOrCommands, context = {}) {
         const activeStages = state.stages.filter((s) => ['pending', 'running', 'awaiting_participant'].includes(s.status));
-        const result = revisions.submit(commandOrCommands, { ...context, activeStages });
+        const result = revisions.submit(commandOrCommands, { ...context, activeStages, stageHistory: state.stages });
         if (!result.ok) {
           emit('PLAN_REVISION_REJECTED', { code: result.code });
           return result;

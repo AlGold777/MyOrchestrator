@@ -6,7 +6,7 @@
   const ARTIFACT_TYPES = Object.freeze([
     'claim', 'assumption', 'objection', 'evidence', 'revision', 'axis_verdict',
     'dissent', 'human_decision', 'limitation', 'evidence_gap', 'contradiction',
-    'open_question', 'decision_criterion', 'synthesis_conclusion', 'audit', 'source', 'finding'
+    'open_question', 'decision_criterion', 'synthesis_working', 'synthesis_conclusion', 'audit', 'source', 'finding'
   ]);
   const ARTIFACT_STATUSES = Object.freeze([
     'proposed', 'open', 'raised', 'asserted', 'contested', 'disputed', 'clarifying',

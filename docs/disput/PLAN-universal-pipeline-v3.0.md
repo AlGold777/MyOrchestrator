@@ -75,6 +75,11 @@ Acceptance evidence: application, run-store, transition, cancellation and UI lif
   unavailable assigned participant produces a typed `WAIT`, never silent
   reassignment.
 - Completed planned stages are deduplicated against persisted stage history.
+- Canvas materializes its generic R1/R2/… stages into a persisted DraftPlan;
+  that DraftPlan is the initial PlanRevision, rather than a visual-only graph.
+- Inserting intermediate synthesis atomically rewires its dependency edge;
+  it emits `synthesis_working` and cannot overwrite final synthesis StateMap
+  state. Paused Canvas edits use revision commands with concurrency checks.
 - Orchestrator owns stage lifecycle and budgets.
 - Executor supports sequential and parallel dispatch.
 - Participant attempts use bounded retry and explicit acceptance.
@@ -101,6 +106,8 @@ Acceptance evidence: artifact pipeline, StateDelta, DebateCase and StateMap test
 - When an active plan contains synthesis, Planner suppresses the independently
   derived `produce_synthesis` path.
 - Synthesis creates an artifact with a unique ID.
+- Working synthesis artifacts are distinct from terminal synthesis artifacts;
+  only `synthesis_conclusion` can become the StateMap final pointer.
 - Audit targets that exact ID.
 - Audit issues schedule correction.
 - Correction creates a new ID and requires another audit.
@@ -114,6 +121,8 @@ Acceptance evidence: synthesis audit loop, terminal evidence and production wiri
 - Custom pipeline builder selects participants, policy, stage budget, output length and optional synthesizer.
 - No UI control selects a fixed conversation shape.
 - Synthesis is shown as a universal stage.
+- The panel-header synthesis selector is removed. Canvas DraftPlan is the sole
+  authoring state; legacy selector values are migration input only.
 - Message routing controls (sender, direction and receiver) live in the message
   header; pipeline settings do not contain a moderator-role dropdown.
 - Universal default starts with exactly two active participants; additional

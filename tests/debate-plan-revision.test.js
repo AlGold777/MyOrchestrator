@@ -62,6 +62,28 @@ describe('Plan Revision Specification v1.0', () => {
     expect(good.revision.plannedStages).toHaveLength(0);
   });
 
+  test('INSERT_STAGE afterPlannedStageId rewires the dependency graph', () => {
+    const store = makeStore();
+    const first = store.submit(command('INSERT_STAGE', { stage: { purpose: 'position', plannedStageId: 'a' } }));
+    const second = store.submit(command('INSERT_STAGE', { stage: { purpose: 'response', plannedStageId: 'b', upstream: ['a'] } }, { expectedRevisionId: first.revision.revisionId }));
+    const result = store.submit(command('INSERT_STAGE', {
+      afterPlannedStageId: 'a',
+      stage: { purpose: 'synthesis', plannedStageId: 's', participantIds: ['Claude'], assignmentPolicy: 'explicit_required' }
+    }, { expectedRevisionId: second.revision.revisionId }));
+    expect(result.ok).toBe(true);
+    expect(result.revision.plannedStages.map((stage) => stage.plannedStageId)).toEqual(['a', 's', 'b']);
+    expect(result.revision.plannedStages.find((stage) => stage.plannedStageId === 's').upstream).toEqual(['a']);
+    expect(result.revision.plannedStages.find((stage) => stage.plannedStageId === 'b').upstream).toEqual(['s']);
+  });
+
+  test('invalid insertion point and explicit empty synthesis return typed semantic errors', () => {
+    const store = makeStore();
+    const missing = store.submit(command('INSERT_STAGE', { afterPlannedStageId: 'missing', stage: { purpose: 'synthesis', participantIds: ['Claude'], assignmentPolicy: 'explicit_required' } }));
+    expect(missing).toMatchObject({ ok: false, code: 'SEMANTIC_INVALID', reasonCode: 'INVALID_INSERTION_POINT' });
+    const empty = store.submit(command('INSERT_STAGE', { stage: { purpose: 'synthesis', assignmentPolicy: 'explicit_required' } }));
+    expect(empty).toMatchObject({ ok: false, code: 'SEMANTIC_INVALID', reasonCode: 'SYNTHESIS_PARTICIPANT_REQUIRED' });
+  });
+
   test('conflicting commands in one batch are rejected atomically', () => {
     const store = makeStore();
     const setup = store.submit(command('INSERT_STAGE', { stage: { purpose: 'critique', plannedStageId: 'ps-1' } }));

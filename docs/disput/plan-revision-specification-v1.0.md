@@ -121,8 +121,17 @@ Automation.
 7.1 INSERT_STAGE
 Добавить новую Stage.
 
+Для insertion after stage команда содержит `afterPlannedStageId`. Новая stage
+получает dependency на указанную stage, а все её непосредственные downstream
+stages переподключаются к новой stage в той же revision. Валидация отклоняет
+неизвестный insertion point, duplicate ID и dependency cycle.
+
 7.2 REMOVE_PENDING_STAGE
 Удалить ещё не начавшуюся Stage.
+
+Удаление разрешено только для будущей stage. Downstream dependencies
+переподключаются на upstream удаляемой stage; completed/running/awaiting stage
+не может быть удалена или изменена.
 
 7.3 CHANGE_STAGE_ORDER
 Изменить порядок выполнения.

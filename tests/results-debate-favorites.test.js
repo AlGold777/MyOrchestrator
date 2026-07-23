@@ -164,11 +164,6 @@ function renderDebateDom() {
         <option value="500" selected>500</option>
         <option value="700">700</option>
       </select>
-      <select id="debate-synthesizer-select">
-        <option value="">Synthesizer: None</option>
-        <option value="Claude">Claude</option>
-        <option value="GPT">GPT</option>
-      </select>
       <button id="debate-auto-toggle-btn" type="button">Auto off</button>
       <input id="auto-checkbox" type="checkbox" hidden aria-hidden="true">
       <input id="new-pages-checkbox" type="checkbox" checked>
@@ -386,6 +381,7 @@ async function loadResultsScript() {
   window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-execution-context.js'), 'utf8'));
   window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-stage-types.js'), 'utf8'));
   window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-policies.js'), 'utf8'));
+  window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-draft-plan.js'), 'utf8'));
   window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-plan-revision.js'), 'utf8'));
   window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-planner.js'), 'utf8'));
   window.eval(fs.readFileSync(path.join(__dirname, '..', 'disput', 'debate-participant-registry.js'), 'utf8'));
@@ -1067,7 +1063,7 @@ describe('Pipeline debate favorites view', () => {
 
   test('pipeline runtime snapshot stores universal configuration', () => {
     document.getElementById('debate-run-policy-select').value = 'auto';
-    document.getElementById('debate-synthesizer-select').value = 'Claude';
+    window.setSynthesisModelFromName('Claude');
     document.querySelectorAll('.llm-button').forEach((button) => {
       button.classList.toggle('active', ['llm-gpt', 'llm-claude', 'llm-gemini'].includes(button.id));
     });
@@ -1101,9 +1097,8 @@ describe('Pipeline debate favorites view', () => {
 
   test('explicit synthesizer remains visible after an infinite-limit reload state', () => {
     const roundLimit = document.getElementById('debate-round-limit-select');
-    const synthesizer = document.getElementById('debate-synthesizer-select');
     roundLimit.value = 'infinite';
-    synthesizer.value = 'Claude';
+    window.setSynthesisModelFromName('Claude');
     window.syncDebateSchemeUi();
 
     expect(document.getElementById('synthesisColumn').hidden).toBe(false);

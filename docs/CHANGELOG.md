@@ -1,5 +1,21 @@
 # CHANGELOG — Project
 
+### 2026-07-23 — Materialize Canvas DraftPlan and synthesis graph, version 2.81.39
+
+- Canvas R1/R2/… теперь сохраняются как generic `DraftPlan` и становятся
+  initial immutable `PlanRevision`; Planner/Orchestrator исполняют именно этот
+  граф, включая participant prompt bindings.
+- `+` создаёт explicit intermediate synthesis с атомарным dependency rewiring;
+  рабочий synthesis имеет отдельный artifact type и не может стать final
+  StateMap synthesis.
+- В pause Canvas insert/remove/change participant проходит только через
+  revision-команды с optimistic concurrency и future-stage validation.
+- Удалён скрытый `panel-header` selector Synthesizer. Canvas final stage —
+  единственный authoring state; legacy selector overrides читаются только при
+  миграции старых настроек.
+- Добавлены DraftPlan, binding propagation, graph cycle и working-synthesis
+  regressions; актуализированы contracts, evidence matrix и карта Disput docs.
+
 ### 2026-07-23 — Execute planned stages and honor explicit synthesizer, version 2.81.38
 
 - `activePlanRevision.plannedStages` подключён к Planner/Orchestrator:

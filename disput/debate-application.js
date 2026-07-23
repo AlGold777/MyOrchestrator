@@ -5,6 +5,7 @@
   const RunStore = root.DebateRunStore || (typeof require === 'function' ? require('./debate-run-store') : null);
   const Policies = root.DebatePolicies || (typeof require === 'function' ? require('./debate-policies') : null);
   const PlanRevision = root.DebatePlanRevision || (typeof require === 'function' ? require('./debate-plan-revision') : null);
+  const DraftPlan = root.DebateDraftPlan || (typeof require === 'function' ? require('./debate-draft-plan') : null);
   const Planner = root.DebatePlanner || (typeof require === 'function' ? require('./debate-planner') : null);
   const StageExecutor = root.DebateStageExecutor || (typeof require === 'function' ? require('./debate-stage-executor') : null);
   const Orchestrator = root.DebateOrchestrator || (typeof require === 'function' ? require('./debate-orchestrator') : null);
@@ -22,7 +23,7 @@
     let universal = null;
     let universalRevisions = null;
     const universalEnabled = () => true;
-    const universalModulesReady = () => Boolean(Policies && PlanRevision && Planner && StageExecutor && Orchestrator);
+    const universalModulesReady = () => Boolean(Policies && PlanRevision && DraftPlan && Planner && StageExecutor && Orchestrator);
 
     function normalizeParticipants(config = {}) {
       const source = Array.isArray(config.participants) && config.participants.length
@@ -68,21 +69,35 @@
       assertProductionWiringComplete(options, deps);
       const policies = Policies.resolve(config.policies || {});
       const discussionParticipants = normalizeParticipants(config);
+      const suppliedPlan = config.draftPlan ? DraftPlan.normalize(config.draftPlan) : null;
+      const draftValidation = suppliedPlan ? DraftPlan.validate(suppliedPlan) : { valid: true, errors: [] };
+      if (!draftValidation.valid) return { ok: false, code: 'DRAFT_PLAN_INVALID', validation: draftValidation };
       const synthesizer = String(config.synthesizer || '').trim();
       // Participant-count and identity policies describe discussion participants.
       // A separate synthesis-only service participant must not change that count.
       const validation = Policies.validateConfiguration({ participants: discussionParticipants }, policies);
       if (!validation.valid) return { ok: false, code: 'CONFIGURATION_INVALID', validation };
-      if (synthesizer && synthesizer.toLowerCase() !== 'auto' && synthesizer.toLowerCase() !== 'none'
-        && !discussionParticipants.some((participant) => participant.participantId === synthesizer)) {
+      const plannedStages = suppliedPlan
+        ? suppliedPlan.plannedStages
+        : (Array.isArray(config.plannedStages) ? config.plannedStages.slice() : []);
+      const explicitParticipantIds = new Set([
+        ...(synthesizer && !['auto', 'none'].includes(synthesizer.toLowerCase()) ? [synthesizer] : []),
+        ...plannedStages.flatMap((stage) => Array.isArray(stage?.participantIds) ? stage.participantIds : [])
+      ].map((participantId) => String(participantId || '').trim()).filter(Boolean));
+      explicitParticipantIds.forEach((participantId) => {
+        if (discussionParticipants.some((participant) => participant.participantId === participantId)) return;
+        const assignedToDiscussion = plannedStages.some((stage) => stage?.purpose !== 'synthesis'
+          && Array.isArray(stage.participantIds) && stage.participantIds.includes(participantId));
+        const isSynthesisOnly = !assignedToDiscussion && (participantId === synthesizer || plannedStages.some((stage) => stage?.purpose === 'synthesis'
+          && Array.isArray(stage.participantIds) && stage.participantIds.includes(participantId)));
         discussionParticipants.push({
-          participantId: synthesizer,
+          participantId,
           type: 'llm',
-          model: synthesizer,
-          capabilities: ['synthesis', 'audit'],
-          serviceOnly: true
+          model: participantId,
+          capabilities: isSynthesisOnly ? ['synthesis', 'audit'] : ['position', 'critique', 'response', 'verification', 'synthesis', 'audit'],
+          serviceOnly: isSynthesisOnly
         });
-      }
+      });
       const participants = discussionParticipants;
       const runId = String(config.runId || deps.createId?.('debate') || makeFallbackId());
       // Slice B: DebateCase is created before the runtime starts.
@@ -96,16 +111,15 @@
         attachments: Array.isArray(config.attachments || config.attachmentsPayload) ? (config.attachments || config.attachmentsPayload).slice() : [],
         participants,
         artifacts: [], relations: [],
-        openGoals: Array.isArray(config.openGoals) ? config.openGoals.slice() : participants.map((p, index) => ({
+        openGoals: Array.isArray(config.openGoals) ? config.openGoals.slice() : (plannedStages.length ? [] : participants.map((p, index) => ({
           goalId: `goal-position-${p.participantId}`,
           type: 'establish_position', targetArtifactIds: [], status: 'open',
           priority: 50, createdFromEventId: 'initial_configuration', createdAt: new Date().toISOString(), order: index
-        })).slice(0, 1),
+        })).slice(0, 1)),
         sourceEvents: [],
         policies,
         lifecycle: 'created'
       };
-      const plannedStages = Array.isArray(config.plannedStages) ? config.plannedStages.slice() : [];
       const explicitSynthesizer = ['auto', 'none'].includes(synthesizer.toLowerCase()) ? '' : synthesizer;
       if (explicitSynthesizer && !plannedStages.some((stage) => stage.purpose === 'synthesis')) {
         plannedStages.push({
@@ -207,7 +221,11 @@
       },
       getOrchestrator: () => universal,
       getActiveRevision: () => universalRevisions?.getActive?.() || null,
-      insertStage: (stage, meta) => universal?.activatePlanRevision(revisionCommand('INSERT_STAGE', { stage, runningStagePolicy: meta?.runningStagePolicy }, meta), meta),
+      insertStage: (stage, meta) => universal?.activatePlanRevision(revisionCommand('INSERT_STAGE', {
+        stage,
+        afterPlannedStageId: meta?.afterPlannedStageId,
+        runningStagePolicy: meta?.runningStagePolicy
+      }, meta), meta),
       removePlannedStage: (plannedStageId, meta) => universal?.activatePlanRevision(revisionCommand('REMOVE_PENDING_STAGE', { plannedStageId }, meta), meta),
       changeParticipant: (payload, meta) => universal?.activatePlanRevision(revisionCommand('CHANGE_PARTICIPANT', payload, meta), meta),
       changePolicy: (payload, meta) => universal?.activatePlanRevision(revisionCommand('CHANGE_EXECUTION_POLICY', payload, meta), meta),

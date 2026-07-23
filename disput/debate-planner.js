@@ -176,6 +176,9 @@
   function selectPlannedStageParticipants(stage, input) {
     const assigned = arr(stage.participantIds);
     if (!assigned.length) {
+      if (stage.assignmentPolicy === 'explicit_required') {
+        return { participantIds: [], reason: 'SYNTHESIS_PARTICIPANT_REQUIRED', notes: [] };
+      }
       const notes = [];
       const selection = selectParticipants({
         goalId: `planned:${stage.plannedStageId}`,
@@ -202,6 +205,13 @@
     return invalid
       ? { participantIds: [], reason: 'ASSIGNED_PARTICIPANT_UNAVAILABLE', unavailableParticipantId: invalid, notes: [] }
       : { participantIds: assigned.slice(), notes: [] };
+  }
+
+  function resolvePlannedInputArtifactIds(stage, input) {
+    const selector = stage.inputSelector || {};
+    if (selector.kind === 'working_synthesis') return arr(input.stateMap?.workingSynthesisArtifactIds);
+    if (selector.kind === 'all_artifacts') return Object.keys(input.stateMap?.artifacts || {});
+    return arr(stage.artifactIds || stage.inputArtifactIds);
   }
 
   function proposePlannedStages(input, actionable) {
@@ -238,7 +248,8 @@
           purpose: stage.purpose,
           goalIds: arr(stage.goalIds),
           participantIds: selection.participantIds,
-          inputArtifactIds: arr(stage.artifactIds || stage.inputArtifactIds),
+          participantBindings: arr(stage.participantBindings),
+          inputArtifactIds: resolvePlannedInputArtifactIds(stage, input),
           expectedArtifactTypes: arr(stage.expectedArtifactTypes),
           dispatchMode: stage.dispatchMode || (selection.participantIds.length > 1 ? 'parallel' : 'single'),
           completionMode: stage.completionMode || (selection.participantIds.length > 1 ? (input.policies?.completion?.mode || 'all') : 'all'),

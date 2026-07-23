@@ -77,6 +77,26 @@ describe('DebateApplication — universal engine path', () => {
     expect(gamma).toMatchObject({ serviceOnly: true, capabilities: ['synthesis', 'audit'] });
   });
 
+  test('persisted DraftPlan is the initial revision and preserves Canvas role bindings', async () => {
+    const app = makeApp();
+    const draftPlan = {
+      schemaVersion: 1, planId: 'canvas', revision: 1,
+      plannedStages: [{
+        plannedStageId: 'canvas-r1', purpose: 'position', participantIds: ['alpha', 'beta'],
+        participantBindings: [{ participantId: 'alpha', promptId: 'advocate' }, { participantId: 'beta', promptId: 'critic' }],
+        assignmentPolicy: 'explicit_required', upstream: [], outputIntent: 'discussion_work', terminalPolicy: 'continue'
+      }]
+    };
+    const result = await app.start(config({ draftPlan, maxSteps: 1 }));
+    expect(result.ok).toBe(true);
+    expect(app.getActiveRevision().plannedStages).toEqual([expect.objectContaining({ plannedStageId: 'canvas-r1', participantBindings: draftPlan.plannedStages[0].participantBindings })]);
+    const stage = app.getOrchestrator().getState().stages.find((item) => item.plannedStageId === 'canvas-r1');
+    expect(stage.participants).toEqual(expect.arrayContaining([
+      expect.objectContaining({ participantId: 'alpha', promptId: 'advocate' }),
+      expect.objectContaining({ participantId: 'beta', promptId: 'critic' })
+    ]));
+  });
+
   test('default step budget is an explicit policy value', () => {
     expect(Policies.resolve().budgets.maxTotalStages).toBe(50);
   });

@@ -12,6 +12,20 @@ describe('DebateArtifactPipeline', () => {
     expect(first[0].provenance).toMatchObject({ runId: 'run-1', stageInstanceId: 'stage-1', participantId: 'alpha' });
   });
 
+  test('working synthesis does not become the final synthesis pointer', () => {
+    const working = Pipeline.extractArtifacts({
+      stage: { runId: 'r', stageInstanceId: 'checkpoint', purpose: 'synthesis', outputIntent: 'working_synthesis' },
+      participant: { participantId: 'Claude' }, text: 'Checkpoint'
+    });
+    expect(working[0].type).toBe('synthesis_working');
+    const state = { runId: 'r', caseVersion: 1, debateCase: { caseId: 'r', artifacts: [] } };
+    const delta = Pipeline.proposeStateDelta({ stage: { stageInstanceId: 'checkpoint' }, participant: { participantId: 'Claude' }, artifacts: working, context: state });
+    const outcome = Pipeline.commitStateDelta({ state, delta });
+    expect(outcome.applied).toBe(true);
+    expect(outcome.stateMap.synthesisArtifactId).toBe('');
+    expect(outcome.stateMap.workingSynthesisArtifactIds).toEqual([working[0].id]);
+  });
+
   test('imports multiple linked artifacts from a topology-neutral artifact delta', () => {
     const artifacts = Pipeline.extractArtifacts({
       stage: { ...stage, inputArtifactIds: ['claim-existing'] }, participant,
