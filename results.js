@@ -3964,10 +3964,7 @@ document.addEventListener('click', (event) => {
             const defaults = buildDefaultPipelinePresets();
             const config = clonePipelineConfig(defaults[key] || null);
             if (!config?.protocol) return config;
-            const presetMeta = getPresetMetaForConfig(config);
-            if (presetMeta?.duration === 'open_ended') {
-                applyRoundLimitToPipelineConfig(config, getLongRoundLimitOverride(key) || 'infinite');
-            }
+            applyRoundLimitToPipelineConfig(config, getLongRoundLimitOverride(key) || config.protocol.roundLimit || '3');
             const synthesizer = getSynthesizerOverride(key);
             config.protocol.synthesizer = synthesizer;
             const profileId = getProfileOverride(key);
@@ -4642,9 +4639,7 @@ document.addEventListener('click', (event) => {
         }
         function shouldShowDebateRoundLimitControl() {
             const presetMeta = getSelectedPipelinePresetMeta();
-            return window.ResultsDebateUi?.shouldShowRoundLimitControl
-                ? window.ResultsDebateUi.shouldShowRoundLimitControl(presetMeta)
-                : presetMeta.duration === 'open_ended';
+            return Boolean(presetMeta?.status !== 'disabled');
         }
         const formatDebateRoundStepperLabel = (value) => {
             if (value === 'infinite') return '∞';
@@ -4698,8 +4693,6 @@ document.addEventListener('click', (event) => {
             const activeConfig = activeName ? getPipelineConfigByName(activeName) : null;
             const protocol = activeConfig?.protocol;
             if (!protocol) return false;
-            const presetMeta = window.PipelinePresets?.getPipelinePreset?.(String(protocol.presetId || '').trim()) || null;
-            if (presetMeta?.duration !== 'open_ended') return false;
             const roundLimit = getDebateRoundLimit();
             if (isDefaultPipelineName(activeName)) {
                 if (!pipelineStore.overrides || typeof pipelineStore.overrides !== 'object') {

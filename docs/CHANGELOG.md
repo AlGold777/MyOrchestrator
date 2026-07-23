@@ -1,5 +1,12 @@
 # CHANGELOG — Project
 
+### 2026-07-23 — Fix universal panel-header round counter, version 2.81.32
+
+- Счётчик раундов в `panel-header` больше не скрывается из-за проверки
+  `duration === open_ended`: он доступен для всех включённых Universal профилей.
+- Изменение лимита раундов сохраняется и применяется к pipeline-конфигурации
+  независимо от режима завершения `goal_driven`.
+
 ### 2026-07-23 — Disput documentation-map filename, version 2.81.31
 
 - Актуальная карта документации переименована из `README.md` в
