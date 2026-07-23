@@ -1,5 +1,16 @@
 # CHANGELOG — Project
 
+### 2026-07-23 — Complete Disput release register, version 2.81.33
+
+- Реестр расширен архитектурными обязательствами P0-R6 (event-log/replay
+  integrity) и P0-R7 (semantic commit/no-op/version integrity).
+- P0-R4 теперь охватывает полный lease lifecycle и cross-context invalidation;
+  P1-C1 — все persisted-data migrations, а не только custom configs.
+- В реестр добавлены Status, Owner, Reviewer, Gate, Evidence ID и Target test.
+- ADR-001 явно фиксирует big-bang cutover risk, previous-artifact rollback,
+  storage compatibility и data rollback policy. Product-owner sign-off остаётся
+  pending и не считается доказанным существованием ADR.
+
 ### 2026-07-23 — Fix universal panel-header round counter, version 2.81.32
 
 - Счётчик раундов в `panel-header` больше не скрывается из-за проверки

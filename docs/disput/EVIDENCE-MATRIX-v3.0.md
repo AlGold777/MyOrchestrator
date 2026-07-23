@@ -16,6 +16,8 @@ names the implementation, deterministic test and gate.
 | Participant accounting and transport retry/dropout | implemented | `debate-participant-registry.js`, `debate-stage-executor.js`, `debate-orchestrator.js` | participant-registry, stage-executor and persisted-recovery migration tests | Gate B/C |
 | Revision-checked plan commands | partial | `debate-plan-revision.js`, `debate-run-store.js` | plan-revision tests, including persisted command-id replay | Browser recovery proof required |
 | Event replay and duplicate protection | partial | `debate-trace-store.js`, `debate-trace-schema.js` | trace tests, including semantic-ID conflict | Full replay/recovery E2E required |
+| Event-log integrity and replay equivalence | partial | trace store/schema and orchestrator replay guard | `EVID-R6` target: replay corruption/recovery E2E | P0-R6 / Gate B/C |
+| Semantic commit/no-op/version integrity | partial | StateDelta, DebateCase atomic commit and orchestrator version checks | `EVID-R7` target: semantic-integrity suite | P0-R7 / Gate B |
 | Single-owner lease | partial | `debate-orchestrator.js` | orchestrator ownership/expiry/fenced-late-dispatch tests | Browser-level cross-context invalidation and recovery proof required |
 | Persisted recovery equivalence | planned | orchestrator/run store persistence primitives | none at browser level | R1 / Gate C |
 | Transport race safety | planned | terminal and late-event guards | unit coverage only | R2 / Gate C |
@@ -24,7 +26,7 @@ names the implementation, deterministic test and gate.
 | Persisted legacy-config translation | planned | profile/config boundary | no migration suite | R7 |
 | Telemetry redaction, canary thresholds and owner | planned | trace projection primitives | no operational acceptance suite | R6 / Gate E |
 | Release-artifact rollback | planned | ADR-001 decision | no rollback drill | R10 / Gate E |
-| Legacy execution fallback | not-applicable | ADR-001 | repository architecture gate | Deliberately prohibited |
+| Legacy execution fallback | not-applicable | ADR-001 | repository architecture gate | Deliberately prohibited; removal evidence pending ADR001-P/R/S |
 
 ## Evidence rules
 
