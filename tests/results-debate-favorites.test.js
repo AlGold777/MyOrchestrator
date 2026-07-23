@@ -1088,6 +1088,17 @@ describe('Pipeline debate favorites view', () => {
     expect(window.PipelineRuntime.DEFAULT_MODEL_INDICES).toEqual([0, 1]);
   });
 
+  test('Universal selection keeps every selected available model', () => {
+    const selectedIds = ['llm-gpt', 'llm-gemini', 'llm-claude', 'llm-grok'];
+    selectedIds.forEach((id) => document.getElementById(id).click());
+
+    expect(window.ResultsShared.getSelectedLLMs()).toEqual([
+      'GPT', 'Gemini', 'Claude', 'Grok'
+    ]);
+    expect(document.querySelectorAll('#r1-models .pipeline-empty-slot')).toHaveLength(0);
+    expect(document.querySelectorAll('#r1-models .model-block')).toHaveLength(4);
+  });
+
 
   test('pipeline R1 mirrors selected top models before run when R1 is still default', () => {
     document.getElementById('pipeline-panel').insertAdjacentHTML('beforeend', `

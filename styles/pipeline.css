@@ -476,6 +476,7 @@ body.is-resizing {
 }
 
 .model-block.pipeline-empty-slot {
+    display: none !important;
     border-style: dashed;
     background: #f8fafc;
     opacity: 0.72;

@@ -1,5 +1,14 @@
 # CHANGELOG — Project
 
+### 2026-07-23 — Universal arbitrary model selection and stable canvas geometry, version 2.81.36
+
+- Universal больше не ограничивает выбор участников двумя моделями: можно выбрать
+  любое количество доступных моделей.
+- Скрытые пустые слоты pipeline больше не участвуют в измерении высоты и
+  вертикальном центрировании synthesis/output после reload.
+- Добавлен regression test на выбор четырёх моделей и отсутствие скрытого
+  третьего слота в R1.
+
 ### 2026-07-23 — Universal two-model default and canvas recovery, version 2.81.35
 
 - Universal runtime default теперь активирует ровно Claude и GPT; Gemini остаётся

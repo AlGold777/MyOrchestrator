@@ -1452,10 +1452,10 @@ document.addEventListener('click', (event) => {
     };
     const getHeaderModelButtonLimitEarly = () => {
         if (!isPipelinePage) return llmButtons.length || 999;
-        const rawScheme = String(window.__debateSchemeValue || '2').trim();
-        if (rawScheme === 'many' || rawScheme === 'free') return llmButtons.length || 999;
-        const scheme = Math.max(2, Number.parseInt(rawScheme, 10) || 2);
-        return Math.min(scheme, Array.isArray(PipelineRuntime?.MODELS) ? PipelineRuntime.MODELS.length || scheme : scheme);
+        // The pipeline page is Universal-only.  Do not derive a participant
+        // limit from the legacy numeric scheme value that may still exist in
+        // persisted UI state during startup.
+        return llmButtons.length || 999;
     };
     const syncHeaderModelPanelsEarly = () => {
         llmButtons.forEach((button) => {
@@ -3585,7 +3585,7 @@ document.addEventListener('click', (event) => {
             const total = Math.max(0, Number(count) || 0);
             if (!total) return '';
             return Array.from({ length: total }).map(() => `
-                <div class="model-block inactive pipeline-empty-slot" aria-hidden="true">
+                <div class="model-block inactive pipeline-empty-slot" hidden aria-hidden="true">
                     <div class="model-header">
                         <span class="status-indicator" aria-hidden="true"></span>
                         <span class="model-slot-placeholder"></span>
@@ -17760,10 +17760,11 @@ function checkCompareButtonState() {
     }
     function getDebateSchemeModelLimit() {
         if (!isPipelinePage) return (llmButtons?.length || 999);
-        const scheme = getDebateScheme();
-        if (scheme === 'many' || scheme === 'free') return (llmButtons?.length || 999);
-        const parsed = Math.max(2, Number.parseInt(scheme, 10) || 2);
-        return Math.min(parsed, Array.isArray(PipelineRuntime?.MODELS) ? PipelineRuntime.MODELS.length || parsed : parsed);
+        // Universal is intentionally not a fixed-topology debate.  The header
+        // selection is the source of truth for the participant set, so a
+        // numeric fallback here would silently truncate a valid selection to
+        // two models after every click/reload.
+        return (llmButtons?.length || 999);
     }
     function syncHeaderModelPanels() {
         llmButtons.forEach((button) => {
