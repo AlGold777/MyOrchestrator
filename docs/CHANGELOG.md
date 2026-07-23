@@ -1,5 +1,10 @@
 # CHANGELOG — Project
 
+### 2026-07-23 — Disput documentation-map filename, version 2.81.31
+
+- Актуальная карта документации переименована из `README.md` в
+  `docs/disput/README-disput.md`, чтобы её нельзя было спутать с общим README.
+
 ### 2026-07-23 — Disput open-obligations register, version 2.81.30
 
 - Добавлен нормативный реестр незавершённых P0/P1/P2 обязательств с реальными
