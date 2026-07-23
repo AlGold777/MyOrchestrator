@@ -15,9 +15,10 @@ names the implementation, deterministic test and gate.
 | Atomic same-version parallel delta commit | implemented | `debate-case.js` | atomic-commit tests | Gate B |
 | Participant accounting and transport retry/dropout | implemented | `debate-participant-registry.js`, `debate-stage-executor.js`, `debate-orchestrator.js` | participant-registry, stage-executor and persisted-recovery migration tests | Gate B/C |
 | Revision-checked plan commands | partial | `debate-plan-revision.js`, `debate-run-store.js` | plan-revision tests, including persisted command-id replay | Browser recovery proof required |
+| Planned-stage execution and explicit synthesizer ownership | implemented | `debate-planner.js`, `debate-orchestrator.js`, `debate-application.js` | planner planned-stage, orchestrator linkage and application synthesizer-migration tests | Gate A/B |
 | Event replay and duplicate protection | partial | `debate-trace-store.js`, `debate-trace-schema.js` | trace tests, including semantic-ID conflict | Full replay/recovery E2E required |
 | Event-log integrity and replay equivalence | partial | trace store/schema and orchestrator replay guard | `EVID-R6` target: replay corruption/recovery E2E | P0-R6 / Gate B/C |
-| Semantic commit/no-op/version integrity | partial | StateDelta, DebateCase atomic commit and orchestrator version checks | `EVID-R7` target: semantic-integrity suite | P0-R7 / Gate B |
+| Semantic commit/no-op/version integrity | partial | StateDelta, DebateCase atomic commit, stage-count-scoped planning decisions and orchestrator version checks | planned-stage no-op dedup test plus `EVID-R7` target semantic-integrity suite | P0-R7 / Gate B |
 | Single-owner lease | partial | `debate-orchestrator.js` | orchestrator ownership/expiry/fenced-late-dispatch tests | Browser-level cross-context invalidation and recovery proof required |
 | Persisted recovery equivalence | planned | orchestrator/run store persistence primitives | none at browser level | R1 / Gate C |
 | Transport race safety | planned | terminal and late-event guards | unit coverage only | R2 / Gate C |

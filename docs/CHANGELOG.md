@@ -1,5 +1,22 @@
 # CHANGELOG — Project
 
+### 2026-07-23 — Execute planned stages and honor explicit synthesizer, version 2.81.38
+
+- `activePlanRevision.plannedStages` подключён к Planner/Orchestrator:
+  готовая planned stage создаёт реальный `StageInstance` с сохраняемым
+  `plannedStageId` и семантическими stage-полями.
+- Явно выбранный Synthesizer мигрирует в initial final synthesis stage и
+  исполняется именно выбранной моделью; недоступная назначенная модель
+  блокирует stage без молчаливого fallback.
+- Goal-derived synthesis подавляется при наличии explicit synthesis stage;
+  terminal synthesis ждёт завершения обычных целей.
+- Synthesis-only модель поддерживается как `serviceOnly` participant и не
+  попадает в обычные discussion stages.
+- Planning decision учитывает число исполненных stages, а stage history
+  предотвращает повторный dispatch после semantic no-op.
+- Добавлены unit/integration regression tests и обновлены normative contracts,
+  release plan, evidence matrix и open-items register.
+
 ### 2026-07-23 — Preserve explicit Synthesizer stage after reload, version 2.81.37
 
 - Восстановленный явно выбранный Synthesizer больше не скрывается при

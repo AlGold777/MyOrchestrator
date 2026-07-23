@@ -54,6 +54,29 @@ describe('DebateApplication — universal engine path', () => {
     expect(result.ok).toBe(true);
   });
 
+  test('explicit synthesizer migrates into the initial executable plan revision', async () => {
+    const app = makeApp();
+    const result = await app.start(config({
+      models: ['alpha', 'beta'],
+      synthesizer: 'gamma',
+      deferExecution: true
+    }));
+    expect(result.ok).toBe(true);
+    expect(app.getActiveRevision().plannedStages).toEqual([
+      expect.objectContaining({
+        plannedStageId: 'planned-final-synthesis',
+        purpose: 'synthesis',
+        participantIds: ['gamma'],
+        activationPolicy: 'finalization_ready',
+        outputIntent: 'candidate_final',
+        terminalPolicy: 'eligible_for_finalization'
+      })
+    ]);
+    const gamma = app.getOrchestrator()._internals.plannerInput().availableParticipants
+      .find((participant) => participant.participantId === 'gamma');
+    expect(gamma).toMatchObject({ serviceOnly: true, capabilities: ['synthesis', 'audit'] });
+  });
+
   test('default step budget is an explicit policy value', () => {
     expect(Policies.resolve().budgets.maxTotalStages).toBe(50);
   });
@@ -81,6 +104,20 @@ describe('DebateApplication — universal engine path', () => {
     expect(after.revisionId).not.toBe(before.revisionId);
     expect(after.parentRevisionId).toBe(before.revisionId);
     expect(after.plannedStages.some((s) => s.purpose === 'synthesis')).toBe(true);
+  });
+
+  test('a synthesis stage inserted after start is executed through the revised plan', async () => {
+    const app = makeApp();
+    await app.start(config({ deferExecution: true }));
+    const result = await app.requestSynthesis({
+      plannedStageId: 'canvas-synthesis',
+      participantIds: ['beta']
+    }, { maxSteps: 1 });
+    expect(result.ok).toBe(true);
+    const stage = app.getOrchestrator().getState().stages
+      .find((item) => item.plannedStageId === 'canvas-synthesis');
+    expect(stage).toMatchObject({ purpose: 'synthesis', status: 'completed' });
+    expect(stage.participants.map((participant) => participant.participantId)).toEqual(['beta']);
   });
 
   test('pause and continue work through persisted lifecycle', async () => {

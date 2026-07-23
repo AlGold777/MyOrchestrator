@@ -67,6 +67,14 @@ Acceptance evidence: application, run-store, transition, cancellation and UI lif
 - DebateCase is created before execution.
 - Planner proposes purpose/capability-based stages.
 - Plan revisions are immutable and revision-checked.
+- `activePlanRevision.plannedStages` is an executable Planner input, not a
+  Canvas-only projection: a ready planned stage becomes a proposed stage and
+  then a `StageInstance` linked by `plannedStageId`.
+- Explicit stages preserve participant assignment and semantic fields
+  (`outputIntent`, `terminalPolicy`, `auditPolicy`, `inputSelector`); an
+  unavailable assigned participant produces a typed `WAIT`, never silent
+  reassignment.
+- Completed planned stages are deduplicated against persisted stage history.
 - Orchestrator owns stage lifecycle and budgets.
 - Executor supports sequential and parallel dispatch.
 - Participant attempts use bounded retry and explicit acceptance.
@@ -85,6 +93,13 @@ Acceptance evidence: artifact pipeline, StateDelta, DebateCase and StateMap test
 
 ### 4.4 Synthesis — complete
 
+- An explicit UI/config synthesizer is migrated into the initial final
+  synthesis planned stage with `activationPolicy: finalization_ready`.
+- A synthesis-only model that is not a discussion participant is represented
+  as `serviceOnly`; it can execute synthesis/audit but cannot enter ordinary
+  position, response or verification routing.
+- When an active plan contains synthesis, Planner suppresses the independently
+  derived `produce_synthesis` path.
 - Synthesis creates an artifact with a unique ID.
 - Audit targets that exact ID.
 - Audit issues schedule correction.

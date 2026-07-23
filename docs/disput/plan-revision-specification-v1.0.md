@@ -142,6 +142,12 @@ Automation.
 7.8 REQUEST_SYNTHESIS
 Добавить Synthesis.
 
+Если participant выбран явно, `participantIds` содержит его стабильный ID.
+Для terminal synthesis по умолчанию используется
+`activationPolicy: finalization_ready`; отсутствие доступности заданного
+participant блокирует stage с типизированной причиной и не разрешает Planner
+назначить другую модель.
+
 7.9 REQUEST_AUDIT
 Добавить Audit.
 
@@ -191,6 +197,40 @@ store сохраняет для него canonical fingerprint и результ
 перехода. Использование того же `commandId` с иной семантикой отклоняется как
 `COMMAND_ID_CONFLICT`. Частично повторённый batch запрещён как
 `COMMAND_ID_REPLAY_MIXED`.
+
+8.2 Planned Stage Execution Contract
+
+Минимальный исполняемый planned stage:
+
+```text
+plannedStageId
+purpose
+status = pending
+participantIds[]
+upstream[]
+goalIds[]
+activationPolicy = immediate | after_open_goals | finalization_ready
+```
+
+Опциональные семантические поля:
+
+```text
+inputArtifactIds / artifactIds
+inputSelector
+expectedArtifactTypes
+outputIntent
+terminalPolicy
+auditPolicy
+dispatchMode
+completionMode
+visibilityPolicy
+requiredCapabilities
+```
+
+Planner читает только активную revision. Готовая planned stage становится
+PlanningDecision, а Orchestrator создаёт StageInstance с тем же
+`plannedStageId`. Persisted stage history является доказательством исполнения и
+защищает от повторного dispatch после следующего tick или recovery.
 
 9. Validation Pipeline
 Каждая команда проходит

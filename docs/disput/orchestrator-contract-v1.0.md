@@ -299,9 +299,11 @@ Planner получает:
   runId,
   caseVersion,
   activePlanRevisionId,
+  activePlanRevision,
   stateMapVersion,
   openGoals,
   activeStages,
+  stageHistory,
   availableParticipants,
   policies,
   budgets
@@ -319,6 +321,22 @@ Orchestrator обязан повторно проверить:
     • revision consistency;
     • concurrency limits.
 
+9.5. Planned-stage authority
+
+`activePlanRevision.plannedStages` является каноническим источником явно
+созданных человеком или миграцией stages. Planner обязан:
+
+- проверять readiness и upstream dependencies;
+- сопоставлять stage с `stageHistory` по `plannedStageId`;
+- не предлагать уже pending/running/completed planned stage повторно;
+- сохранять заданные participant IDs без capability fallback;
+- возвращать typed `WAIT`, если заданный participant недоступен;
+- подавлять goal-derived synthesis/audit, если такой purpose уже представлен
+  активной revision.
+
+Goal-driven planning продолжает создавать только работу, которая не
+представлена explicit planned stage.
+
 10. Stage Creation Contract
 Stage создаётся только после persisted PlanningDecision.
 Порядок:
@@ -330,10 +348,16 @@ PLANNING_DECISION_RECORDED
 interface StageIdentity {
   runId: string;
   stageInstanceId: string;
+  plannedStageId?: string;
   attemptId: string;
   planningDecisionId: string;
   planRevisionId: string;
 }
+
+`plannedStageId` обязателен для StageInstance, созданного из PlanRevision, и
+сохраняется в snapshot/stage history. Поля `outputIntent`, `terminalPolicy`,
+`auditPolicy` и `inputSelector` переносятся из planned stage без семантической
+подмены.
 10.2. Idempotency key
 Transport idempotency key:
 runId:stageInstanceId:attemptNumber:participantId

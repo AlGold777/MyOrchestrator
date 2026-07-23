@@ -44,6 +44,13 @@
 
   const text = (value) => String(value == null ? '' : value).trim();
   const arr = (value) => Array.isArray(value) ? value : [];
+  const terminalStageStatuses = new Set(['completed']);
+  const occupyingStageStatuses = new Set(['pending', 'running', 'awaiting_participant', 'completed']);
+
+  function hasPlannedPurpose(input, purpose) {
+    return arr(input.activePlanRevision?.plannedStages)
+      .some((stage) => stage.status !== 'cancelled' && stage.purpose === purpose);
+  }
 
   // §7 Derived Goal Generation from StateMap conditions.
   function deriveGoals(input) {
@@ -80,11 +87,13 @@
     const finalization = input.policies?.finalization || {};
     const requiredOpen = arr(input.openGoals).filter((g) => g.required && ['open', 'assigned', 'in_progress', 'blocked'].includes(g.status));
     const blockers = derived.filter((g) => ['resolve_objection', 'resolve_contradiction'].includes(g.type));
-    if (['optional', 'required'].includes(finalization.synthesis) && !requiredOpen.length && !blockers.length
+    if (['optional', 'required'].includes(finalization.synthesis) && !hasPlannedPurpose(input, 'synthesis')
+      && !requiredOpen.length && !blockers.length
       && arr(map.claims).length && !map.synthesisArtifactId) {
       push('produce_synthesis', [], 40, 'synthesis_readiness');
     }
-    if (finalization.audit === 'required' && map.synthesisArtifactId && !map.validAuditArtifactId) {
+    if (finalization.audit === 'required' && !hasPlannedPurpose(input, 'audit')
+      && map.synthesisArtifactId && !map.validAuditArtifactId) {
       if (map.currentSynthesisAuditVerdict === 'issues_found') {
         push('correct_synthesis', [map.synthesisArtifactId, map.currentSynthesisAuditId].filter(Boolean), 90, map.currentSynthesisAuditId);
       } else {
@@ -106,7 +115,8 @@
 
   // §12 Participant selection with independence preference.
   function selectParticipants(goal, purpose, input, notes) {
-    const available = arr(input.availableParticipants).filter((p) => p.available !== false);
+    const available = arr(input.availableParticipants)
+      .filter((p) => p.available !== false && (!p.serviceOnly || ['synthesis', 'audit'].includes(purpose)));
     const capabilities = input.participantCapabilities || {};
     const authorship = input.stateMap?.artifactAuthors || {};
     const authors = new Set(arr(goal.targetArtifactIds).map((id) => authorship[id]).filter(Boolean));
@@ -141,6 +151,109 @@
     const sorted = pool.slice().sort((a, b) => String(a.participantId).localeCompare(String(b.participantId)));
     const count = goal.type === 'establish_position' ? sorted.length : 1;
     return { participants: sorted.slice(0, Math.max(1, count)).map((p) => p.participantId), degraded };
+  }
+
+  function plannedStageExecutions(input, plannedStageId) {
+    return arr(input.stageHistory).filter((stage) => stage.plannedStageId === plannedStageId);
+  }
+
+  function isPlannedStageReady(stage, input, nonPlannedActionable) {
+    const executions = plannedStageExecutions(input, stage.plannedStageId);
+    if (executions.some((item) => occupyingStageStatuses.has(item.status))) return false;
+    const upstreamReady = arr(stage.upstream).every((upstreamId) =>
+      plannedStageExecutions(input, upstreamId).some((item) => terminalStageStatuses.has(item.status)));
+    if (!upstreamReady) return false;
+    const activationPolicy = stage.activationPolicy || stage.schedulePolicy || 'immediate';
+    if (activationPolicy === 'finalization_ready' || activationPolicy === 'after_open_goals') {
+      const unresolvedGoals = arr(input.openGoals)
+        .filter((goal) => !['resolved', 'cancelled'].includes(goal.status))
+        .filter((goal) => !['produce_synthesis', 'correct_synthesis', 'audit_output'].includes(goal.type));
+      if (unresolvedGoals.length || nonPlannedActionable.length) return false;
+    }
+    return true;
+  }
+
+  function selectPlannedStageParticipants(stage, input) {
+    const assigned = arr(stage.participantIds);
+    if (!assigned.length) {
+      const notes = [];
+      const selection = selectParticipants({
+        goalId: `planned:${stage.plannedStageId}`,
+        type: stage.purpose === 'audit' ? 'audit_output' : stage.purpose === 'synthesis' ? 'produce_synthesis' : 'answer_open_question',
+        targetArtifactIds: arr(stage.artifactIds || stage.inputArtifactIds),
+        requiredCapabilities: arr(stage.requiredCapabilities)
+      }, stage.purpose || 'response', input, notes);
+      return { participantIds: selection.participants, reason: selection.reason, notes };
+    }
+    const available = new Map(arr(input.availableParticipants).map((participant) => [participant.participantId, participant]));
+    const required = arr(stage.requiredCapabilities);
+    const capacityUsed = {};
+    arr(input.activeStages).forEach((activeStage) => arr(activeStage.participants || activeStage.participantIds).forEach((participant) => {
+      const participantId = typeof participant === 'string' ? participant : participant?.participantId;
+      if (participantId) capacityUsed[participantId] = (capacityUsed[participantId] || 0) + 1;
+    }));
+    const invalid = assigned.find((participantId) => {
+      const participant = available.get(participantId);
+      if (!participant || participant.available === false) return true;
+      if ((capacityUsed[participantId] || 0) >= Math.max(1, Number(participant.capacity ?? 1))) return true;
+      const capabilities = arr(input.participantCapabilities?.[participantId] || participant.capabilities);
+      return required.some((capability) => !capabilities.includes(capability));
+    });
+    return invalid
+      ? { participantIds: [], reason: 'ASSIGNED_PARTICIPANT_UNAVAILABLE', unavailableParticipantId: invalid, notes: [] }
+      : { participantIds: assigned.slice(), notes: [] };
+  }
+
+  function proposePlannedStages(input, actionable) {
+    const plannedStages = arr(input.activePlanRevision?.plannedStages)
+      .filter((stage) => !stage.status || stage.status === 'pending')
+      .filter((stage) => !plannedStageExecutions(input, stage.plannedStageId)
+        .some((item) => occupyingStageStatuses.has(item.status)));
+    if (!plannedStages.length) return null;
+    const ready = plannedStages.filter((stage) => isPlannedStageReady(stage, input, actionable));
+    if (!ready.length) return { blocked: true, plannedStages };
+    const stage = ready[0];
+    const selection = selectPlannedStageParticipants(stage, input);
+    if (!selection.participantIds.length) {
+      return { blocked: true, plannedStages, participantFailure: { stage, ...selection } };
+    }
+    return {
+      stage,
+      decision: makeDecision(input, {
+        type: 'CREATE_STAGES',
+        rationaleCode: 'PLANNED_STAGE_READY',
+        rationaleData: { plannedStageId: stage.plannedStageId, notes: selection.notes },
+        consideredGoalIds: arr(stage.goalIds),
+        selectedGoalIds: arr(stage.goalIds),
+        firedRules: [{
+          ruleId: 'rule:planned-stage:v1',
+          version: RULE_SET_VERSION,
+          targetGoalIds: arr(stage.goalIds),
+          candidateAction: stage.purpose,
+          matchedConditions: ['ACTIVE_PLAN_REVISION', 'STAGE_READY']
+        }],
+        proposedStages: [{
+          proposedStageId: `proposed-${input.runId}-${stage.plannedStageId}`,
+          plannedStageId: stage.plannedStageId,
+          purpose: stage.purpose,
+          goalIds: arr(stage.goalIds),
+          participantIds: selection.participantIds,
+          inputArtifactIds: arr(stage.artifactIds || stage.inputArtifactIds),
+          expectedArtifactTypes: arr(stage.expectedArtifactTypes),
+          dispatchMode: stage.dispatchMode || (selection.participantIds.length > 1 ? 'parallel' : 'single'),
+          completionMode: stage.completionMode || (selection.participantIds.length > 1 ? (input.policies?.completion?.mode || 'all') : 'all'),
+          executionPolicyId: stage.executionPolicyId || input.policies?.retry?.policyId || 'retry.default.v1',
+          promptContractId: stage.promptContractId || `prompt:${stage.purpose}:v1`,
+          visibilityPolicy: stage.visibilityPolicy || { mode: 'public' },
+          outputIntent: stage.outputIntent,
+          terminalPolicy: stage.terminalPolicy,
+          auditPolicy: stage.auditPolicy,
+          inputSelector: stage.inputSelector,
+          participantSelectionRationale: arr(stage.participantIds).length ? 'PLAN_REVISION_ASSIGNMENT' : 'CAPABILITY_MATCH'
+        }],
+        utilityBreakdown: []
+      })
+    };
   }
 
   // §9 Utility formula (deterministic, fully traced).
@@ -193,7 +306,7 @@
 
   function makeDecision(input, partial) {
     return Object.freeze({
-      decisionId: `decision-${input.runId}-${input.caseVersion}-${input.stateMapVersion}`,
+      decisionId: `decision-${input.runId}-${input.caseVersion}-${input.stateMapVersion}-${Number(input.totalStagesExecuted || 0)}`,
       inputCaseVersion: input.caseVersion,
       inputStateMapVersion: input.stateMapVersion,
       inputPlanRevisionId: input.activePlanRevisionId,
@@ -229,6 +342,12 @@
       return makeDecision(input, { type: 'WAIT', rationaleCode: 'AWAITING_HUMAN_DECISION', consideredGoalIds });
     }
 
+    // An active PlanRevision is the authoritative source for explicitly authored
+    // stages. Goal-derived stages remain available only for work not represented
+    // by the plan, preventing a second synthesis execution path.
+    const nonPlannedActionable = actionable.filter((goal) =>
+      !(hasPlannedPurpose(input, 'synthesis') && ['produce_synthesis', 'correct_synthesis'].includes(goal.type))
+      && !(hasPlannedPurpose(input, 'audit') && goal.type === 'audit_output'));
     const suppressed = [];
     const suppress = (goal, reason, ruleId) => suppressed.push({ ruleId: ruleId || `rule:${goal.type}`, targetGoalIds: [goal.goalId], suppressionReason: reason });
 
@@ -262,11 +381,34 @@
       return makeDecision(input, { type: 'FINALIZE', rationaleCode: 'BUDGET_EXHAUSTED', consideredGoalIds, finalizationDecision: finalization });
     }
 
+    const planned = proposePlannedStages(input, nonPlannedActionable);
+    if (planned?.decision) return planned.decision;
+    if (planned?.participantFailure) {
+      return makeDecision(input, {
+        type: 'WAIT',
+        rationaleCode: 'PLANNED_STAGE_PARTICIPANT_UNAVAILABLE',
+        consideredGoalIds,
+        suppressedRules: [{
+          ruleId: 'rule:planned-stage:v1',
+          targetGoalIds: arr(planned.participantFailure.stage.goalIds),
+          suppressionReason: 'PARTICIPANT_UNAVAILABLE',
+          plannedStageId: planned.participantFailure.stage.plannedStageId,
+          participantId: planned.participantFailure.unavailableParticipantId
+        }]
+      });
+    }
+
     // Stagnation (§14)
     const stagnation = detectStagnation(input);
 
     // No actionable goals → finalization or NO_OP by policy (§17).
-    if (!actionable.length && !activeStages.length) {
+    if (!nonPlannedActionable.length && !activeStages.length) {
+      if (planned?.blocked) {
+        return makeDecision(input, {
+          type: 'WAIT', rationaleCode: 'PLANNED_STAGE_DEPENDENCY_NOT_READY', consideredGoalIds,
+          rationaleData: { plannedStageIds: planned.plannedStages.map((stage) => stage.plannedStageId) }
+        });
+      }
       if (requiredOpen.length && !stagnation.stagnant) {
         return makeDecision(input, { type: 'NO_OP', rationaleCode: 'REQUIRED_GOALS_BLOCKED', consideredGoalIds, rationaleData: { requiredOpen: requiredOpen.map((g) => g.goalId) } });
       }
@@ -286,7 +428,7 @@
         }
       });
     }
-    if (!actionable.length) {
+    if (!nonPlannedActionable.length) {
       return makeDecision(input, { type: 'WAIT', rationaleCode: 'ACTIVE_STAGES_IN_FLIGHT', consideredGoalIds, rationaleData: { activeStages: activeStages.map((s) => s.stageInstanceId) } });
     }
 
@@ -295,7 +437,7 @@
       ...arr(input.stateMap?.claims).filter((c) => c.status === 'disputed').map((c) => c.id),
       ...arr(input.stateMap?.evidence).filter((e) => e.status === 'disputed').map((e) => e.id)
     ]);
-    const dependentsOf = (goalId) => actionable.filter((g) => arr(g.blockedByGoalIds).includes(goalId)).length;
+    const dependentsOf = (goalId) => nonPlannedActionable.filter((g) => arr(g.blockedByGoalIds).includes(goalId)).length;
     const recentFingerprints = arr(input.recentActionFingerprints);
     const repeated = (goal) => stagnation.repeatedAction === false
       ? recentFingerprints.includes(`${goal.type}|${arr(goal.targetArtifactIds).join(',')}`) && Number(input.stagnationSignals?.consecutiveNoStateDelta || 0) > 0
@@ -303,9 +445,9 @@
 
     const candidates = [];
     const notes = [];
-    for (const goal of actionable) {
+    for (const goal of nonPlannedActionable) {
       const ruleId = `rule:${goal.type}:v1`;
-      if (goal.status === 'blocked' || arr(goal.blockedByGoalIds).some((id) => actionable.some((g) => g.goalId === id) || openGoals.some((g) => g.goalId === id && g.status !== 'resolved'))) {
+      if (goal.status === 'blocked' || arr(goal.blockedByGoalIds).some((id) => nonPlannedActionable.some((g) => g.goalId === id) || openGoals.some((g) => g.goalId === id && g.status !== 'resolved'))) {
         suppress(goal, 'DEPENDENCY_NOT_READY', ruleId);
         continue;
       }

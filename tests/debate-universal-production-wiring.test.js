@@ -62,6 +62,38 @@ test('production-shaped universal run batches all participants and commits every
   expect(state.events.filter((event) => event.type === 'STATE_DELTA_STALE')).toHaveLength(0);
 });
 
+test('explicit service-only synthesizer executes the final stage and never joins the discussion stage', async () => {
+  const runModelBatch = jest.fn(async ({ models }) => ({
+    responses: Object.fromEntries(models.map((model) => [model, `Response from ${model}`])), failed: {}
+  }));
+  const app = Application.createApplication({
+    universalEngine: true,
+    deps: {
+      runModelBatch,
+      acceptResponse: (text) => ({ ok: Boolean(String(text || '').trim()), reason: '' }),
+      compilePrompt: ({ stage, participant }) => `${stage.purpose}:${participant.participantId}`,
+      extractArtifacts: ArtifactPipeline.extractArtifacts,
+      proposeStateDelta: ArtifactPipeline.proposeStateDelta,
+      commitStateDelta: ArtifactPipeline.commitStateDelta,
+      projectStateMap: ArtifactPipeline.projectStateMap
+    },
+    exposeInternals: true
+  });
+  const result = await app.start(config({
+    models: ['alpha', 'beta'],
+    synthesizer: 'gamma',
+    maxSteps: 2
+  }));
+  expect(result.ok).toBe(true);
+  expect(runModelBatch).toHaveBeenCalledTimes(2);
+  expect(runModelBatch.mock.calls[0][0].models).toEqual(['alpha', 'beta']);
+  expect(runModelBatch.mock.calls[1][0].models).toEqual(['gamma']);
+  const synthesisStage = app.getOrchestrator().getState().stages
+    .find((stage) => stage.plannedStageId === 'planned-final-synthesis');
+  expect(synthesisStage).toMatchObject({ purpose: 'synthesis', status: 'completed' });
+  expect(synthesisStage.participants.map((participant) => participant.participantId)).toEqual(['gamma']);
+});
+
 const config = (overrides = {}) => ({
   runId: 'run-wiring-1',
   topic: 'Production wiring test',

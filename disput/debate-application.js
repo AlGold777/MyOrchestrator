@@ -67,10 +67,23 @@
       if (!universalModulesReady()) throw new Error('Universal engine modules are unavailable');
       assertProductionWiringComplete(options, deps);
       const policies = Policies.resolve(config.policies || {});
-      const participants = normalizeParticipants(config);
-      // Single validation contract shared with UI (Extraction Contract §18).
-      const validation = Policies.validateConfiguration({ participants }, policies);
+      const discussionParticipants = normalizeParticipants(config);
+      const synthesizer = String(config.synthesizer || '').trim();
+      // Participant-count and identity policies describe discussion participants.
+      // A separate synthesis-only service participant must not change that count.
+      const validation = Policies.validateConfiguration({ participants: discussionParticipants }, policies);
       if (!validation.valid) return { ok: false, code: 'CONFIGURATION_INVALID', validation };
+      if (synthesizer && synthesizer.toLowerCase() !== 'auto' && synthesizer.toLowerCase() !== 'none'
+        && !discussionParticipants.some((participant) => participant.participantId === synthesizer)) {
+        discussionParticipants.push({
+          participantId: synthesizer,
+          type: 'llm',
+          model: synthesizer,
+          capabilities: ['synthesis', 'audit'],
+          serviceOnly: true
+        });
+      }
+      const participants = discussionParticipants;
       const runId = String(config.runId || deps.createId?.('debate') || makeFallbackId());
       // Slice B: DebateCase is created before the runtime starts.
       const debateCase = {
@@ -92,6 +105,23 @@
         policies,
         lifecycle: 'created'
       };
+      const plannedStages = Array.isArray(config.plannedStages) ? config.plannedStages.slice() : [];
+      const explicitSynthesizer = ['auto', 'none'].includes(synthesizer.toLowerCase()) ? '' : synthesizer;
+      if (explicitSynthesizer && !plannedStages.some((stage) => stage.purpose === 'synthesis')) {
+        plannedStages.push({
+          plannedStageId: 'planned-final-synthesis',
+          purpose: 'synthesis',
+          status: 'pending',
+          participantIds: [explicitSynthesizer],
+          requiredCapabilities: ['synthesis'],
+          activationPolicy: 'finalization_ready',
+          outputIntent: 'candidate_final',
+          terminalPolicy: 'eligible_for_finalization',
+          expectedArtifactTypes: ['synthesis_conclusion'],
+          upstream: [],
+          goalIds: []
+        });
+      }
       universalRevisions = PlanRevision.createRevisionStore({
         emit: recordUniversalEvent,
         validateDraft: options.validateRevisionDraft
@@ -124,7 +154,7 @@
         emit: recordUniversalEvent,
         exposeInternals: options.exposeInternals
       });
-      return { ok: true, orchestrator: universal, debateCase, validation, runId };
+      return { ok: true, orchestrator: universal, debateCase, plannedStages, validation, runId };
     }
 
     function recordUniversalEvent(type, payload = {}) {
@@ -170,7 +200,8 @@
         const maxSteps = config.maxSteps ?? created.debateCase.policies?.budgets?.maxTotalStages;
         const started = await created.orchestrator.startRun({
           runId: created.runId, debateCase: created.debateCase,
-          stateMap: config.stateMap, deferExecution: config.deferExecution, maxSteps
+          stateMap: config.stateMap, plannedStages: created.plannedStages,
+          deferExecution: config.deferExecution, maxSteps
         });
         return { ...started, validation: created.validation, orchestrator: created.orchestrator };
       },

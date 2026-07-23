@@ -113,6 +113,32 @@ describe('Orchestrator — run lifecycle', () => {
     expect(stageIndex).toBeGreaterThan(planningIndex);
   });
 
+  test('active revision planned stage becomes an executable StageInstance with stable linkage', async () => {
+    const { orchestrator } = makeOrchestrator();
+    await orchestrator.startRun({
+      debateCase: makeCase({ openGoals: [] }),
+      plannedStages: [{
+        plannedStageId: 'planned-explicit-synthesis',
+        purpose: 'synthesis',
+        status: 'pending',
+        participantIds: ['beta'],
+        activationPolicy: 'immediate',
+        outputIntent: 'candidate_final',
+        terminalPolicy: 'eligible_for_finalization'
+      }],
+      maxSteps: 1
+    });
+    const stage = orchestrator.getState().stages[0];
+    expect(stage).toMatchObject({
+      plannedStageId: 'planned-explicit-synthesis',
+      purpose: 'synthesis',
+      outputIntent: 'candidate_final',
+      terminalPolicy: 'eligible_for_finalization',
+      status: 'completed'
+    });
+    expect(stage.participants.map((participant) => participant.participantId)).toEqual(['beta']);
+  });
+
   test('finalizeRun completes without synthesis (state_map terminal outcome §18.1)', async () => {
     const { orchestrator } = makeOrchestrator();
     await orchestrator.startRun({ debateCase: makeCase() });

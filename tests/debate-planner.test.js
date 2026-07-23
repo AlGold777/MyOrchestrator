@@ -98,6 +98,16 @@ describe('Planner — derived goals (§7)', () => {
     expect(forbidden.map((g) => g.type)).not.toContain('produce_synthesis');
   });
 
+  test('explicit synthesis stage suppresses the goal-derived synthesis path', () => {
+    const derived = Planner.deriveGoals(baseInput({
+      activePlanRevision: {
+        plannedStages: [{ plannedStageId: 'final-synthesis', purpose: 'synthesis', status: 'pending' }]
+      },
+      stateMap: { claims: [{ id: 'c1', status: 'supported' }] }
+    }));
+    expect(derived.map((g) => g.type)).not.toContain('produce_synthesis');
+  });
+
   test('audit goal derives only when synthesis exists without valid audit (§19)', () => {
     const derived = Planner.deriveGoals(baseInput({
       stateMap: { synthesisArtifactId: 'syn-1' },
@@ -132,6 +142,70 @@ describe('Planner — derived goals (§7)', () => {
 });
 
 describe('Planner — selection, conflicts, participants', () => {
+  test('final planned synthesis waits for ordinary goals, then preserves the assigned participant', () => {
+    const plannedStage = {
+      plannedStageId: 'final-synthesis',
+      purpose: 'synthesis',
+      status: 'pending',
+      participantIds: ['beta'],
+      activationPolicy: 'finalization_ready',
+      outputIntent: 'candidate_final',
+      terminalPolicy: 'eligible_for_finalization'
+    };
+    const activePlanRevision = { plannedStages: [plannedStage], metadata: {} };
+    const before = Planner.evaluate(baseInput({
+      activePlanRevision,
+      openGoals: [goal({ type: 'establish_position', targetArtifactIds: [] })]
+    }));
+    expect(before.proposedStages[0].plannedStageId).toBeUndefined();
+    expect(before.proposedStages[0].purpose).toBe('position');
+
+    const ready = Planner.evaluate(baseInput({ activePlanRevision, openGoals: [] }));
+    expect(ready.type).toBe('CREATE_STAGES');
+    expect(ready.rationaleCode).toBe('PLANNED_STAGE_READY');
+    expect(ready.proposedStages[0]).toMatchObject({
+      plannedStageId: 'final-synthesis',
+      purpose: 'synthesis',
+      participantIds: ['beta'],
+      outputIntent: 'candidate_final',
+      terminalPolicy: 'eligible_for_finalization',
+      participantSelectionRationale: 'PLAN_REVISION_ASSIGNMENT'
+    });
+  });
+
+  test('planned stage never silently reassigns an unavailable participant', () => {
+    const decision = Planner.evaluate(baseInput({
+      activePlanRevision: {
+        metadata: {},
+        plannedStages: [{
+          plannedStageId: 'final-synthesis', purpose: 'synthesis', status: 'pending',
+          participantIds: ['missing'], activationPolicy: 'immediate'
+        }]
+      }
+    }));
+    expect(decision.type).toBe('WAIT');
+    expect(decision.rationaleCode).toBe('PLANNED_STAGE_PARTICIPANT_UNAVAILABLE');
+    expect(decision.suppressedRules[0]).toMatchObject({
+      plannedStageId: 'final-synthesis',
+      participantId: 'missing'
+    });
+  });
+
+  test('completed plannedStageId is not executed twice', () => {
+    const decision = Planner.evaluate(baseInput({
+      activePlanRevision: {
+        metadata: {},
+        plannedStages: [{
+          plannedStageId: 'final-synthesis', purpose: 'synthesis', status: 'pending',
+          participantIds: ['alpha'], activationPolicy: 'immediate'
+        }]
+      },
+      stageHistory: [{ plannedStageId: 'final-synthesis', status: 'completed' }]
+    }));
+    expect(decision.type).toBe('NO_OP');
+    expect(decision.rationaleCode).toBe('AWAITING_MANUAL_FINALIZATION');
+  });
+
   test('CREATE_STAGES has utility breakdown and fired rules for every selected goal (§9.3)', () => {
     const decision = Planner.evaluate(baseInput({ openGoals: [goal()] }));
     expect(decision.type).toBe('CREATE_STAGES');

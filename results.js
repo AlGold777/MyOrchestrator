@@ -5722,7 +5722,8 @@ document.addEventListener('click', (event) => {
                         topic: pipelineNameText,
                         problemSpec,
                         taskContract,
-                        selectedModels: selectedModels.slice()
+                        selectedModels: selectedModels.slice(),
+                        synthesizer
                     },
                     moderatorEntryText,
                     pipelineNameText,

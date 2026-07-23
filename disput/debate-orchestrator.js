@@ -224,9 +224,11 @@
         openGoals: clone(state.openGoals),
         resolvedGoals: [],
         activeStages: clone(state.stages.filter((s) => !['completed', 'failed', 'cancelled', 'stale'].includes(s.status))),
+        stageHistory: clone(state.stages),
         availableParticipants: arr(state.debateCase?.participants).map((p) => ({
           participantId: p.participantId, type: p.type || 'llm', provider: p.provider,
           capabilities: p.capabilities || [],
+          serviceOnly: p.serviceOnly === true,
           available: p.available !== false && state.participantStatus[p.participantId]?.available !== false,
           capacity: p.capacity ?? 1
         })),
@@ -292,6 +294,7 @@
         const stage = {
           stageInstanceId,
           proposedStageId: proposed.proposedStageId,
+          plannedStageId: proposed.plannedStageId || null,
           runId: state.runId,
           planRevisionId: active?.revisionId,
           createdByDecisionId: decision.decisionId,
@@ -306,6 +309,10 @@
           dispatchMode: proposed.dispatchMode || 'single',
           completionMode: proposed.completionMode || 'all',
           visibilityPolicy: proposed.visibilityPolicy || { mode: 'public' },
+          outputIntent: proposed.outputIntent,
+          terminalPolicy: proposed.terminalPolicy,
+          auditPolicy: proposed.auditPolicy,
+          inputSelector: proposed.inputSelector,
           status: 'pending',
           attempt: 1
         };
@@ -624,7 +631,12 @@
         state.stateMap = clone(command.stateMap || {});
         state.stateMapVersion = 1;
         if (!revisions.getActive?.()) {
-          revisions.initialize({ runId: state.runId, createdBy: 'system', executionPolicies: command.debateCase.policies || {} });
+          revisions.initialize({
+            runId: state.runId,
+            createdBy: 'system',
+            executionPolicies: command.debateCase.policies || {},
+            plannedStages: arr(command.plannedStages)
+          });
         }
         state.lifecycle = LIFECYCLE.STARTING;
         emit('RUN_CREATED', {});
