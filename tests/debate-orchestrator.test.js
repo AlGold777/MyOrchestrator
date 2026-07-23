@@ -192,6 +192,25 @@ describe('Orchestrator — ownership (§6)', () => {
     const result = await second.orchestrator.startRun({ debateCase: makeCase(), deferExecution: true });
     expect(result.ok).toBe(true);
   });
+
+  test('a former owner cannot commit a delayed stage after its lease is fenced out', async () => {
+    const persistence = makePersistence();
+    let resolveDispatch;
+    const delayed = new Promise((resolve) => { resolveDispatch = resolve; });
+    const first = makeOrchestrator({
+      persistence, ownerId: 'owner-1', now: () => 1000, leaseTtlMs: 10,
+      adapterBehavior: async () => delayed
+    });
+    const running = first.orchestrator.startRun({ debateCase: makeCase(), maxSteps: 1 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // A different owner writes a newer fencing revision while the provider is slow.
+    persistence.writeLease({ runId: 'run-1', ownerId: 'owner-2', expiresAt: 99999, leaseRevision: 2, version: 2 });
+    resolveDispatch({ status: 'received', text: 'late answer' });
+    const result = await running;
+    expect(result.outcome.code).toBe('LEASE_LOST');
+    expect(first.orchestrator.getState().events.map((event) => event.type)).toContain('LEASE_LOST');
+    expect(first.orchestrator.getState().events.map((event) => event.type)).not.toContain('STATE_DELTA_APPLIED');
+  });
 });
 
 describe('Orchestrator — pause/continue (§13–§14)', () => {
@@ -202,6 +221,7 @@ describe('Orchestrator — pause/continue (§13–§14)', () => {
     expect(paused.lifecycle).toBe('PAUSED');
     expect(types(orchestrator.getState())).toEqual(expect.arrayContaining(['PAUSE_REQUESTED', 'RUN_QUIESCING', 'RUN_PAUSED']));
     expect(persistence.store.snapshots.length).toBeGreaterThan(0);
+    expect(persistence.store.lease).toBeNull();
     const resumed = await orchestrator.requestContinue({ requestedBy: 'user' });
     expect(resumed.ok).toBe(true);
     expect(types(orchestrator.getState())).toEqual(expect.arrayContaining(['CONTINUE_REQUESTED', 'RECONCILING_STARTED', 'RECONCILING_COMPLETED', 'RUN_RESUMED']));

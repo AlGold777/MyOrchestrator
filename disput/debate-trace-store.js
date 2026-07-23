@@ -24,6 +24,7 @@
     const listeners = new Set();
     const runs = new Map();
     const duplicateIds = new Map();
+    const conflicts = new Map();
     let activeRunId = '';
     let receivedSeq = 0;
     let flushTimer = null;
@@ -85,15 +86,24 @@
       const runId = correlation.debateRunId || activeRunId;
       const run = ensureRun(runId, input.run || {});
       if (!run) return null;
-      receivedSeq += 1;
       const event = Schema.createEvent({ ...input, correlation: { debateRunId: runId, ...correlation } }, {
-        receivedSeq,
+        receivedSeq: receivedSeq + 1,
         receivedAt: Date.now()
       });
-      if (run.events.some((item) => item.eventId === event.eventId)) {
-        duplicateIds.set(runId, (duplicateIds.get(runId) || []).concat(event.eventId));
+      const existing = run.events.find((item) => item.eventId === event.eventId);
+      if (existing) {
+        if (existing.semanticHash === event.semanticHash) {
+          duplicateIds.set(runId, (duplicateIds.get(runId) || []).concat(event.eventId));
+        } else {
+          conflicts.set(runId, (conflicts.get(runId) || []).concat({
+            eventId: event.eventId,
+            existingSemanticHash: existing.semanticHash,
+            incomingSemanticHash: event.semanticHash
+          }));
+        }
         return null;
       }
+      receivedSeq += 1;
       run.events.push(event);
       run.updatedAt = event.receivedAt;
       activeRunId = runId;
@@ -137,7 +147,10 @@
       activeRunId = String(snapshot.activeRunId || '');
       snapshot.runs.slice(-maxRuns).forEach((run) => {
         if (!run?.debateRunId) return;
-        runs.set(String(run.debateRunId), { ...run, events: Array.isArray(run.events) ? run.events.slice(-maxEvents) : [] });
+        const events = (Array.isArray(run.events) ? run.events.slice(-maxEvents) : []).map((event) => (
+          event.semanticHash ? event : Schema.createEvent(event, { receivedSeq: event.receivedSeq, receivedAt: event.receivedAt })
+        ));
+        runs.set(String(run.debateRunId), { ...run, events });
       });
       return true;
     };
@@ -155,6 +168,7 @@
       setActiveRun(runId) { const id = String(runId || ''); if (!runs.has(id)) return false; activeRunId = id; notify(null, runs.get(id)); return true; },
       listRuns: () => Array.from(runs.values()),
       getDuplicateIds: (runId = activeRunId) => (duplicateIds.get(String(runId || '')) || []).slice(),
+      getConflicts: (runId = activeRunId) => (conflicts.get(String(runId || '')) || []).slice(),
       subscribe(listener) { if (typeof listener !== 'function') return () => {}; listeners.add(listener); return () => listeners.delete(listener); }
     });
   }

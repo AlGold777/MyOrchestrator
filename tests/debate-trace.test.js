@@ -58,6 +58,17 @@ describe('Debate trace store', () => {
     expect(store.getRun('run-1').events.map((event) => event.receivedSeq)).toEqual([...store.getRun('run-1').events.map((event) => event.receivedSeq)].sort((a, b) => a - b));
   });
 
+  test('rejects an eventId replay with different semantic content without consuming a sequence', () => {
+    const store = TraceStore.createStore();
+    store.beginRun({ debateRunId: 'run-1', plan });
+    const first = store.append({ eventId: 'same-id', eventType: 'RUN_STARTED', source: 'application', correlation: { debateRunId: 'run-1' }, payload: { attempt: 1 } });
+    const conflict = store.append({ eventId: 'same-id', eventType: 'RUN_STARTED', source: 'application', correlation: { debateRunId: 'run-1' }, payload: { attempt: 2 } });
+    expect(conflict).toBeNull();
+    expect(store.getRun('run-1').events).toHaveLength(3); // RUN_CREATED, PLAN_COMPILED, first
+    expect(store.getRun('run-1').events.at(-1).receivedSeq).toBe(first.receivedSeq);
+    expect(store.getConflicts('run-1')).toEqual([expect.objectContaining({ eventId: 'same-id' })]);
+  });
+
   test('persists and restores a bounded machine trace', async () => {
     let saved = {};
     const storage = {

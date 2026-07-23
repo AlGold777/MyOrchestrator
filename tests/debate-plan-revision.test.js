@@ -153,6 +153,27 @@ describe('Plan Revision Specification v1.0', () => {
     expect(restored.getLineage()).toHaveLength(2);
   });
 
+  test('replays an identical commandId without creating a second revision, including after hydrate', () => {
+    let persisted = null;
+    const store = PlanRevision.createRevisionStore({ persist: (revisions, active, commandLedger) => { persisted = { revisions, active, commandLedger }; } });
+    store.initialize({ runId: 'run-1', revisionId: 'rev-0' });
+    const change = command('INSERT_STAGE', { stage: { purpose: 'audit' } }, { commandId: 'cmd-idempotent' });
+    const first = store.submit(change);
+    const replay = store.submit(change);
+    expect(replay).toMatchObject({ ok: true, replayed: true, revision: { revisionId: first.revision.revisionId } });
+    expect(store.getLineage()).toHaveLength(2);
+    const restored = PlanRevision.createRevisionStore({});
+    restored.hydrate(persisted);
+    expect(restored.submit(change)).toMatchObject({ ok: true, replayed: true, revision: { revisionId: first.revision.revisionId } });
+  });
+
+  test('rejects a reused commandId whose semantic command differs', () => {
+    const store = makeStore();
+    store.submit(command('INSERT_STAGE', { stage: { purpose: 'audit' } }, { commandId: 'cmd-conflict' }));
+    const result = store.submit(command('INSERT_STAGE', { stage: { purpose: 'synthesis' } }, { commandId: 'cmd-conflict', expectedRevisionId: store.getActive().revisionId }));
+    expect(result).toMatchObject({ ok: false, code: 'COMMAND_ID_CONFLICT' });
+  });
+
   test('UI-only changes do not require a revision (§23)', () => {
     expect(PlanRevision.requiresRevision({ field: 'zoom' })).toBe(false);
     expect(PlanRevision.requiresRevision({ field: 'collapsed' })).toBe(false);

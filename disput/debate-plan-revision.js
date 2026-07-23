@@ -42,6 +42,20 @@
   };
   const clone = (value) => value == null ? value : JSON.parse(JSON.stringify(value));
   const nowIso = () => new Date().toISOString();
+  const canonicalize = (value) => {
+    if (value === null) return 'null';
+    if (typeof value === 'undefined') return 'undefined';
+    if (typeof value !== 'object') return JSON.stringify(value);
+    if (Array.isArray(value)) return `[${value.map(canonicalize).join(',')}]`;
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalize(value[key])}`).join(',')}}`;
+  };
+  const commandFingerprint = (command = {}) => canonicalize({
+    commandId: command.commandId,
+    expectedRevisionId: command.expectedRevisionId,
+    commandType: command.commandType,
+    payload: command.payload || {},
+    createdBy: command.createdBy
+  });
 
   // Semantic Stability Rules (§23): UI-only fields never require a revision.
   const UI_ONLY_FIELDS = Object.freeze(['zoom', 'position', 'color', 'collapsed', 'filters', 'sortOrder', 'localSettings']);
@@ -278,7 +292,19 @@
     const emit = typeof options.emit === 'function' ? options.emit : () => {};
     const persist = typeof options.persist === 'function' ? options.persist : () => {};
     const revisions = [];
+    const commandLedger = new Map();
     let active = null;
+
+    const persistState = () => persist(revisions.slice(), active, Array.from(commandLedger.values()).map(clone));
+    const replayResult = (record) => ({
+      ok: true,
+      replayed: true,
+      commandId: record.commandId,
+      revision: revisions.find((revision) => revision.revisionId === record.revisionId) || null,
+      affectedStageIds: record.affectedStageIds || [],
+      stageInvalidation: record.stageInvalidation || [],
+      runningStagePolicy: record.runningStagePolicy || 'FINISH'
+    });
 
     const trace = (revision, commands, affected) => ({
       runId: revision.runId,
@@ -298,7 +324,7 @@
       initialize(seed = {}) {
         active = makeInitialRevision(seed);
         revisions.push(active);
-        persist(revisions.slice(), active);
+        persistState();
         emit(EVENTS.REVISION_ACTIVATED, { revisionId: active.revisionId, revisionNumber: 0 });
         return active;
       },
@@ -310,6 +336,13 @@
       submit(commandOrCommands, context = {}) {
         const commands = Array.isArray(commandOrCommands) ? commandOrCommands : [commandOrCommands];
         if (!active) throw new Error('Revision store is not initialized');
+        const known = commands.map((command) => ({ command, record: commandLedger.get(String(command?.commandId || '')) }));
+        if (known.some((entry) => entry.record)) {
+          const mismatched = known.find((entry) => entry.record && entry.record.fingerprint !== commandFingerprint(entry.command));
+          if (mismatched) return { ok: false, code: 'COMMAND_ID_CONFLICT', commandId: mismatched.command.commandId };
+          if (known.every((entry) => entry.record)) return replayResult(known[0].record);
+          return { ok: false, code: 'COMMAND_ID_REPLAY_MIXED' };
+        }
         for (const command of commands) {
           const verdict = validateCommand(command, active);
           if (!verdict.ok) {
@@ -363,19 +396,23 @@
         revisions[supersededIndex] = deepFreeze({ ...clone(previous), status: STATUS.SUPERSEDED });
         revisions.push(activated);
         active = activated;
-        persist(revisions.slice(), active);
+        const result = { ok: true, revision: activated, affectedStageIds: affected, stageInvalidation: invalidateStages(context.activeStages || [], activated, affected), runningStagePolicy: commands.find((c) => c.payload?.runningStagePolicy)?.payload?.runningStagePolicy || 'FINISH' };
+        commands.forEach((command) => commandLedger.set(String(command.commandId), {
+          commandId: String(command.commandId), fingerprint: commandFingerprint(command), revisionId: activated.revisionId,
+          affectedStageIds: result.affectedStageIds, stageInvalidation: result.stageInvalidation,
+          runningStagePolicy: result.runningStagePolicy
+        }));
+        persistState();
         emit(EVENTS.REVISION_SUPERSEDED, { revisionId: previous.revisionId });
         emit(EVENTS.REVISION_ACTIVATED, { revisionId: activated.revisionId, revisionNumber: activated.revisionNumber, trace: trace(activated, commands, affected) });
-
-        const stageInvalidation = invalidateStages(context.activeStages || [], activated, affected);
-        return { ok: true, revision: activated, affectedStageIds: affected, stageInvalidation, runningStagePolicy: commands.find((c) => c.payload?.runningStagePolicy)?.payload?.runningStagePolicy || 'FINISH' };
+        return result;
       },
 
       archive(revisionId) {
         const index = revisions.findIndex((r) => r.revisionId === revisionId);
         if (index < 0 || revisions[index].status === STATUS.ACTIVE) return false;
         revisions[index] = deepFreeze({ ...clone(revisions[index]), status: STATUS.ARCHIVED });
-        persist(revisions.slice(), active);
+        persistState();
         emit(EVENTS.REVISION_ARCHIVED, { revisionId });
         return true;
       },
@@ -384,16 +421,21 @@
       hydrate(persisted = {}) {
         revisions.length = 0;
         (persisted.revisions || []).forEach((r) => revisions.push(deepFreeze(clone(r))));
+        commandLedger.clear();
+        (persisted.commandLedger || []).forEach((record) => {
+          if (record?.commandId && record?.fingerprint && record?.revisionId) commandLedger.set(String(record.commandId), clone(record));
+        });
         active = revisions.find((r) => r.status === STATUS.ACTIVE) || null;
         return active;
-      }
+      },
+      getCommandLedger: () => Array.from(commandLedger.values()).map(clone)
     };
     return store;
   }
 
   const api = Object.freeze({
     SCHEMA_VERSION, STATUS, COMMANDS, EVENTS, INVALIDATION, RUNNING_STAGE_POLICIES,
-    requiresRevision, makeInitialRevision, validateCommand, detectConflicts,
+    requiresRevision, makeInitialRevision, validateCommand, detectConflicts, commandFingerprint,
     dependencyClosure, invalidateStages, createRevisionStore
   });
   root.DebatePlanRevision = api;

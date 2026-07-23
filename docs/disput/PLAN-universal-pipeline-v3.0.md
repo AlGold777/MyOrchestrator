@@ -110,7 +110,7 @@ Acceptance evidence: results page, favorites, profile store, content load order 
 - dedicated registries, plan compiler and run services removed;
 - trigger-specific second executor removed after transferring rule-driven planning;
 - feature switches for selecting an executor removed;
-- old source-contract tests and obsolete documents removed;
+- legacy source-contract tests removed; historical documents isolated in `docs/disput-old/`;
 - HTML entrypoints no longer load removed modules.
 
 ## 5. Remaining release work
@@ -276,4 +276,6 @@ The universal pipeline is release-ready when all P0 items and Gates A–E pass, 
 4. Migration may translate data but never resurrect execution semantics.
 5. A TODO must name owner, gate and removal condition.
 6. Documentation changes in the same commit as ownership or lifecycle changes.
-
+7. Every Disput change also increments `manifest.json` and `package.json`, adds
+   a top entry to `docs/CHANGELOG.md`, and updates the affected file in
+   `docs/disput/`. `docs/disput-old/` is archive-only and is never normative.

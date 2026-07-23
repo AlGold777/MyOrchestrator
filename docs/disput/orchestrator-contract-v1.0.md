@@ -85,6 +85,12 @@ UI-отображение ответа не означает semantic commit.
 Stage, созданная по устаревшей revision, не может быть запущена.
 4.7. Idempotent recovery
 Повторный запуск recovery для одного и того же event sequence должен приводить к одному и тому же runtime state.
+4.8. Semantic event idempotency
+`eventId` не является достаточным доказательством повтора. Каждое событие
+имеет детерминированный semantic hash, вычисленный из его типа, источника,
+причины, correlation, causality, payload и provenance, без transport timing.
+Повтор с тем же ID и тем же hash является no-op. Повтор с тем же ID и другим
+hash отклоняется как конфликт и не расходует collector sequence.
 
 5. Orchestrator API
 interface DebateOrchestrator {
@@ -126,6 +132,8 @@ interface RunLease {
 ownerId должен однозначно идентифицировать runtime instance.
 Например:
 tabId + extensionInstanceId + randomSessionId
+`leaseRevision` — монотонный fencing token. Старое поле `version` допускается
+только для чтения сохранённых данных и имеет то же значение.
 6.2. Lease acquisition
 Перед любым execution action Orchestrator обязан получить lease.
 Acquire lease
@@ -139,6 +147,14 @@ PAUSED
 COMPLETED
 CANCELLED
 FAILED
+Перед semantic commit после любого длительного dispatch Orchestrator обязан
+сравнить ownerId и leaseRevision с persistent lease. При несовпадении ответ
+становится stale, abort tree останавливается, а run переходит в безопасное
+paused-состояние без StateDelta commit.
+6.3.1 Release
+Владелец освобождает lease только с совпадающим fencing token после safe pause
+boundary либо terminal transition. Это позволяет другому контексту немедленно
+выполнить recovery без ожидания TTL.
 6.4. Lease expiration
 Если owner перестал продлевать lease:
     • новые stages не создаются;
@@ -146,6 +162,10 @@ FAILED
     • выполняется recovery;
     • late responses reconciled;
     • run продолжается только после проверки persisted state.
+Persistence может публиковать `LEASE_ACQUIRED`, `LEASE_RENEWED` и
+`LEASE_RELEASED` соседним контекстам. Получивший сообщение контекст обязан
+перечитать persistent lease перед любым execution action; уведомление само по
+себе не является разрешением на dispatch.
 6.5. Two-tab behavior
 Если вторая вкладка открывает активный run:
     • она работает в read-only режиме;

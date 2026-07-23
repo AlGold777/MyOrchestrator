@@ -1,5 +1,31 @@
 # CHANGELOG — Project
 
+### 2026-07-23 — Disput lease fencing, version 2.81.27
+
+- Lease теперь имеет монотонный `leaseRevision` (с сохранением совместимого
+  поля `version`), compare-and-set hook, явный release при pause/cancel/complete
+  и notification hook для межконтекстной синхронизации.
+- После каждого долгого исполнения Orchestrator повторно проверяет fencing
+  lease. Поздний ответ прежнего владельца становится stale и не может создать
+  `StateDelta` commit.
+- Ошибка исполнения стадии больше не теряется в `step()`: loop прекращается
+  при ownership failure.
+- Проверка: ownership, trace и revision suites — 45 тестов.
+
+### 2026-07-23 — Disput idempotency and documentation governance, version 2.81.26
+
+- Актуальная нормативная документация Disput консолидирована в `docs/disput/`;
+  `docs/disput-old/` отделён как архив и не является источником требований.
+- Добавлены ADR о universal-only cutover и evidence matrix, которая отделяет
+  реализованные гарантии от P0/P1 release work.
+- Trace schema повышена до v4: у каждого события есть детерминированный
+  semantic hash. Повтор того же `eventId` с другим содержанием отклоняется и
+  фиксируется как конфликт; collector sequence при этом не расходуется.
+- Plan Revision Store ведёт и сохраняет command-idempotency ledger. Идентичная
+  команда повторно возвращает прежний результат, а повторный `commandId` с
+  иной семантикой отклоняется.
+- Проверка: `debate-trace` и `debate-plan-revision` — 22 теста.
+
 ### 2026-07-23 — Universal pipeline architecture
 
 - Disput now has one production execution path: Application → Planner → Orchestrator → StageExecutor → Artifact/StateDelta → StateMap.

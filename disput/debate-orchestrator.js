@@ -66,7 +66,12 @@
         saveSnapshot: (snapshot) => { store.snapshots.push(clone(snapshot)); },
         loadLatestSnapshot: () => clone(store.snapshots[store.snapshots.length - 1] || null),
         readLease: () => clone(store.lease),
-        writeLease: (value) => { store.lease = clone(value); return true; }
+        writeLease: (value) => { store.lease = clone(value); return true; },
+        compareAndSetLease: (expectedVersion, value) => {
+          if (Number(store.lease?.leaseRevision || store.lease?.version || 0) !== Number(expectedVersion || 0)) return false;
+          store.lease = clone(value);
+          return true;
+        }
       };
     }
 
@@ -96,30 +101,74 @@
     }
 
     // ---- Lease (§6) ----
+    function notifyLease(change) {
+      try { deps.onLeaseChange?.(clone(change)); } catch (_) {}
+      try { persistence.publishLeaseChange?.(clone(change)); } catch (_) {}
+    }
     function acquireLease() {
       const existing = persistence.readLease?.();
       const expired = !existing || existing.expiresAt <= now() || existing.ownerId === ownerId;
       if (!expired) return { ok: false, code: 'LEASE_HELD', holder: existing.ownerId };
+      const previousRevision = Number(existing?.leaseRevision || existing?.version || 0);
       lease = {
         runId: state.runId, ownerId,
         acquiredAt: now(), expiresAt: now() + leaseTtlMs,
-        version: (existing?.version || 0) + 1
+        leaseRevision: previousRevision + 1,
+        // `version` remains for stored snapshots created before leaseRevision.
+        version: previousRevision + 1
       };
-      persistence.writeLease?.(lease);
+      const committed = typeof persistence.compareAndSetLease === 'function'
+        ? persistence.compareAndSetLease(previousRevision, lease)
+        : persistence.writeLease?.(lease);
+      if (!committed) { lease = null; return { ok: false, code: 'LEASE_RACE' }; }
+      notifyLease({ type: 'LEASE_ACQUIRED', lease });
       return { ok: true, lease };
     }
     function renewLease() {
       if (!lease || NO_LEASE_RENEWAL.has(state.lifecycle)) return false;
+      const current = persistence.readLease?.();
+      if (!current || current.ownerId !== ownerId
+        || Number(current.leaseRevision || current.version || 0) !== Number(lease.leaseRevision || lease.version || 0)) {
+        lease = null;
+        return false;
+      }
       lease = { ...lease, expiresAt: now() + leaseTtlMs };
-      persistence.writeLease?.(lease);
+      if (!persistence.writeLease?.(lease)) { lease = null; return false; }
+      notifyLease({ type: 'LEASE_RENEWED', lease });
       return true;
     }
     function assertLease() {
       const current = persistence.readLease?.();
-      if (!current || current.ownerId !== ownerId || current.expiresAt <= now()) {
+      if (!current || !lease || current.ownerId !== ownerId || current.expiresAt <= now()
+        || Number(current.leaseRevision || current.version || 0) !== Number(lease.leaseRevision || lease.version || 0)) {
         return { ok: false, code: 'LEASE_LOST' };
       }
       return { ok: true };
+    }
+    function releaseLease(reason = 'released') {
+      const current = persistence.readLease?.();
+      if (!lease || !current || current.ownerId !== ownerId
+        || Number(current.leaseRevision || current.version || 0) !== Number(lease.leaseRevision || lease.version || 0)) {
+        lease = null;
+        return false;
+      }
+      const released = { ...lease, releasedAt: now(), releaseReason: reason };
+      const committed = typeof persistence.compareAndSetLease === 'function'
+        ? persistence.compareAndSetLease(Number(lease.leaseRevision || lease.version || 0), null)
+        : persistence.writeLease?.(null);
+      lease = null;
+      if (!committed) return false;
+      notifyLease({ type: 'LEASE_RELEASED', lease: released });
+      return true;
+    }
+    function handleLeaseLost(reason = 'lease_lost') {
+      if (state.lifecycle === LIFECYCLE.RUNNING || state.lifecycle === LIFECYCLE.STARTING) {
+        abortController?.abort?.(reason);
+        state.lifecycle = LIFECYCLE.PAUSED;
+        emit('LEASE_LOST', { reason });
+      }
+      lease = null;
+      return { ok: false, code: 'LEASE_LOST' };
     }
 
     // ---- Snapshot (§15) ----
@@ -356,6 +405,14 @@
         planRevisionId: activeRevisionId
       };
       const result = await executor.execute(stage, executionContext);
+      // A slow provider response must not be committed by a former owner after
+      // another context has fenced it out or the lease has expired.
+      const leaseCheck = assertLease();
+      if (!leaseCheck.ok) {
+        stage.status = 'stale';
+        emit('STAGE_STALE', { stageInstanceId: stage.stageInstanceId, reason: 'lease_lost_after_dispatch' });
+        return handleLeaseLost('lease_lost_after_dispatch');
+      }
       if (result.executionStatus === 'awaiting_participant') {
         stage.status = 'awaiting_participant';
         emit('STAGE_AWAITING_PARTICIPANT', { stageInstanceId: stage.stageInstanceId, participants: result.awaitingParticipants });
@@ -382,7 +439,8 @@
           const stages = createStages(decision);
           for (const stage of stages) {
             if (state.lifecycle !== LIFECYCLE.RUNNING) break;
-            await executeStage(stage);
+            const execution = await executeStage(stage);
+            if (execution?.ok === false) return execution;
           }
           return { ok: true, decision, executed: stages.map((s) => s.stageInstanceId) };
         }
@@ -405,7 +463,7 @@
       let steps = 0;
       while (state.lifecycle === LIFECYCLE.RUNNING && steps < maxSteps) {
         steps += 1;
-        renewLease();
+        if (!renewLease()) return handleLeaseLost('lease_renewal_failed');
         const outcome = await step();
         if (!outcome.ok) return outcome;
         const type = outcome.decision?.type;
@@ -432,7 +490,7 @@
       state.lifecycle = LIFECYCLE.COMPLETED;
       persistence.saveSnapshot(buildSnapshot());
       emit('RUN_COMPLETED', { reason: finalizationDecision.reason });
-      lease = null;
+      releaseLease('terminal_completed');
       return { ok: true, finalization: state.finalization };
     }
 
@@ -575,6 +633,7 @@
           state.lifecycle = LIFECYCLE.PAUSED;
           persistence.saveSnapshot(buildSnapshot());
           emit('RUN_PAUSED', {});
+          releaseLease('paused');
         }
         if (abortController && state.pausePolicy === 'cancel_active_dispatch' && deps.AbortController) {
           abortController = new deps.AbortController();
@@ -609,7 +668,7 @@
         state.lifecycle = LIFECYCLE.CANCELLED;
         persistence.saveSnapshot(buildSnapshot());
         emit('RUN_CANCELLED', { reason: command.reason || 'cancelled' });
-        lease = null;
+        releaseLease('terminal_cancelled');
         return { ok: true, lifecycle: state.lifecycle };
       },
 
@@ -762,7 +821,7 @@
       },
 
       buildSnapshot,
-      _internals: deps.exposeInternals ? { state, plannerInput, plannerTick, step, runLoop, reconcile, acquireLease, assertLease } : undefined
+      _internals: deps.exposeInternals ? { state, plannerInput, plannerTick, step, runLoop, reconcile, acquireLease, renewLease, assertLease, releaseLease } : undefined
     });
     return api;
   }

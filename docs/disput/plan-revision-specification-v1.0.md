@@ -183,6 +183,15 @@ createdBy
 
 timestamp
 
+8.1 Idempotency
+
+`commandId` является постоянным ключом команды, а не UI-подсказкой. Revision
+store сохраняет для него canonical fingerprint и результат применения.
+Идентичная повторная доставка возвращает уже созданную Revision без нового
+перехода. Использование того же `commandId` с иной семантикой отклоняется как
+`COMMAND_ID_CONFLICT`. Частично повторённый batch запрещён как
+`COMMAND_ID_REPLAY_MIXED`.
+
 9. Validation Pipeline
 Каждая команда проходит
 Schema Validation

@@ -2,7 +2,7 @@
 (function initDebateTraceSchema(root) {
   'use strict';
 
-  const VERSION = 3;
+  const VERSION = 4;
   const SOURCES = Object.freeze({
     APPLICATION: 'application', RUNNER: 'runner', RUN_STORE: 'run_store',
     BACKGROUND: 'background', CONTENT: 'content', RECOVERY: 'recovery',
@@ -95,6 +95,38 @@
     return errors;
   }
 
+  // A semantic fingerprint deliberately excludes transport/collector timing and
+  // eventId. Replays of the same fact therefore compare equal even when they
+  // arrive in another tab or after a restart.
+  function canonicalize(value) {
+    if (value === null) return 'null';
+    if (typeof value === 'undefined') return 'undefined';
+    if (typeof value !== 'object') return JSON.stringify(value);
+    if (Array.isArray(value)) return `[${value.map(canonicalize).join(',')}]`;
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalize(value[key])}`).join(',')}}`;
+  }
+
+  function semanticHash(event = {}) {
+    const canonical = canonicalize({
+      eventType: event.eventType,
+      source: event.source,
+      severity: event.severity,
+      reasonCode: event.reasonCode,
+      correlation: event.correlation,
+      causality: event.causality,
+      payload: event.payload,
+      provenance: event.provenance
+    });
+    // FNV-1a 32-bit is deterministic and sufficient for ingress conflict
+    // detection; the canonical event remains stored as the source of truth.
+    let hash = 0x811c9dc5;
+    for (let index = 0; index < canonical.length; index += 1) {
+      hash ^= canonical.charCodeAt(index);
+      hash = Math.imul(hash, 0x01000193);
+    }
+    return `fnv1a:${(hash >>> 0).toString(16).padStart(8, '0')}`;
+  }
+
   function createEvent(input = {}, collector = {}) {
     const stats = { redactedFieldsCount: 0 };
     const correlation = normalizeCorrelation({ ...(collector.correlation || {}), ...(input.correlation || {}) });
@@ -122,13 +154,14 @@
       provenance: String(input.provenance || (input.source === SOURCES.LEGACY ? 'legacy_adapter' : 'native')),
       redactedFieldsCount: stats.redactedFieldsCount
     };
+    event.semanticHash = semanticHash(event);
     event.validationErrors = validate(event);
     return Object.freeze(event);
   }
 
   const api = Object.freeze({
     VERSION, SOURCES, SEVERITIES, EVENT_TYPES, CORRELATION_KEYS, CRITICAL_FLUSH,
-    sanitize, normalizeCorrelation, validate, createEvent
+    sanitize, normalizeCorrelation, validate, canonicalize, semanticHash, createEvent
   });
   root.DebateTraceSchema = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
