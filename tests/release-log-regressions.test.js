@@ -248,11 +248,16 @@ describe('release log regression guards', () => {
     expect(html).toContain('id="pipeline-import-btn"');
     expect(html).toContain('title="Import pipelines"');
     expect(html).toContain('<i class="ti ti-upload" aria-hidden="true"></i>');
+    expect(html).toContain('aria-label="Add stage after R2"');
+    expect(html).not.toContain('R2 Disput');
     expect(css).toContain('.pipeline-page .llm-controls {');
     expect(css).toContain('margin-top: 15px;');
     expect(css).toContain('.debate-select-wrap {');
     expect(css).toContain('.debate-select-wrap::after {');
     expect(css).toContain('.debate-select {');
+    expect(css).toContain('.stage-header-row .stage-label {');
+    expect(css).toContain('.pipeline-stage-insert::before,');
+    expect(css).toContain('.pipeline-stage-insert::after {');
     expect(css).toContain('.pipeline-flow #connectorToOutput,');
     expect(css).toContain('.pipeline-flow #outputColumn {');
     expect(css).toContain('align-self: center;');

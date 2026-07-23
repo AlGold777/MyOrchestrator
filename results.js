@@ -3829,7 +3829,7 @@ document.addEventListener('click', (event) => {
                 if (!participantIds.length) continue;
                 rounds.push({
                     plannedStageId: `canvas-r${round}`,
-                    label: round === 1 ? 'R1 Models' : `R${round} Disput`,
+                    label: round === 1 ? 'R1 Models' : `R${round}`,
                     purpose: round === 1 ? 'position' : 'response',
                     participantIds,
                     participantBindings: (stack?.items || []).filter((item) => item.send).map((item) => ({ participantId: item.name, promptId: item.role || null }))
@@ -6064,7 +6064,7 @@ document.addEventListener('click', (event) => {
                         <svg class="connector-svg" id="svg-r1-r2"></svg>
                     </div>
                     <div class="stage-column" id="round2" data-round="2">
-                        <div class="stage-label"><span class="round-badge">R2</span> Disput <button type="button" class="pipeline-round-delete-btn" title="Delete round" aria-label="Delete round" hidden>×</button></div>
+                        <div class="stage-label"><span class="round-badge">R2</span> <button type="button" class="pipeline-round-delete-btn" title="Delete round" aria-label="Delete round" hidden>×</button></div>
                         <div class="model-stack" id="r2-models">
                             ${judgeBlocksHtml}
                         </div>
@@ -6082,7 +6082,7 @@ document.addEventListener('click', (event) => {
                         <svg class="connector-svg" id="svg-r${currentLastJudge}-r${roundCounter}"></svg>
                     </div>
                     <div class="stage-column" id="round${roundCounter}" data-round="${roundCounter}" data-planned-stage-id="canvas-r${roundCounter}">
-                        <div class="stage-header-row"><div class="stage-label"><span class="round-badge">R${roundCounter}</span> Disput <button type="button" class="pipeline-round-delete-btn" title="Delete round" aria-label="Delete round" hidden>×</button></div><button type="button" class="pipeline-stage-insert" data-after-stage-id="canvas-r${roundCounter}" aria-label="Add stage after R${roundCounter} Disput" title="Add stage" disabled>+</button></div>
+                        <div class="stage-header-row"><div class="stage-label"><span class="round-badge">R${roundCounter}</span> <button type="button" class="pipeline-round-delete-btn" title="Delete round" aria-label="Delete round" hidden>×</button></div><button type="button" class="pipeline-stage-insert" data-after-stage-id="canvas-r${roundCounter}" aria-label="Add stage after R${roundCounter}" title="Add stage" disabled></button></div>
                         <div class="model-stack" id="r${roundCounter}-models">
                             ${judgeBlocksHtml}
                         </div>
@@ -6277,7 +6277,7 @@ document.addEventListener('click', (event) => {
             if (!entries.length) return '<p class="pipeline-info-muted">No model stages are stored.</p>';
             return entries.map(([stackId, stack], stageIndex) => {
                 const items = Array.isArray(stack?.items) ? stack.items : [];
-                const roundLabel = stackId === 'r1-models' ? 'R1 Models' : `R${stageIndex + 1} Disput`;
+                const roundLabel = stackId === 'r1-models' ? 'R1 Models' : `R${stageIndex + 1}`;
                 const outputs = roundPlan.find((entry) => Number(entry?.round) === stageIndex + 1)?.outputs || [];
                 const filterLabel = outputs.length ? ` · filter: ${outputs.join(' + ')}` : '';
                 const rows = items.map((item, index) => {
@@ -18112,7 +18112,7 @@ function checkCompareButtonState() {
             source.insertAdjacentHTML('afterend', `
                 <div class="connector-group pipeline-intermediate-connector" aria-hidden="true"><svg class="connector-svg"></svg></div>
                 <div class="stage-column pipeline-intermediate-synthesis" data-planned-stage-id="${escapeHtml(stage.plannedStageId)}">
-                    <div class="stage-header-row"><div class="stage-label"><span class="round-badge">S</span> Synthesis</div><button type="button" class="pipeline-stage-insert" data-after-stage-id="${escapeHtml(stage.plannedStageId)}" aria-label="Add stage after Synthesis" title="Add stage">+</button></div>
+                    <div class="stage-header-row"><div class="stage-label"><span class="round-badge">S</span> Synthesis</div><button type="button" class="pipeline-stage-insert" data-after-stage-id="${escapeHtml(stage.plannedStageId)}" aria-label="Add stage after Synthesis" title="Add stage"></button></div>
                     <div class="model-stack"><div class="model-block active"><div class="model-header"><span class="status-indicator" aria-hidden="true"></span><span class="model-name">${escapeHtml(participant || 'Select model')}</span><button type="button" class="pipeline-stage-remove" data-planned-stage-id="${escapeHtml(stage.plannedStageId)}" aria-label="Remove synthesis stage" title="Remove stage">×</button></div><select class="pipeline-stage-synthesis-select" data-planned-stage-id="${escapeHtml(stage.plannedStageId)}" aria-label="Synthesis model">${stageOptionsHtml(participant)}</select></div></div>
                 </div>
             `);

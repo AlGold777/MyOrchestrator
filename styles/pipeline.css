@@ -355,6 +355,12 @@ body.is-resizing {
     width: 100%;
 }
 
+.stage-header-row .stage-label {
+    margin-bottom: 0;
+    min-height: 26px;
+    align-items: center;
+}
+
 .stage-label {
     font-size: 10px;
     font-weight: 600;
@@ -378,17 +384,40 @@ body.is-resizing {
     top: 50%;
     transform: translate(50%, -50%);
     z-index: 3;
-    width: 24px;
-    height: 24px;
+    width: 26px;
+    height: 26px;
     padding: 0;
     border-radius: 50%;
-    border: 1px solid var(--pipeline-border);
-    color: var(--pipeline-muted);
+    border: 2px solid currentColor;
+    color: var(--pipeline-blue);
     background: var(--pipeline-surface, #fff);
-    font-size: 17px;
-    line-height: 20px;
-    opacity: .42;
+    font-size: 0;
+    line-height: 0;
+    opacity: .85;
     cursor: pointer;
+    display: inline-block;
+    box-sizing: border-box;
+}
+
+.pipeline-stage-insert::before,
+.pipeline-stage-insert::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    background: currentColor;
+    border-radius: 999px;
+    transform: translate(-50%, -50%);
+}
+
+.pipeline-stage-insert::before {
+    width: 11px;
+    height: 2px;
+}
+
+.pipeline-stage-insert::after {
+    width: 2px;
+    height: 11px;
 }
 
 .pipeline-stage-insert:hover,
@@ -401,7 +430,10 @@ body.is-resizing {
 }
 
 .pipeline-stage-insert:disabled {
-    opacity: .18;
+    opacity: .68;
+    color: var(--pipeline-muted);
+    background: var(--pipeline-surface, #fff);
+    border-color: var(--pipeline-border);
     cursor: not-allowed;
 }
 

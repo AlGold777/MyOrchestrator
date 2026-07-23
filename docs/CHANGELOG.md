@@ -1,5 +1,13 @@
 # CHANGELOG — Project
 
+### 2026-07-23 — Clean pipeline canvas round labels and insert icons, version 2.81.41
+
+- `R2 Disput` убран из canvas и runtime генераторов; round labels теперь
+  показывают только `R1 Models`, `R2`, `R3` и т. д.
+- `pipeline-stage-insert` переведён на более явную круглую иконку с рисуемым
+  `+`, а label-row выровнен по вертикали.
+- Добавлена регрессия на новый canvas label/insert-geometry contract.
+
 ### 2026-07-23 — Align release-log regression with DraftPlan restore chain, version 2.81.40
 
 - Обновлена проверка `release-log-regressions.test.js`: после синхронизации
