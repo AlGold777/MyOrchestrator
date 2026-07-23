@@ -1084,6 +1084,10 @@ describe('Pipeline debate favorites view', () => {
     expect(document.querySelectorAll('#pipelineItems .pipeline-item-delete')).toHaveLength(0);
   });
 
+  test('Universal runtime default activates exactly two models', () => {
+    expect(window.PipelineRuntime.DEFAULT_MODEL_INDICES).toEqual([0, 1]);
+  });
+
 
   test('pipeline R1 mirrors selected top models before run when R1 is still default', () => {
     document.getElementById('pipeline-panel').insertAdjacentHTML('beforeend', `

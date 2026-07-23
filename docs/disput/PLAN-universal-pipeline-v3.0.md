@@ -101,6 +101,8 @@ Acceptance evidence: synthesis audit loop, terminal evidence and production wiri
 - Synthesis is shown as a universal stage.
 - Message routing controls (sender, direction and receiver) live in the message
   header; pipeline settings do not contain a moderator-role dropdown.
+- Universal default starts with exactly two active participants; additional
+  models remain opt-in data, not hidden canvas slots.
 - StateMap human action requests synthesis through a plan revision.
 - Existing RunStore/event projections preserve current page diagnostics and exports.
 

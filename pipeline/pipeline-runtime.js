@@ -4,7 +4,7 @@
     const MODELS = [
         { name: 'Claude', defaultActive: true },
         { name: 'GPT', defaultActive: true },
-        { name: 'Gemini', defaultActive: true },
+        { name: 'Gemini', defaultActive: false },
         { name: 'Grok', defaultActive: false },
         { name: 'Le Chat', defaultActive: false },
         { name: 'Qwen', defaultActive: false },

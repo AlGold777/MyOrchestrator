@@ -1,5 +1,13 @@
 # CHANGELOG — Project
 
+### 2026-07-23 — Universal two-model default and canvas recovery, version 2.81.35
+
+- Universal runtime default теперь активирует ровно Claude и GPT; Gemini остаётся
+  доступной моделью, но не является скрытым третьим default slot.
+- После reload pipeline canvas больше не рассчитывает synthesis/output по
+  невидимой третьей модели.
+- Добавлен regression test на `DEFAULT_MODEL_INDICES`.
+
 ### 2026-07-23 — Move message controls and remove moderator role dropdown, version 2.81.34
 
 - Удалён `mod-role-select` из `panel-header` и очищены его state/prompt/event
