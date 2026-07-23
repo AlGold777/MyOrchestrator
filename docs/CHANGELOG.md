@@ -1,5 +1,16 @@
 # CHANGELOG — Project
 
+### 2026-07-23 — Preserve explicit Synthesizer stage after reload, version 2.81.37
+
+- Восстановленный явно выбранный Synthesizer больше не скрывается при
+  `roundLimit: infinite` или промежуточном startup-состоянии после reload.
+- Видимость synthesis column и connector теперь следует сохранённому выбору
+  Synthesizer; добавлен regression test для reload-состояния.
+- После восстановления моделей canvas выполняет обязательный повторный
+  layout-pass на следующем кадре: Synthesizer и Output выравниваются по центру
+  последнего видимого model stack, а connector’ы перерисовываются по финальной
+  геометрии.
+
 ### 2026-07-23 — Universal arbitrary model selection and stable canvas geometry, version 2.81.36
 
 - Universal больше не ограничивает выбор участников двумя моделями: можно выбрать

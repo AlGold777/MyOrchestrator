@@ -255,6 +255,11 @@ body.is-resizing {
     align-self: center;
 }
 
+.pipeline-flow #synthesisColumn,
+.pipeline-flow #outputColumn {
+    transform: translateY(var(--pipeline-terminal-offset, 0px));
+}
+
 .synthesis-capable[hidden],
 .synthesizer-capable[hidden],
 .registry-capable[hidden] {

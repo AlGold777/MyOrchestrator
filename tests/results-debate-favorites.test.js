@@ -1099,6 +1099,47 @@ describe('Pipeline debate favorites view', () => {
     expect(document.querySelectorAll('#r1-models .model-block')).toHaveLength(4);
   });
 
+  test('explicit synthesizer remains visible after an infinite-limit reload state', () => {
+    const roundLimit = document.getElementById('debate-round-limit-select');
+    const synthesizer = document.getElementById('debate-synthesizer-select');
+    roundLimit.value = 'infinite';
+    synthesizer.value = 'Claude';
+    window.syncDebateSchemeUi();
+
+    expect(document.getElementById('synthesisColumn').hidden).toBe(false);
+    expect(document.getElementById('connectorToSynthesis').hidden).toBe(false);
+    expect(document.querySelector('#synthesis-stack .pipeline-synthesis-block .model-name').textContent)
+      .toBe('Claude');
+  });
+
+  test('terminal pipeline cards align to the visible model-stack centre', () => {
+    document.getElementById('debate-round-limit-select').value = '3';
+    window.syncDebateSchemeUi();
+    document.getElementById('synthesisColumn').hidden = false;
+    document.getElementById('connectorToSynthesis').hidden = false;
+    const modelStacks = Array.from(document.querySelectorAll('.model-stack'))
+      .filter((stack) => stack.id !== 'synthesis-stack');
+    const referenceStack = modelStacks[modelStacks.length - 1];
+    const synthesisStack = document.getElementById('synthesis-stack');
+    const outputStack = document.getElementById('output-stack');
+    document.getElementById('synthesisColumn').style.setProperty('--pipeline-terminal-offset', '0px');
+    document.getElementById('outputColumn').style.setProperty('--pipeline-terminal-offset', '0px');
+    const makeRect = (top, height) => ({ top, height, bottom: top + height, left: 0, right: 100, width: 100, x: 0, y: top, toJSON() { return this; } });
+    Object.defineProperty(referenceStack, 'getBoundingClientRect', { configurable: true, value: () => makeRect(20, 180) });
+    Object.defineProperty(synthesisStack, 'getBoundingClientRect', { configurable: true, value: () => makeRect(60, 60) });
+    Object.defineProperty(outputStack, 'getBoundingClientRect', { configurable: true, value: () => makeRect(55, 50) });
+
+    const layoutResult = window.__pipelineLifecycleDebug.updatePipelineLayout();
+
+    expect(layoutResult).toMatchObject({
+      aligned: true,
+      referenceId: referenceStack.id,
+      offsets: { synthesisColumn: 20, outputColumn: 30 }
+    });
+    expect(document.getElementById('synthesisColumn').style.getPropertyValue('--pipeline-terminal-offset')).toBe('20px');
+    expect(document.getElementById('outputColumn').style.getPropertyValue('--pipeline-terminal-offset')).toBe('30px');
+  });
+
 
   test('pipeline R1 mirrors selected top models before run when R1 is still default', () => {
     document.getElementById('pipeline-panel').insertAdjacentHTML('beforeend', `

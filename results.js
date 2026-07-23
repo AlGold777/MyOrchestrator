@@ -3761,6 +3761,42 @@ document.addEventListener('click', (event) => {
             if (entryWrapper) {
                 entryWrapper.style.height = `${height}px`;
             }
+
+            // Flexbox centers the whole terminal column, including its stage
+            // title.  A model column is much taller, so that puts the actual
+            // Synthesis/Output card noticeably below the centre of the model
+            // cards after a reload.  Align the visible stack bodies instead.
+            const terminalColumns = [
+                { column: synthesisColumn, stack: synthesisStack },
+                { column: outputColumn, stack: document.getElementById('output-stack') }
+            ];
+            const modelStacks = stacks.filter((stack) => (
+                stack.classList.contains('model-stack') && stack !== synthesisStack
+            ));
+            const referenceStack = modelStacks[modelStacks.length - 1] || null;
+            if (!referenceStack) return { aligned: false, reason: 'no-reference-stack' };
+            const referenceRect = referenceStack.getBoundingClientRect();
+            if (!referenceRect.height) return { aligned: false, reason: 'zero-reference-height', referenceId: referenceStack.id };
+            const referenceCenter = referenceRect.top + (referenceRect.height / 2);
+            const appliedOffsets = {};
+            terminalColumns.forEach(({ column, stack }) => {
+                if (!column || !stack || isHiddenFromPipelineLayout(column) || isHiddenFromPipelineLayout(stack)) return;
+                const stackRect = stack.getBoundingClientRect();
+                if (!stackRect.height) return;
+                const currentOffset = Number.parseFloat(column.style.getPropertyValue('--pipeline-terminal-offset')) || 0;
+                const naturalStackCenter = (stackRect.top + (stackRect.height / 2)) - currentOffset;
+                const offset = Math.round((referenceCenter - naturalStackCenter) * 100) / 100;
+                if (Math.abs(offset - currentOffset) > 0.1) {
+                    column.style.setProperty('--pipeline-terminal-offset', `${offset}px`);
+                }
+                appliedOffsets[column.id] = offset;
+            });
+            return {
+                aligned: Object.keys(appliedOffsets).length > 0,
+                referenceId: referenceStack.id,
+                referenceCenter,
+                offsets: appliedOffsets
+            };
         };
 
         const captureModelStackState = (stackId) => {
@@ -4357,7 +4393,8 @@ document.addEventListener('click', (event) => {
             }
         };
 
-        const updatePipelineAll = () => {
+        let deferredPipelineLayoutFrame = 0;
+        const updatePipelineAll = ({ deferFinalLayout = true } = {}) => {
             updatePipelineLayout();
             pipelinePanel.querySelectorAll('.model-block').forEach((block) => {
                 const inputCb = block.querySelector('.model-input-checkbox');
@@ -4448,6 +4485,16 @@ document.addEventListener('click', (event) => {
             syncSynthesizerBlocks();
             syncRoundFilterChips();
             syncPipelineFlowVisualState();
+            if (deferFinalLayout && typeof window.requestAnimationFrame === 'function') {
+                if (deferredPipelineLayoutFrame) window.cancelAnimationFrame?.(deferredPipelineLayoutFrame);
+                deferredPipelineLayoutFrame = window.requestAnimationFrame(() => {
+                    deferredPipelineLayoutFrame = 0;
+                    // Model selection/config recovery can finish in the same
+                    // task after the first pass. Re-measure on the rendered
+                    // frame and redraw every connector from final geometry.
+                    updatePipelineAll({ deferFinalLayout: false });
+                });
+            }
         };
 
         const syncPipelineFlowVisualState = () => {
@@ -5861,6 +5908,7 @@ document.addEventListener('click', (event) => {
                 setDebateCardExpanded,
                 setDebateCardWideExpanded,
                 setDebateFeedWideExpanded,
+                updatePipelineLayout,
                 safePipelineMarkdownToHtml,
                 getDebateRunPolicy,
                 getDebateRoundLimit,
@@ -18012,6 +18060,12 @@ function checkCompareButtonState() {
         const usesSynthesisStage = window.ResultsDebateUi?.usesSynthesisStage
             ? window.ResultsDebateUi.usesSynthesisStage({ presetMeta, roundLimit: currentRoundLimit })
             : (presetMeta.duration !== 'open_ended' || currentRoundLimit !== 'infinite');
+        // A persisted explicit synthesizer is itself a user request for the
+        // terminal synthesis stage. This must win over the transient startup
+        // round-limit value, otherwise reload hides the restored block when
+        // the saved configuration uses an open-ended/infinite limit.
+        const hasExplicitSynthesizer = !!normalizeExplicitSynthesizer(debateSynthesizerSelect?.value);
+        const shouldRenderSynthesisStage = usesSynthesisStage || hasExplicitSynthesizer;
         const runActive = !!pipelineRunActive || ['planning', 'running', 'paused', 'cancelling'].includes(String(window.DebateApplication?.getState?.()?.lifecycle || ''));
         if (debateSynthesizerSelect) {
             debateSynthesizerSelect.disabled = runActive;
@@ -18027,14 +18081,14 @@ function checkCompareButtonState() {
             debateRoundLimitSelect.disabled = !showRoundLimitControl;
         }
         const flowSelect = getSynthesizerFlowSelect();
-        if (flowSelect) flowSelect.disabled = runActive || !usesSynthesisStage;
+        if (flowSelect) flowSelect.disabled = runActive || !shouldRenderSynthesisStage;
         document.querySelectorAll('.synthesizer-capable').forEach((el) => {
-            el.hidden = !usesSynthesisStage;
-            el.setAttribute('aria-hidden', String(!usesSynthesisStage));
+            el.hidden = !shouldRenderSynthesisStage;
+            el.setAttribute('aria-hidden', String(!shouldRenderSynthesisStage));
         });
         document.querySelectorAll('.synthesis-capable').forEach((el) => {
-            el.hidden = !usesSynthesisStage;
-            el.setAttribute('aria-hidden', String(!usesSynthesisStage));
+            el.hidden = !shouldRenderSynthesisStage;
+            el.setAttribute('aria-hidden', String(!shouldRenderSynthesisStage));
         });
 
         document.querySelectorAll('.registry-capable').forEach((el) => { el.hidden = false; el.setAttribute('aria-hidden', 'false'); });
