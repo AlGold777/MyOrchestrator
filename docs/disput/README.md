@@ -11,6 +11,7 @@
 3. [Plan revision specification](plan-revision-specification-v1.0.md) — immutable-команды и revisions.
 4. [ADR-001: Universal-only cutover](ADR-001-universal-only-cutover.md) — принятое решение об отсутствии legacy fallback.
 5. [Evidence matrix](EVIDENCE-MATRIX-v3.0.md) — требование → код → тест → release gate.
+6. [Незавершённые обязательства](OPEN-ITEMS-v3.0.md) — открытые P0/P1/P2 и критерии их закрытия.
 
 ## Обязательная дисциплина изменений
 

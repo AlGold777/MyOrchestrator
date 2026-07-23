@@ -1,5 +1,10 @@
 # CHANGELOG — Project
 
+### 2026-07-23 — Disput open-obligations register, version 2.81.30
+
+- Добавлен нормативный реестр незавершённых P0/P1/P2 обязательств с реальными
+  критериями закрытия. До закрытия P0 Disput явно не считается release-ready.
+
 ### 2026-07-23 — Disput persisted human decisions, version 2.81.29
 
 - Blocking human decision включён в snapshot и planner input, поэтому reload не
