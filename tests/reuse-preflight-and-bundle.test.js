@@ -8,6 +8,7 @@ const fs = require('fs');
 const path = require('path');
 
 const read = (...p) => fs.readFileSync(path.join(__dirname, '..', ...p), 'utf8');
+const ORCHESTRATOR_SOURCE = read('background', 'job-orchestrator.js');
 
 describe('unsafe global reuse preflight', () => {
   test('tab-manager probes the page surface before taking over an unbound tab', () => {
@@ -26,6 +27,15 @@ describe('unsafe global reuse preflight', () => {
     expect(src).toContain("return { ok: false, reason: 'probe_failed'");
     expect(src).toContain("return { ok: false, reason: 'modal_visible', probe }");
     expect(src).toContain('probeReusableTabSurface(tabOption.id, llmName)');
+    expect(src).toContain('for (const tabOption of eligibleTabs)');
+  });
+
+  test('Round 0 awaits the complete tab-acquisition transaction', () => {
+    expect(ORCHESTRATOR_SOURCE).toContain('async function runModelThroughTabs');
+    expect(ORCHESTRATOR_SOURCE).toContain('await runModelThroughTabs(llmName, prompt, forceNewTabs');
+    expect(ORCHESTRATOR_SOURCE).toContain("'TAB_ISOLATION_FALLBACK_CREATE'");
+    expect(ORCHESTRATOR_SOURCE).toContain('await setTabBinding(llmName, null);');
+    expect(ORCHESTRATOR_SOURCE).not.toContain('reuseMappedTabOrCreate');
   });
 });
 

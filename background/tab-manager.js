@@ -658,12 +658,12 @@ function detachExistingTab(llmName) {
 
 function createNewLlmTab(llmName, prompt, attachments = [], options = {}) {
   const llmConfig = jobState.llms[llmName];
-  if (!llmConfig) return;
+  if (!llmConfig) return Promise.resolve(false);
   //-- 1.2. Защита от дублирования вкладок --//
   const existingTabId = TabMapManager.get(llmName);
   if (isValidTabId(existingTabId) && !options.forceCreate) {
     globalThis.LLMLog?.debug?.(`[BACKGROUND] Tab for ${llmName} already exists (${existingTabId}), skipping creation`);
-    return;
+    return Promise.resolve(true);
   }
   const creationSessionId = options.sessionId || jobState?.session?.startTime || null;
 
@@ -674,7 +674,7 @@ function createNewLlmTab(llmName, prompt, attachments = [], options = {}) {
     active: !!autoFocusNewTabsEnabled
   };
 
-  chrome.tabs.create(createOptions, async (tab) => {
+  return new Promise((resolve) => chrome.tabs.create(createOptions, async (tab) => {
     // Popup blockers, session-restore races and internal Chrome errors surface
     // here as lastError / undefined tab; without this check the callback threw
     // on tab.id and the model silently never got a tab nor an error state.
@@ -692,11 +692,13 @@ function createNewLlmTab(llmName, prompt, attachments = [], options = {}) {
           message: failReason
         });
       }
+      resolve(false);
       return;
     }
     if (creationSessionId && jobState?.session?.startTime !== creationSessionId) {
       globalThis.LLMLog?.debug?.(`[BACKGROUND] Session changed, skipping tab bind for ${llmName}`);
       try { chrome.tabs.remove(tab.id); } catch (_) {}
+      resolve(false);
       return;
     }
     await setTabBinding(llmName, tab.id);
@@ -738,7 +740,8 @@ function createNewLlmTab(llmName, prompt, attachments = [], options = {}) {
       removeActiveListenerForTab(tab.id);
     }, TAB_LOAD_TIMEOUT_MS);
     activeListeners.set(tab.id, { listener, timeoutId });
-  });
+    resolve(true);
+  }));
 }
 
 
@@ -844,7 +847,7 @@ function tryAttachExistingTab(llmName, prompt, attachments = [], options = {}) {
       // Unsafe-global-reuse preflight: among the newest matching tabs pick the
       // first whose page surface is safe to take over.
       let candidate = null;
-      for (const tabOption of eligibleTabs.slice(0, 3)) {
+      for (const tabOption of eligibleTabs) {
         const isRunBound = !!(runBoundSet && runBoundSet.has(tabOption.id));
         if (!allowGlobalReuse || isRunBound) {
           candidate = tabOption;

@@ -1,5 +1,13 @@
 # Codex phase change log
 
+## 2.81.115 — Atomic run tab acquisition
+
+- Made model tab acquisition an awaited transaction. Round 0 cannot advance on a stale persisted binding while global reuse probing or fresh-tab creation is still running.
+- Removed the unsafe second chance that returned to the persisted mapped tab after the same global surface had been rejected for an existing draft, active generation, modal, or unavailable probe.
+- When no safe reusable tab exists, the old binding is cleared and a fresh tab is created with `forceCreate`; the user's rejected tab remains open and untouched.
+- Fresh-tab creation now resolves only after the new tab is bound to the active run. Global reuse checks every eligible matching tab instead of silently stopping after the newest three.
+- Added regressions for a safe fourth candidate, delayed tab creation/binding, and the orchestrator's awaited isolation fallback.
+
 ## 2.81.114 — Transactional Perplexity composer ownership
 
 - Replaced Perplexity's first-match composer lookup with a ranked ownership resolver. It prefers the visible editor bound to the search form and its local Send control, while excluding extension-owned editors and stale or hidden candidates.

@@ -54,6 +54,15 @@ is loaded by both entry points.
 The background tab registry is the authority for `model → tabId` and its
 session/run binding. A normal lifecycle is:
 
+### Run tab acquisition invariant
+
+Starting with version 2.81.115, model-tab acquisition is atomic with respect to Round 0. A model is considered opened only after one of these outcomes completes:
+
+1. an existing eligible tab passes the surface-safety probe and is bound to the active run; or
+2. every reusable candidate is rejected, the stale mapping is cleared, and a newly created tab is bound to the active run.
+
+A rejected tab is never reused through the persisted mapping as a fallback. Existing user tabs are not closed when rejected. The orchestration layer must await this acquisition transaction before checking the Round 0 binding or proceeding to another model.
+
 ```text
 select models
   -> snapshot run context

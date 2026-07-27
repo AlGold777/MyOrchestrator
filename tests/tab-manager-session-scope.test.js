@@ -5,7 +5,13 @@ const vm = require('vm');
 const TAB_MANAGER_PATH = path.join(__dirname, '..', 'background', 'tab-manager.js');
 const TAB_MANAGER_SOURCE = fs.readFileSync(TAB_MANAGER_PATH, 'utf8');
 
-function createTabManagerSandbox({ queryTabs = [], storageInitial = {}, healthPingReady = false } = {}) {
+function createTabManagerSandbox({
+  queryTabs = [],
+  storageInitial = {},
+  healthPingReady = false,
+  surfaceByTabId = {},
+  createDelayMs = 0
+} = {}) {
   const telemetry = [];
   const storageState = { ...storageInitial };
   const listeners = {
@@ -43,7 +49,9 @@ function createTabManagerSandbox({ queryTabs = [], storageInitial = {}, healthPi
         cb(tab ? { ...tab } : null);
       },
       create(_options, cb) {
-        cb({ id: 999, url: 'https://chatgpt.com/', windowId: 1, index: 0, status: 'complete' });
+        const created = { id: 999, url: 'https://chatgpt.com/', windowId: 1, index: 0, status: 'complete' };
+        if (createDelayMs > 0) setTimeout(() => cb(created), createDelayMs);
+        else cb(created);
       },
       update(_tabId, _options, cb) {
         if (typeof cb === 'function') cb();
@@ -97,7 +105,10 @@ function createTabManagerSandbox({ queryTabs = [], storageInitial = {}, healthPi
       }
     },
     scripting: {
-      executeScript: jest.fn(async () => [{ result: { composerHasDraft: false, stopVisible: false, modalVisible: false } }])
+      executeScript: jest.fn(async ({ target }) => [{
+        result: surfaceByTabId[target.tabId]
+          || { composerHasDraft: false, stopVisible: false, modalVisible: false }
+      }])
     },
     runtime: {
       lastError: null,
@@ -153,7 +164,7 @@ function createTabManagerSandbox({ queryTabs = [], storageInitial = {}, healthPi
         boundTabIds: [1001]
       },
       llms: {
-        GPT: { tabId: null }
+        GPT: { tabId: null, url: 'https://chatgpt.com/' }
       }
     },
     LLM_TARGETS: {
@@ -296,6 +307,47 @@ describe('tab-manager session scoping', () => {
         })
       ])
     );
+  });
+
+  test('global reuse checks every matching tab before falling back to a fresh one', async () => {
+    const now = Date.now();
+    const tabs = [1, 2, 3, 4].map((offset) => ({
+      id: 2100 + offset,
+      url: `https://chatgpt.com/c/${offset}`,
+      windowId: 7,
+      index: offset,
+      status: 'complete',
+      lastAccessed: now - offset
+    }));
+    const { context } = createTabManagerSandbox({
+      queryTabs: tabs,
+      surfaceByTabId: {
+        2101: { composerHasDraft: false, stopVisible: false, modalVisible: false },
+        2102: { composerHasDraft: true, stopVisible: false, modalVisible: false },
+        2103: { composerHasDraft: true, stopVisible: false, modalVisible: false },
+        2104: { composerHasDraft: true, stopVisible: false, modalVisible: false }
+      }
+    });
+
+    const attached = await context.tryAttachExistingTab('GPT', 'hello', [], { allowGlobalReuse: true });
+
+    expect(attached).toBe(true);
+    expect(context.prepareTabForUse).toHaveBeenCalledWith(2101, 'GPT');
+  });
+
+  test('fresh-tab creation resolves only after the new binding is installed', async () => {
+    const { context } = createTabManagerSandbox({ createDelayMs: 20 });
+
+    const creation = context.createNewLlmTab('GPT', 'hello', [], {
+      forceCreate: true,
+      deferDispatch: true
+    });
+
+    expect(creation).toBeInstanceOf(Promise);
+    expect(context.TabMapManager.get('GPT')).toBeNull();
+    await expect(creation).resolves.toBe(true);
+    expect(context.TabMapManager.get('GPT')).toBe(999);
+    expect(context.jobState.session.boundTabIds).toContain(999);
   });
 
   test('resolveTabForLlmName revalidates cached tab before returning it', async () => {

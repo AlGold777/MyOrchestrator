@@ -4817,7 +4817,7 @@ function startModelForLLM(llmName, prompt, forceNewTabs, attachments = [], optio
       return;
     }
 
-    runModelThroughTabs(llmName, prompt, forceNewTabs, attachments, { ...options, sessionId });
+    await runModelThroughTabs(llmName, prompt, forceNewTabs, attachments, { ...options, sessionId });
   }).catch((err) => {
     console.error(`[BACKGROUND] Failed to start ${llmName}:`, err);
   });
@@ -5010,87 +5010,42 @@ function recordApiTransportFeatureDisabled(llmName, attachments = [], dispatchRe
   return transportDecision;
 }
 
-function runModelThroughTabs(llmName, prompt, forceNewTabs, attachments = [], options = {}) {
+async function runModelThroughTabs(llmName, prompt, forceNewTabs, attachments = [], options = {}) {
   if (options.sessionId && !isSessionActive(options.sessionId)) {
-    return;
+    return false;
   }
   if (forceNewTabs) {
     detachExistingTab(llmName);
-    createNewLlmTab(llmName, prompt, attachments, { ...options, forceCreate: true });
-    return;
+    await setTabBinding(llmName, null);
+    return createNewLlmTab(llmName, prompt, attachments, { ...options, forceCreate: true });
   }
 
-  const reuseMappedTabOrCreate = () => {
-    const tabId = TabMapManager.get(llmName);
-    if (!tabId) {
-      globalThis.LLMLog?.debug?.(`[BACKGROUND] Existing tab not found. Creating new tab for ${llmName}.`);
-      createNewLlmTab(llmName, prompt, attachments, options);
-      return;
-    }
-
-    chrome.tabs.get(tabId, async (tab) => {
-      if (chrome.runtime.lastError) {
-        globalThis.LLMLog?.debug?.(`[BACKGROUND] Tab for ${llmName} was closed. Creating a new one.`);
-        emitTelemetry(llmName, 'TAB_REUSE_MISSING', {
-          details: chrome.runtime.lastError?.message || 'tab not found',
-          level: 'warning',
-          meta: { reason: 'reuse_tab', tabId }
-        });
-        await setTabBinding(llmName, null);
-        broadcastGlobalState();
-        createNewLlmTab(llmName, prompt, attachments, options);
-      } else {
-        globalThis.LLMLog?.debug?.(`[BACKGROUND] Reusing tab ${tabId} for ${llmName}.`);
-
-        try {
-          emitTelemetry(llmName, 'TAB_REUSE_CANDIDATE', {
-            details: tab?.url || '',
-            meta: { snapshot: buildTabSnapshot(tab), reason: 'reuse_tab' }
-          });
-          const readiness = await ensureTabReadyForDispatch(tabId, llmName, { reason: 'reuse_tab' });
-          if (!readiness.ok) {
-            emitTelemetry(llmName, 'TAB_REUSE_REJECTED', {
-              details: readiness.reason || 'unknown',
-              level: 'warning',
-              meta: { snapshot: readiness.snapshot || null, reason: 'reuse_tab' }
-            });
-            broadcastDiagnostic(llmName, {
-              type: 'DISPATCH',
-              label: 'Saved tab not ready for reuse',
-              details: readiness.reason || 'unknown',
-              level: 'warning',
-              meta: { snapshot: readiness.snapshot || null, dispatchReason: 'reuse_tab' }
-            });
-            await setTabBinding(llmName, null);
-            broadcastGlobalState();
-            createNewLlmTab(llmName, prompt, attachments, options);
-            return;
-          }
-          await prepareTabForUse(tabId, llmName);
-
-          initRequestMetadata(llmName, tabId, readiness.tab?.url || tab?.url || (LLM_TARGETS[llmName]?.url) || '');
-          await setTabBinding(llmName, tabId);
-          if (!options.deferDispatch) {
-            dispatchPromptToTab(llmName, tabId, prompt, attachments, 'reuse_tab');
-          }
-        } catch (err) {
-          console.error(`[BACKGROUND] Failed to prepare tab for ${llmName}:`, err);
-          await setTabBinding(llmName, null);
-          broadcastGlobalState();
-          createNewLlmTab(llmName, prompt, attachments, options);
-        }
-      }
+  // This acquisition is a transaction: the caller must not advance Round 0
+  // until either a safe existing tab is bound or a fresh tab is created.
+  // tryAttachExistingTab already considers every eligible global tab, including
+  // the persisted mapping. Falling back to that mapping after a failed surface
+  // probe would simply reintroduce the rejected draft/generation state.
+  try {
+    const attached = await tryAttachExistingTab(llmName, prompt, attachments, {
+      ...options,
+      allowGlobalReuse: true
     });
-  };
-
-  // Prefer the most recently used eligible tab whenever "New pages" is disabled.
-  // This prevents stale TabMap bindings from hijacking dispatch (notably for GPT).
-  tryAttachExistingTab(llmName, prompt, attachments, { ...options, allowGlobalReuse: true }).then((attached) => {
-    if (attached) return;
-    reuseMappedTabOrCreate();
-  }).catch((err) => {
+    if (attached) return true;
+  } catch (err) {
     console.warn(`[BACKGROUND] Failed to attach existing tab for ${llmName}:`, err?.message || err);
-    reuseMappedTabOrCreate();
+  }
+
+  await setTabBinding(llmName, null);
+  broadcastGlobalState();
+  emitTelemetry(llmName, 'TAB_ISOLATION_FALLBACK_CREATE', {
+    level: 'warning',
+    details: 'no_safe_reusable_tab',
+    meta: { reason: 'no_safe_reusable_tab' },
+    force: true
+  });
+  return createNewLlmTab(llmName, prompt, attachments, {
+    ...options,
+    forceCreate: true
   });
 }
 
