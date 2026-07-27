@@ -1,5 +1,13 @@
 # Codex phase change log
 
+## 2.81.120 — Perplexity Send control scope and background-tab draft read
+
+- Perplexity still failed with `PERPLEXITY_DRAFT_REJECTED prompt_not_present` → `prompt_injection_failed` while the prompt was visibly present in the composer.
+- Field evidence from the decision metadata: all three attempts reported `insertMethod: beforeinput_exec_command` (the insert command itself succeeded) together with `hasSendControl: false` and `sendControlReady: false`, and the single resolved candidate carried `inForm: false`, `inSearch: false`.
+- First cause: `resolveSendControl` derived its scope from `composer.closest('form,[role="search"],[data-testid*="composer"]')` and collapsed to `composer.parentElement` when that returned null — which is exactly the live Perplexity shape. The Send control sits further up the tree, so it was never found, and `prepare()` requires a visible Send control before accepting a draft. A correctly inserted prompt could not be accepted. The scope now walks a bounded six ancestors, nearest first, so the closest Send still wins and an unrelated control further away is not reachable.
+- Second cause: `read()` preferred `innerText`, which depends on layout and can return empty or stale text in a background tab — the tab state during dispatch. For a contenteditable both projections are equivalent after normalization, so the longer of `innerText`/`textContent` is used.
+- Added regressions: Send control found when it lives outside the composer parent, no reach to an unrelated Send control seven levels away, and a draft that matches through `textContent` when `innerText` is unavailable. The scope test was verified to fail when the ancestor walk is reduced to one level.
+
 ## 2.81.117 — Submission proof for Gemini and Claude
 
 - After 2.81.116 restored insertion, five of nine providers worked. Gemini, Claude and Perplexity inserted the prompt but the turn was never committed, while the run still reported `PROMPT_SUBMITTED_ACCEPTED`.

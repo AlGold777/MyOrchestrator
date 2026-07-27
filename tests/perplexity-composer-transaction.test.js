@@ -136,4 +136,55 @@ describe('Perplexity composer transaction', () => {
     expect(document.execCommand).toHaveBeenCalledWith('insertText', false, prompt);
     document.execCommand = originalExecCommand;
   });
+
+  // 2.81.120 field regression: the live composer reported inForm:false and
+  // inSearch:false, so the scope collapsed to composer.parentElement and the Send
+  // control — which sits further up the tree — was never found. Every attempt
+  // recorded hasSendControl:false and a correctly inserted draft was rejected.
+  test('finds the Send control when it lives outside the composer parent', () => {
+    document.body.innerHTML = `
+      <div id="shell">
+        <div id="row">
+          <div id="editor-wrap"><div contenteditable="true" role="textbox"></div></div>
+          <div id="actions"><button aria-label="Send message"></button></div>
+        </div>
+      </div>`;
+    const composer = document.querySelector('[contenteditable]');
+    const sendButton = document.querySelector('button');
+    setRect(composer, { top: 285, left: 269, width: 686, height: 236 });
+    setRect(sendButton, { top: 480, left: 960, width: 40, height: 40 });
+
+    // Precondition: the defect's shape — no form/search/composer ancestor.
+    expect(composer.closest('form,[role="search"],[data-testid*="composer" i]')).toBeNull();
+    expect(composer.parentElement.querySelector('button')).toBeNull();
+
+    expect(window.PerplexityComposerTransaction.resolveSendControl(composer)).toBe(sendButton);
+  });
+
+  test('does not reach an unrelated Send control far outside the composer', () => {
+    document.body.innerHTML = `
+      <div id="far"><button aria-label="Send feedback"></button></div>
+      <div><div><div><div><div><div><div>
+        <div contenteditable="true" role="textbox"></div>
+      </div></div></div></div></div></div></div>`;
+    const composer = document.querySelector('[contenteditable]');
+    setRect(composer, { top: 285, left: 269, width: 686, height: 236 });
+    setRect(document.querySelector('button'), { top: 10, left: 10, width: 40, height: 40 });
+
+    expect(window.PerplexityComposerTransaction.resolveSendControl(composer)).toBeNull();
+  });
+
+  test('reads a contenteditable draft even when innerText is unavailable', () => {
+    document.body.innerHTML = '<div contenteditable="true" role="textbox"></div>';
+    const composer = document.querySelector('[contenteditable]');
+    const prompt = 'Background tab draft payload';
+    composer.textContent = prompt;
+    // jsdom leaves innerText undefined; a real background tab can report it empty
+    // because it depends on layout. textContent must still satisfy the match.
+    Object.defineProperty(composer, 'innerText', { configurable: true, value: '' });
+
+    expect(window.PerplexityComposerTransaction.promptMatches(
+      window.PerplexityComposerTransaction.read(composer), prompt
+    )).toBe(true);
+  });
 });
