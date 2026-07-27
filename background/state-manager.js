@@ -127,6 +127,14 @@ function detectModelStateDivergence(llmName, entry = {}, source = 'unknown', ext
   return true;
 }
 
+// Excludes volatile fields (tick timestamps) so a state snapshot compares equal
+// across repeated polls when nothing observable actually changed.
+function fingerprintModelRunStateForDedupe(state) {
+  if (!state || typeof state !== 'object') return JSON.stringify(state ?? null);
+  const { lastTransitionAt, ...rest } = state;
+  return JSON.stringify(rest);
+}
+
 function commitModelRunTransition(llmName, entry, transition, payload = {}) {
   if (!entry || !self.ModelRunState?.applyModelRunTransition) {
     return { ok: false, applied: false, reason: 'model_run_state_unavailable', state: null };
@@ -139,11 +147,21 @@ function commitModelRunTransition(llmName, entry, transition, payload = {}) {
   const legacyAfter = snapshotLegacyModelState(entry);
   const normalizedTransition = String(transition || '').toUpperCase();
   const shouldEmitTransitionTelemetry = (() => {
-    if (normalizedTransition !== 'POST_TERMINAL_NOISE') return true;
+    if (payload?.silent === true) return false;
     if (payload?.forceTelemetry === true) return true;
     // POST_TERMINAL_NOISE updates counters, but exporting every ignored DOM/lifecycle echo
     // makes All Logs unreadable and hides the real terminal transition.
-    return false;
+    if (normalizedTransition === 'POST_TERMINAL_NOISE') return false;
+    if (normalizedTransition !== 'STATUS_UPDATE') return true;
+    // STATUS_UPDATE fires on every streaming poll (~1-2s) even when nothing
+    // observable changed (same status, same answer length) -- a stuck/looping
+    // model was seen emitting hundreds of identical MODEL_RUN_TRANSITION events
+    // this way (telemetry export bloat, run 1785185340505). Only skip the repeat
+    // when the actual state snapshot is unchanged from the previous STATUS_UPDATE.
+    const dedupeKey = `${normalizedTransition}|${fingerprintModelRunStateForDedupe(previousState)}|${fingerprintModelRunStateForDedupe(nextState)}|${JSON.stringify(legacyBefore)}|${JSON.stringify(legacyAfter)}`;
+    const isRepeat = entry.lastModelRunTransitionDedupeKey === dedupeKey;
+    entry.lastModelRunTransitionDedupeKey = dedupeKey;
+    return !isRepeat;
   })();
   if (shouldEmitTransitionTelemetry) {
     emitStateMachineTelemetry(llmName, 'MODEL_RUN_TRANSITION', {
@@ -188,7 +206,15 @@ function emitStateProjectionCommitted(llmName, entry = {}, source = 'unknown', b
   const legacyBefore = beforeLegacy || null;
   const legacyAfter = snapshotLegacyModelState(entry);
   const legacyChanged = JSON.stringify(legacyBefore || {}) !== JSON.stringify(legacyAfter || {});
-  const saved = emitStateMachineTelemetry(llmName, 'STATE_PROJECTION_COMMITTED', {
+  const modelRunStateSummary = summarizeModelRunStateForTelemetry(modelRunState);
+  // projectModelRunStateToLegacy() runs on every streaming poll; when the legacy
+  // projection and modelRunState summary are both unchanged from the last commit
+  // for this source, this is a repeat no-op and doesn't need its own telemetry
+  // event (same bloat source as MODEL_RUN_TRANSITION above, run 1785185340505).
+  const projectionDedupeKey = `${source}|${legacyChanged}|${fingerprintModelRunStateForDedupe(modelRunStateSummary)}`;
+  const isRepeat = !legacyChanged && entry.lastStateProjectionDedupeKey === projectionDedupeKey;
+  entry.lastStateProjectionDedupeKey = projectionDedupeKey;
+  const saved = isRepeat ? null : emitStateMachineTelemetry(llmName, 'STATE_PROJECTION_COMMITTED', {
     level: 'info',
     details: source,
     meta: {
@@ -197,7 +223,7 @@ function emitStateProjectionCommitted(llmName, entry = {}, source = 'unknown', b
       legacyChanged,
       legacyBefore,
       legacyAfter,
-      modelRunState: summarizeModelRunStateForTelemetry(modelRunState),
+      modelRunState: modelRunStateSummary,
       projection: clonePlainForStateTelemetry(projection)
     }
   });

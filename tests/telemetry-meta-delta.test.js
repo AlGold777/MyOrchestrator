@@ -99,6 +99,107 @@ describe('telemetry meta delta compaction', () => {
     expect(expandTelemetryEvents(compacted)).toEqual(events);
   });
 
+  test('nested state snapshot emits only the changed leaf, not the whole object', () => {
+    const baseState = {
+      uiStatus: 'RECEIVING', liveStatus: 'RECEIVING', terminalStatus: null,
+      terminalState: 'open', executionState: 'collecting', generationState: 'generating',
+      extractionState: 'rejected', answerState: 'candidate', dispatchId: 'Z.ai:1:2',
+      tabId: 315184672, answerLength: 1615, answerHash: '62e1438',
+      postTerminalNoiseCount: 0, lastTransition: 'STATUS_UPDATE', lastTransitionAt: 1000
+    };
+    const events = [
+      makeEvent('Z.ai', 1, { previousState: { ...baseState }, nextState: { ...baseState } }),
+      makeEvent('Z.ai', 2, {
+        previousState: { ...baseState },
+        nextState: { ...baseState, lastTransitionAt: 2000 }
+      })
+    ];
+    const compacted = compactTelemetryEvents(events);
+    // Only the single changed leaf travels, not the 15-field snapshot.
+    expect(compacted[1].meta.nextState).toEqual({ lastTransitionAt: 2000 });
+    expect(compacted[1].meta.previousState).toBeUndefined();
+    expect(expandTelemetryEvents(compacted)).toEqual(events);
+  });
+
+  test('nested key removal inside a state snapshot round-trips', () => {
+    const events = [
+      makeEvent('Grok', 1, { payload: { status: 'OK', probe: { deep: true }, extra: 1 } }),
+      makeEvent('Grok', 2, { payload: { status: 'OK', extra: 1 } })
+    ];
+    const compacted = compactTelemetryEvents(events);
+    expect(expandTelemetryEvents(compacted)).toEqual(events);
+  });
+
+  test('object replaced by scalar and scalar replaced by object round-trip', () => {
+    const events = [
+      makeEvent('GPT', 1, { decisionSnapshot: { a: 1, b: { c: 2 } } }),
+      makeEvent('GPT', 2, { decisionSnapshot: null }),
+      makeEvent('GPT', 3, { decisionSnapshot: { a: 9 } })
+    ];
+    const compacted = compactTelemetryEvents(events);
+    expect(expandTelemetryEvents(compacted)).toEqual(events);
+  });
+
+  test('arrays are replaced atomically and round-trip', () => {
+    const events = [
+      makeEvent('Qwen', 1, { contradictions: [{ code: 'A' }] }),
+      makeEvent('Qwen', 2, { contradictions: [{ code: 'A' }, { code: 'B' }] }),
+      makeEvent('Qwen', 3, { contradictions: [] })
+    ];
+    const compacted = compactTelemetryEvents(events);
+    expect(expandTelemetryEvents(compacted)).toEqual(events);
+  });
+
+  test('a stuck-model loop of near-identical heavy events compacts far below top-level diffing', () => {
+    const heavyState = (tick) => ({
+      uiStatus: 'RECEIVING', liveStatus: 'RECEIVING', terminalStatus: null,
+      terminalState: 'open', executionState: 'collecting', generationState: 'generating',
+      extractionState: 'rejected', answerState: 'candidate', dispatchId: 'Z.ai:1:2',
+      tabId: 315184672, answerLength: 1615, answerHash: '62e1438',
+      postTerminalNoiseCount: 0, lastTransition: 'STATUS_UPDATE', lastTransitionAt: tick
+    });
+    const events = Array.from({ length: 100 }, (_, i) => makeEvent('Z.ai', i, {
+      previousState: heavyState(1000 + i),
+      nextState: heavyState(1001 + i),
+      legacyBefore: { status: 'RECEIVING', finalStatus: null, answerLength: 0, pendingFinalAnswerLength: 1615 },
+      legacyAfter: { status: 'RECEIVING', finalStatus: null, answerLength: 0, pendingFinalAnswerLength: 1615 },
+      payload: { status: 'RECEIVING', reason: null, dispatchId: 'Z.ai:1:2', tabId: 315184672, runSessionId: 1, manualRecovery: false, allowTerminalUpgrade: false }
+    }));
+    const compacted = compactTelemetryEvents(events);
+    const ratio = JSON.stringify(compacted).length / JSON.stringify(events).length;
+    // Top-level-only diffing left these near-identical events at ~78% of the
+    // original size because one changed leaf re-emitted a whole snapshot;
+    // nested diffing must stay far below that.
+    expect(ratio).toBeLessThan(0.2);
+    expect(expandTelemetryEvents(compacted)).toEqual(events);
+  });
+
+  test('legacy format-1 deltas (marker === true) still expand with replace semantics', () => {
+    // Written by the previous build: a nested object in the delta meant "replace
+    // this key wholesale", not "merge". Such entries can still be in DIAG_KEY
+    // storage, so expanding them must not silently resurrect dropped subkeys.
+    const legacy = [
+      {
+        ts: 1, platform: 'GPT', label: 'A',
+        meta: { extVersion: '1', payload: { a: 1, b: 2 }, keep: 'yes' }
+      },
+      {
+        ts: 2, platform: 'GPT', label: 'B',
+        meta: { __telemetryMetaDelta: true, payload: { a: 9 } }
+      }
+    ];
+    const expanded = expandTelemetryEvents(legacy);
+    expect(expanded[1].meta.payload).toEqual({ a: 9 });
+    expect(expanded[1].meta.extVersion).toBe('1');
+    expect(expanded[1].meta.keep).toBe('yes');
+  });
+
+  test('new compaction marks the nested format version', () => {
+    const events = [makeEvent('GPT', 1), makeEvent('GPT', 2, { dispatchId: 'd-2' })];
+    const compacted = compactTelemetryEvents(events);
+    expect(compacted[1].meta.__telemetryMetaDelta).toBe(2);
+  });
+
   test('empty and non-array input is handled safely', () => {
     expect(compactTelemetryEvents([])).toEqual([]);
     expect(compactTelemetryEvents(null)).toEqual([]);

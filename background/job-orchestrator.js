@@ -8078,7 +8078,26 @@ function handleLLMResponse(llmName, answer, error = null, meta = null, answerHtm
   if (entry) {
     entry.finalizationEvidence = finalizationEvidence;
   }
-  emitFinalizationDecision(llmName, finalizationEvidence);
+  // handleLLMResponse re-runs on every streaming poll. When finalization keeps
+  // getting blocked for the same unchanged candidate (e.g. answer_not_verified
+  // stuck pending auto-finalization), re-emitting the full FINALIZATION_DECISION
+  // event every ~1-2s produced hundreds of near-duplicate events for one run
+  // (telemetry export bloat, run 1785185340505). Accepted/terminal outcomes
+  // always emit; repeated blocked outcomes for the same candidate only emit once.
+  const finalizationDedupeKey = JSON.stringify({
+    finalStatus: finalizationEvidence?.finalStatus || null,
+    finalReason: finalizationEvidence?.finalReason || null,
+    dispatchId: finalizationEvidence?.dispatchId || null,
+    answerHash: finalizationEvidence?.answerHash || null,
+    answerLength: finalizationEvidence?.answerLength || 0
+  });
+  const isRepeatBlockedFinalization = entry
+    && !finalizationEvidence?.accepted
+    && entry.lastFinalizationDecisionDedupeKey === finalizationDedupeKey;
+  if (entry) entry.lastFinalizationDecisionDedupeKey = finalizationDedupeKey;
+  if (!isRepeatBlockedFinalization) {
+    emitFinalizationDecision(llmName, finalizationEvidence);
+  }
 
   if (finalizationEvidence?.success && finalizationEvidence?.lengthPolicy?.suspectShortSuccess) {
     emitTelemetry(llmName, 'ANSWER_LENGTH_SUSPECT', {
