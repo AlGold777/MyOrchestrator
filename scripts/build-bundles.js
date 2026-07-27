@@ -14,6 +14,7 @@ const distDir = path.join(root, 'dist');
 
 const COMMON_FILES = [
   'content-scripts/bootstrap-flags.js',
+  'content-scripts/perplexity-composer-transaction.js',
   'selector-manager-strategies.js',
   'selector-manager.js',
   'selectors-config.js',
@@ -22,11 +23,18 @@ const COMMON_FILES = [
   'humanoid.js',
   'scroll-toolkit.js',
   'content-scripts/pipeline-config.js',
+  'shared/answer-verification.js',
+  'shared/provider-submit-confirmation.js',
   // answer-pipeline-selectors.js is the selector contract the unified pipeline
   // actually consumes (manifest order). The old platform-selectors.js claimed the
   // same window.AnswerPipelineSelectors namespace with an incompatible contract
   // ('gpt' vs 'chatgpt' keys) and silently broke the bundled two-script setup.
   'content-scripts/answer-pipeline-selectors.js',
+  'content-scripts/turn-resolver.js',
+  'content-scripts/answer-structure.js',
+  'content-scripts/generation-signal.js',
+  'shared/secret-redaction.js',
+  'content-scripts/dom-skeleton-capture.js',
   'content-scripts/pipeline-modules.js',
   'content-scripts/unified-answer-watcher.js',
   'content-scripts/sanity-check.js',
@@ -92,3 +100,5 @@ function main() {
 if (require.main === module) {
   main();
 }
+
+module.exports = { COMMON_FILES, PLATFORM_MAP };

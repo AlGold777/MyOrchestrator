@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "sourceExtensionVersions": [
+    "2.81.92",
+    "2.81.93"
+  ],
+  "platformCount": 9,
+  "platforms": [
+    "chatgpt",
+    "claude",
+    "gemini",
+    "grok",
+    "perplexity",
+    "qwen",
+    "deepseek",
+    "lechat",
+    "zai"
+  ],
+  "exactCount": 9,
+  "structurallyCompleteCount": 9,
+  "ignoredRiskPlatforms": []
+}

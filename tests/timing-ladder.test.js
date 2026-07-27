@@ -15,12 +15,13 @@ const num = (src, name) => {
 const ORCH = read('background', 'job-orchestrator.js');
 const DISPATCH = read('background', 'dispatch-coordinator.js');
 const PIPE_CFG = read('content-scripts', 'pipeline-config.js');
+const CONTENT_HARD_MAX_VALUES = Array.from(PIPE_CFG.matchAll(/hardMax:\s*(\d+)/g), (match) => Number(match[1]));
 
 describe('timeout ladder invariants', () => {
   const ladder = (profile) => ({
     contentHardMax: profile === 'long'
-      ? Number(PIPE_CFG.match(/hardMax: (\d+)\s*\n\s*\}\s*,\s*\n\s*intelligentRetry/) ? RegExp.$1 : 450000)
-      : 180000,
+      ? Math.max(...CONTENT_HARD_MAX_VALUES)
+      : Math.min(...CONTENT_HARD_MAX_VALUES),
     deferMax: num(ORCH, `DEFER_STREAM_FINAL_MAX_${profile.toUpperCase()}_MS`),
     hardStop: num(DISPATCH, `SCRIPT_RUNTIME_HARD_STOP_${profile.toUpperCase()}_MS`),
     round4Gate: num(ORCH, `ROUND4_PENDING_WAIT_MAX_${profile.toUpperCase()}_MS`),
@@ -45,6 +46,16 @@ describe('timeout ladder invariants', () => {
     ['deferMax', 'hardStop', 'round4Gate', 'probesWindow', 'baselineWindow'].forEach((key) => {
       expect(l[key]).toBeGreaterThan(s[key]);
     });
+  });
+
+  test('user-facing profiles are Standard 450s/60s and Long 900s/90s', () => {
+    expect(PIPE_CFG).toContain('hardMax: 450000');
+    expect(PIPE_CFG).toContain('hardMax: 900000');
+    expect(ORCH).toContain('GENERATION_BUDGET_SHORT_MS = 450000');
+    expect(ORCH).toContain('GENERATION_BUDGET_LONG_MS = 900000');
+    const shared = read('background', 'shared-state.js');
+    expect(shared).toContain('ACTIVE_FOCUS_WINDOW_STANDARD_MS = 60000');
+    expect(shared).toContain('ACTIVE_FOCUS_WINDOW_LONG_MS = 90000');
   });
 
   test('all ladder consumers resolve through the profiled getters', () => {
@@ -83,13 +94,37 @@ describe('background follows longGenerationMode (behavioral)', () => {
     const { context, fireStorageChange } = loadSharedState();
     expect(context.isLongGenerationProfile()).toBe(false);
     expect(context.profiledTimeoutMs(210000, 480000)).toBe(210000);
+    expect(context.getActiveFocusWindowMs()).toBe(60000);
 
     fireStorageChange({ longGenerationMode: { newValue: true } }, 'local');
     expect(context.isLongGenerationProfile()).toBe(true);
     expect(context.profiledTimeoutMs(210000, 480000)).toBe(480000);
+    expect(context.getActiveFocusWindowMs()).toBe(90000);
 
     fireStorageChange({ longGenerationMode: { newValue: false } }, 'local');
     expect(context.isLongGenerationProfile()).toBe(false);
+  });
+
+  test('active-focus permission expires independently of passive generation budget', () => {
+    const { context } = loadSharedState();
+    const startedAt = Date.now() - 61000;
+    const entry = {
+      promptSubmittedAt: startedAt,
+      activeFocusStartedAt: startedAt,
+      activeFocusBudgetMs: 60000,
+      activeFocusDeadlineAt: startedAt + 60000,
+      budgetTimers: {
+        generation: {
+          startedAt,
+          budgetMs: 450000,
+          deadlineAt: startedAt + 450000
+        }
+      }
+    };
+
+    expect(context.isActiveFocusAllowedForEntry(entry, startedAt + 59000)).toBe(true);
+    expect(context.isActiveFocusAllowedForEntry(entry, startedAt + 61000)).toBe(false);
+    expect(entry.budgetTimers.generation.deadlineAt).toBeGreaterThan(startedAt + 61000);
   });
 });
 

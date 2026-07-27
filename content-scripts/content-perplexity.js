@@ -864,7 +864,6 @@ async function perplexityHumanRead(duration = 480) {
 }
 
 async function dismissPerplexityPromotion() {
-  const promotionTextPattern = /(upgrade|try pro|go pro|perplexity pro|pro plan|subscription|pricing|plan|package|обновить тариф|подписк|тариф|пакет)/i;
   const reportDismissed = (text) => {
     try {
       chrome.runtime.sendMessage({
@@ -873,69 +872,13 @@ async function dismissPerplexityPromotion() {
       });
     } catch (_) {}
   };
-
-  // Live Perplexity markup (2026-07-12) exposes the ordinary × as this
-  // utility-class button, while its overlay has no dialog/modal semantics.
-  // Resolve the exact control first, but authorize it only through the nearest
-  // promotion-text ancestor and top-right ownership within that ancestor.
-  const exactCloseButtons = Array.from(document.querySelectorAll(
-    'button.reset.interactable.select-none.outline-none'
-  ));
-  for (const button of exactCloseButtons) {
-    if (button.disabled || button.getAttribute?.('aria-disabled') === 'true') continue;
-    const buttonRect = button.getBoundingClientRect?.();
-    if (!buttonRect || !buttonRect.width || !buttonRect.height) continue;
-    let container = button.parentElement;
-    for (let depth = 0; container && depth < 10 && container !== document.body; depth++, container = container.parentElement) {
-      const text = String(container.innerText || container.textContent || '').replace(/\s+/g, ' ').trim();
-      if (!promotionTextPattern.test(text)) continue;
-      const containerRect = container.getBoundingClientRect?.();
-      if (!containerRect || !containerRect.width || !containerRect.height) continue;
-      const topRight = buttonRect.left >= containerRect.left + containerRect.width * 0.55
-        && buttonRect.top <= containerRect.top + Math.min(110, containerRect.height * 0.35);
-      if (!topRight) continue;
-      button.click();
-      reportDismissed(text);
-      await sleep(250);
-      return true;
-    }
-  }
-
-  const dialogs = Array.from(document.querySelectorAll(
-    '[role="dialog"], dialog[open], [aria-modal="true"], [data-testid*="modal" i], [class*="modal" i], [class*="dialog" i]'
-  ));
-  for (const dialog of dialogs) {
-    const dialogStyle = getComputedStyle(dialog);
-    const dialogRect = dialog.getBoundingClientRect?.();
-    if (dialogStyle.display === 'none' || dialogStyle.visibility === 'hidden'
-      || (dialogRect && (!dialogRect.width || !dialogRect.height))) continue;
-    const text = String(dialog.innerText || dialog.textContent || '').replace(/\s+/g, ' ').trim();
-    if (!promotionTextPattern.test(text)) continue;
-    const closeCandidates = Array.from(dialog.querySelectorAll('button,[role="button"]'));
-    const close = closeCandidates.find((button) => {
-      const label = [
-        button.getAttribute?.('aria-label'), button.getAttribute?.('title'),
-        button.getAttribute?.('data-testid'), button.innerText, button.textContent
-      ].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
-      if (/^(close|dismiss|not now|maybe later|закрыть|не сейчас|позже|×|✕)$/i.test(label)) return true;
-      // Current Perplexity renders the ordinary × as an icon-only button.
-      // Geometry is accepted only inside a promotion-gated dialog: a small SVG
-      // control in its top-right corner cannot match browser chrome or file UI.
-      const buttonRect = button.getBoundingClientRect?.();
-      if (!dialogRect || !buttonRect || !button.querySelector?.('svg')) return false;
-      const small = buttonRect.width > 0 && buttonRect.height > 0
-        && buttonRect.width <= 64 && buttonRect.height <= 64;
-      const topRight = buttonRect.left >= dialogRect.left + dialogRect.width * 0.6
-        && buttonRect.top <= dialogRect.top + Math.min(96, dialogRect.height * 0.3);
-      return small && topRight;
-    });
-    if (!close || close.disabled || close.getAttribute?.('aria-disabled') === 'true') continue;
-    close.click();
-    reportDismissed(text);
-    await sleep(250);
-    return true;
-  }
-  return false;
+  const owned = window.PerplexityComposerTransaction?.findOwnedPromotionClose?.(document) || null;
+  if (!owned?.button || !owned?.container) return false;
+  const text = String(owned.container.innerText || owned.container.textContent || '').replace(/\s+/g, ' ').trim();
+  owned.button.click();
+  reportDismissed(text);
+  await sleep(250);
+  return true;
 }
 
 const runAntiSleepPulse = (intensity = 'soft') => {
@@ -1335,6 +1278,70 @@ async function findAndCacheElement(selectorKey, selectorArray, timeout = 30000) 
   throw new Error(`Element not found for '${selectorKey}' with any selector`);
 }
 
+const emitPerplexityComposerTelemetry = (label, details = '', meta = {}) => {
+  try {
+    chrome.runtime.sendMessage({
+      type: 'LLM_DIAGNOSTIC_EVENT',
+      llmName: MODEL,
+      event: { type: 'COMPOSER_TRANSACTION', label, details, level: meta.ok === false ? 'warning' : 'info', meta }
+    });
+  } catch (_) {}
+};
+
+async function waitForPerplexityComposer(selectors, timeoutMs = 30000) {
+  const transaction = window.PerplexityComposerTransaction;
+  if (!transaction?.resolveComposer) return findAndCacheElement('inputField', selectors, timeoutMs);
+  const deadline = Date.now() + timeoutMs;
+  let lastResolution = null;
+  while (Date.now() < deadline) {
+    lastResolution = transaction.resolveComposer(document, selectors);
+    if (lastResolution.element) {
+      emitPerplexityComposerTelemetry('PERPLEXITY_COMPOSER_SELECTED', `score=${lastResolution.score}`, {
+        ok: true, selected: transaction.describe(lastResolution.element, lastResolution.score), candidates: lastResolution.diagnostics
+      });
+      return lastResolution.element;
+    }
+    await sleep(150);
+  }
+  emitPerplexityComposerTelemetry('PERPLEXITY_COMPOSER_NOT_FOUND', 'no_owned_visible_composer', {
+    ok: false, candidates: lastResolution?.diagnostics || []
+  });
+  throw new Error('Perplexity owned composer not found');
+}
+
+async function insertPerplexityDraft(composer, prompt, options = {}) {
+  const transaction = window.PerplexityComposerTransaction;
+  if (!transaction?.insert) return fallbackPerplexityType(composer, prompt).then(() => ({
+    ok: window.ContentUtils?.promptMatchesComposer
+      ? window.ContentUtils.promptMatchesComposer(composer.value || composer.textContent || '', prompt)
+      : String(composer.value || composer.textContent || '').includes(prompt),
+    method: 'legacy_fallback'
+  }));
+  const token = `pplx_comp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const attr = 'data-llm-perplexity-composer-token';
+  try {
+    composer.setAttribute(attr, token);
+    const bridgeReady = await ensureMainWorldBridge();
+    if (bridgeReady) {
+      window.dispatchEvent(new CustomEvent('EXT_SET_TEXT', {
+        detail: {
+          bridgeToken: window.ContentUtils?.getMainBridgeToken?.(),
+          bridgeSource: 'content-script',
+          text: prompt,
+          selectors: [`[${attr}="${token}"]`]
+        }
+      }));
+      await sleep(Number(options.settleMs || 180));
+      if (transaction.promptMatches(transaction.read(composer), prompt)) {
+        return { ok: true, method: 'main_world_editor_transaction', value: transaction.read(composer) };
+      }
+    }
+  } finally {
+    try { composer.removeAttribute(attr); } catch (_) {}
+  }
+  return transaction.insert(composer, prompt, { sleep, settleMs: options.settleMs || 180 });
+}
+
 // --- ОСНОВНАЯ ФУНКЦИЯ ОБРАБОТКИ ---
 async function injectAndGetResponse(prompt, attachments = [], meta = null) {
   const dispatchMeta = window.ContentUtils?.ensureDispatchMeta
@@ -1344,7 +1351,6 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
     console.log('[content-perplexity] Starting Perplexity injection process');
     try {
     await sleep(120);
-    await dismissPerplexityPromotion();
 
     // Ввод: Perplexity может использовать textarea или contenteditable
     const inputSelectors = [
@@ -1362,8 +1368,19 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
 
     console.log('[content-perplexity] Looking for input field...');
     activity.heartbeat(0.2, { phase: 'composer-search' });
-    let inputField = await findAndCacheElement('inputField', inputSelectors)
-      .catch(err => { throw { type: 'selector_not_found', message: 'Perplexity input field not found' }; });
+    let inputField = await waitForPerplexityComposer(inputSelectors, 8000).catch(() => null);
+    // Never click speculative page controls while a usable composer already
+    // exists. Only a strictly-owned compact promotion overlay may be dismissed.
+    if (!inputField) {
+      const dismissed = await dismissPerplexityPromotion();
+      emitPerplexityComposerTelemetry('PERPLEXITY_PROMOTION_GUARD_RESULT', dismissed ? 'owned_overlay_dismissed' : 'no_owned_overlay', {
+        ok: dismissed, composerWasAvailable: false
+      });
+      inputField = await waitForPerplexityComposer(inputSelectors, 10000).catch(() => null);
+    }
+    if (!inputField) {
+      throw { type: 'selector_not_found', message: 'Perplexity owned input field not found' };
+    }
 
     // Capture the prior on-page answer before submitting a follow-up, so the background
     // rejects it as stale until the new answer renders (avoids finalizing the old answer).
@@ -1453,7 +1470,7 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
       if (!attachmentsOk) {
         throw { type: 'attachment_failed', message: 'Perplexity attachment upload not confirmed' };
       }
-      inputField = await findAndCacheElement('inputField', inputSelectors, 10000).catch(() => null);
+      inputField = await waitForPerplexityComposer(inputSelectors, 10000).catch(() => null);
       if (!inputField?.isConnected) {
         throw { type: 'selector_not_found', message: 'Perplexity input field disappeared after attachment upload' };
       }
@@ -1478,48 +1495,29 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
     };
     const findLivePromptComposer = () => Array.from(document.querySelectorAll(inputSelectors.join(',')))
       .find(composerMatchesPrompt) || null;
-    let prepared = window.ContentUtils?.ensurePromptPrepared
-      ? await window.ContentUtils.ensurePromptPrepared(inputField, prompt, {
-          fallback: (input, text) => fallbackPerplexityType(input, text),
-          attempts: 2,
-          settleMs: 150
+    let prepared = window.PerplexityComposerTransaction?.prepare
+      ? await window.PerplexityComposerTransaction.prepare({
+          doc: document,
+          prompt,
+          selectors: inputSelectors,
+          attempts: 3,
+          settleMs: 180,
+          sleep,
+          insertStrategy: (composer, text, options) => insertPerplexityDraft(composer, text, options)
         })
-      : { ok: false, reason: 'composer_transaction_unavailable' };
-    if (!prepared.ok) {
-      // A synthetic contenteditable update can be visible for a moment while
-      // Perplexity's React state still rejects it. Re-enter through a native
-      // browser input transaction, the same trusted path used by the working
-      // Grok adapter, then reacquire the live editor after React settles.
-      try { inputField.focus?.({ preventScroll: true }); } catch (_) { try { inputField.focus?.(); } catch (_) {} }
-      const isMac = /mac|iphone|ipad|ipod/i.test(
-        navigator.userAgentData?.platform || navigator.platform || navigator.userAgent || ''
-      );
-      const trustedInput = await new Promise((resolve) => {
-        chrome.runtime.sendMessage({
-          type: 'PERPLEXITY_TRUSTED_INPUT_REQUEST',
-          llmName: MODEL,
-          text: prompt,
-          isMac
-        }, (response) => {
-          if (chrome.runtime.lastError) resolve({ ok: false, reason: chrome.runtime.lastError.message });
-          else resolve(response || { ok: false, reason: 'empty_response' });
-        });
-      });
-      await sleep(250);
-      const liveComposer = findLivePromptComposer();
-      if (trustedInput?.ok && liveComposer) {
-        inputField = liveComposer;
-        prepared = { ok: true, method: trustedInput.method || 'trusted_native_input' };
-      } else if (liveComposer) {
-        inputField = liveComposer;
-        prepared = { ok: true, method: 'reacquired_prompt_fingerprint' };
-      } else {
-        prepared = {
-          ok: false,
-          reason: `${prepared.reason};trusted_input=${trustedInput?.reason || 'not_confirmed'}`
-        };
-      }
-    }
+      : (window.ContentUtils?.ensurePromptPrepared
+        ? await window.ContentUtils.ensurePromptPrepared(inputField, prompt, {
+            fallback: (input, text) => fallbackPerplexityType(input, text),
+            attempts: 2,
+            settleMs: 150
+          })
+        : { ok: false, reason: 'composer_transaction_unavailable' });
+    emitPerplexityComposerTelemetry(
+      prepared.ok ? 'PERPLEXITY_DRAFT_ACCEPTED' : 'PERPLEXITY_DRAFT_REJECTED',
+      prepared.ok ? `method=${prepared.method}` : String(prepared.reason || 'unknown'),
+      { ok: prepared.ok === true, method: prepared.method || null, reason: prepared.reason || null, history: prepared.history || [] }
+    );
+    if (prepared.ok && prepared.composer) inputField = prepared.composer;
     if (!prepared.ok) {
       throw { type: 'prompt_injection_failed', message: `Perplexity prompt preparation failed: ${prepared.reason}` };
     }
@@ -1557,44 +1555,83 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
     const baselineGenerationEvidence = new Set(collectGenerationEvidence());
     const hasFreshGenerationEvidence = () => collectGenerationEvidence()
       .some((element) => !baselineGenerationEvidence.has(element));
+    const baselineResponseCount = document.querySelectorAll(
+      '[data-message-author-role="assistant"], [data-role="assistant"], [data-testid*="answer" i], main article'
+    ).length;
+    const submitConfirmation = window.ProviderSubmitConfirmation || null;
+    const submitBaseline = submitConfirmation?.capture?.({
+      userTurnCount: baselineUserTurns,
+      responseCount: baselineResponseCount,
+      composerTextLength: (inputField.value || inputField.textContent || '').trim().length,
+      generationElements: baselineGenerationEvidence
+    }) || null;
 
     const confirmPerplexitySend = async (timeout = 6000) => {
       const deadline = Date.now() + timeout;
       while (Date.now() < deadline) {
-        if (countUserTurns() > baselineUserTurns) return true;
-        if (hasFreshGenerationEvidence()) return true;
-        if (!findLivePromptComposer()) return true;
+        const liveComposer = findLivePromptComposer();
+        const currentResponseCount = document.querySelectorAll(
+          '[data-message-author-role="assistant"], [data-role="assistant"], [data-testid*="answer" i], main article'
+        ).length;
+        const proof = submitConfirmation?.evaluate?.(submitBaseline, {
+          userTurnCount: countUserTurns(),
+          responseCount: currentResponseCount,
+          composerTextLength: (liveComposer?.value || liveComposer?.textContent || '').trim().length,
+          generationElements: collectGenerationEvidence()
+        });
+        if (proof?.confirmed === true) return true;
+        if (!submitConfirmation && (
+          countUserTurns() > baselineUserTurns
+          || hasFreshGenerationEvidence()
+          || currentResponseCount > baselineResponseCount
+        )) return true;
         await sleep(120);
       }
       return false;
     };
 
-    // Submission is one provider transaction. Both native actions are scoped to
-    // the composer that contains this exact prompt; synthetic page events are
-    // deliberately excluded because React may ignore their untrusted origin.
-    activity.heartbeat(0.4, { phase: 'trusted-composer-enter' });
-    const trustedEnter = await new Promise((resolve) => {
-      chrome.runtime.sendMessage({ type: 'PERPLEXITY_TRUSTED_ENTER_REQUEST', llmName: MODEL, prompt }, (response) => {
-        if (chrome.runtime.lastError) resolve({ ok: false, reason: chrome.runtime.lastError.message });
-        else resolve(response || { ok: false, reason: 'empty_response' });
-      });
-    });
-    let confirmed = trustedEnter?.ok && await confirmPerplexitySend();
-    let trustedSend = null;
-    if (!confirmed && findLivePromptComposer()) {
-      activity.heartbeat(0.45, { phase: 'trusted-send-control' });
-      trustedSend = await new Promise((resolve) => {
-        chrome.runtime.sendMessage({ type: 'PROVIDER_TRUSTED_SEND_REQUEST', llmName: MODEL, prompt }, (response) => {
-          if (chrome.runtime.lastError) resolve({ ok: false, reason: chrome.runtime.lastError.message });
-          else resolve(response || { ok: false, reason: 'empty_response' });
-        });
-      });
-      confirmed = trustedSend?.ok && await confirmPerplexitySend();
+    const dispatchEnter = () => {
+      const init = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true };
+      inputField.dispatchEvent(new KeyboardEvent('keydown', init));
+      inputField.dispatchEvent(new KeyboardEvent('keypress', init));
+      inputField.dispatchEvent(new KeyboardEvent('keyup', init));
+    };
+    const resolveSendButton = () => {
+      const ownedControl = window.PerplexityComposerTransaction?.resolveSendControl?.(inputField) || null;
+      if (ownedControl) return ownedControl;
+      const scope = inputField.closest?.('form,[role="search"],[data-testid*="composer" i]') || inputField.parentElement;
+      if (!scope) return null;
+      return Array.from(scope.querySelectorAll('button,[role="button"]')).find((button) => {
+        if (!isElementInteractable(button) || button.disabled || button.getAttribute?.('aria-disabled') === 'true') return false;
+        const label = [button.getAttribute?.('aria-label'), button.getAttribute?.('title'),
+          button.getAttribute?.('data-testid'), button.textContent].filter(Boolean).join(' ');
+        return /send|submit|ask|arrow-up|paper-plane|отправ|enviar/i.test(label)
+          || String(button.getAttribute?.('type') || '').toLowerCase() === 'submit';
+      }) || null;
+    };
+    let confirmed = false;
+    activity.heartbeat(0.4, { phase: 'page-send-control' });
+    const sendButton = resolveSendButton();
+    if (sendButton) {
+      sendButton.click();
+      confirmed = await confirmPerplexitySend();
+    }
+    if (!confirmed) {
+      const form = inputField.closest?.('form');
+      if (form?.requestSubmit) {
+        try { form.requestSubmit(sendButton || undefined); } catch (_) { try { form.requestSubmit(); } catch (_) {} }
+        confirmed = await confirmPerplexitySend();
+      }
+    }
+    if (!confirmed) {
+      try { inputField.focus?.({ preventScroll: true }); } catch (_) {}
+      dispatchEnter();
+      confirmed = await confirmPerplexitySend();
     }
     if (!confirmed) {
       throw {
         type: 'send_failed',
-        message: `Perplexity submit not confirmed: enter=${trustedEnter?.reason || 'no_send_evidence'}, click=${trustedSend?.reason || 'not_attempted'}`
+        message: 'Perplexity submit not confirmed by page controls'
       };
     }
     activity.heartbeat(0.55, { phase: 'send-dispatched' });

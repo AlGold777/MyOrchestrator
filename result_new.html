@@ -3,7 +3,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LLM Comparison</title>
-    <link rel="stylesheet" href="styles.css?v=2.81.25">
+    <link rel="stylesheet" href="styles.css?v=2.81.42">
 </head>
 <body>
     <div class="app-shell">
@@ -172,7 +172,7 @@
             <button type="button" id="clear-prompt-btn" class="prompt-clear-btn" title="Clear prompt" aria-label="Clear prompt"><i class="ti ti-trash"></i></button>
         </div>
         <div class="prompt-footer-right">
-            <label class="top-new-pages-toggle long-mode-toggle" data-tooltip="Long mode: patiently wait for long answers to finish generating.">
+            <label class="top-new-pages-toggle long-mode-toggle" data-tooltip="Long: wait passively up to 15 minutes; active focus switching stops after 90 seconds.">
                 <span class="top-new-pages-text">Long</span>
                 <input type="checkbox" id="long-mode-checkbox" class="top-new-pages-checkbox">
                 <span class="top-toggle-track"><span class="top-toggle-thumb"></span></span>
@@ -596,11 +596,13 @@
                                             <option value="ERROR">Error</option>
                                             <option value="timeout">Timeout</option>
                                         </select>
+                                        <label class="telemetry-only-problems-label" title="Show and export problems with preceding causal context"><input type="checkbox" id="telemetry-only-problems" checked> Only problems</label>
                                     </div>
                                     <div class="telemetry-actions">
                                         <button type="button" class="diag-icon-btn" id="telemetry-export-json-btn" title="Export telemetry as JSON" aria-label="Export telemetry as JSON"><i class="ti ti-download" aria-hidden="true"></i></button>
                                         <button type="button" class="diag-icon-btn diag-export-all-logs-btn" id="export-all-logs-md-telemetry" aria-label="Export diagnostics and telemetry as Markdown" title="Export All Logs">MD</button>
                                         <button type="button" class="diag-icon-btn diag-clear-btn" id="telemetry-clear-all-btn" title="Clear telemetry (rounds, timeline, summary, logs)" aria-label="Clear all telemetry and logs"><i class="ti ti-trash" aria-hidden="true"></i></button>
+                                        <button type="button" class="diag-icon-btn" id="capture-b1-skeletons-btn" title="Capture privacy-safe answer DOM skeletons from the nine open model tabs" aria-label="Capture sanitized answer DOM skeletons">B1</button>
                                     </div>
                                 </div>
                             </div>
@@ -694,7 +696,7 @@
                                         <select id="disput-severity-filter" class="devtools-select" aria-label="Filter Disput by severity">
                                             <option value="all">All severities</option><option value="critical">Critical</option><option value="high">High</option><option value="warning">Warning</option><option value="info">Info</option>
                                         </select>
-                                        <label class="disput-only-problems-label"><input type="checkbox" id="disput-only-problems"> Only problems</label>
+                                        <label class="disput-only-problems-label"><input type="checkbox" id="disput-only-problems" checked> Only problems</label>
                                     </div>
                                     <div class="telemetry-actions">
                                         <button type="button" class="diag-icon-btn" id="disput-clear-trace" title="Clear Disput trace" aria-label="Clear Disput trace"><i class="ti ti-trash" aria-hidden="true"></i></button>
@@ -947,14 +949,6 @@
 
                         <div id="insertionPoint"></div>
 
-                        <div class="connector-group" id="connectorToOutput">
-                            <svg class="connector-svg" id="svg-stage-output"></svg>
-                        </div>
-
-                        <div class="stage-column" id="outputColumn">
-                            <div class="stage-label">Output</div>
-                            <div class="output-stack" id="output-stack" data-render="pipeline-output-stack"><!-- pipeline-output-stack rendered by pipeline/pipeline-runtime.js --></div>
-                        </div>
                 </div>
                 </div>
 
@@ -1039,6 +1033,7 @@
     <script src="lib/purify.min.js"></script>
     <script src="utils/sanitize.js"></script>
     <script src="shared/status-contract.js"></script>
+    <script src="shared/problem-context-filter.js"></script>
     <script src="shared/telemetry-export.js"></script>
     <script src="shared/secret-redaction.js"></script>
     <script src="shared/transport-policy.js"></script>
@@ -1071,6 +1066,7 @@
     <script src="disput/debate-protocol-transition-service.js"></script>
     <script src="disput/debate-rule-history.js"></script>
     <script src="disput/debate-case-schema.js"></script>
+    <script src="disput/debate-storage-migrations.js"></script>
     <script src="disput/debate-state-delta.js"></script>
     <script src="disput/debate-case-store.js"></script>
     <script src="disput/debate-trace-schema.js"></script>
@@ -1085,6 +1081,7 @@
     <script src="disput/debate-participant-registry.js"></script>
     <script src="disput/debate-stage-executor.js"></script>
     <script src="disput/debate-orchestrator.js"></script>
+    <script src="disput/debate-orchestrator-persistence.js"></script>
     <script src="disput/debate-state-map.js"></script>
     <script src="disput/debate-artifact-pipeline.js"></script>
     <script src="disput/debate-application.js"></script>

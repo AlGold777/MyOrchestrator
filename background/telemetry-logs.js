@@ -421,6 +421,8 @@ function isTelemetryEntry(entry = {}) {
 }
 
 const PINNED_LABELS = new Set([
+  'TURN_RESOLUTION',
+  'ANSWER_VERIFICATION_RESULT',
   'MODEL_FINAL',
   'FINAL_STATUS',
   'MODEL_MISSING',
@@ -551,6 +553,26 @@ async function persistDiagnosticEvent(llmName, entry = {}, { sender, source } = 
 function dispatchTelemetry(llmName, entry = {}, { sender, source, force = false } = {}) {
   if (!entry) return null;
   const normalized = normalizeTelemetryEntry(entry, llmName);
+  const runEntry = jobState?.llms?.[llmName];
+  if (runEntry && self.AnswerVerification?.appendTimeline) {
+    const label = String(normalized.label || '').toUpperCase();
+    const stage = /DISPATCH|COMMAND|PROMPT_READY|TYPING/.test(label) ? 'command'
+      : /SUBMIT|PROMPT_SENT|PROMPT_CONFIRMED/.test(label) ? 'submit'
+        : /GENERAT|STREAMING|LIFECYCLE/.test(label) ? 'generation'
+          : /EXTRACT|ANSWER_CANDIDATE|ANSWER RECEIVED/.test(label) ? 'extraction'
+            : /VERIFICATION|FINALIZATION/.test(label) ? 'verification'
+              : /MODEL_FINAL|PIPELINE_COMPLETE/.test(label) ? 'applied' : null;
+    if (stage) self.AnswerVerification.appendTimeline(runEntry, {
+      stage,
+      state: label.toLowerCase(),
+      ts: normalized.ts,
+      runSessionId: normalized.meta?.runSessionId || jobState?.session?.startTime || null,
+      dispatchId: normalized.meta?.dispatchId || null,
+      tabId: sender?.tab?.id || runEntry.tabId || null,
+      source: source || normalized.type || null,
+      details: { label, level: normalized.level || null }
+    });
+  }
   if (shouldIgnorePostTerminalDiagnostic(llmName, normalized)) return null;
   if (normalized.label === 'PIPELINE_COMPLETE') {
     const dedupeKey = [

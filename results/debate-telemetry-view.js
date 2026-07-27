@@ -2,6 +2,8 @@
 (function initDebateTelemetryView(root) {
   'use strict';
 
+  const problemContextFilter = root.ProblemContextFilter
+    || (typeof module !== 'undefined' && module.exports ? require('../shared/problem-context-filter') : null);
   const clear = (node) => { while (node?.firstChild) node.removeChild(node.firstChild); };
   const text = (tag, value, className = '') => {
     const el = document.createElement(tag);
@@ -106,7 +108,11 @@
       const models = [event.payload?.model, event.payload?.participant].concat(event.payload?.participants || []).filter(Boolean);
       return matchesStage(event.correlation?.stageId) && matchesModel(models) && (typeFilter === 'all' || event.eventType === typeFilter) && (severityFilter === 'all' || event.severity === severityFilter);
     });
-    const visibleEvents = onlyProblems ? eventBase.filter((event) => ['warning', 'high', 'critical'].includes(event.severity)) : eventBase;
+    const visibleEvents = onlyProblems && problemContextFilter
+      ? problemContextFilter.filterWithContext(eventBase, {
+        getContextKey: (event) => event?.correlation?.stageId || event?.stageId || '__unscoped__'
+      })
+      : (onlyProblems ? eventBase.filter((event) => ['warning', 'high', 'critical'].includes(event.severity)) : eventBase);
     renderTable(doc.getElementById('disput-raw-events'), ['Seq', 'Time', 'Type', 'Source', 'Stage', 'Reason'], visibleEvents.map((event) => ({
       className: `disput-severity-${event.severity}`,
       cells: [event.receivedSeq, new Date(event.sourceTimestamp).toLocaleTimeString(), event.eventType, event.source, event.correlation?.stageId || '—', event.reasonCode || '—']

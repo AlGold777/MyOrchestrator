@@ -9,9 +9,10 @@
   const list = (value) => Array.isArray(value) ? value : [];
   const STRUCTURED_TYPES = new Set([
     'claim', 'assumption', 'objection', 'evidence', 'revision', 'dissent',
-    'contradiction', 'open_question', 'decision_criterion', 'limitation', 'evidence_gap', 'axis_verdict'
+    'contradiction', 'open_question', 'decision_criterion', 'limitation', 'evidence_gap', 'axis_verdict',
+    'human_decision', 'synthesis_working', 'synthesis_conclusion', 'audit', 'source', 'finding'
   ]);
-  const TARGET_REQUIRED = new Set(['objection', 'revision', 'dissent', 'contradiction', 'evidence_gap']);
+  const TARGET_REQUIRED = new Set(['objection', 'evidence', 'revision', 'dissent', 'contradiction', 'evidence_gap']);
   const stableHash = (value) => {
     const source = text(value); let hash = 2166136261;
     for (let index = 0; index < source.length; index += 1) {
@@ -115,6 +116,7 @@
       deltaId: `delta-${text(stage.stageInstanceId)}-${text(participant.participantId || participant.model)}`,
       stageInstanceId: text(stage.stageInstanceId),
       participantId: text(participant.participantId || participant.model),
+      goalIds: Object.freeze(list(stage.goalIds).slice()),
       expectedCaseVersion: context.caseVersion == null ? null : Number(context.caseVersion),
       artifacts: Object.freeze(normalized.slice())
     });
@@ -122,32 +124,54 @@
 
   function projectStateMap(stateOrCase = {}) {
     const debateCase = stateOrCase.debateCase || stateOrCase;
-    const artifacts = list(debateCase.artifacts);
+    const artifacts = Array.isArray(debateCase.artifacts)
+      ? debateCase.artifacts
+      : Object.values(debateCase.artifacts || {});
     const artifactRecord = Object.fromEntries(artifacts.map((artifact) => [artifact.id, artifact]));
     const projected = (root.DebateStateMap || StateMap)?.project?.({
       caseId: debateCase.caseId || stateOrCase.runId,
       runId: stateOrCase.runId || debateCase.caseId,
       title: debateCase.topic?.title || debateCase.title || '',
+      caseVersion: Number(debateCase.caseVersion ?? stateOrCase.caseVersion ?? 0),
       artifacts: artifactRecord,
       sourceEvents: debateCase.sourceEvents || [],
       technicalStatus: stateOrCase.lifecycle || debateCase.lifecycle || 'running',
       epistemicOutcome: debateCase.epistemicOutcome || 'pending'
     }) || { artifacts: artifactRecord };
-    const synthesis = artifacts.findLast?.((artifact) => artifact.type === 'synthesis_conclusion')
-      || artifacts.slice().reverse().find((artifact) => artifact.type === 'synthesis_conclusion');
+    const synthesis = artifacts.findLast?.((artifact) => artifact.type === 'synthesis_conclusion' && !artifact.supersededBy && !artifact.mergedInto)
+      || artifacts.slice().reverse().find((artifact) => artifact.type === 'synthesis_conclusion' && !artifact.supersededBy && !artifact.mergedInto);
     const currentAudits = artifacts.filter((artifact) => artifact.type === 'audit' && artifact.targetId === synthesis?.id);
     const workingSynthesisArtifactIds = artifacts.filter((artifact) => artifact.type === 'synthesis_working').map((artifact) => artifact.id);
     const latestAudit = currentAudits.at(-1);
     const validAudit = latestAudit && latestAudit.auditVerdict === 'pass' && latestAudit.status === 'verified' ? latestAudit : null;
     return Object.freeze({
       ...projected,
+      sourceCaseVersion: Number(debateCase.caseVersion ?? stateOrCase.caseVersion ?? 0),
+      projectorVersion: Number(projected.projectorVersion || projected.version || 0),
       artifacts: artifactRecord,
       synthesisArtifactId: synthesis?.id || '',
       workingSynthesisArtifactIds: Object.freeze(workingSynthesisArtifactIds),
       validAuditArtifactId: validAudit?.id || '',
       currentSynthesisAuditId: latestAudit?.id || '',
       currentSynthesisAuditVerdict: latestAudit?.auditVerdict || ''
+      , finalArtifactIds: synthesis ? [synthesis.id] : []
     });
+  }
+
+  function prepareMutations({ case: debateCase, delta } = {}) {
+    if (!debateCase || !delta) return { ok: false, reason: 'semantic_state_unavailable', additions: [], updates: [] };
+    if (delta.expectedCaseVersion != null && Number(delta.expectedCaseVersion) !== Number(debateCase.caseVersion ?? debateCase.version ?? 0)) return { ok: false, reason: 'case_version_stale', additions: [], updates: [] };
+    const existing = Array.isArray(debateCase.artifacts) ? debateCase.artifacts : Object.values(debateCase.artifacts || {});
+    const known = new Map(existing.map((artifact) => [artifact.id, artifact]));
+    const additions = [];
+    const updates = [];
+    for (const artifact of list(delta.artifacts)) {
+      if (!artifact?.id) continue;
+      const previous = known.get(artifact.id);
+      if (!previous) additions.push(artifact);
+      else if (JSON.stringify(previous) !== JSON.stringify(artifact)) updates.push({ artifact, expectedRevision: previous.revision });
+    }
+    return { ok: additions.length + updates.length > 0, additions, updates, supersedes: [], reason: additions.length + updates.length ? undefined : 'no_state_change' };
   }
 
   function commitStateDelta({ state, delta } = {}) {
@@ -155,16 +179,23 @@
     if (delta.expectedCaseVersion != null && Number(delta.expectedCaseVersion) !== Number(state.caseVersion)) {
       return { applied: false, reason: 'case_version_stale' };
     }
-    const existing = list(state.debateCase.artifacts);
-    const known = new Map(existing.map((artifact) => [artifact.id, artifact]));
-    const additions = list(delta.artifacts).filter((artifact) => artifact?.id && !known.has(artifact.id));
-    if (!additions.length) return { applied: false, reason: 'no_state_change' };
-    const nextArtifacts = [...existing, ...additions.map((artifact) => ({ ...artifact }))];
-    state.debateCase = { ...state.debateCase, artifacts: nextArtifacts };
-    return { applied: true, appliedArtifactIds: additions.map((artifact) => artifact.id), stateMap: projectStateMap(state) };
+    const prepared = prepareMutations({ case: { ...state.debateCase, caseVersion: state.caseVersion }, delta });
+    if (!prepared.ok) return { applied: false, reason: prepared.reason || 'no_state_change' };
+    const existing = Array.isArray(state.debateCase.artifacts) ? state.debateCase.artifacts : Object.values(state.debateCase.artifacts || {});
+    const next = new Map(existing.map((artifact) => [artifact.id, artifact]));
+    prepared.additions.forEach((artifact) => next.set(artifact.id, { ...artifact }));
+    prepared.updates.forEach(({ artifact }) => next.set(artifact.id, { ...artifact, revision: Number(next.get(artifact.id)?.revision || 0) + 1 }));
+    state.debateCase = { ...state.debateCase, artifacts: Array.isArray(state.debateCase.artifacts) ? [...next.values()] : Object.fromEntries(next) };
+    return {
+      applied: true,
+      changed: true,
+      appliedArtifactIds: [...prepared.additions, ...prepared.updates.map((item) => item.artifact)].map((artifact) => artifact.id),
+      mutations: prepared,
+      stateMap: projectStateMap(state)
+    };
   }
 
-  const api = Object.freeze({ stableHash, artifactTypeFor, operationForPurpose, parseStructuredArtifacts, extractArtifacts, proposeStateDelta, commitStateDelta, projectStateMap });
+  const api = Object.freeze({ stableHash, artifactTypeFor, operationForPurpose, parseStructuredArtifacts, extractArtifacts, proposeStateDelta, prepareMutations, commitStateDelta, projectStateMap });
   root.DebateArtifactPipeline = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this));

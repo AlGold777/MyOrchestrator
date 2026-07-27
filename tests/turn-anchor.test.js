@@ -13,6 +13,10 @@ const PIPELINE_SRC = fs.readFileSync(
   path.join(__dirname, '..', 'content-scripts', 'unified-answer-pipeline.js'),
   'utf8'
 );
+const TURN_RESOLVER_SRC = fs.readFileSync(
+  path.join(__dirname, '..', 'content-scripts', 'turn-resolver.js'),
+  'utf8'
+);
 
 function loadPipelineClass() {
   class Dummy { constructor() {} start() {} stop() {} }
@@ -31,8 +35,8 @@ function loadPipelineClass() {
   window.AnswerPipelineConfig = { streaming: {}, finalization: {} };
   window.AnswerPipelineSelectors = {
     PLATFORM_SELECTORS: {
-      testmodel: { lastMessage: ['.assistant-msg'] },
-      generic: { lastMessage: ['.assistant-msg'] }
+      testmodel: { lastMessage: ['.assistant-msg'], messageRoot: '.assistant-msg' },
+      generic: { lastMessage: ['.assistant-msg'], messageRoot: '.assistant-msg' }
     },
     detectPlatform: () => 'testmodel'
   };
@@ -41,6 +45,8 @@ function loadPipelineClass() {
     SanityCheck: Dummy
   };
   delete window.UnifiedAnswerPipeline;
+  delete window.TurnResolver;
+  window.eval(TURN_RESOLVER_SRC);
   // eslint-disable-next-line no-eval
   window.eval(PIPELINE_SRC);
   return window.UnifiedAnswerPipeline;
@@ -57,6 +63,7 @@ const addAssistantMessage = (text) => {
 describe('positional turn anchor (F6.2)', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
+    delete window.__LLMPreDispatchTurnAnchor;
   });
 
   test('old turns already on the page are never picked once a new node appears — even a SHORTER one', () => {
@@ -66,10 +73,10 @@ describe('positional turn anchor (F6.2)', () => {
     const pipeline = new Pipeline('testmodel');
     expect(pipeline.anchorAnswerCount).toBe(2);
 
-    // Until the new answer renders, the legacy behaviour (signature-guarded) holds.
+    // Until the new answer renders, the anchored resolver must expose no answer.
     const preAnswer = pipeline.getAnswerElement();
-    expect(pipeline.lastAnswerPositionalFiltered).toBe(false);
-    expect(preAnswer.textContent).toContain('прошлого хода');
+    expect(pipeline.lastAnswerPositionalFiltered).toBe(true);
+    expect(preAnswer).toBeNull();
 
     // The real (shorter) answer appears after the anchor: it must win.
     addAssistantMessage('короткий новый ответ этого запроса');
@@ -94,6 +101,21 @@ describe('positional turn anchor (F6.2)', () => {
     expect(window.__UnifiedPipelineTurnAnchor).toEqual(
       expect.objectContaining({ platform: 'testmodel', anchorAnswerCount: 1 })
     );
+  });
+
+  test('a pipeline created after answer insertion reuses the immutable pre-dispatch anchor', () => {
+    addAssistantMessage('старый ответ');
+    window.__LLMPreDispatchTurnAnchor = {
+      llmName: 'testmodel',
+      dispatchId: 'dispatch-1',
+      anchorAnswerCount: 1,
+      capturedAt: Date.now()
+    };
+    addAssistantMessage('новый ответ уже начал появляться');
+    const Pipeline = loadPipelineClass();
+    const pipeline = new Pipeline('testmodel');
+    expect(pipeline.anchorAnswerCount).toBe(1);
+    expect(pipeline.getAnswerElement().textContent).toBe('новый ответ уже начал появляться');
   });
 });
 

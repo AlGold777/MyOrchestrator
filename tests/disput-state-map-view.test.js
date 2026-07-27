@@ -82,6 +82,7 @@ describe('Disput state map view', () => {
 
   test('search reports hidden elements and empty states', () => {
     window.DisputStateMapView.init({ aggregate });
+    document.querySelector('[data-map-collapse]').click();
     const search = document.querySelector('[data-map-search]'); search.value = 'missing'; search.dispatchEvent(new Event('input'));
     expect(document.querySelector('[data-map-content]').textContent).toContain('скрыто 2');
     expect(document.querySelector('[data-map-content]').textContent).toContain('Нет элементов');
@@ -97,5 +98,65 @@ describe('Disput state map view', () => {
     expect(workspace.hidden).toBe(false);
     document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(workspace.hidden).toBe(true);
+  });
+
+  test('renders recoverable human-decision metadata and routes the selected option', () => {
+    const onDecisionResolved = jest.fn();
+    const decisionAggregate = {
+      ...aggregate,
+      pendingHumanDecision: {
+        requestId: 'decision-reload-1', question: 'Continue?',
+        reason: 'Participant dropped', affectedStageId: 'stage-4',
+        options: [{ id: 'continue', label: 'Continue' }, { id: 'stop', label: 'Stop' }]
+      }
+    };
+    const view = window.DisputStateMapView.init({ aggregate: decisionAggregate, onDecisionResolved });
+    document.querySelector('[data-map-collapse]').click();
+    const decision = document.querySelector('[data-decision-request="decision-reload-1"]');
+    expect(decision.textContent).toEqual(expect.stringContaining('Request decision-reload-1'));
+    expect(decision.textContent).toEqual(expect.stringContaining('Stage stage-4'));
+    decision.querySelector('[data-map-decision-option="continue"]').click();
+    expect(onDecisionResolved).toHaveBeenCalledWith({ requestId: 'decision-reload-1', optionId: 'continue' });
+    view.render(JSON.parse(JSON.stringify(decisionAggregate)));
+    expect(document.querySelector('[data-decision-request="decision-reload-1"]')).not.toBeNull();
+  });
+
+  test('renders contradiction provenance and persists conflict actions through the human-action port', () => {
+    const onHumanAction = jest.fn();
+    const conflictAggregate = {
+      ...aggregate,
+      protocolState: { registry: { artifacts: {
+        c1: { id: 'c1', type: 'claim', status: 'contested', formulation: 'Claim' },
+        x1: {
+          id: 'x1', type: 'contradiction', status: 'recorded',
+          formulation: 'Conflicting claims', targetId: 'c1',
+          provenance: { turnId: 'turn-conflict' }
+        }
+      } } }
+    };
+    window.DisputStateMapView.init({ aggregate: conflictAggregate, onHumanAction });
+    document.querySelector('[data-map-collapse]').click();
+    const conflict = document.querySelector('[data-conflict-id="x1"]');
+    expect(conflict.textContent).toContain('turn-conflict');
+    conflict.querySelector('[data-map-human-action="request_evidence"]').click();
+    expect(onHumanAction).toHaveBeenCalledWith(expect.objectContaining({ action: 'request_evidence', itemId: 'x1' }));
+    expect(document.querySelector('[aria-live="polite"]')).not.toBeNull();
+  });
+
+  test('defers hidden map projection and materializes only the latest state when opened', () => {
+    const project = jest.fn(StateMap.project);
+    window.DebateStateMap = { ...StateMap, project };
+    const view = window.DisputStateMapView.init({ aggregate });
+    const callsAfterInit = project.mock.calls.length;
+    expect(document.querySelector('[data-map-content]').childElementCount).toBe(0);
+
+    view.render({ ...aggregate, status: 'paused' });
+    view.render({ ...aggregate, status: 'completed' });
+    expect(project.mock.calls.length).toBe(callsAfterInit);
+
+    document.querySelector('[data-map-collapse]').click();
+    expect(project.mock.calls.length).toBe(callsAfterInit + 1);
+    expect(view.getMap().technicalStatus).toBe('completed');
+    expect(document.querySelector('[data-map-content]').childElementCount).toBeGreaterThan(0);
   });
 });

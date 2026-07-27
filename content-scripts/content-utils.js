@@ -110,6 +110,7 @@
   let storedRunSessionId = null;
   let storedDispatchId = null;
   let storedTabSessionId = null;
+  let storedGenerationEpoch = null;
   let sessionExpired = false;
   const resetSessionExpiredState = () => {
     sessionExpired = false;
@@ -140,6 +141,9 @@
     if (meta.tabSessionId) {
       storedTabSessionId = meta.tabSessionId;
     }
+    if (meta.generationEpoch !== null && meta.generationEpoch !== undefined && meta.generationEpoch !== '') {
+      storedGenerationEpoch = meta.generationEpoch;
+    }
   };
 
   const ensureDispatchMeta = (meta, llmName) => {
@@ -160,6 +164,9 @@
     }
     if (storedPipelineRunId && !base.pipelineRunId) {
       base.pipelineRunId = storedPipelineRunId;
+    }
+    if (storedGenerationEpoch !== null && storedGenerationEpoch !== undefined && base.generationEpoch == null) {
+      base.generationEpoch = storedGenerationEpoch;
     }
     if (llmName && !base.llmName) {
       base.llmName = llmName;
@@ -405,20 +412,48 @@
   const reportDispatchBaseline = (llmName, meta, baselineText = '') => {
     if (!llmName) return false;
     const signature = normalizeForPaste(baselineText);
+    const lifecycle = window.LLMExtension?.ResponseLifecycleDetector || window.ResponseLifecycleDetector;
+    let anchorAnswerCount = null;
+    try {
+      const lifecycleAnchor = lifecycle?.captureTurnAnchor?.(llmName);
+      if (lifecycleAnchor !== null
+        && lifecycleAnchor !== undefined
+        && Number.isFinite(Number(lifecycleAnchor))) {
+        anchorAnswerCount = Math.max(0, Number(lifecycleAnchor));
+      }
+    } catch (_) {}
+    // Prime lifecycle tracking before Send. PROMPT_SUBMITTED is confirmation,
+    // not a safe place to establish the old-turn baseline: fast providers may
+    // already have inserted their new assistant node by then.
+    try {
+      const start = lifecycle?.startResponseLifecycleTracking;
+      if (typeof start === 'function') {
+        Promise.resolve(start.call(lifecycle, {
+          modelName: llmName,
+          dispatchId: meta?.dispatchId || null,
+          runSessionId: meta?.runSessionId || meta?.sessionId || null,
+          promptSubmittedAt: Date.now(),
+          traceId: meta?.traceId || meta?.dispatchId || null,
+          baselineText: String(baselineText || ''),
+          turnAnchor: anchorAnswerCount
+        })).catch(() => {});
+      }
+    } catch (_) {}
     // F6.2: attach the positional turn anchor captured by the unified pipeline
     // at dispatch time (number of answer nodes already on the page), so the
     // background inline scans can skip previous conversation turns too.
-    let anchorAnswerCount = null;
-    try {
-      const anchor = window.__UnifiedPipelineTurnAnchor;
-      if (anchor && Number.isFinite(Number(anchor.anchorAnswerCount))
-        && anchor.dispatchId
-        && meta?.dispatchId
-        && String(anchor.dispatchId) === String(meta.dispatchId)
-        && Date.now() - Number(anchor.capturedAt || 0) < 120000) {
-        anchorAnswerCount = Number(anchor.anchorAnswerCount);
-      }
-    } catch (_) {}
+    if (anchorAnswerCount === null) {
+      try {
+        const anchor = window.__UnifiedPipelineTurnAnchor;
+        if (anchor && Number.isFinite(Number(anchor.anchorAnswerCount))
+          && anchor.dispatchId
+          && meta?.dispatchId
+          && String(anchor.dispatchId) === String(meta.dispatchId)
+          && Date.now() - Number(anchor.capturedAt || 0) < 120000) {
+          anchorAnswerCount = Number(anchor.anchorAnswerCount);
+        }
+      } catch (_) {}
+    }
     if (anchorAnswerCount === null) {
       try {
         const selectors = lateSnapshotSelectorsByModel[llmName] || [];
@@ -431,6 +466,14 @@
         anchorAnswerCount = null;
       }
     }
+    try {
+      window.__LLMPreDispatchTurnAnchor = {
+        llmName,
+        dispatchId: meta?.dispatchId || null,
+        anchorAnswerCount,
+        capturedAt: Date.now()
+      };
+    } catch (_) {}
     return safeRuntimeSendMessage({
       type: 'DISPATCH_BASELINE_CAPTURED',
       llmName,

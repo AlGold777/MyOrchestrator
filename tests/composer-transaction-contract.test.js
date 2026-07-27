@@ -88,37 +88,36 @@ describe('composer transaction contract', () => {
 
   test('Perplexity does not publish submit after an unconfirmed send', () => {
     const source = read('content-scripts/content-perplexity.js');
-    const trustedInputAt = source.indexOf("type: 'PERPLEXITY_TRUSTED_INPUT_REQUEST'");
-    const nativeEnterAt = source.indexOf("type: 'PERPLEXITY_TRUSTED_ENTER_REQUEST'");
-    const trustedClickAt = source.indexOf("type: 'PROVIDER_TRUSTED_SEND_REQUEST'", nativeEnterAt);
-    const failedAt = source.indexOf("type: 'send_failed'", trustedClickAt);
+    const pageButtonAt = source.indexOf('const sendButton = resolveSendButton()');
+    const requestSubmitAt = source.indexOf('form.requestSubmit', pageButtonAt);
+    const enterAt = source.indexOf('dispatchEnter();', requestSubmitAt);
+    const failedAt = source.indexOf("type: 'send_failed'", enterAt);
     const submittedAt = source.indexOf("type: 'PROMPT_SUBMITTED'", failedAt);
-    expect(trustedInputAt).toBeGreaterThan(-1);
-    expect(trustedInputAt).toBeLessThan(nativeEnterAt);
-    expect(nativeEnterAt).toBeGreaterThan(-1);
-    expect(trustedClickAt).toBeGreaterThan(nativeEnterAt);
+    expect(pageButtonAt).toBeGreaterThan(-1);
+    expect(requestSubmitAt).toBeGreaterThan(pageButtonAt);
+    expect(enterAt).toBeGreaterThan(requestSubmitAt);
     expect(failedAt).toBeGreaterThan(-1);
     expect(submittedAt).toBeGreaterThan(failedAt);
     expect(source).toContain('ContentUtils.promptMatchesComposer(value, prompt)');
     expect(source).toContain('countUserTurns() > baselineUserTurns');
     expect(source).toContain('hasFreshGenerationEvidence()');
     expect(source).toContain('baselineGenerationEvidence');
-    expect(source).not.toContain('const findPerplexitySendButton = async');
-    expect(source).not.toContain('dispatchEnter(');
     expect(source).not.toContain("const typing = document.querySelector('[aria-busy=\"true\"]");
-    expect(source.match(/llmName: MODEL, prompt/g)).toHaveLength(2);
-    const router = read('background/message-router.js');
-    expect(router).toContain("case 'PERPLEXITY_TRUSTED_ENTER_REQUEST'");
-    expect(router).toContain("case 'PERPLEXITY_TRUSTED_INPUT_REQUEST'");
-    expect(router).toContain('dispatchProviderTrustedInput');
-    expect(router).toContain("commands: ['SelectAll']");
-    expect(router).toContain("'Input.insertText'");
-    expect(router).toContain('dispatchProviderTrustedEnter');
-    expect(router).toContain('buildProviderComposerFocusExpression(expectedText)');
-    expect(router).toContain('buildProviderSendControlExpression(expectedText)');
-    expect(router).toContain("dispatchProviderTrustedSend(tabId, model, String(message.prompt || ''))");
-    expect(router).toContain('actual.includes(normalizedExpected.slice(0, width))');
-    expect(router).toContain("dispatchProviderTrustedEnter(tabId, 'Perplexity', String(message.prompt || ''))");
+    expect(source).not.toContain("type: 'PROVIDER_TRUSTED_SEND_REQUEST'");
+    expect(source).not.toContain("type: 'PERPLEXITY_TRUSTED_ENTER_REQUEST'");
+    expect(source).not.toContain("type: 'PERPLEXITY_TRUSTED_INPUT_REQUEST'");
+  });
+
+  test('Perplexity acquires a composer before considering a strictly-owned promotion overlay', () => {
+    const source = read('content-scripts/content-perplexity.js');
+    const searchAt = source.indexOf('waitForPerplexityComposer(inputSelectors, 8000)');
+    const dismissAt = source.indexOf('await dismissPerplexityPromotion()', searchAt);
+    expect(searchAt).toBeGreaterThan(-1);
+    expect(dismissAt).toBeGreaterThan(searchAt);
+    expect(source.slice(searchAt, dismissAt)).toContain('if (!inputField)');
+    expect(source).toContain('PerplexityComposerTransaction.prepare');
+    expect(source).toContain('PERPLEXITY_DRAFT_ACCEPTED');
+    expect(source).toContain('PERPLEXITY_DRAFT_REJECTED');
   });
 
   test('trusted Perplexity actions retain composer ownership when an attachment chip splits the prompt', () => {

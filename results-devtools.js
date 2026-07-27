@@ -480,7 +480,10 @@
         telemetryBridge.getFilteredEvents = () => telemetryFilteredCache.slice();
         telemetryBridge.getEffectiveEvents = () => {
             const base = telemetryScopedCache;
-            const effective = telemetryFilteredCache.length ? telemetryFilteredCache : base;
+            const hasRestrictiveFilter = telemetryOnlyProblems?.checked === true || isTelemetryFilterActive();
+            const effective = hasRestrictiveFilter
+                ? telemetryFilteredCache
+                : (telemetryFilteredCache.length ? telemetryFilteredCache : base);
             return effective.slice();
         };
         // Экспорты (JSON в окне + MD в results.js) применяют активный фильтр окна,
@@ -725,6 +728,9 @@
     };
 
     const isTelemetryProblem = (event) => {
+        if (window.ProblemContextFilter?.isProblem) {
+            return window.ProblemContextFilter.isProblem(event);
+        }
         const label = normalizeTelemetryLabel(event);
         const level = String(event?.level || event?.severity || '').toLowerCase();
         const details = String(event?.details || event?.message || event?.meta?.reason || '').toLowerCase();
@@ -739,6 +745,13 @@
             || `${event?.platform || event?.llmName || 'unknown'}:${meta.tabId || ''}`);
     };
     function filterTelemetryProblemsWithContext(events = [], contextBefore = 10) {
+        if (window.ProblemContextFilter?.filterWithContext) {
+            return window.ProblemContextFilter.filterWithContext(events, {
+                contextBefore,
+                isProblem: isTelemetryProblem,
+                getContextKey: telemetryContextKey
+            });
+        }
         const source = Array.isArray(events) ? events.slice() : [];
         const keep = new Set();
         source.forEach((event, index) => {
@@ -897,19 +910,22 @@
         const scopedEvents = scoped.events;
         telemetryScopedCache = scopedEvents.slice();
         const { filtered, hasSelection } = getTelemetryFilteredEvents(scopedEvents);
-        telemetryFilteredCache = filtered;
+        const visibleEvents = telemetryOnlyProblems?.checked === true
+            ? filterTelemetryProblemsWithContext(filtered)
+            : filtered;
+        telemetryFilteredCache = visibleEvents;
         refreshTelemetryBridge();
         renderTelemetryRounds(scopedEvents);
-        renderTelemetrySummary(filtered);
+        renderTelemetrySummary(visibleEvents);
         if (telemetryStatus) {
             const runSuffix = scoped.runSessionId ? ` • run ${scoped.runSessionId}` : '';
-            telemetryStatus.textContent = filtered.length ? `${filtered.length} events${runSuffix}` : 'No telemetry events';
+            telemetryStatus.textContent = visibleEvents.length ? `${visibleEvents.length} events${runSuffix}` : 'No telemetry events';
         }
-        if (!filtered.length) {
+        if (!visibleEvents.length) {
             replaceChildrenFromHtml(telemetryTimeline, '<p class="diag-empty">No telemetry events</p>');
             return;
         }
-        const sortedEvents = [...filtered].sort((a, b) => (b?.ts || 0) - (a?.ts || 0));
+        const sortedEvents = [...visibleEvents].sort((a, b) => (b?.ts || 0) - (a?.ts || 0));
         const timelineHtml = sortedEvents.map((e) => {
             const ts = e.ts ? new Date(e.ts).toLocaleTimeString() : '';
             const platform = escapeHtml(String(e.platform || e.llmName || 'unknown'));
@@ -960,6 +976,20 @@
     const resetTelemetryEventKeys = () => {
         telemetryEventKeys = new Set(telemetryCache.map(buildTelemetryEventKey).filter(Boolean));
     };
+    const isTelemetrySurfaceVisible = () => {
+        const modal = document.getElementById('api-keys-modal');
+        return document.visibilityState !== 'hidden'
+            && Boolean(modal?.classList?.contains('is-visible'))
+            && modal?.style?.display !== 'none'
+            && Boolean(telemetryTab?.classList?.contains('is-active'));
+    };
+    const renderTelemetryIfVisible = () => {
+        if (!isTelemetrySurfaceVisible()) return false;
+        syncTelemetryPlatformOptions(telemetryCache);
+        syncTelemetryTypeOptions(telemetryCache);
+        renderTelemetry(telemetryCache);
+        return true;
+    };
     const ingestTelemetryEvents = (events = []) => {
         const incoming = Array.isArray(events) ? events : [];
         if (!incoming.length) return;
@@ -978,9 +1008,10 @@
             resetTelemetryEventKeys();
         }
         refreshTelemetryBridge();
-        syncTelemetryPlatformOptions(telemetryCache);
-        syncTelemetryTypeOptions(telemetryCache);
-        renderTelemetry(telemetryCache);
+        // The cache is the source of truth. DOM projection is demand-driven:
+        // rendering a closed/background DevTools surface for every lifecycle
+        // event exhausted the results-page renderer during nine-model runs.
+        renderTelemetryIfVisible();
     };
     const replaceTelemetryEvents = (events = []) => {
         telemetryCache = [];
@@ -1148,14 +1179,65 @@
     // twice → two downloaded JSON files. (refresh/reset/clear-all keep both
     // bindings because their double-invocation is idempotent; export writes a
     // file, so it must fire exactly once.)
-    const exportTelemetryJson = () => {
+    const requestTelemetryExportSnapshot = (limit = 2000) => new Promise((resolve) => {
+        try {
+            chrome.runtime.sendMessage({ type: 'GET_DIAG_EVENTS', limit }, (resp) => {
+                if (chrome.runtime.lastError || !resp?.success || !Array.isArray(resp.events)) {
+                    resolve([]);
+                    return;
+                }
+                resolve(resp.events.slice());
+            });
+        } catch (_) {
+            resolve([]);
+        }
+    });
+    const requestTelemetryRunSummary = () => new Promise((resolve) => {
+        try {
+            chrome.runtime.sendMessage({ type: 'GET_RUN_OUTCOME_SUMMARY' }, (resp) => {
+                if (chrome.runtime.lastError || !resp?.success) {
+                    resolve(null);
+                    return;
+                }
+                resolve(resp);
+            });
+        } catch (_) {
+            resolve(null);
+        }
+    });
+    const mergeTelemetrySnapshotEvents = (...sources) => {
+        const merged = [];
+        const seen = new Set();
+        sources.flat().forEach((event) => {
+            if (!event) return;
+            const key = buildTelemetryEventKey(event);
+            if (key && seen.has(key)) return;
+            if (key) seen.add(key);
+            merged.push(event);
+        });
+        return merged;
+    };
+    const exportTelemetryJson = async () => {
         try {
             // База — run-scoped cache (а не UI-таблица с капом 250): при отсутствии
             // фильтра выгружаем всё (иначе экспорт деградировал до round-событий,
             // дефект телеметрии из run 1781134505984). Но если в окне задан фильтр
             // (выбрана модель / платформа / тип / пресет) — уважаем его, чтобы не
             // выгружать все платформы при выбранной одной модели.
-            let sourceEvents = applyActiveTelemetryFilter(telemetryScopedCache.slice());
+            const [persistedEvents, runOutcomeSummary] = await Promise.all([
+                requestTelemetryExportSnapshot(2000),
+                requestTelemetryRunSummary()
+            ]);
+            const completeSnapshot = mergeTelemetrySnapshotEvents(
+                persistedEvents,
+                telemetryCache,
+                getDiagnosticsRoundEvents()
+            );
+            const scopedSnapshot = filterEventsToCurrentRun(
+                completeSnapshot,
+                runOutcomeSummary?.runSessionId || null
+            ).events;
+            let sourceEvents = applyActiveTelemetryFilter(scopedSnapshot);
             if (telemetryOnlyProblems?.checked === true) {
                 sourceEvents = filterTelemetryProblemsWithContext(sourceEvents);
             }
@@ -1171,6 +1253,7 @@
             const exportMeta = {
                 generationWaitProfile: window.ResultsShared?.getGenerationWaitProfile?.() || 'unknown',
                 generationWaitProfileLabel: window.ResultsShared?.getGenerationWaitProfileLabel?.() || '',
+                runOutcomeSummary: runOutcomeSummary || null,
             };
             // Defense-in-depth: scrub provider keys/tokens before the export
             // leaves the extension (see shared/secret-redaction.js). Falls back
@@ -1249,9 +1332,7 @@
         }
     }, true);
     document.addEventListener('llm-selection-change', () => {
-        syncTelemetryPlatformOptions(telemetryCache);
-        syncTelemetryTypeOptions(telemetryCache);
-        renderTelemetry(telemetryCache);
+        renderTelemetryIfVisible();
     });
 
     const telemetryTab = document.getElementById('telemetry-tab');
@@ -1260,6 +1341,7 @@
     const startTelemetryAutoRefresh = () => {
         if (!telemetryTimeline) return;
         if (telemetryAutoRefreshTimer) return;
+        if (!isTelemetrySurfaceVisible()) return;
         refreshTelemetry();
         telemetryAutoRefreshTimer = setInterval(() => {
             refreshTelemetry();
@@ -1283,6 +1365,24 @@
         if (targetId === 'telemetry-tabpanel') {
             startTelemetryAutoRefresh();
         } else if (!isTelemetryTabActive()) {
+            stopTelemetryAutoRefresh();
+        }
+    });
+
+    document.addEventListener('devtools-visibility-change', (event) => {
+        if (event?.detail?.visible === true && isTelemetryTabActive()) {
+            renderTelemetryIfVisible();
+            startTelemetryAutoRefresh();
+        } else {
+            stopTelemetryAutoRefresh();
+        }
+    });
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+            renderTelemetryIfVisible();
+            if (isTelemetrySurfaceVisible()) startTelemetryAutoRefresh();
+        } else {
             stopTelemetryAutoRefresh();
         }
     });
@@ -1329,7 +1429,9 @@
     };
 
     const setupTelemetryCollapsibles = () => {
-        const collapsibleCards = Array.from(document.querySelectorAll('#telemetry-tabpanel .devtools-card[data-collapsible]'));
+        const collapsibleCards = Array.from(document.querySelectorAll(
+            '#telemetry-tabpanel .devtools-card[data-collapsible], #disput-tabpanel .devtools-card[data-collapsible]'
+        ));
         collapsibleCards.forEach((card) => {
             const header = card.querySelector('.devtools-card-header');
             if (!header) return;

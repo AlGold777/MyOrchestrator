@@ -25,4 +25,18 @@ describe('universal pipeline presets', () => {
     expect(Presets.getPipelinePreset('removed-mode')).toBe(Presets.getPipelinePreset('UNIVERSAL_STANDARD'));
     expect(Presets.isPresetEnabled('removed-mode')).toBe(true);
   });
+
+  test('maps each preset finalization policy into the runtime policy contract', () => {
+    expect(Presets.normalizePipelinePreset('UNIVERSAL_STANDARD').finalization)
+      .toMatchObject({ mode: 'after_required_goals', synthesis: 'optional', audit: 'optional' });
+    expect(Presets.normalizePipelinePreset('UNIVERSAL_RESEARCH').finalization)
+      .toMatchObject({ mode: 'after_required_goals', synthesis: 'optional', audit: 'optional' });
+    expect(Presets.normalizePipelinePreset('UNIVERSAL_RED_TEAM').finalization)
+      .toEqual({
+        mode: 'after_synthesis',
+        synthesis: 'required',
+        audit: 'required',
+        allowContinueAfterSynthesis: false
+      });
+  });
 });

@@ -2,7 +2,7 @@
 (function initDebateRunStore(root) {
   'use strict';
 
-  const VERSION = 5;
+  const VERSION = 6;
   const STORAGE_KEY = 'llmCodexDebateRun.v1';
   const MAX_EVENTS = 500;
   const TERMINAL = new Set(['completed', 'error', 'cancelled', 'stopped_by_moderator']);
@@ -50,13 +50,18 @@
     ,SYNTHESIZER_REASSIGNED: 'SYNTHESIZER_REASSIGNED'
     ,SYNTHESIS_RESPONSE_REJECTED: 'SYNTHESIS_RESPONSE_REJECTED'
     ,SYNTHESIS_SKIPPED_UNAVAILABLE: 'SYNTHESIS_SKIPPED_UNAVAILABLE'
+    ,TERMINAL_EVENT_REJECTED: 'TERMINAL_EVENT_REJECTED'
   });
 
   const now = () => Date.now();
+  const EXECUTION_FIELDS = new Set([
+    'status', 'activeBatch', 'activeStageId', 'lastDispatchAt', 'lastResponseAt',
+    'errorCode', 'reason', 'retryCount'
+  ]);
   const currentVersions = () => root.DebateVersionManifest?.getVersions?.() || { implementation: 'dev', protocol: 5, planSchema: 3, runStoreSchema: VERSION, traceSchema: 3 };
   const normalizeTopology = () => 'universal';
   function createState(seed = {}) {
-    return {
+    const state = {
       version: VERSION,
       runId: String(seed.runId || ''),
       sessionId: String(seed.sessionId || '1'),
@@ -92,9 +97,18 @@
       modelSignals: Array.isArray(seed.modelSignals) ? seed.modelSignals.slice() : [],
       events: Array.isArray(seed.events) ? seed.events.slice() : [],
       eventSeq: Number(seed.eventSeq || 0),
+      eventLog: {
+        truncated: false,
+        droppedCount: 0,
+        firstRetainedSeq: null,
+        ...(seed.eventLog && typeof seed.eventLog === 'object' ? seed.eventLog : {})
+      },
       startedAt: Number(seed.startedAt || 0) || null,
       updatedAt: Number(seed.updatedAt || 0) || now(),
       completedAt: Number(seed.completedAt || 0) || null,
+      pauseReason: String(seed.pauseReason || (
+        ['paused', 'technical_pause'].includes(String(seed.status || '')) ? seed.terminalReason || '' : ''
+      )),
       terminalReason: String(seed.terminalReason || '')
       ,epistemicOutcome: String(seed.epistemicOutcome || '')
       ,degradedMode: seed.degradedMode || null
@@ -102,6 +116,14 @@
       ,processAudit: seed.processAudit || null
       ,versions: seed.versions && typeof seed.versions === 'object' ? { ...seed.versions } : { ...currentVersions(), migratedFrom: 0 }
     };
+    if (state.events.length > MAX_EVENTS) {
+      const dropped = state.events.length - MAX_EVENTS;
+      state.events = state.events.slice(-MAX_EVENTS);
+      state.eventLog.truncated = true;
+      state.eventLog.droppedCount = Number(state.eventLog.droppedCount || 0) + dropped;
+    }
+    state.eventLog.firstRetainedSeq = state.events[0]?.seq ?? null;
+    return state;
   }
 
   function eventRecord(state, input) {
@@ -112,6 +134,23 @@
       at: Number(input.at || 0) || now(),
       payload: input.payload && typeof input.payload === 'object' ? input.payload : {}
     });
+  }
+
+  function appendEvent(state, event) {
+    const next = state.events.concat(event);
+    const dropped = Math.max(0, next.length - MAX_EVENTS);
+    state.events = dropped ? next.slice(-MAX_EVENTS) : next;
+    if (dropped) {
+      state.eventLog = {
+        ...(state.eventLog || {}),
+        truncated: true,
+        droppedCount: Number(state.eventLog?.droppedCount || 0) + dropped
+      };
+    }
+    state.eventLog = {
+      ...(state.eventLog || {}),
+      firstRetainedSeq: state.events[0]?.seq ?? null
+    };
   }
 
   function transition(current, input = {}) {
@@ -138,25 +177,28 @@
         if (prior && prior.attemptId !== attemptId) {
           const rejected = eventRecord(state, { type: EVENTS.DUPLICATE_FINAL_REJECTED, payload: { attemptedType: input.type, stageId, participant, attemptId, acceptedAttemptId: prior.attemptId } });
           state.eventSeq = rejected.seq;
-          state.events = state.events.concat(rejected).slice(-MAX_EVENTS);
+          appendEvent(state, rejected);
           state.updatedAt = rejected.at;
           return state;
         }
         if (prior && prior.attemptId === attemptId) return state;
       }
     }
-    if (TERMINAL.has(state.status) && [EVENTS.FINALIZATION_COMPLETED, EVENTS.RUN_FAILED, EVENTS.CANCEL_REQUESTED].includes(input.type)) {
-      const rejected = eventRecord(state, { type: EVENTS.DUPLICATE_FINAL_REJECTED, payload: { attemptedType: input.type, originalStatus: state.status } });
+    if (TERMINAL.has(state.status) && input.type !== EVENTS.START_REQUESTED) {
+      const duplicateFinal = [EVENTS.FINALIZATION_COMPLETED, EVENTS.RUN_FAILED, EVENTS.CANCEL_REQUESTED].includes(input.type);
+      const rejected = eventRecord(state, {
+        type: duplicateFinal ? EVENTS.DUPLICATE_FINAL_REJECTED : EVENTS.TERMINAL_EVENT_REJECTED,
+        payload: { attemptedType: input.type, originalStatus: state.status }
+      });
       state.eventSeq = rejected.seq;
-      state.events = state.events.concat(rejected).slice(-MAX_EVENTS);
+      appendEvent(state, rejected);
       state.updatedAt = rejected.at;
       return state;
     }
     const event = eventRecord(state, input);
     const payload = event.payload;
     state.eventSeq = event.seq;
-    state.events = state.events.concat(event);
-    if (state.events.length > MAX_EVENTS) state.events = state.events.slice(-MAX_EVENTS);
+    appendEvent(state, event);
     state.updatedAt = event.at;
 
     switch (event.type) {
@@ -175,6 +217,7 @@
         state.approval = { waiting: false, model: '', requestedAt: null };
         state.startedAt = event.at;
         state.completedAt = null;
+        state.pauseReason = '';
         state.terminalReason = '';
         state.epistemicOutcome = '';
         state.degradedMode = null;
@@ -208,12 +251,10 @@
           const stageId = String(payload.stageId || '').trim();
           const participant = String(payload.participant || payload.model || '').trim();
           const attemptId = String(payload.attemptId || '').trim();
-          const answer = String(payload.text || payload.answer || '');
           if (payload.accepted === true && stageId && participant && attemptId) {
             const key = `${stageId}:${participant}`;
             state.acceptedLedger = { ...(state.acceptedLedger || {}), [key]: {
               attemptId,
-              answerHash: `${answer.length}:${answer.slice(0, 64)}:${answer.slice(-64)}`,
               at: event.at
             } };
           }
@@ -229,15 +270,15 @@
         break;
       case EVENTS.PAUSE_REQUESTED:
         state.status = 'paused';
-        state.terminalReason = String(payload.reason || '');
+        state.pauseReason = String(payload.reason || '');
         break;
       case EVENTS.RESUME_REQUESTED:
         state.status = 'running';
-        state.terminalReason = '';
+        state.pauseReason = '';
         break;
       case EVENTS.TECHNICAL_PAUSE:
         state.status = 'technical_pause';
-        state.terminalReason = String(payload.reason || 'technical_pause');
+        state.pauseReason = String(payload.reason || 'technical_pause');
         break;
       case EVENTS.FINALIZATION_REQUESTED:
         state.status = 'finalization_pending';
@@ -247,6 +288,7 @@
         state.status = 'completed';
         state.execution = { ...state.execution, status: 'completed', activeBatch: null };
         state.completedAt = event.at;
+        state.pauseReason = '';
         state.epistemicOutcome = String(payload.epistemicOutcome || '');
         state.processAudit = payload.processAudit || state.processAudit || null;
         break;
@@ -254,6 +296,7 @@
         state.status = 'error';
         state.execution = { ...state.execution, status: 'error', activeBatch: null };
         state.terminalReason = String(payload.reason || 'run_failed');
+        state.pauseReason = '';
         state.completedAt = event.at;
         break;
       case EVENTS.CANCEL_REQUESTED:
@@ -261,12 +304,16 @@
         state.execution = { ...state.execution, status: 'cancelled', activeBatch: null };
         state.approval = { waiting: false, model: '', requestedAt: null };
         state.terminalReason = String(payload.reason || 'cancelled');
+        state.pauseReason = '';
         state.completedAt = event.at;
         state.epistemicOutcome = '';
         break;
       case EVENTS.EXECUTION_STATE_CHANGED:
         if (payload.degradedMode) state.degradedMode = payload.degradedMode;
-        state.execution = { ...state.execution, ...payload };
+        state.execution = {
+          ...state.execution,
+          ...Object.fromEntries(Object.entries(payload).filter(([key]) => EXECUTION_FIELDS.has(key)))
+        };
         break;
       case EVENTS.PROMPT_COMPILED:
         state.promptExecutions = state.promptExecutions.concat({ ...payload, at: event.at }).slice(-200);
@@ -314,6 +361,7 @@
             state.execution = { ...state.execution, status: protocolStatus, activeBatch: null };
             state.approval = { waiting: false, model: '', requestedAt: null };
             state.terminalReason = String(payload.reason || state.protocolState?.terminalReason || protocolStatus);
+            state.pauseReason = '';
             state.completedAt = event.at;
           }
         }
@@ -324,19 +372,31 @@
     return state;
   }
 
-  function createStore(initial = {}) {
+  function createStore(initial = {}, options = {}) {
     let state = createState(initial);
     const listeners = new Set();
+    const reportListenerError = typeof options.onListenerError === 'function'
+      ? options.onListenerError
+      : (error, context) => root.console?.error?.('[DebateRunStore] subscriber failed', error, context);
+    const notify = (event) => {
+      listeners.forEach((listener) => {
+        try {
+          listener(state, event);
+        } catch (error) {
+          try { reportListenerError(error, { event, state }); } catch (_) {}
+        }
+      });
+    };
     return Object.freeze({
       getState: () => state,
       dispatch(event) {
         state = transition(state, event);
-        listeners.forEach((listener) => listener(state, state.events[state.events.length - 1]));
+        notify(state.events[state.events.length - 1]);
         return state;
       },
       replace(next) {
         state = createState(next);
-        listeners.forEach((listener) => listener(state, null));
+        notify(null);
         return state;
       },
       subscribe(listener) {
@@ -348,12 +408,18 @@
   }
 
   const encode = (value) => {
+    if (value === undefined) return { __debateType: 'Undefined' };
+    if (value instanceof Date) return { __debateType: 'Date', value: value.toISOString() };
+    if (value instanceof Map) return { __debateType: 'Map', entries: Array.from(value.entries(), ([key, item]) => [encode(key), encode(item)]) };
     if (value instanceof Set) return { __debateType: 'Set', values: Array.from(value, encode) };
     if (Array.isArray(value)) return value.map(encode);
     if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, encode(item)]));
     return value;
   };
   const decode = (value) => {
+    if (value?.__debateType === 'Undefined') return undefined;
+    if (value?.__debateType === 'Date') return new Date(value.value);
+    if (value?.__debateType === 'Map') return new Map((value.entries || []).map(([key, item]) => [decode(key), decode(item)]));
     if (value?.__debateType === 'Set') return new Set((value.values || []).map(decode));
     if (Array.isArray(value)) return value.map(decode);
     if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, decode(item)]));

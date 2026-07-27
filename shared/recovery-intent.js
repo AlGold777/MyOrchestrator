@@ -61,6 +61,18 @@
       : Boolean(lifecycleDispatchId && String(lifecycleDispatchId) === String(dispatchId));
   }
 
+  function hasMatchingVerifiedEvidence(entry = {}, dispatchId = null) {
+    const verification = entry.answerVerification || {};
+    if (verification.verified !== true
+      || verification.resolution !== 'exact'
+      || verification.structuralComplete !== true
+      || verification.generationActive !== false) return false;
+    const verificationDispatchId = verification.dispatchId || null;
+    return !dispatchId
+      ? true
+      : Boolean(verificationDispatchId && String(verificationDispatchId) === String(dispatchId));
+  }
+
   function evaluateFreshEvidence(entry = {}, options = {}) {
     const minChars = Number(options.minChars || 120);
     const dispatchId = options.dispatchId || entry.lastDispatchMeta?.dispatchId || entry.confirmedDispatchId || null;
@@ -68,12 +80,13 @@
       .map((value) => String(value || '').trim())
       .filter((value) => value.length >= minChars);
     const lifecycleFresh = hasMatchingLifecycleEvidence(entry, dispatchId);
+    const verifiedFresh = hasMatchingVerifiedEvidence(entry, dispatchId);
     const submissionConfirmed = hasConfirmedSubmission(entry, dispatchId);
     const explicitFresh = entry.answerFreshness?.fresh === true
       && (!dispatchId || !entry.answerFreshness.dispatchId || String(entry.answerFreshness.dispatchId) === String(dispatchId));
     const freshText = candidates.find((text) => !isBaselineEquivalent(entry, text, dispatchId)) || null;
     const fresh = Boolean(
-      lifecycleFresh
+      verifiedFresh
       || explicitFresh
       || (freshText && submissionConfirmed)
     );
@@ -81,13 +94,16 @@
       fresh,
       dispatchId,
       lifecycleFresh,
+      verifiedFresh,
       explicitFresh,
       submissionConfirmed,
       hasCandidateText: candidates.length > 0,
       baselineEquivalent: candidates.length > 0 && candidates.every((text) => isBaselineEquivalent(entry, text, dispatchId)),
       reason: fresh
-        ? (lifecycleFresh ? 'matching_lifecycle' : (explicitFresh ? 'explicit_fresh_turn' : 'confirmed_submit_nonbaseline_text'))
-        : (candidates.some((text) => isBaselineEquivalent(entry, text, dispatchId)) ? 'baseline_only' : 'freshness_unproven')
+        ? (verifiedFresh ? 'matching_verified_answer' : (explicitFresh ? 'explicit_fresh_turn' : 'confirmed_submit_nonbaseline_text'))
+        : (candidates.some((text) => isBaselineEquivalent(entry, text, dispatchId))
+          ? 'baseline_only'
+          : (lifecycleFresh ? 'lifecycle_without_verified_answer' : 'freshness_unproven'))
     };
   }
 
@@ -126,6 +142,7 @@
     isBaselineEquivalent,
     hasConfirmedSubmission,
     hasMatchingLifecycleEvidence,
+    hasMatchingVerifiedEvidence,
     authorize
   });
 

@@ -30,6 +30,7 @@
 
   const PLATFORM_SELECTORS = {
     chatgpt: {
+      messageRoot: '[data-testid="conversation-turn"][data-message-author-role="assistant"], [data-testid="conversation-turn"][data-author-role="assistant"], [data-testid="conversation-turn"][data-role="assistant"], [data-message-author-role="assistant"], [data-author-role="assistant"], [data-role="assistant"]',
       answerContainer: '[data-testid=\"conversation-panel\"], [data-testid=\"conversation-container\"], main, [data-testid=\"conversation-turn\"]',
       lastMessage: [
         '[data-testid=\"conversation-turn\"][data-message-author-role=\"assistant\"]',
@@ -67,8 +68,12 @@
       copyButton: COPY_BUTTON_SELECTORS
     },
     claude: {
+      messageRoot: 'div[data-is-streaming], div[data-testid="conversation-turn"][data-author-role="assistant"], div[data-testid="conversation-turn"][data-role="assistant"], div[data-is-response="true"], [data-testid="assistant-message"], [data-testid="assistant-response"]',
       answerContainer: '[data-testid=\"conversation-content\"], [data-testid*=\"conversation\"], [class*=\"conversation\" i], main, [role=\"main\"]',
       lastMessage: [
+        'div[data-is-streaming] div.font-claude-response.relative div.standard-markdown.grid-cols-1',
+        'div[data-is-streaming] div.standard-markdown.grid-cols-1',
+        'div.font-claude-response.relative div.standard-markdown.grid-cols-1',
         'div[data-testid=\"conversation-turn\"][data-author-role=\"assistant\"] div.standard-markdown.grid-cols-1',
         'div[data-testid=\"conversation-turn\"][data-role=\"assistant\"] div.standard-markdown.grid-cols-1',
         'div[data-is-response=\"true\"] div.font-claude-response.relative div.standard-markdown.grid-cols-1',
@@ -127,6 +132,7 @@
       copyButton: COPY_BUTTON_SELECTORS
     },
     gemini: {
+      messageRoot: '[data-test-id*="model-response"], [data-testid*="model-response"], model-response, .model-response, [data-message-author-role="assistant"], [data-role="assistant"]',
       answerContainer: 'main, [role=\"main\"], [class*=\"conversation\" i]',
       lastMessage: [
         '[data-test-id*=\"model-response\"]',
@@ -144,6 +150,7 @@
       copyButton: COPY_BUTTON_SELECTORS
     },
     grok: {
+      messageRoot: 'div.message-bubble, [data-testid="grok-response"], [data-testid*="response"], [data-message-author-role="assistant"], [data-role="assistant"], article[data-role="assistant"]',
       answerContainer: 'main[role=\"main\"], [data-testid=\"conversation-container\"], [data-testid*=\"conversation\"], [role=\"log\"], main',
       lastMessage: [
         'div.message-bubble div.response-content-markdown',
@@ -166,6 +173,7 @@
       copyButton: COPY_BUTTON_SELECTORS
     },
     perplexity: {
+      messageRoot: '[id^="markdown-content-"], [data-testid="answer-card"], [data-testid="answer"], [data-testid*="response"], [data-testid="chat-message"], [data-testid="conversation-turn"], [class*="answer-container" i], article',
       answerContainer: 'main, [role=\"main\"], [data-testid=\"conversation-container\"], [data-testid=\"layout-wrapper\"], [class*=\"answer-container\" i], [data-testid*=\"answer\"], [data-testid*=\"response\"], article',
       lastMessage: [
         '[data-testid=\"answer-card\"]',
@@ -198,6 +206,7 @@
       copyButton: COPY_BUTTON_SELECTORS
     },
     qwen: {
+      messageRoot: 'div.qwen-chat-message.qwen-chat-message-assistant, div.qwen-chat-message-assistant, [data-testid="chat-response"], [data-message-type="assistant"], [data-role*="assistant"]',
       answerContainer: 'main, article',
       response: [
         'div.qwen-chat-message.qwen-chat-message-assistant div.response-message-content div.custom-qwen-markdown > div.qwen-markdown.qwen-markdown-loose',
@@ -251,8 +260,10 @@
       copyButton: COPY_BUTTON_SELECTORS
     },
     deepseek: {
+      messageRoot: '.ds-markdown, .message-item[data-role="assistant"], [data-role="assistant"], [data-testid*="assistant"], [data-testid*="chat-response"], .assistant-message, [class*="message" i][class*="assistant" i]',
       answerContainer: 'main, [role=\"main\"], .chat-content, [class*=\"conversation\" i], [class*=\"chat\" i], article',
       lastMessage: [
+        '.ds-markdown',
         '.message-item[data-role=\"assistant\"]',
         'div[class*=\"assistant\" i]',
         '[data-role=\"assistant\"]',
@@ -268,13 +279,23 @@
         'article',
         '.prose'
       ].join(', '),
-      streamStart: ['.message-item[data-role=\"assistant\"]', 'div[class*=\"assistant\" i]', '[data-role=\"assistant\"]', '[data-testid*=\"assistant\"]', '[data-testid*=\"chat-response\"]', '[data-testid*=\"message\"]', '.assistant-message', '.message-content', '.markdown-body', '[class*=\"message\" i][class*=\"assistant\" i]', '[class*=\"response\" i]', 'div[role=\"article\"]', 'article', '.prose'],
+      streamStart: ['.ds-markdown', '.message-item[data-role=\"assistant\"]', 'div[class*=\"assistant\" i]', '[data-role=\"assistant\"]', '[data-testid*=\"assistant\"]', '[data-testid*=\"chat-response\"]', '[data-testid*=\"message\"]', '.assistant-message', '.message-content', '.markdown-body', '[class*=\"message\" i][class*=\"assistant\" i]', '[class*=\"response\" i]', 'div[role=\"article\"]', 'article', '.prose'],
       generatingIndicators: ['[aria-busy=\"true\"]', '.loading', '[data-generating=\"true\"]', '[data-streaming=\"true\"]', '.typing-indicator', '.spinner', '.loader', '.animate-pulse', '[class*=\"streaming\" i]', '[data-testid*=\"loading\"]', 'button[aria-label*=\"Stop\" i]'],
       completionIndicators: ['textarea:not([disabled])', 'textarea[role=\"textbox\"]:not([disabled])', 'button[type=\"submit\"]:not([disabled])', 'button[aria-label*=\"Send\" i]:not([disabled])', 'button[data-testid*=\"send\"]:not([disabled])'],
       stopButton: 'button[aria-label*=\"Stop\" i]',
       copyButton: COPY_BUTTON_SELECTORS
     },
     lechat: {
+      messageRoot: [
+        'div[data-testid="lechat-response"]',
+        '[data-testid="answer"]',
+        '[data-testid*="assistant" i]',
+        '[data-role="assistant"]',
+        '[data-message-author-role="assistant"]',
+        '.chat-response',
+        '[class*="message" i][class*="assistant" i]',
+        '[role="article"], article'
+      ],
       answerContainer: 'main, article',
       lastMessage: [
         'div[data-testid=\"lechat-response\"] .prose',
@@ -295,6 +316,14 @@
       copyButton: COPY_BUTTON_SELECTORS
     },
     zai: {
+      messageRoot: [
+        '[id^="message-"]',
+        '[data-message-author-role="assistant"]',
+        '[data-role="assistant"]',
+        '[data-testid*="assistant" i]',
+        '[class*="assistant-message" i]',
+        '[class*="message" i][class*="assistant" i]'
+      ],
       answerContainer: '#chat-messages, [role="log"], body',
       lastMessage: [
         '[id^="message-"][id$="-start"].chat-assistant.markdown-prose',
@@ -312,6 +341,7 @@
       copyButton: COPY_BUTTON_SELECTORS
     },
     generic: {
+      messageRoot: '[data-message-author-role="assistant"], [data-role="assistant"], [role="article"], article',
       answerContainer: 'main, [role=\"main\"], article',
       lastMessage: '.prose, article',
       streamStart: ['.prose', 'article', '[role=\"log\"]'],

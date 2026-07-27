@@ -10,6 +10,7 @@ const bootstrapWatcher = () => {
   delete window.AnswerPipeline;
   delete window.AnswerPipelineConfig;
   delete window.AnswerPipelineSelectors;
+  delete window.TurnResolver;
   delete window.UnifiedPipelineModules;
   delete window.SelectorCircuit;
   document.head.replaceChildren();
@@ -20,6 +21,8 @@ const bootstrapWatcher = () => {
   };
   loadScript('content-scripts/pipeline-config.js');
   loadScript('content-scripts/answer-pipeline-selectors.js');
+  loadScript('content-scripts/turn-resolver.js');
+  loadScript('content-scripts/answer-structure.js');
   loadScript('content-scripts/pipeline-modules.js');
   loadScript('content-scripts/unified-answer-watcher.js');
 };

@@ -10,6 +10,7 @@ const FINALIZATION_CONTROLLER_SOURCE = fs.readFileSync(path.join(__dirname, '..'
 const RECOVERY_INTENT_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'shared', 'recovery-intent.js'), 'utf8');
 const RUN_IDENTITY_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'shared', 'run-identity.js'), 'utf8');
 const DECISION_LEDGER_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'shared', 'decision-ledger.js'), 'utf8');
+const ANSWER_VERIFICATION_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'shared', 'answer-verification.js'), 'utf8');
 
 function createSandbox() {
   const context = {
@@ -91,11 +92,195 @@ function createSandbox() {
   vm.runInContext(RECOVERY_INTENT_SOURCE, context, { filename: 'shared/recovery-intent.js' });
   vm.runInContext(RUN_IDENTITY_SOURCE, context, { filename: 'shared/run-identity.js' });
   vm.runInContext(DECISION_LEDGER_SOURCE, context, { filename: 'shared/decision-ledger.js' });
+  vm.runInContext(ANSWER_VERIFICATION_SOURCE, context, { filename: 'shared/answer-verification.js' });
   vm.runInContext(JOB_ORCHESTRATOR_SOURCE, context, { filename: 'background/job-orchestrator.js' });
   return context;
 }
 
 describe('finalization evidence contract', () => {
+  test('canonical source alone cannot create automatic verified evidence', () => {
+    const context = createSandbox();
+    const entry = context.jobState.llms.Grok;
+    entry.generationEpoch = 3;
+    entry.preDispatchAnswerNodeCount = 2;
+    const evidence = context.buildFinalizationEvidence('Grok', entry, {
+      trimmedAnswer: 'Canonical answer body. '.repeat(20),
+      finalStatus: 'SUCCESS',
+      dispatchId: 'dispatch-grok',
+      responseMeta: {
+        source: 'native_copy',
+        runSessionId: context.jobState.session.startTime,
+        dispatchId: 'dispatch-grok',
+        generationEpoch: 3,
+        turnAnchor: 2
+      }
+    });
+    expect(evidence.verificationIdentity.ok).toBe(true);
+    expect(evidence.answerVerified).toBe(false);
+    expect(evidence.contradictions).toContain('answer_not_verified');
+  });
+
+  test('exact complete inactive proof with full identity creates verified evidence', () => {
+    const context = createSandbox();
+    const entry = context.jobState.llms.Grok;
+    entry.lastDispatchAt = 1000;
+    entry.promptSubmittedAt = 2000;
+    entry.submitSource = 'content';
+    entry.confirmedDispatchId = 'dispatch-grok';
+    entry.generationEpoch = 3;
+    entry.preDispatchAnswerNodeCount = 2;
+    const text = 'Structurally verified answer body. '.repeat(20).trim();
+    const evidence = context.buildFinalizationEvidence('Grok', entry, {
+      trimmedAnswer: text,
+      finalStatus: 'SUCCESS',
+      dispatchId: 'dispatch-grok',
+      responseMeta: {
+        source: 'pipeline',
+        answerVerification: {
+          verified: true,
+          state: 'verified',
+          resolution: 'exact',
+          structuralComplete: true,
+          generationActive: false,
+          selectedLength: text.length,
+          runSessionId: context.jobState.session.startTime,
+          dispatchId: 'dispatch-grok',
+          generationEpoch: 3,
+          turnAnchor: 2
+        }
+      }
+    });
+    expect(evidence.verificationIdentity.ok).toBe(true);
+    expect(evidence.answerVerified).toBe(true);
+    expect(evidence.contradictions).not.toContain('answer_not_verified');
+    expect(evidence.automaticSubmissionConfirmed).toBe(true);
+  });
+
+  test('automatic finalization fails closed until this dispatch is confirmed submitted', () => {
+    const context = createSandbox();
+    const entry = context.jobState.llms.Grok;
+    entry.generationEpoch = 3;
+    entry.preDispatchAnswerNodeCount = 2;
+    entry.promptSubmittedAt = null;
+    entry.confirmedDispatchId = null;
+    const text = 'Stable answer that could still belong to the previous turn. '.repeat(20).trim();
+    const evidence = context.buildFinalizationEvidence('Grok', entry, {
+      trimmedAnswer: text, finalStatus: 'SUCCESS', dispatchId: 'dispatch-grok',
+      responseMeta: { answerVerification: {
+        verified: true, state: 'verified', resolution: 'exact', structuralComplete: true,
+        generationActive: false, selectedLength: text.length,
+        runSessionId: context.jobState.session.startTime, dispatchId: 'dispatch-grok',
+        generationEpoch: 3, turnAnchor: 2
+      } }
+    });
+    expect(evidence.answerVerified).toBe(false);
+    expect(evidence.accepted).toBe(false);
+    expect(evidence.contradictions).toEqual(expect.arrayContaining([
+      'answer_not_verified', 'automatic_finalization_before_submit_confirmation'
+    ]));
+  });
+
+  test('confirmation from another dispatch cannot unlock automatic finalization', () => {
+    const context = createSandbox();
+    const entry = context.jobState.llms.Grok;
+    entry.generationEpoch = 3;
+    entry.preDispatchAnswerNodeCount = 2;
+    entry.confirmedDispatchId = 'older-dispatch';
+    const text = 'Stable answer. '.repeat(30).trim();
+    const evidence = context.buildFinalizationEvidence('Grok', entry, {
+      trimmedAnswer: text, finalStatus: 'SUCCESS', dispatchId: 'dispatch-grok',
+      responseMeta: { answerVerification: {
+        verified: true, resolution: 'exact', structuralComplete: true, generationActive: false,
+        selectedLength: text.length, runSessionId: context.jobState.session.startTime,
+        dispatchId: 'dispatch-grok', generationEpoch: 3, turnAnchor: 2
+      } }
+    });
+    expect(evidence.automaticSubmissionConfirmed).toBe(false);
+    expect(evidence.accepted).toBe(false);
+  });
+
+  test('captures immutable decision-time proof and checks the B2 end marker diagnostically', () => {
+    const context = createSandbox();
+    context.jobState.prompt = 'Generate a long answer.\n\nB2-S2-LONG-END-91AC7F';
+    const entry = context.jobState.llms.Grok;
+    entry.lastDispatchAt = 1000;
+    entry.promptSubmittedAt = 2000;
+    entry.submitSource = 'content';
+    entry.confirmedDispatchId = 'dispatch-grok';
+    entry.generationEpoch = 3;
+    entry.preDispatchAnswerNodeCount = 2;
+    const text = 'Structurally verified answer without its requested final marker. '.repeat(20).trim();
+    const evidence = context.buildFinalizationEvidence('Grok', entry, {
+      trimmedAnswer: text,
+      finalStatus: 'SUCCESS',
+      dispatchId: 'dispatch-grok',
+      responseMeta: {
+        source: 'pipeline',
+        answerVerification: {
+          verified: true,
+          state: 'verified',
+          resolution: 'exact',
+          structuralComplete: true,
+          structuralIssues: [],
+          generationActive: false,
+          generationSignalKind: 'inactive_controls_absent',
+          generationSignalSelector: 'button[aria-label*="Stop" i]',
+          selectedLength: text.length,
+          messageRootLength: text.length + 12,
+          snapshotsCompared: 3,
+          observedAt: 12345,
+          runSessionId: context.jobState.session.startTime,
+          dispatchId: 'dispatch-grok',
+          generationEpoch: 3,
+          turnAnchor: 2
+        }
+      }
+    });
+
+    expect(evidence.accepted).toBe(true);
+    expect(evidence.calibrationEndMarker).toBe('B2-S2-LONG-END-91AC7F');
+    expect(evidence.calibrationEndMarkerPresent).toBe(false);
+    expect(evidence.decisionSnapshot).toEqual(expect.objectContaining({
+      selectedLength: text.length,
+      messageRootLength: text.length + 12,
+      structuralComplete: true,
+      generationActive: false,
+      generationSignalKind: 'inactive_controls_absent',
+      generationSignalSelector: 'button[aria-label*="Stop" i]',
+      calibrationEndMarkerPresent: false
+    }));
+    expect(Object.isFrozen(evidence.decisionSnapshot)).toBe(true);
+
+    context.emitFinalizationDecision('Grok', evidence);
+    expect(context.emitTelemetry).toHaveBeenCalledWith('Grok', 'FINALIZATION_DECISION', expect.objectContaining({
+      meta: expect.objectContaining({
+        decisionSnapshot: expect.objectContaining({ selectedLength: text.length }),
+        calibrationEndMarkerPresent: false
+      })
+    }));
+  });
+  test('telemetry summary strips full answer evidence content', () => {
+    const context = createSandbox();
+    const text = 'Sensitive generated answer. '.repeat(100);
+    const summary = context.summarizeFinalizationEvidenceForTelemetry({
+      finalStatus: 'SUCCESS',
+      answerLength: text.trim().length,
+      answerEvidence: {
+        text,
+        html: `<p>${text}</p>`,
+        source: 'lifecycle_complete_snapshot',
+        hash: 'abc123',
+        terminalEligible: true
+      }
+    });
+
+    expect(summary.answerEvidence.text).toBeUndefined();
+    expect(summary.answerEvidence.html).toBeUndefined();
+    expect(summary.answerEvidence.length).toBe(text.trim().length);
+    expect(summary.answerEvidence.htmlLength).toBeGreaterThan(text.trim().length);
+    expect(summary.answerEvidence.source).toBe('lifecycle_complete_snapshot');
+  });
+
   test('builds AnswerEvidence Lite for timeout, snapshot, panel and materialize sources', () => {
     const context = createSandbox();
     const cases = [
@@ -327,6 +512,8 @@ describe('finalization evidence contract', () => {
   test('denies manual resend when answer evidence already exists', () => {
     const context = createSandbox();
     const entry = context.jobState.llms.Perplexity;
+    entry.promptSubmittedAt = null;
+    entry.confirmedDispatchId = null;
     entry.pendingFinalAnswer = 'Recovered answer text. '.repeat(80);
     entry.promptSubmittedAt = Date.now() - 1000;
     entry.submitSource = 'content';
@@ -423,6 +610,8 @@ describe('finalization evidence contract', () => {
   test('does not let unproven preserved text block a real terminal failure', () => {
     const context = createSandbox();
     const entry = context.jobState.llms.Perplexity;
+    entry.promptSubmittedAt = null;
+    entry.confirmedDispatchId = null;
     entry.pendingFinalAnswer = 'Recovered answer text. '.repeat(80);
     const evidence = context.buildFinalizationEvidence('Perplexity', entry, {
       finalStatus: 'NO_SEND',

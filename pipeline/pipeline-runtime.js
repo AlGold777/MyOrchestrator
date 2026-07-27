@@ -19,10 +19,6 @@
     }, []);
     const DEFAULT_JUDGE_INDICES = MODELS.length > 1 ? [0, 1] : [0];
     const DEFAULT_LATE_JUDGE_INDICES = [0];
-    const DEFAULT_OUTPUTS = [
-        { key: 'exportHtml', label: 'Export HTML', desc: 'HTML', checked: true }
-    ];
-
     const escapeFallback = (value = '') => String(value)
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
@@ -87,26 +83,9 @@
         }).join('');
     };
 
-    const buildOutputBlocksHtml = ({ outputs = DEFAULT_OUTPUTS, escapeHtml = escapeFallback } = {}) => outputs
-        .map((output, index) => `
-            <div class="output-block ${output.checked ? '' : 'inactive'}" data-index="${index}" data-output="${escapeHtml(output.key)}">
-                <div class="output-header">
-                    <input type="checkbox" class="output-checkbox"${output.checked ? ' checked' : ''}>
-                    <span class="output-name">${escapeHtml(output.label)}</span>
-                </div>
-                <div class="output-desc">${escapeHtml(output.desc)}</div>
-            </div>
-        `)
-        .join('');
-
     const renderModelStack = (stack, options = {}) => {
         if (!stack) return;
         stack.innerHTML = buildModelBlocksHtml(options);
-    };
-
-    const renderOutputStack = (stack, options = {}) => {
-        if (!stack) return;
-        stack.innerHTML = buildOutputBlocksHtml(options);
     };
 
     const hydratePipelineStacks = ({ document, escapeHtml = escapeFallback, orderedPrompts = [] } = {}) => {
@@ -114,10 +93,6 @@
         renderModelStack(r1Stack, { activeIndices: [], withRole: false, onlyActive: true, orderedPrompts, escapeHtml });
         const r2Stack = document?.getElementById?.('r2-models');
         renderModelStack(r2Stack, { activeIndices: [], withRole: true, onlyActive: true, orderedPrompts, escapeHtml });
-        const outputStack = document?.getElementById?.('output-stack');
-        if (outputStack && !outputStack.querySelector('.output-block')) {
-            renderOutputStack(outputStack, { escapeHtml });
-        }
     };
 
     const captureModelStackState = (document, stackId) => {
@@ -139,20 +114,6 @@
         return { items };
     };
 
-    const captureOutputStackState = (document, stackId) => {
-        const stack = document?.getElementById?.(stackId);
-        if (!stack) return null;
-        const outputs = {};
-        const checks = Array.from(stack.querySelectorAll('.output-block')).map((block) => {
-            const cb = block.querySelector('.output-checkbox');
-            const checked = !!cb?.checked;
-            const key = block.dataset.output || '';
-            if (key) outputs[key] = checked;
-            return checked;
-        });
-        return { checks, outputs };
-    };
-
     const getRoundModelsState = (document, roundIndex) => {
         const stack = document?.getElementById?.(`r${roundIndex}-models`);
         if (!stack) return null;
@@ -171,37 +132,7 @@
         return { models, inputModels, sendModels };
     };
 
-    const getPipelineOutputSelection = (document, outputState = null) => {
-        const selection = { notes: false, export: false, exportHtml: false };
-        if (outputState?.outputs && typeof outputState.outputs === 'object') {
-            selection.notes = !!outputState.outputs.notes;
-            selection.export = !!outputState.outputs.export;
-            selection.exportHtml = !!outputState.outputs.exportHtml;
-            return selection;
-        }
-        const outputStack = document?.getElementById?.('output-stack');
-        if (!outputStack) return selection;
-        outputStack.querySelectorAll('.output-block').forEach((block) => {
-            const outputKey = block.dataset.output;
-            const label = block.querySelector('.output-name')?.textContent?.trim().toLowerCase();
-            const checked = !!block.querySelector('.output-checkbox')?.checked;
-            if (!checked) return;
-            if (outputKey && Object.prototype.hasOwnProperty.call(selection, outputKey)) {
-                selection[outputKey] = true;
-                return;
-            }
-            if (!label) return;
-            if (label.includes('note')) selection.notes = true;
-            if (label.includes('html')) {
-                selection.exportHtml = true;
-            } else if (label.includes('export')) {
-                selection.export = true;
-            }
-        });
-        return selection;
-    };
-
-    const buildPipelineRuntimeSnapshot = ({ config, roundCounter = 1, getRoundState, getOutputSelection } = {}) => {
+    const buildPipelineRuntimeSnapshot = ({ config, roundCounter = 1, getRoundState } = {}) => {
         const snapshot = cloneConfig(config) || {};
         const rounds = [];
         const totalRounds = Math.max(1, Number(snapshot?.roundCounter) || roundCounter || 1);
@@ -219,10 +150,7 @@
         }
         return {
             config: snapshot,
-            rounds,
-            outputSelection: typeof getOutputSelection === 'function'
-                ? getOutputSelection(snapshot.outputStack)
-                : { notes: false, export: false, exportHtml: false }
+            rounds
         };
     };
 
@@ -231,19 +159,14 @@
         DEFAULT_MODEL_INDICES,
         DEFAULT_JUDGE_INDICES,
         DEFAULT_LATE_JUDGE_INDICES,
-        DEFAULT_OUTPUTS,
         cloneConfig,
         getRoundStage,
         buildJudgePromptOptionsHtml,
         buildModelBlocksHtml,
-        buildOutputBlocksHtml,
         renderModelStack,
-        renderOutputStack,
         hydratePipelineStacks,
         captureModelStackState,
-        captureOutputStackState,
         getRoundModelsState,
-        getPipelineOutputSelection,
         buildPipelineRuntimeSnapshot
     };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -2,8 +2,8 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    flex-wrap: wrap;
-    gap: 18px;
+    flex-wrap: nowrap;
+    gap: 12px;
     padding: 12px 12px;
     margin: 0 0 -4px 0;
 
@@ -19,6 +19,8 @@
     align-items: center;
     gap: 1px;
     flex-wrap: wrap;
+    flex: 0 0 auto;
+    min-width: max-content;
 }
 
 .sidebar-toggle-btn {
@@ -148,8 +150,9 @@
     display: flex;
     align-items: center;
     gap: 26px;
+    flex: 0 0 auto;
     margin-left: auto;
-    margin-right: 20px;
+    margin-right: 0;
     flex-wrap: nowrap;
     direction: ltr;
     align-self: center;
@@ -160,8 +163,10 @@
     align-items: center;
     flex: 1 1 auto;
     min-width: 0;
-    margin-left: -18px;
+    margin-left: 0;
     justify-content: flex-start;
+    overflow-x: auto;
+    overflow-y: hidden;
 }
 
 .right-sidebar-toggle-btn {

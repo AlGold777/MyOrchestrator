@@ -23,6 +23,7 @@
   const SELECTOR_STATS_DEDUP_WINDOW_MS = Number(Config.telemetry?.selectorStatsDedupWindowMs || 30000);
   const selectorStatsBuckets = new Map();
   const selectorStatsLastEmit = new Map();
+  const selectorTargetLastHitAt = new Map();
 
   const buildSelectorStatKey = (llmName, targetType, selector) => {
     const normalizedName = (llmName || 'unknown').toString().trim();
@@ -44,6 +45,11 @@
     const missCount = Number(bucket.missCount || 0);
     const totalCount = hitCount + missCount;
     const hitRate = totalCount ? Math.round((hitCount / totalCount) * 100) : 0;
+    const targetKey = `${bucket.llmName || bucket.platform || 'unknown'}::${bucket.targetType || 'generic'}`;
+    const lastAlternativeHitAt = Number(selectorTargetLastHitAt.get(targetKey) || 0);
+    const coveredByAlternative = hitCount === 0
+      && lastAlternativeHitAt >= Number(bucket.firstTs || 0)
+      && lastAlternativeHitAt <= now;
     const details = `${detailSelector}${detailType} hit=${hitCount} miss=${missCount} (${hitRate}%) over ${durationMs}ms`;
     const signature = `${detailSelector}|${bucket.targetType || ''}|${hitCount}|${missCount}|${hitRate}`;
     const previousEmit = selectorStatsLastEmit.get(key);
@@ -59,7 +65,7 @@
       type: 'SELECTOR',
       label: 'SELECTOR_STATS',
       details,
-      level: 'warning',
+      level: coveredByAlternative ? 'info' : 'warning',
       meta: Object.assign({
         platform: bucket.platform,
         target: bucket.targetType,
@@ -70,6 +76,7 @@
         totalCount,
         hitRate,
         durationMs,
+        coveredByAlternative,
         selectorPackVersion: bucket.selectorPackVersion || null
       }, bucket.meta || {})
     };
@@ -101,6 +108,7 @@
     };
     if (hit) {
       existing.hitCount += 1;
+      selectorTargetLastHitAt.set(`${llmName || 'unknown'}::${targetType || 'generic'}`, Date.now());
     } else {
       existing.missCount += 1;
     }
@@ -293,7 +301,7 @@
 
           const answerEl = this.getAnswerElement();
           if (answerEl) {
-            const text = answerEl.textContent || '';
+            const text = this.readAnswerText(answerEl);
             const len = text.length || 0;
             const normalizedText = String(text || '').replace(/\s+/g, ' ').trim().toLowerCase();
             if (
@@ -712,28 +720,20 @@
 
     detectTyping() {
       const circuit = window.SelectorCircuit;
-      const generatingSelectors = this.filterSelectors(this.selectors.generatingIndicators, 'generating');
-      const streamingSelectors = this.filterSelectors(this.selectors.streaming, 'streaming');
-      const spinnerSelectors = this.filterSelectors(this.selectors.spinner, 'spinner');
-
-      const isVisibleMatch = (selector, type) => {
-        const nodes = this.safeQueryAll(selector);
-        const match = Array.from(nodes).some((el) => this.isElementVisible(el));
-        if (match) circuit?.report(selector, this.platform, type, true);
-        return match;
+      const filteredSelectors = {
+        generatingIndicators: this.filterSelectors(this.selectors.generatingIndicators, 'generating'),
+        streaming: this.filterSelectors(this.selectors.streaming, 'streaming'),
+        stopButton: this.getStopSelectors()
       };
-      const generating = generatingSelectors.some((selector) => isVisibleMatch(selector, 'generating'));
-      const streaming = streamingSelectors.some((selector) => isVisibleMatch(selector, 'streaming'));
-      const spinners = spinnerSelectors.some((selector) => {
-        const nodes = this.safeQueryAll(selector);
-        return Array.from(nodes).some((el) => {
-          const rect = el.getBoundingClientRect();
-          const style = window.getComputedStyle(el);
-          return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
-        });
-      });
-      const stopVisible = this.detectStopButtonVisible();
-      return generating || streaming || spinners || stopVisible;
+      const signal = window.GenerationSignal?.inspect?.({
+        selectors: filteredSelectors,
+        queryAll: (selector) => this.safeQueryAll(selector),
+        isVisible: (node) => this.isElementVisible(node)
+      }) || { active: true, kind: 'detector_unavailable', selector: null };
+      if (signal.active && signal.selector) {
+        circuit?.report(signal.selector, this.platform, signal.kind || 'generating', true);
+      }
+      return signal.active;
     }
 
     getStopSelectors() {
@@ -830,53 +830,31 @@
     }
 
     getAnswerElement() {
-      const selectors = this.selectors.lastMessage ? [this.selectors.lastMessage] : [];
-      if (!selectors.length && this.selectors.answerContainer) {
-        selectors.push(`${this.selectors.answerContainer} > :last-child`);
-      }
-      const candidates = [];
-      const seen = new Set();
-      selectors.forEach((selector) => {
-        const nodes = Array.from(this.safeQueryAll(selector) || []);
-        if (!nodes.length) {
-          const node = this.safeQuery(selector);
-          if (node) nodes.push(node);
-        }
-        nodes.forEach((node) => {
-          if (!node || seen.has(node)) return;
-          seen.add(node);
-          candidates.push(node);
-        });
-      });
-      if (!candidates.length) return null;
-      candidates.sort((a, b) => {
-        if (a === b) return 0;
-        try {
-          const pos = a.compareDocumentPosition(b);
-          if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
-          if (pos & Node.DOCUMENT_POSITION_PRECEDING) return 1;
-        } catch (_) {}
-        return 0;
-      });
-      this.lastAnswerCandidateCount = candidates.length;
-      if (this.anchorAnswerCount > 0 && candidates.length > this.anchorAnswerCount) {
-        const freshCandidates = candidates.slice(this.anchorAnswerCount);
-        for (let i = freshCandidates.length - 1; i >= 0; i -= 1) {
-          const text = String(freshCandidates[i]?.innerText || freshCandidates[i]?.textContent || '').trim();
-          if (text) return freshCandidates[i];
-        }
-        return freshCandidates[freshCandidates.length - 1] || null;
-      }
-      for (let i = candidates.length - 1; i >= 0; i -= 1) {
-        const text = String(candidates[i]?.innerText || candidates[i]?.textContent || '').trim();
-        if (text) return candidates[i];
-      }
-      return candidates[candidates.length - 1] || null;
+      const deepQuery = window.TurnResolver?.createDeepQuery?.(document);
+      const turn = window.TurnResolver?.resolveTurn?.({
+        platform: this.platform,
+        selectors: this.selectors,
+        answerSelectors: this.options.answerSelectors,
+        anchorAnswerCount: this.anchorAnswerCount,
+        minimumTextLength: 5,
+        selectorAllowed: (selector) => !window.SelectorCircuit
+          || window.SelectorCircuit.shouldUse(selector, this.platform, 'answer') !== false,
+        queryAll: (selector) => deepQuery?.all?.(selector) || this.safeQueryAll(selector),
+        queryOne: (selector) => deepQuery?.one?.(selector) || this.safeQuery(selector)
+      }) || null;
+      this.lastTurnResolution = turn;
+      this.lastAnswerCandidateCount = turn?.candidates?.length || 0;
+      return turn?.answerNode || null;
     }
 
     getCurrentContentLength() {
       const el = this.getAnswerElement();
-      return el?.textContent?.length || 0;
+      return this.readAnswerText(el).length;
+    }
+
+    readAnswerText(element) {
+      if (!element) return '';
+      return window.AnswerStructure?.linearizeText?.(element) || '';
     }
 
     detectCompletionIndicator() {
@@ -1071,8 +1049,9 @@
         this.emitCopyCompletionSignal(this.lastCopyButtonMeta);
         return false;
       }
-      const textLength = (answerEl.textContent || '').trim().length;
-      const answerHash = this.hashString((answerEl.textContent || '').slice(-500));
+      const answerText = this.readAnswerText(answerEl);
+      const textLength = answerText.length;
+      const answerHash = this.hashString(answerText.slice(-500));
       if (textLength < this.copyButtonMinAnswerLength) {
         this.lastCopyButtonMeta = { found: false, valid: false, present: false, visible: false, interactable: false, copyType: 'rejected', reason: 'answer_too_short', textLength, answerHash };
         this.emitCopyCompletionSignal(this.lastCopyButtonMeta);

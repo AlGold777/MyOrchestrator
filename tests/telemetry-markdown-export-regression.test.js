@@ -4,10 +4,12 @@ const path = require('path');
 const RESULTS_SRC = fs.readFileSync(path.join(__dirname, '..', 'results.js'), 'utf8');
 const TELEMETRY_SRC = fs.readFileSync(path.join(__dirname, '..', 'background', 'telemetry-logs.js'), 'utf8');
 const ROUTER_SRC = fs.readFileSync(path.join(__dirname, '..', 'background', 'message-router.js'), 'utf8');
+const DEVTOOLS_SRC = fs.readFileSync(path.join(__dirname, '..', 'results-devtools.js'), 'utf8');
 
 describe('telemetry Markdown export regression', () => {
-  test('page reload does not destroy telemetry before export', () => {
-    expect(RESULTS_SRC).not.toContain('clearTelemetryOnReload().catch');
+  test('page reload clears persisted telemetry before the new page session', () => {
+    expect(RESULTS_SRC).toContain('clearTelemetryOnReload()');
+    expect(RESULTS_SRC).toContain("detail: { source: 'page_reload' }");
   });
 
   test('Run Summary alone is sufficient to create the MD export', () => {
@@ -42,5 +44,27 @@ describe('telemetry Markdown export regression', () => {
     const handler = ROUTER_SRC.slice(caseAt, caseAt + 1400);
     expect(handler).toContain('self?.readDiagnosticsEventsSnapshot');
     expect(handler).not.toContain('readDiagnosticsEventsConsistent');
+  });
+
+  test('Only problems applies causal context to both JSON and Markdown exports', () => {
+    expect(DEVTOOLS_SRC).toContain('window.ProblemContextFilter.filterWithContext(events');
+    expect(DEVTOOLS_SRC).toContain('sourceEvents = filterTelemetryProblemsWithContext(sourceEvents)');
+    expect(RESULTS_SRC).toContain('bridge.applyOnlyProblemsFilter(filtered)');
+    expect(RESULTS_SRC).toContain('window.ProblemContextFilter.filterWithContext(source');
+  });
+
+  test('JSON export refreshes the persisted snapshot and includes background run state', () => {
+    expect(DEVTOOLS_SRC).toContain("chrome.runtime.sendMessage({ type: 'GET_DIAG_EVENTS', limit }");
+    expect(DEVTOOLS_SRC).toContain("chrome.runtime.sendMessage({ type: 'GET_RUN_OUTCOME_SUMMARY' }");
+    expect(DEVTOOLS_SRC).toContain('requestTelemetryExportSnapshot(2000)');
+    expect(DEVTOOLS_SRC).toContain('runOutcomeSummary: runOutcomeSummary || null');
+  });
+
+  test('content-tab diagnostics inherit run identity only from their mapped current tab', () => {
+    const caseAt = ROUTER_SRC.indexOf("case 'DIAG_EVENT'");
+    const handler = ROUTER_SRC.slice(caseAt, caseAt + 3500);
+    expect(handler).toContain('senderTabId === expectedTabId');
+    expect(handler).toContain('runSessionId: currentRunSessionId');
+    expect(handler).toContain('dispatchId: currentEntry.lastDispatchMeta.dispatchId');
   });
 });

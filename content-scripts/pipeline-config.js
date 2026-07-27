@@ -1,12 +1,12 @@
 (function initAnswerPipelineConfig() {
   if (window.AnswerPipelineConfig) return;
 
-  // ---- Short profile (default): the existing generation-wait timings. ----
+  // ---- Standard profile: the former patient Long timings. ----
   const CONFIG = {
     preparation: {
       tabActivationTimeout: 3000,
       allowTabActivation: false,
-      streamStartTimeout: 30000,
+      streamStartTimeout: 60000,
       streamStartPollInterval: 100
     },
     streaming: {
@@ -19,33 +19,33 @@
         }
       },
       adaptiveTimeout: {
-        short: { maxChars: 500, timeout: 20000 },
-        medium: { maxChars: 2000, timeout: 45000 },
-        long: { maxChars: 5000, timeout: 90000 },
-        veryLong: { maxChars: Infinity, timeout: 180000 },
-        softExtension: 30000,
-        hardMax: 180000
+        short: { maxChars: 500, timeout: 50000 },
+        medium: { maxChars: 2000, timeout: 112000 },
+        long: { maxChars: 5000, timeout: 225000 },
+        veryLong: { maxChars: Infinity, timeout: 450000 },
+        softExtension: 75000,
+        hardMax: 450000
       },
       intelligentRetry: {
         enabled: true,
-        maxRetries: 5,
-        backoffSequence: [300, 600, 1200, 2000, 2000],
-        noGrowthThreshold: 2
+        maxRetries: 8,
+        backoffSequence: [500, 1000, 2000, 3000, 4000, 5000, 5000, 5000],
+        noGrowthThreshold: 4
       },
       initialScrollKick: {
         enabled: true,
         delay: 0
       },
       settlementWatcher: {
-        idleThreshold: 2000,
-        maxDuration: 45000
+        idleThreshold: 3500,
+        maxDuration: 120000
       },
       completionCriteria: {
         completionSignalEnabled: true,
-        mutationIdle: 3000,
-        scrollStable: 4000,
-        contentStable: 3000,
-        contentStableChecks: 3,
+        mutationIdle: 4500,
+        scrollStable: 6000,
+        contentStable: 4500,
+        contentStableChecks: 4,
         contentStableDelta: 5,
         copyButtonSignalEnabled: true,
         copyButtonRequiresStableText: true,
@@ -70,12 +70,13 @@
         growthThreshold: 50,
         scrollStep: 120,
         idleThreshold: 5000,
-        maxDuration: 20000
+        maxDuration: 60000
       }
     },
     finalization: {
-      stabilityChecks: 3,
-      stabilityInterval: 2000,
+      stabilityChecks: 4,
+      stabilityRetryBudget: 2,
+      stabilityInterval: 2500,
       sanityCheck: {
         enabled: true,
         warnOnHardTimeout: true,
@@ -102,43 +103,34 @@
     }
   };
 
-  // ---- Long profile overrides: patiently wait for long answers (~6-8 min). ----
-  // Only the generation-wait knobs are scaled (~x2.5 on the ceilings) plus a bit
-  // more stability before declaring a turn complete. Everything not listed here
-  // keeps its Short value.
+  // ---- Long profile overrides: passive generation wait up to 15 minutes. ----
+  // Active tab focus is governed separately in background (90 seconds max).
   const LONG_OVERRIDES = {
-    preparation: { streamStartTimeout: 60000 },
+    preparation: { streamStartTimeout: 90000 },
     streaming: {
       adaptiveTimeout: {
-        short: { timeout: 50000 },
-        medium: { timeout: 112000 },
-        long: { timeout: 225000 },
-        veryLong: { timeout: 450000 },
-        softExtension: 75000,
-        hardMax: 450000
+        short: { timeout: 100000 },
+        medium: { timeout: 225000 },
+        long: { timeout: 450000 },
+        veryLong: { timeout: 900000 },
+        softExtension: 150000,
+        hardMax: 900000
       },
       intelligentRetry: {
-        maxRetries: 8,
-        backoffSequence: [500, 1000, 2000, 3000, 4000, 5000, 5000, 5000],
-        noGrowthThreshold: 4
+        maxRetries: 10,
+        backoffSequence: [500, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 8000],
+        noGrowthThreshold: 5
       },
       settlementWatcher: {
-        idleThreshold: 3500,
-        maxDuration: 120000
+        maxDuration: 180000
       },
       completionCriteria: {
-        mutationIdle: 4500,
-        scrollStable: 6000,
-        contentStable: 4500,
-        contentStableChecks: 4
-      },
-      maintenanceScroll: {
-        maxDuration: 60000
+        contentStableChecks: 5
       }
     },
     finalization: {
-      stabilityChecks: 4,
-      stabilityInterval: 2500
+      stabilityChecks: 5,
+      stabilityRetryBudget: 3
     }
   };
 
@@ -146,8 +138,8 @@
   const clone = (value) => (typeof structuredClone === 'function'
     ? structuredClone(value)
     : JSON.parse(JSON.stringify(value)));
-  // Pristine Short snapshot to restore from when switching long -> short.
-  const SHORT_SNAPSHOT = clone(CONFIG);
+  // Pristine Standard snapshot to restore from when switching Long off.
+  const STANDARD_SNAPSHOT = clone(CONFIG);
 
   const deepAssign = (target, source) => {
     Object.keys(source || {}).forEach((key) => {
@@ -164,13 +156,22 @@
     return target;
   };
 
-  let activeProfile = 'short';
+  let activeProfile = 'standard';
+  let profileLoaded = false;
+  let resolveProfileReady;
+  const profileReadyPromise = new Promise((resolve) => { resolveProfileReady = resolve; });
+
+  function markProfileLoaded() {
+    if (profileLoaded) return;
+    profileLoaded = true;
+    resolveProfileReady?.(getEffectiveSnapshot());
+  }
 
   // Mutates AnswerPipelineConfig in place so consumers that read it fresh on each
   // run (the answer watcher / finalizer) pick up the active profile.
   function applyTimingProfile(profile) {
-    const next = profile === 'long' ? 'long' : 'short';
-    deepAssign(CONFIG, clone(SHORT_SNAPSHOT));
+    const next = profile === 'long' ? 'long' : 'standard';
+    deepAssign(CONFIG, clone(STANDARD_SNAPSHOT));
     if (next === 'long') {
       deepAssign(CONFIG, LONG_OVERRIDES);
     }
@@ -182,11 +183,34 @@
     return activeProfile;
   }
 
+  function getEffectiveSnapshot() {
+    return {
+      profile: activeProfile,
+      profileLoaded,
+      streaming: clone(CONFIG.streaming || {}),
+      finalization: clone(CONFIG.finalization || {})
+    };
+  }
+
+  function whenProfileReady(timeoutMs = 0) {
+    if (profileLoaded) return Promise.resolve(getEffectiveSnapshot());
+    const timeout = Math.max(0, Number(timeoutMs || 0));
+    if (!timeout) return profileReadyPromise;
+    return Promise.race([
+      profileReadyPromise,
+      new Promise((resolve) => setTimeout(() => resolve(getEffectiveSnapshot()), timeout))
+    ]);
+  }
+
   window.AnswerPipelineConfig = CONFIG;
   window.AnswerPipelineTiming = Object.freeze({
     applyTimingProfile,
     getTimingProfile,
-    SHORT_SNAPSHOT,
+    getEffectiveSnapshot,
+    whenProfileReady,
+    STANDARD_SNAPSHOT,
+    // Compatibility alias for integrations compiled before Standard replaced Short.
+    SHORT_SNAPSHOT: STANDARD_SNAPSHOT,
     LONG_OVERRIDES
   });
 
@@ -196,12 +220,14 @@
   try {
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
       chrome.storage.local.get(STORAGE_KEY, (data) => {
-        try { applyTimingProfile(data && data[STORAGE_KEY] ? 'long' : 'short'); } catch (_) {}
+        try { applyTimingProfile(data && data[STORAGE_KEY] ? 'long' : 'standard'); markProfileLoaded(); } catch (_) {}
       });
       chrome.storage.onChanged?.addListener?.((changes, area) => {
         if (area !== 'local' || !changes || !changes[STORAGE_KEY]) return;
-        try { applyTimingProfile(changes[STORAGE_KEY].newValue ? 'long' : 'short'); } catch (_) {}
+        try { applyTimingProfile(changes[STORAGE_KEY].newValue ? 'long' : 'standard'); markProfileLoaded(); } catch (_) {}
       });
+    } else {
+      markProfileLoaded();
     }
-  } catch (_) {}
+  } catch (_) { markProfileLoaded(); }
 })();

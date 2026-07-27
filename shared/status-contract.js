@@ -72,6 +72,15 @@
     return normalizeStatus(entry?.status || entry?.finalStatus || 'UNKNOWN');
   }
 
+  function resolveVerificationState(entry = {}, modelRunState = null) {
+    const value = modelRunState?.verificationState
+      || entry?.verificationState
+      || entry?.answerVerification?.state
+      || (entry?.answerVerification?.verified === true ? 'verified' : null)
+      || 'unknown';
+    return String(value).trim().toLowerCase() || 'unknown';
+  }
+
   function shouldApplyStatusUpdate(currentStatus, incomingStatus, options = {}) {
     const current = normalizeStatus(currentStatus);
     const incoming = normalizeStatus(incomingStatus);
@@ -104,6 +113,7 @@
       const finalStatus = state.terminalStatus ? normalizeStatus(state.terminalStatus) : (
         entry?.finalStatusRecorded && entry?.finalStatus ? normalizeStatus(entry.finalStatus) : null
       );
+      const verificationState = resolveVerificationState(entry, state);
       const executionState = (() => {
         if (String(state.executionState || '').startsWith('terminal')) return 'finalized';
         if (state.executionState === 'collecting') return 'collecting';
@@ -111,7 +121,8 @@
         return state.executionState || 'idle';
       })();
       const answerState = (() => {
-        if (state.answerState === 'accepted') return 'complete';
+        if (['accepted', 'verified'].includes(state.answerState) && verificationState === 'verified') return 'complete';
+        if (['accepted', 'verified'].includes(state.answerState)) return 'partial';
         if (state.answerState === 'partial_accepted') return 'partial';
         if (state.answerState === 'failed') return 'failed';
         if (state.answerState === 'candidate') return 'partial';
@@ -125,12 +136,14 @@
         uiStatus,
         terminal: isTerminalStatus(uiStatus),
         rank: getStatusRank(uiStatus),
+        verificationState,
         modelRunState: state
       };
     }
     const finalStatus = entry?.finalStatusRecorded && entry?.finalStatus ? normalizeStatus(entry.finalStatus) : null;
     const liveStatus = normalizeStatus(entry?.status || 'UNKNOWN');
     const uiStatus = finalStatus || liveStatus;
+    const verificationState = resolveVerificationState(entry, null);
     const executionState = finalStatus
       ? 'finalized'
       : (['RECEIVING'].includes(liveStatus)
@@ -139,7 +152,9 @@
           ? 'generating'
           : 'idle'));
     const answerState = (() => {
-      if (['SUCCESS', 'COMPLETE', 'COPY_SUCCESS', 'DONE'].includes(uiStatus)) return 'complete';
+      if (['SUCCESS', 'COMPLETE', 'COPY_SUCCESS', 'DONE'].includes(uiStatus)) {
+        return verificationState === 'verified' ? 'complete' : 'partial';
+      }
       if (['PARTIAL', 'STREAM_TIMEOUT_HIDDEN'].includes(uiStatus)) return 'partial';
       if (uiStatus === 'USER_ACTION_REQUIRED') return 'action_required';
       if (uiStatus === 'UNCERTAIN') return 'unknown';
@@ -153,7 +168,8 @@
       finalStatus,
       uiStatus,
       terminal: isTerminalStatus(uiStatus),
-      rank: getStatusRank(uiStatus)
+      rank: getStatusRank(uiStatus),
+      verificationState
     };
   }
 
@@ -164,6 +180,9 @@
       if (uiStatus === 'USER_ACTION_REQUIRED') return 'action_required';
       if (uiStatus === 'UNCERTAIN') return 'unknown';
       if (isFailureStatus(uiStatus)) return 'error';
+      if (['SUCCESS', 'COMPLETE', 'COPY_SUCCESS', 'DONE'].includes(uiStatus)
+        && state.verificationState !== 'verified') return 'verifying';
+      if (state.modelRunState?.extractionState === 'accepted_unverified') return 'verifying';
       if (state.answerState === 'partial') return 'partial';
       if (['PARTIAL', 'STREAM_TIMEOUT_HIDDEN', 'STREAM_TIMEOUT'].includes(uiStatus)) return 'partial';
       if (state.answerState === 'complete' || isSuccessStatus(uiStatus)) return 'success';
@@ -171,6 +190,7 @@
     })();
     const labels = {
       pending: 'Pending',
+      verifying: 'Verifying answer',
       success: 'Success',
       partial: 'Partial',
       error: 'Error',
@@ -201,6 +221,7 @@
     isSuccessStatus,
     isFailureStatus,
     resolveDisplayStatus,
+    resolveVerificationState,
     shouldApplyStatusUpdate,
     deriveStatusContract,
     deriveResultMeta

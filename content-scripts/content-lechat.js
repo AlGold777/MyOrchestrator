@@ -931,19 +931,48 @@
   // Отправка промпта - рабочая версия из content-lechat
   async function sendComposer(composer, prompt) {
     const baselineResponseCount = document.querySelectorAll('main article, .prose, [data-testid*="assistant"]').length;
+    const userTurnSelectors = [
+      '[data-message-author-role="user"]', '[data-role="user"]',
+      '[data-testid*="user-message" i]', '[class*="user-message" i]'
+    ];
+    const countUserTurns = () => new Set(userTurnSelectors.flatMap((selector) => (
+      Array.from(document.querySelectorAll(selector))
+    ))).size;
+    const baselineUserTurns = countUserTurns();
+    const collectGenerationEvidence = () => Array.from(document.querySelectorAll([
+      '[class*="animate-pulse"]', '[class*="streaming"]',
+      '[data-testid="generation"]', '[data-testid="generation-in-progress"]',
+      'button[aria-label*="Stop" i]', '[aria-busy="true"]'
+    ].join(',')));
+    const baselineGenerationEvidence = new Set(collectGenerationEvidence());
+    const hasFreshGenerationEvidence = () => collectGenerationEvidence()
+      .some((element) => !baselineGenerationEvidence.has(element));
+    const submitConfirmation = window.ProviderSubmitConfirmation || null;
+    const submitBaseline = submitConfirmation?.capture?.({
+      userTurnCount: baselineUserTurns,
+      responseCount: baselineResponseCount,
+      composerTextLength: (composer.value || composer.textContent || '').trim().length,
+      generationElements: baselineGenerationEvidence
+    }) || null;
     const confirmLeChatSend = async (sendButtonCandidate, timeout = 3000, beforeTextLength = 0) => {
       const deadline = Date.now() + timeout;
       while (Date.now() < deadline) {
-        const typing = document.querySelector('[class*="animate-pulse"], [class*="streaming"], [data-testid="generation"], [data-testid=\"generation-in-progress\"]');
-        const stopButton = document.querySelector('button[aria-label*="Stop" i]');
-        const ariaBusy = document.querySelector('[aria-busy="true"]');
-        if (typing || stopButton || ariaBusy) return true;
-        if (sendButtonCandidate?.disabled || sendButtonCandidate?.getAttribute?.('aria-disabled') === 'true') return true;
         const composerText = (composer.value || composer.textContent || '').trim();
-        if (!composerText.length) return true;
-        if (beforeTextLength > 10 && composerText.length <= Math.max(1, Math.floor(beforeTextLength * 0.1))) return true;
         const currentResponseCount = document.querySelectorAll('main article, .prose, [data-testid*="assistant"]').length;
-        if (currentResponseCount > baselineResponseCount) return true;
+        const proof = submitConfirmation?.evaluate?.(submitBaseline, {
+          userTurnCount: countUserTurns(),
+          responseCount: currentResponseCount,
+          composerTextLength: composerText.length,
+          generationElements: collectGenerationEvidence()
+        });
+        if (proof?.confirmed === true) return true;
+        // Fail closed if the shared evaluator is unavailable. Only direct
+        // current-turn evidence may confirm; composer clearing/shrinking may not.
+        if (!submitConfirmation && (
+          countUserTurns() > baselineUserTurns
+          || hasFreshGenerationEvidence()
+          || currentResponseCount > baselineResponseCount
+        )) return true;
         await sleep(120);
       }
       return false;
@@ -971,27 +1000,6 @@
     await sleep(240);
     try { composer.focus?.({ preventScroll: true }); } catch (_) { try { composer.focus?.(); } catch (_) {} }
 
-    // The live Le Chat editor ignores untrusted KeyboardEvent submission.
-    // Manual Ctrl+Enter is confirmed working, so reproduce that browser-level
-    // gesture through the sender-gated background debugger path first.
-    try {
-      const beforeLen = ((composer.value || composer.textContent || '').trim()).length;
-      const trusted = await new Promise((resolve) => {
-        chrome.runtime.sendMessage({ type: 'PROVIDER_TRUSTED_SEND_REQUEST', llmName: MODEL }, (response) => {
-          if (chrome.runtime.lastError) resolve({ ok: false, reason: chrome.runtime.lastError.message });
-          else resolve(response || { ok: false, reason: 'empty_response' });
-        });
-      });
-      if (trusted?.ok && await confirmLeChatSend(null, 4000, beforeLen)) {
-        console.log('[content-lechat] Trusted Send control confirmed.');
-        return true;
-      }
-      throw new Error(`Le Chat trusted Send was not confirmed: ${trusted?.reason || 'no_send_evidence'}`);
-    } catch (e) {
-      console.warn('[content-lechat] Trusted Send control failed', e);
-      throw e;
-    }
-
     // Strategy 1: Button click first (LeChat default happy path).
     // Le Chat keeps the send button disabled until React registers the
     // composer input, so wait for it to become enabled (re-nudging input
@@ -1012,7 +1020,22 @@
       console.warn('[content-lechat] Button click send failed', e);
     }
 
-    // Strategy 2: Enter key.
+    // Strategy 2: submit the composer's own form. This stays inside the page
+    // and does not attach Chrome's debugger.
+    try {
+      const form = composer.closest?.('form');
+      if (form?.requestSubmit) {
+        form.requestSubmit();
+        if (await confirmLeChatSend(null, 3000)) {
+          console.log('[content-lechat] Form submit confirmed.');
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn('[content-lechat] Form submit failed', e);
+    }
+
+    // Strategy 3: Enter key.
     try {
       const beforeLen = ((composer.value || composer.textContent || '').trim()).length;
       try { composer.focus?.({ preventScroll: true }); } catch (_) {}
@@ -1025,7 +1048,7 @@
       console.warn('[content-lechat] Enter key send failed', e);
     }
 
-    // Strategy 3: Ctrl+Enter fallback.
+    // Strategy 4: Ctrl+Enter fallback.
     try {
       const beforeLen = ((composer.value || composer.textContent || '').trim()).length;
       dispatchEnter({ ctrlKey: true });
@@ -1447,7 +1470,7 @@ const hydrateAttachments = (raw = []) =>
         if (!prepared.ok) {
           throw { type: 'prompt_injection_failed', message: `Le Chat prompt preparation failed: ${prepared.reason}` };
         }
-        
+
         await sleep(100);
         const validationText = (composer.value ?? composer.textContent ?? '').trim();
         if (!validationText.length) {

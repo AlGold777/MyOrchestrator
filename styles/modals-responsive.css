@@ -837,6 +837,31 @@ body.pro-features-hidden .comparison-section {
 .prompt-container.prompt-sandwich.debate-composer:not(.has-debate-feed) .debate-model-cards {
     display: none;
 }
+.debate-composer-clear-btn {
+    display: none;
+    width: 28px;
+    height: 28px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: #64748b;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: color .12s, background .12s, transform .08s;
+}
+.debate-composer-clear-btn:hover {
+    color: #1f2937;
+    background: rgba(0, 0, 0, 0.05);
+}
+.debate-composer-clear-btn:active {
+    transform: scale(.96);
+}
+.prompt-container.prompt-sandwich.debate-composer:not(.has-debate-feed) .debate-composer-clear-btn {
+    display: inline-flex;
+}
 /* Закрытая лента: при авто-росте поля модератора контейнер расширяется вместе
    с textarea (как .prompt-container на главной), а не остаётся фиксированным на
    122px — иначе текст вылезает за рамку. Нижняя граница 122px держит дефолт. */
@@ -1759,15 +1784,6 @@ body.pro-features-hidden .comparison-section {
 .debate-model-card-meta .ib:active {
     transform: scale(0.96);
 }
-.debate-card-branch i {
-    display: none;
-}
-.debate-card-branch::before {
-    content: "⎇";
-    font-size: 14px !important;
-    line-height: 1;
-    color: inherit;
-}
 .debate-fav {
     width: 26px;
     height: 26px;
@@ -1883,12 +1899,12 @@ body.pro-features-hidden .comparison-section {
     overflow: visible;
 }
 .debate-model-card.is-wide-expanded {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: min(var(--center-max-width), calc(100vw - 32px));
-    max-width: var(--center-max-width);
+    position: fixed !important;
+    inset: 16px;
+    transform: none !important;
+    width: auto !important;
+    max-width: none !important;
+    height: calc(100vh - 32px);
     max-height: calc(100vh - 32px);
     overflow: hidden;
     z-index: 70;

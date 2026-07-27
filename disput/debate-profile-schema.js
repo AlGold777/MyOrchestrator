@@ -15,7 +15,7 @@
     Object.values(value).forEach(freeze); return Object.freeze(value);
   };
   const base = (input) => freeze({
-    schemaVersion: VERSION, engineRange: '^1', promptPack: { id: 'disput-core', version: '3.0.0' },
+    schemaVersion: VERSION, engineRange: '^1', promptPack: { id: 'disput-core', version: '3.1.0' },
     version: '1.0.0', status: 'validated', taskTypes: ['general'],
     roles: ['participant', 'critic', 'verifier', 'synthesizer', 'auditor', 'human'],
     stages: ['positions', 'critique', 'response', 'verification', 'synthesis', 'synthesis_audit'],
@@ -42,7 +42,7 @@
     return Object.freeze({ ok: errors.length === 0, errors: Object.freeze(errors) });
   }
   function migrate(profile = {}) {
-    return freeze({ ...profile, schemaVersion: VERSION, promptPack: { id: 'disput-core', version: '3.0.0' }, policies: { ...base({}).policies, ...(profile.policies || {}) } });
+    return freeze({ ...profile, schemaVersion: VERSION, promptPack: { id: 'disput-core', version: '3.1.0' }, policies: { ...base({}).policies, ...(profile.policies || {}) } });
   }
   function compile(profile, input = {}) {
     const verdict = validate(profile); if (!verdict.ok) throw new Error(`Invalid Debate profile: ${verdict.errors.join(', ')}`);

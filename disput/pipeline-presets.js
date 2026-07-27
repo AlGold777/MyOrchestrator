@@ -37,6 +37,31 @@
 
   const PRESET_BY_ID = Object.freeze(Object.fromEntries(PIPELINE_PRESETS.map((preset) => [preset.id, preset])));
   function getPipelinePreset(presetId) { return PRESET_BY_ID[presetId] || PRESET_BY_ID[DEFAULT_PRESET_ID]; }
+  function resolveFinalizationPolicy(value) {
+    const policy = String(value || 'after_required_goals');
+    if (policy === 'after_audited_synthesis') {
+      return Object.freeze({
+        mode: 'after_synthesis',
+        synthesis: 'required',
+        audit: 'required',
+        allowContinueAfterSynthesis: false
+      });
+    }
+    if (policy === 'readiness_or_moderator') {
+      return Object.freeze({
+        mode: 'after_required_goals',
+        synthesis: 'optional',
+        audit: 'optional',
+        allowContinueAfterSynthesis: true
+      });
+    }
+    return Object.freeze({
+      mode: 'after_required_goals',
+      synthesis: 'optional',
+      audit: 'optional',
+      allowContinueAfterSynthesis: true
+    });
+  }
   const isPresetEnabled = (presetOrId) => getPipelinePreset(typeof presetOrId === 'string' ? presetOrId : presetOrId?.id).status === 'enabled';
   const isOpenEndedPreset = () => false;
   const isLongPreset = (presetOrId) => getPipelinePreset(typeof presetOrId === 'string' ? presetOrId : presetOrId?.id).reasoningBudget.class === 'research';
@@ -54,6 +79,7 @@
     return Object.freeze({
       presetId: preset.id, profileId: preset.profileId, duration: preset.duration,
       terminationOwner: preset.terminationOwner, finalizationPolicy: preset.finalizationPolicy,
+      finalization: resolveFinalizationPolicy(preset.finalizationPolicy),
       contextPolicy: preset.contextPolicy, anonymizeParticipants: preset.anonymizeParticipants,
       checkpointPolicy: preset.checkpointPolicy, reasoningBudget: Object.freeze({ ...preset.reasoningBudget }),
       resourceBudget: Object.freeze({ limit: limits.maxTotalStages }), safetyPolicy: preset.safetyPolicy,
@@ -63,7 +89,7 @@
 
   const api = Object.freeze({
     PIPELINE_PRESETS, BUILTIN_PIPELINE_DEFINITIONS, REASONING_BUDGETS, DEFAULT_PRESET_ID,
-    normalizePipelinePreset, resolveRuntimeRoundLimits, getPipelinePreset,
+    normalizePipelinePreset, resolveRuntimeRoundLimits, resolveFinalizationPolicy, getPipelinePreset,
     isLongPreset, isOpenEndedPreset, isPresetEnabled
   });
   root.PipelinePresets = api;

@@ -46,10 +46,38 @@ function makeOrchestrator(options = {}) {
   const executor = StageExecutor.createStageExecutor({
     adapters,
     acceptResponse: (text) => ({ ok: Boolean(String(text || '').trim()), reason: 'empty' }),
-    proposeStateDelta: options.proposeStateDelta === null ? () => null : (({ stage, participant }) => ({ stageId: stage.stageInstanceId, by: participant.participantId })),
+    extractArtifacts: ({ stage, participant, text }) => [{
+      id: `artifact-${stage.stageInstanceId}-${participant.participantId}`,
+      type: ({
+        position: 'claim', verification: 'evidence', evidence_review: 'evidence',
+        response: 'revision', synthesis: 'synthesis_conclusion', audit: 'audit',
+        human_judgment: 'human_decision'
+      }[stage.purpose] || 'finding'),
+      status: stage.purpose === 'audit' ? 'verified' : 'recorded',
+      targetId: stage.inputArtifactIds?.[0] || '',
+      text
+    }],
+    proposeStateDelta: options.proposeStateDelta === null
+      ? () => null
+      : (typeof options.proposeStateDelta === 'function'
+        ? options.proposeStateDelta
+        : (({ stage, participant, artifacts }) => ({
+          stageId: stage.stageInstanceId,
+          by: participant.participantId,
+          goalIds: stage.goalIds,
+          artifacts
+        }))),
     retryPolicy: { maxAttempts: 1, delayMs: 0 },
     emit: () => {}
   });
+  const commitStateDelta = options.commitStateDelta === undefined
+    ? ({ state, delta }) => ({
+      applied: true,
+      changed: true,
+      appliedArtifactIds: (delta.artifacts || []).map((artifact) => artifact.id),
+      stateMap: state.stateMap
+    })
+    : options.commitStateDelta;
   const orchestrator = Orchestrator.createOrchestrator({
     planner: Planner.createPlanner(),
     executor,
@@ -58,6 +86,10 @@ function makeOrchestrator(options = {}) {
     ownerId: options.ownerId,
     now: options.now,
     leaseTtlMs: options.leaseTtlMs,
+    leaseHeartbeatMs: options.leaseHeartbeatMs,
+    setInterval: options.setInterval,
+    clearInterval: options.clearInterval,
+    commitStateDelta,
     AbortController,
     exposeInternals: true
   });
@@ -158,6 +190,70 @@ describe('Orchestrator — run lifecycle', () => {
     expect(state.openGoals.find((g) => g.goalId === 'g1').status).toBe('open');
   });
 
+  test('missing legacy commit port fails closed and emits a degradation diagnostic', async () => {
+    const { orchestrator } = makeOrchestrator({ commitStateDelta: null });
+    await orchestrator.startRun({ debateCase: makeCase(), maxSteps: 1 });
+    const state = orchestrator.getState();
+    expect(state.caseVersion).toBe(1);
+    expect(state.openGoals.find((goal) => goal.goalId === 'g1').status).toBe('open');
+    expect(state.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'SEMANTIC_COMMIT_DEGRADED', payload: expect.objectContaining({ reason: 'commit_port_missing' }) }),
+      expect.objectContaining({ type: 'STATE_DELTA_REJECTED', payload: expect.objectContaining({ reason: 'commit_port_missing' }) })
+    ]));
+    expect(types(state)).not.toContain('STATE_DELTA_APPLIED');
+  });
+
+  test('unsupported goal criteria remain open instead of resolving on stage completion', async () => {
+    const { orchestrator } = makeOrchestrator();
+    await orchestrator.startRun({
+      debateCase: makeCase({
+        openGoals: [{
+          goalId: 'custom-goal', type: 'custom_goal', targetArtifactIds: [], status: 'open',
+          priority: 50, createdFromEventId: 'e0', createdAt: '2026-07-22T00:00:00.000Z'
+        }]
+      }),
+      maxSteps: 1
+    });
+    const event = orchestrator.getState().events.find((item) => item.type === 'GOAL_EVALUATED');
+    expect(event.payload).toMatchObject({ goalId: 'custom-goal', outcome: 'progressed', status: 'open' });
+    expect(orchestrator.getState().openGoals.find((goal) => goal.goalId === 'custom-goal').status).toBe('open');
+  });
+
+  test('applied without an explicit changed boolean is rejected as a commit contract violation', async () => {
+    const { orchestrator } = makeOrchestrator({
+      commitStateDelta: ({ state }) => ({ applied: true, stateMap: state.stateMap })
+    });
+    await orchestrator.startRun({ debateCase: makeCase(), maxSteps: 1 });
+    const state = orchestrator.getState();
+    expect(state.caseVersion).toBe(1);
+    expect(state.openGoals.find((goal) => goal.goalId === 'g1').status).toBe('open');
+    expect(state.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'SEMANTIC_COMMIT_CONTRACT_VIOLATION',
+        payload: expect.objectContaining({ reason: 'changed_boolean_required' })
+      }),
+      expect.objectContaining({
+        type: 'STATE_DELTA_REJECTED',
+        payload: expect.objectContaining({ reason: 'commit_change_undetermined' })
+      })
+    ]));
+  });
+
+  test('a changed but criterion-incompatible artifact does not resolve a goal', async () => {
+    const { orchestrator } = makeOrchestrator({
+      proposeStateDelta: ({ stage, participant }) => ({
+        deltaId: `delta-${participant.participantId}`,
+        goalIds: stage.goalIds,
+        artifacts: [{ id: 'unrelated', type: 'finding', status: 'recorded' }]
+      })
+    });
+    await orchestrator.startRun({ debateCase: makeCase(), maxSteps: 1 });
+    const state = orchestrator.getState();
+    expect(state.openGoals.find((goal) => goal.goalId === 'g1').status).toBe('open');
+    expect(state.events.find((item) => item.type === 'GOAL_EVALUATED').payload)
+      .toMatchObject({ goalId: 'g1', outcome: 'progressed', reason: 'acceptance_criterion_not_met' });
+  });
+
   test('terminal participant failure makes the participant unavailable for later planning', async () => {
     const orchestrator = makeTerminalAwareOrchestrator();
     await orchestrator.startRun({ debateCase: makeCase(), maxSteps: 1 });
@@ -184,7 +280,7 @@ describe('Orchestrator — run lifecycle', () => {
     }) };
     const commitStateDelta = ({ state, delta }) => {
       state.debateCase.artifacts = [...(state.debateCase.artifacts || []), ...delta.artifacts];
-      return { applied: true, stateMap: { artifactIds: state.debateCase.artifacts.map((artifact) => artifact.id) } };
+      return { applied: true, changed: true, stateMap: { artifactIds: state.debateCase.artifacts.map((artifact) => artifact.id) } };
     };
     const orchestrator = Orchestrator.createOrchestrator({
       planner: Planner.createPlanner(), executor, revisionStore: revisions, persistence: makePersistence(),
@@ -193,7 +289,7 @@ describe('Orchestrator — run lifecycle', () => {
     await orchestrator.startRun({ debateCase: makeCase({ artifacts: [] }), maxSteps: 1 });
     const state = orchestrator.getState();
     expect(state.caseVersion).toBe(2);
-    expect(state.stateMapVersion).toBe(2);
+    expect(state).not.toHaveProperty('stateMapVersion');
     expect(state.stateMap.artifactIds).toEqual(['a-alpha', 'a-beta']);
     expect(state.events.filter((event) => event.type === 'STATE_DELTA_APPLIED')).toHaveLength(2);
     expect(state.events.filter((event) => event.type === 'STATE_DELTA_STALE')).toHaveLength(0);
@@ -240,6 +336,35 @@ describe('Orchestrator — ownership (§6)', () => {
     expect(first.orchestrator.getState().events.map((event) => event.type)).toContain('LEASE_LOST');
     expect(first.orchestrator.getState().events.map((event) => event.type)).not.toContain('STATE_DELTA_APPLIED');
   });
+
+  test('renews the lease while waiting for a slow model response', async () => {
+    const persistence = makePersistence();
+    let clock = 1000;
+    let heartbeat = null;
+    const { orchestrator } = makeOrchestrator({
+      persistence,
+      ownerId: 'owner-slow-model',
+      now: () => clock,
+      leaseTtlMs: 30,
+      leaseHeartbeatMs: 10,
+      setInterval: (callback) => { heartbeat = callback; return { unref() {} }; },
+      clearInterval: () => { heartbeat = null; },
+      adapterBehavior: async ({ participant }) => {
+        clock += 20;
+        heartbeat();
+        clock += 20;
+        heartbeat();
+        return { status: 'received', text: `slow answer:${participant.participantId}` };
+      }
+    });
+
+    const result = await orchestrator.startRun({ debateCase: makeCase(), maxSteps: 1 });
+
+    expect(result.ok).toBe(true);
+    expect(orchestrator.getState().stages[0].status).toBe('completed');
+    expect(orchestrator.getState().lifecycle).toBe('RUNNING');
+    expect(persistence.store.lease.expiresAt).toBeGreaterThan(clock);
+  });
 });
 
 describe('Orchestrator — pause/continue (§13–§14)', () => {
@@ -267,11 +392,12 @@ describe('Orchestrator — pause/continue (§13–§14)', () => {
   });
 
   test('continue with stale expectedCaseVersion is rejected', async () => {
-    const { orchestrator } = makeOrchestrator();
+    const { orchestrator, persistence } = makeOrchestrator();
     await orchestrator.startRun({ debateCase: makeCase(), deferExecution: true });
     await orchestrator.requestPause({});
     const result = await orchestrator.requestContinue({ expectedCaseVersion: 999 });
     expect(result.code).toBe('CASE_VERSION_STALE');
+    expect(persistence.store.lease).toBeNull();
   });
 });
 
@@ -331,7 +457,13 @@ describe('Orchestrator — human participant (Slice F)', () => {
     expect(awaiting).toBeTruthy();
     const submitted = await orchestrator.submitParticipantResponse({
       stageInstanceId: awaiting.stageInstanceId, participantId: 'human:owner',
-      text: 'my answer', stateDelta: { kind: 'answer' }, deferExecution: true
+      text: 'my answer',
+      stateDelta: {
+        kind: 'answer',
+        goalIds: ['g-h'],
+        artifacts: [{ id: 'human-answer', type: 'revision', status: 'recorded', targetId: 'q1' }]
+      },
+      deferExecution: true
     });
     expect(submitted.ok).toBe(true);
     const after = orchestrator.getState();
@@ -439,6 +571,61 @@ describe('Orchestrator — plan revisions (§17)', () => {
     }, { deferExecution: true });
     expect(result.ok).toBe(false);
     expect(result.code).toBe('REVISION_STALE');
+  });
+
+  test.each([
+    ['FINISH', undefined],
+    ['CANCEL', 'CANCEL'],
+    ['IGNORE_RESULT', 'IGNORE_RESULT'],
+    ['CONVERT_TO_AUDIT', 'CONVERT_TO_AUDIT'],
+    ['RESTART', 'RESTART']
+  ])('running-stage policy %s has an explicit runtime disposition', async (policy, disposition) => {
+    const { orchestrator, revisions } = makeOrchestrator();
+    await orchestrator.startRun({
+      debateCase: makeCase(),
+      plannedStages: [{
+        plannedStageId: 'p-running',
+        purpose: 'verification',
+        participantIds: ['alpha'],
+        goalIds: ['g1']
+      }],
+      deferExecution: true
+    });
+    const revision = revisions.getActive();
+    orchestrator._internals.state.stages.push({
+      stageInstanceId: 'stage-running',
+      plannedStageId: 'p-running',
+      proposedStageId: 'proposed-running',
+      runId: 'run-1',
+      planRevisionId: revision.revisionId,
+      status: 'running',
+      purpose: 'verification',
+      participants: [{ participantId: 'alpha', type: 'llm' }],
+      goalIds: ['g1'],
+      inputArtifactIds: ['claim:1'],
+      dispatchMode: 'single',
+      completionMode: 'all'
+    });
+    const result = await orchestrator.activatePlanRevision({
+      commandId: `cmd-policy-${policy}`,
+      expectedRevisionId: revision.revisionId,
+      commandType: 'CHANGE_PRIORITY',
+      payload: { plannedStageId: 'p-running', priority: 80, runningStagePolicy: policy },
+      createdBy: 'human',
+      timestamp: '2026-07-25T00:00:00.000Z'
+    }, { deferExecution: true });
+    expect(result.ok).toBe(true);
+    const running = orchestrator._internals.state.stages.find((stage) => stage.stageInstanceId === 'stage-running');
+    expect(running.resultDisposition).toBe(disposition);
+    if (policy === 'RESTART') {
+      expect(orchestrator._internals.state.stages).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          stageInstanceId: expect.stringContaining('stage-running:restart:'),
+          status: 'pending',
+          planRevisionId: result.revision.revisionId
+        })
+      ]));
+    }
   });
 });
 

@@ -1,5 +1,419 @@
 # CHANGELOG — Project
 
+### 2026-07-25 — Verified answer finalization, version 2.81.77
+
+- Стадии постановки команды, отправки, генерации, извлечения, проверки и применения ответа разделены в состоянии каждой модели; для них сохраняются временная шкала и безопасный журнал ревизий без полного текста ответа.
+- Финализация веб-ответа стала двухфазной: стабильность проверяется одновременно по выбранному тексту, набору узлов, корню сообщения, структурному покрытию и отсутствию активного индикатора генерации. Непроверенный кандидат отображается оранжевым, а не зелёным.
+- Все проверки привязаны к идентификатору запуска, отправки и поколению генерации. Автоматическое позднее обновление разрешено только для проверенного продолжения того же ответа; ручное восстановление сохраняет отдельные объяснимые исходы.
+- Проверки после успешного ответа продублированы сохраняемыми будильниками Manifest V3, экспорт предупреждает о незавершённом запуске и перечисляет текущие стадии моделей.
+- Добавлены структурные фикстуры, модульные тесты и команда `npm run test:answer-matrix`; сценарии реальных провайдеров описаны в `docs/answer-completeness-validation.md`.
+
+### 2026-07-25 — Canonical timing settings document, version 2.81.75
+
+- `docs/timings-settings.md` стал единственным актуальным timing-документом:
+  в нём объединены архитектурный индекс владельцев, профильная лестница
+  Standard/Long, причинная цепочка ожиданий и полный перечень runtime timing
+  settings.
+- Датированный Jul25-документ преобразован в канонический evergreen-файл;
+  Jul24 оставлен как исторический snapshot.
+- Устаревший и частично противоречивый `docs/timing-map.md` удалён. Актуальные
+  ссылки в README и архитектуре вкладок переведены на
+  `docs/timings-settings.md`.
+- При последующих изменениях timeout/interval/delay/retry/debounce/TTL/budget
+  обновляется только канонический документ; новые snapshots создаются лишь по
+  требованию конкретной задачи.
+
+### 2026-07-25 — Disput telemetry content minimization, version 2.81.74
+
+- Disput trace ingress теперь удаляет полные prompt/answer/HTML/text, включая
+  camelCase-поля (`answerText`, `responseHtml`, `compiledPrompt`), вложенный
+  `answerEvidence`, semantic artifact text, StateMap/context snapshots и
+  attachment payloads. Числовые длины, hash/fingerprint и структурные IDs
+  сохраняются.
+- Свободные диагностические `details/message/note` ограничены 240 символами.
+  Старые сохранённые trace events повторно санитизируются при восстановлении,
+  после чего очищенный snapshot сразу перезаписывает `chrome.storage.local`;
+  TraceSchema поднята до версии `5`.
+- План в trace хранится как структурная схема стадий без task/prompt content;
+  `PLAN_COMPILED` больше не дублирует весь plan внутри event payload.
+- Импорт обычной Telemetry в Disput использует whitelist безопасных scalar
+  evidence и не копирует полный `meta`. Информационные legacy-события без
+  специального диагностического значения не добавляются в Disput trace.
+- Производные секции `dispatchAttempts`, `recoveryAttempts`,
+  `stateDivergences` и `artifacts` содержат только ссылки/структурные summaries,
+  а не повторные полные event objects.
+- `Only problems` фильтрует все event-derived секции по единому набору
+  evidence IDs; semantic artifacts из проблемного экспорта исключаются.
+- Перед скачиванием JSON дополнительно применяется общий deep secret redactor.
+
+### 2026-07-25 — Generation-state telemetry and payload compaction, version 2.81.73
+
+- Run Summary теперь отличает активную генерацию с уже видимым частичным
+  ответом (`generating_partial_answer`) от простого отсутствия terminal outcome
+  и сохраняет последнюю/максимальную наблюдавшуюся длину ответа.
+- `TAB_CLOSED` восстанавливает имя модели через `jobState`, если mapping вкладки
+  уже потерян, и записывает состояние закрытия: во время генерации, до terminal,
+  после terminal либо вместе с окном. Источник закрытия честно маркируется
+  `user_or_external`, поскольку Chrome API не различает эти причины.
+- Lifecycle Qwen добавляет безопасные признаки reasoning/final-answer DOM phase.
+  Если generic completion сработал на reasoning-only снимке, в Only problems
+  появляется `LIFECYCLE_COMPLETION_PHASE_SUSPECT`; решение runtime этим
+  изменением не блокируется.
+- Run Summary выявляет противоречие `SUCCESS` с `doneReason=error`.
+- `MODEL_FINAL` и `STATE_PROJECTION_COMMITTED` больше не экспортируют полный
+  текст/HTML ответа: остаются длина, hash, источник и флаги evidence.
+- Нулевой результат отдельного резервного selector больше не считается
+  проблемой, если другой selector того же target успешно сработал в том же
+  окне агрегации. Это уменьшает шум и размер экспорта Only problems.
+
+### 2026-07-25 — Shared Only problems context filter, version 2.81.72
+
+- В toolbar обычной вкладки Telemetry восстановлен включённый по умолчанию
+  checkbox `Only problems`.
+  Ранее JS-фильтр и поддержка JSON/MD существовали, но checkbox отсутствовал в
+  HTML, поэтому условие никогда не включалось и экспорт оставался полным.
+- Экранная лента, JSON и MD обычной Telemetry теперь используют один режим:
+  проблемная запись плюс до 10 предшествующих событий с тем же
+  `dispatchId`/run/model-tab context. MD в этом режиме аналогично сокращает
+  секции диагностических логов.
+- Disput raw trace теперь показывает тот же причинный контекст, а не только
+  строки `warning/high/critical`. Fallback-массив `rows` фильтруется по
+  собственным индексам и stage context, а не по несовместимым индексам
+  канонического массива `events`.
+- Классификация проблем и выбор предшествующего контекста вынесены в общий
+  `shared/problem-context-filter.js`, используемый обеими вкладками и
+  экспортами.
+
+### 2026-07-25 — Standard/Long timing split and atomic lifecycle answer, version 2.81.71
+
+- Бывший профиль Long стал профилем **Standard**: пассивное ожидание генерации
+  `450s`, автоматические переключения фокуса разрешены только первые `60s`.
+- Новый профиль **Long** ждёт генерацию пассивно до `900s`, но прекращает новые
+  автоматические переключения вкладок через `90s`. Пассивные extraction-ping
+  продолжаются без захвата фокуса.
+- Content pipeline, background generation deadline, runtime hard stop, Round 4,
+  adaptive probes и baseline guard приведены к единой лестнице `450s/900s`.
+- Lifecycle-детектор передаёт в `LLM_RESPONSE_READY` тот же текстовый снимок,
+  на котором вынесено решение `COMPLETE`. Background проверяет его существующими
+  prompt-echo/baseline/freshness guards и при валидности финализирует без
+  повторного DOM-поиска. Это устраняет расхождение, при котором Qwen lifecycle
+  видел полный ответ, а повторный extractor возвращал короткий UI-фрагмент.
+- Восстановление прежней вкладки теперь помечается как программный фокус и не
+  расходует пользовательскую visit-квоту.
+
+### 2026-07-25 — Automation deadline owns timeout finalization, version 2.81.70
+
+- `generation` и `collect` budgets больше не являются только телеметрией:
+  истечение deadline переводит модель в terminal `PARTIAL`, если текст уже
+  получен, или в `STREAM_TIMEOUT`, если текста нет.
+- Deadline останавливает human-presence, automation visits, adaptive collection,
+  автоматические ping/recovery и runtime hard stop, но не посылает Stop на
+  страницу провайдера. Генерация модели может продолжиться без переключения
+  пользовательского фокуса.
+- Двойной клик по status indicator сохраняет существующий manual latest recovery
+  и может заменить timeout-результат полным `SUCCESS`.
+- Lifecycle timeout теперь отправляет коррелированный
+  `AUTOMATION_DEADLINE_SIGNAL` в background вместо локального необработанного
+  возврата. MV3 rehydration восстанавливает deadline по абсолютному timestamp,
+  не доверяя сохранённому id таймера.
+- Generation deadline не перезапускается повторным dispatch/retry и остаётся
+  абсолютной границей автоматического сопровождения модели.
+- Generation deadline учитывает short/long профиль (`180s/450s`); локальный
+  lifecycle timeout не может преждевременно завершить long-generation run.
+
+### 2026-07-25 — Purge legacy built-in preset overrides, version 2.81.69
+
+- При загрузке pipeline удаляются ранее сохранённые DraftPlan и overrides для
+  встроенных preset; они больше не остаются даже как неиспользуемое состояние.
+
+### 2026-07-25 — Synthesis selector unlock after model selection, version 2.81.68
+
+- После изменения header model selection Disput повторно синхронизирует
+  synthesis stage; select разблокируется сразу после выбора первой модели.
+
+### 2026-07-25 — Empty synthesis reset and non-persistent built-in pipelines, version 2.81.67
+
+- Новый пустой pipeline очищает DraftPlan и pending synthesizer до None;
+  после выбора модели select синтезатора разблокируется.
+- Изменения встроенных preset pipeline больше не записываются в overrides или
+  persisted DraftPlan; при повторном выборе применяются канонические значения.
+
+### 2026-07-25 — Pipeline header display limit, version 2.81.66
+
+- Ограничение заголовка pipeline приведено к 18 символам во всех слоях:
+  CSS-ширина `18ch` и JS-обрезка с учётом символа ellipsis.
+- Полное имя сохраняется в `data-full-name` и tooltip, поэтому ограничение
+  влияет только на отображение.
+
+### 2026-07-25 — Empty pipeline uses default round count, version 2.81.65
+
+- Новый пустой pipeline больше не наследует round limit последнего активного
+  pipeline.
+- При создании применяется тот же дефолт `3`, что и при загрузке страницы;
+  selector и canvas синхронно переходят к R1–R3.
+
+### 2026-07-25 — Empty pipeline round synchronization, version 2.81.64
+
+- Новый пустой pipeline после очистки canvas повторно синхронизирует round
+  blocks с текущим значением настройки количества раундов.
+- При настройке `3` canvas сразу показывает R1, R2 и R3 с неактивными
+  placeholder-блоками.
+
+### 2026-07-25 — Remove Output stage from pipeline canvas, version 2.81.63
+
+- Блок Output и его connector удалены из canvas на главной странице и в
+  Disput.
+- Удалены output-stack runtime, checkbox-состояние в preset/config, terminal
+  auto-actions и связанные стили; экспорт ленты остаётся доступен через
+  существующие явные кнопки экспорта.
+- Старое поле `outputStack` в сохранённых pipeline безопасно игнорируется и
+  исчезает при следующем сохранении конфигурации.
+- Проверка доступности final synthesizer вне pipeline-controller использует
+  общий `getSelectedLLMs()`, без обращения к локальному helper другого scope.
+
+### 2026-07-25 — Synthesis activation and connector lifecycle, version 2.81.62
+
+- Активность pipeline определяется через общий header model selection, поэтому
+  final synthesizer снова доступен после выбора модели.
+- Для synthesis-stack добавлен отдельный connector mode: стрелки до и после
+  синтезатора активны только при выбранной модели и назначенном synthesizer.
+- Неактивный terminal path больше не получает частичный `flow-anim`.
+
+### 2026-07-25 — Intermediate synthesis state and inactive terminal selector, version 2.81.61
+
+- Активный `.pipeline-stage-insert.has-intermediate-synthesis` теперь визуально
+  совпадает с hover/focus-состоянием кнопки.
+- При отсутствии активных моделей select финального синтезатора заблокирован;
+  программное назначение также отклоняется.
+
+### 2026-07-25 — Inactive terminal blocks and fixed pipeline title width, version 2.81.60
+
+- После reload Synthesis и Output получают inactive-состояние при отсутствии
+  активных model blocks.
+- Заголовок pipeline ограничен 18 символами с ellipsis; ширина title-group
+  больше не двигает `.panel-header-actions`.
+
+### 2026-07-25 — Unified pipeline list, version 2.81.59
+
+- Пользовательские pipeline теперь рендерятся внутри `#pipelineItems` сразу
+  после preset-ов.
+- Удалён отдельный `#customerPipelineItems` и divider между списками.
+
+### 2026-07-25 — Empty pipeline action without builder modal, version 2.81.58
+
+- `pipeline-add-btn` теперь сразу вызывает состояние `Unsaved Pipeline` с
+  неактивными placeholder-блоками.
+- Удалены builder modal, его обработчик и CSS; сохранение выполняется через
+  существующий `pipeline-save-btn`.
+
+### 2026-07-25 — Pipeline actions moved to panel header, version 2.81.57
+
+- `.pipeline-list-header-actions` перенесён в `.pipeline-panel .panel-header`;
+  кнопки остаются выровненными справа.
+
+### 2026-07-25 — Remove forced Disput Auto reset, version 2.81.56
+
+- Удалён безусловный startup-сброс `autoCheckbox.checked = false`.
+- Auto восстанавливается первым независимым шагом загрузки, поэтому сбой
+  prompt/modifier hydration больше не оставляет checkbox выключенным.
+
+### 2026-07-25 — Disput Auto restore lifecycle fix, version 2.81.55
+
+- Восстановление Auto теперь проходит через штатный `change`-lifecycle policy,
+  а видимый checkbox сохраняется напрямую; это устраняет сброс состояния после
+  загрузки Disput.
+
+### 2026-07-25 — Disput Auto mode persistence, version 2.81.54
+
+- Состояние чекбокса Auto в Disput сохраняется в local storage и
+  восстанавливается после перезагрузки страницы.
+
+### 2026-07-25 — Visible inactive pipeline placeholders after reload, version 2.81.53
+
+- При отсутствии выбранных моделей после reload pipeline сохраняет видимые
+  неактивные placeholder-блоки каждого раунда.
+- Версии `manifest.json`, `package.json` и `package-lock.json` синхронизированы
+  на `2.81.53`.
+
+### 2026-07-24 — Disput runtime/UI corrections documented, version 2.81.52
+
+- Лента Disput стала append-only по model request: ответы следующих раундов
+  создают новые карточки и не заменяют закрытые ответы той же модели.
+- Prompt Pack обновлён до 3.1: participant и synthesis получают конечный лимит
+  слов и указание держать фокус на ясной концепции и ключевых идеях. Лимит
+  продублирован на transport boundary и проверяется response acceptance;
+  вариант `∞` удалён.
+- Double-click по заголовку карточки снова открывает viewport overlay; иконка
+  Branch удалена; terminal response гарантированно убирает `[Model] printing`.
+- Исправлено выравнивание `.top-control-bar`: `.top-bar-right` остаётся в одной
+  строке с кнопками моделей на главной и Disput; на узком экране прокручивается
+  только полоса моделей.
+- `New Pages` создаёт страницы моделей только на первом pipeline-раунде;
+  следующие раунды переиспользуют те же страницы.
+- Intermediate synthesis включается двойным кликом по `.pipeline-stage-insert`;
+  меню, Canvas-блок выбора и индивидуальный participant удалены, используется
+  финальный synthesizer.
+- Approval checkbox действует только в Manual; Auto блокирует и скрывает control.
+- Preset по умолчанию не активируется; ручной moderator dispatch работает для
+  All models или одной модели.
+- При reload очищаются model selection, session snapshots, transcript и UI
+  selectors в основном и Disput-контуре.
+- В закрытом moderator composer добавлена корзина справа от `Pro`: она очищает
+  textarea и связанные prompt-состояния. При browser reload дополнительно
+  очищается persisted/runtime telemetry и локальное окно диагностики.
+- Если после reload модели не выбраны, pipeline теперь сохраняет видимые
+  неактивные placeholder-блоки для каждого раунда, а не показывает только
+  синтезатор. Эти блоки не участвуют в dispatch.
+- Добавлены debounce/rAF и устранён Canvas DOM churn; lease heartbeat защищён
+  от ложной остановки между раундами.
+- Нормативный контракт: `docs/disput/TZ-runtime-ui-corrections-v1.0.md`.
+- Полный Jest: **153 suites, 915 tests — зелёные**.
+
+### 2026-07-24 — Runtime perf: закрытая StateMap больше не строит скрытый DOM, version 2.81.52
+
+- `DisputStateMapView` сохраняет только последнее входное состояние, пока карта
+  закрыта. Проекция, HTML почти на мегабайт и тысячи DOM-узлов создаются только
+  при фактическом открытии карты.
+- Главная/Pipeline-страница больше не загружает последнее сохранённое DebateCase
+  автоматически при каждом старте. Сохранённые дела остаются доступны в
+  селекторе карты.
+- Синтетический regression benchmark (1500 artifacts): закрытая карта до фикса —
+  10 568 DOM-узлов, ~70,7 МБ heap, 315 мс; после — 30 узлов, ~1 МБ, 8 мс.
+- `results.js` дополнительно коалесцирует `applyDebateSessionFilter` в один
+  проход за animation frame.
+- Ранние попытки менять `base-adapter.js` и `content-utils.js` откачены: эти
+  content-scripts идентичны быстрой LLM_Sol и не объясняют регрессию.
+- Полный Jest: 153 suites, 908 tests — зелёные.
+
+### 2026-07-24 — Semantic stabilization completion, version 2.81.51
+
+- `startRun`/recovery теперь проецируют canonical case до первого Planner tick.
+- Удалён независимый `stateMapVersion`; stale fencing использует
+  `{sourceCaseVersion, projectorVersion}`.
+- Добавлен canonical `ADD_CONSTRAINT`, prospective batch validation,
+  единственный активный `synthesis_conclusion` и явные supersede/merge rules.
+- Legacy artifact arrays мигрируют в map и переживают повторный reload.
+- Phase 0 расширена до E-01…E-09.
+- OrchestratorPersistence v2 хранит event/snapshot/lease в localStorage и
+  использует Web Locks + `leaseRevision` для cross-context fencing.
+- Browser E2E: `pause → reload → continue`, одинаковые artifacts/StateMap,
+  `dispatchCount = 1`; второй активный владелец отклонён с `LEASE_HELD`.
+- Полный Jest: 150 suites, 879 tests, 0 snapshots — зелёные.
+- Оставшиеся вне комплекса работы перечислены в `OPEN-ITEMS-v3.0.md`.
+
+### 2026-07-24 — Semantic follow-up audit, version 2.81.50
+
+Повторно подтверждено закрытие SEM-A01/A02/A03/A04/A06 и actionable-части
+SEM-A07. В OPEN-ITEMS добавлены два новых остатка: SEM-A12 — `ADD_CONSTRAINT`
+не попадает в canonical case, SEM-A13 — существующий case не проецируется до
+первого Planner tick. Production-код в этом change set не менялся.
+
+### 2026-07-24 — Canonical semantic-path corrections, version 2.81.49
+
+- Исправлена начальная `caseVersion`: canonical run стартует с persisted cursor
+  `0`, первая delta больше не отклоняется как stale.
+- UI и Orchestrator используют один `DebateCaseStore`; human-action bridge не
+  обращается к удалённой переменной и сохраняет closure/evidence semantics.
+- Multi-artifact delta получает уникальные correlation receipts, выполняется
+  одним batch без partial fallback и синхронно пересобирает StateMap.
+- StateMap повышен до v4; `recorded` contradiction/dissent признаны actionable,
+  Planner выводит `resolve_contradiction` и `examine_dissent`.
+- Добавлен production-shaped regression suite
+  `tests/semantic-layer-canonical-integration.test.js`.
+- Полный Jest: 150 suites, 865 tests, 0 snapshots — зелёные.
+- Открытыми остаются durable cross-context persistence, удаление независимого
+  `stateMapVersion`, final-synthesis lifecycle, legacy array migration и полный
+  browser recovery E2E; статусы зафиксированы в OPEN-ITEMS.
+
+### 2026-07-24 — Semantic implementation audit findings, version 2.81.48
+
+Повторный аудит выявил, что новый canonical production path не покрыт зелёным
+общим Jest и отклоняет первую delta из-за рассинхронизации caseVersion. В
+OPEN-ITEMS добавлены SEM-A01…SEM-A11: wiring единого store, atomic batch,
+projection, durable persistence, human actions, StateMap v4, recovery,
+lifecycle/migration и недостающая Phase 0 evidence suite. Production-код в этом
+change set не исправлялся.
+
+### 2026-07-24 — Explicit remaining-work register, version 2.81.47
+
+В README, PLAN и OPEN-ITEMS добавлен нормативный перечень незавершённых работ:
+cross-context lease fencing, durable recovery, publication cursor, browser E2E
+и migration matrix. Эти пункты явно остаются open/partial и не могут быть
+приняты за закрытые без отдельного evidence change set.
+
+### 2026-07-24 — Semantic layer implementation pass, version 2.81.46
+
+Реализованы базовые фазы модернизации карты состояния: DebateCase schema v3 с
+`caseVersion`, batch/lifecycle operations, correlation receipts и forward-version
+guard; canonical CaseStore commit; отдельный OrchestratorPersistence adapter;
+map-aware projection с actionable collections, author index, context pressure и
+finalArtifactIds; UI human actions маршрутизируются через Orchestrator. Добавлены
+Phase 0 characterization/contract tests. Полный Jest: 148 suites, 861 tests,
+0 snapshots; browser-level cross-context durability proof остаётся открытым.
+
+### 2026-07-24 — Semantic layer plan v1.1: code-review corrections, version 2.81.45
+
+Ревизия комплекта после код-ревью GPT (читал фактический код, не документы).
+Все замечания проверены построчно и подтверждены. Направление (D1–D5, порядок
+фаз) не менялось; устранены несоответствия документов и кода.
+
+- ADR-002 D6 (10 решений): `caseVersion === changes.length` (нач. 0, активация
+  ревизии не инкрементирует); concurrency через существующий Orchestrator lease
+  + fencing-токен `leaseRevision`, не CAS в chrome.storage; проектор map←→array
+  и все competing writers перенесены в Phase 1; `artifactAuthors` →
+  `{artifactId: participantId}`; `rejectedCounts` → TraceStore (нарушал D4);
+  durable `OrchestratorPersistence` — отдельный adapter; ADR-002 supersede
+  разделов `stateMapVersion` Orchestrator Contract; `artifact_revision_stale`
+  как новый код (не `REVISION_STALE`); `revision: 0` согласован; правило
+  `finalArtifactIds` принято сейчас.
+- Новые findings: S-17 (`onLinkRemove` второй writer), S-18 (нет CAS в CaseStore),
+  S-19 (нет `caseVersion` в схеме), S-20 (проектор array-only), S-21
+  (`artifactAuthors` форма), S-22 (нет forward-version guard в `load`).
+- Phase 0 переформатирована в characterization-тесты (зелёные на baseline,
+  переворот ожидания в фазе-фиксе) — устранено внутреннее противоречие v1.0;
+  E-08 без двойного назначения фазы; тесты через публичный путь, не приватные
+  символы; добавлен E-09.
+- Baseline-версия исправлена: `a33b37f` = 2.81.41 (было 2.81.42).
+- Зафиксировано: рабочее дерево содержит незакоммиченные `results.js`/HTML/CSS
+  от предыдущих задач — документационный change set физически не изолирован.
+- Код не изменялся: change set документационный.
+
+### 2026-07-24 — Semantic layer plan: cross-review integration, version 2.81.44
+
+- Сведены ответы GPT/Z.ai/Qwen по плану семантического слоя. Взято проверенное
+  по коду, отвергнута ошибочная верификация V3/V4 Z.ai (объекция резолвится
+  через `isOpen`; Planner не читает `questions`) — оба опровергнуты построчно:
+  `deriveGoals:72` сверяет литерал `'unresolved'`, `:77` читает `map.questions`.
+- Добавлены findings S-14 (late-response discard без delta,
+  `orchestrator:528-536`), S-15 (storage-версия отдельна от schema-версии),
+  S-16 (`findLast` демотирует первый финал без `supersededBy`).
+- Расширен inventory внутренним операционным состоянием Orchestrator
+  (`openGoals`/`stages`/`events`/persistence/snapshot) с целевыми ролями.
+- Пересмотрен D5: владелец словаря статусов — `DebateCaseSchema` (не pipeline);
+  Planner потребляет actionable-коллекции проекции (не литеральные предикаты).
+- Phase 4: явно обосновано, что производные `RunStore`/`TraceStore` закрывают
+  окно W4 без transactional outbox; late-discard подчинён той же rebase-политике.
+- Phase 0: добавлен E-09 (late-response discard).
+- Код не изменялся: change set документационный.
+
+### 2026-07-24 — Semantic layer modernization plan, version 2.81.43
+
+- Добавлен [ADR-002](disput/ADR-002-semantic-layer-ownership.md): канонический
+  владелец артефактов (`DebateCaseStore`), in-place update с revision fencing,
+  реестр как производный индекс, карта на чтении, владелец словаря статусов.
+  Отклонены: event-sourced артефакты, transactional outbox, граф `relations[]`.
+- Добавлен [PLAN-semantic-layer-v1.0](disput/PLAN-semantic-layer-v1.0.md):
+  инвентарь держателей состояния, граница транзакции с failure windows,
+  findings S-01…S-13, карта фаз, матрица версий (два бампа схем), политика
+  миграции.
+- Добавлены ТЗ фаз 0, 1–2, 3–4, 5–6, 7–8 с acceptance criteria и rollback
+  boundary в каждом.
+- Исправлена недостоверная запись evidence matrix: «Atomic same-version
+  parallel delta commit | implemented | `debate-case.js`» — файла не существует,
+  атомарного commit нет; статус изменён на `planned`.
+- Зафиксирован новый P0-R10 в OPEN-ITEMS; P0-R7 связан с findings плана.
+- Код не изменялся: change set документационный.
+
 ### 2026-07-23 — Clean pipeline canvas round labels and insert icons, version 2.81.41
 
 - `R2 Disput` убран из canvas и runtime генераторов; round labels теперь

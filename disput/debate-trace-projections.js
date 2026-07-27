@@ -204,11 +204,39 @@
       groups.get(key).events.push(event);
     });
     return Array.from(groups.values()).map((group) => ({
-      ...group,
+      dispatchId: group.dispatchId,
+      stageAttemptId: group.stageAttemptId,
+      stageId: group.stageId,
+      participantId: group.participantId,
       submitStatus: group.events.some((event) => event.eventType === 'SUBMIT_CONFIRMED') ? 'confirmed' : group.events.some((event) => /SUBMIT_(?:REJECTED|TIMEOUT)/.test(event.eventType)) ? 'failed' : 'unknown',
       terminalStatus: group.events.filter((event) => event.eventType === 'MODEL_TERMINAL_COMMITTED').slice(-1)[0]?.payload?.status || '',
       evidenceEventIds: group.events.map((event) => event.eventId)
     }));
+  }
+
+  function summarizeEventReference(event) {
+    return {
+      eventId: event?.eventId || null,
+      eventType: event?.eventType || '',
+      severity: event?.severity || 'info',
+      sourceTimestamp: event?.sourceTimestamp || null,
+      reasonCode: event?.reasonCode || '',
+      stageId: correlationValue(event, 'stageId') || null,
+      participantIds: payloadModels(event)
+    };
+  }
+
+  function summarizeArtifactEvent(event) {
+    const payload = event?.payload || {};
+    const artifact = payload.artifact && typeof payload.artifact === 'object' ? payload.artifact : payload;
+    return {
+      eventId: event?.eventId || null,
+      stageId: correlationValue(event, 'stageId') || null,
+      artifactId: String(payload.artifactId || artifact.id || ''),
+      artifactType: String(payload.artifactType || artifact.type || ''),
+      status: String(payload.status || artifact.status || ''),
+      participantIds: payloadModels(event)
+    };
   }
 
   function buildReport(trace, options = {}) {
@@ -219,10 +247,10 @@
     const health = classifyHealth(trace, stages, diagnoses);
     const started = events.find((event) => event.eventType === 'RUN_STARTED') || events[0] || null;
     const ended = events.filter((event) => /^RUN_(?:COMPLETED|FAILED|CANCELLED)$/.test(event.eventType)).slice(-1)[0] || events.at(-1) || null;
-    const recoveryAttempts = events.filter((event) => recoveryTypes.has(event.eventType));
+    const recoveryAttempts = events.filter((event) => recoveryTypes.has(event.eventType)).map(summarizeEventReference);
     const barriers = projectBarriers(trace);
     const dispatchAttempts = projectDispatchAttempts(trace);
-    const stateDivergences = events.filter((event) => event.eventType === 'STATE_DIVERGENCE');
+    const stateDivergences = events.filter((event) => event.eventType === 'STATE_DIVERGENCE').map(summarizeEventReference);
     const criticalStage = stages.filter((stage) => Number.isFinite(stage.durationMs)).sort((a, b) => b.durationMs - a.durationMs)[0] || null;
     const criticalBarrier = barriers.filter((barrier) => Number.isFinite(barrier.durationMs)).sort((a, b) => b.durationMs - a.durationMs)[0] || null;
     const expectedStageIds = new Set((trace?.plan?.stages || []).map((stage) => String(stage.stageId)));
@@ -248,7 +276,7 @@
       dispatchAttempts,
       recoveryAttempts,
       stateDivergences,
-      artifacts: events.filter((event) => event.eventType === 'STAGE_ARTIFACT_PRODUCED').map((event) => event.payload),
+      artifacts: events.filter((event) => event.eventType === 'STAGE_ARTIFACT_PRODUCED').map(summarizeArtifactEvent),
       criticalPath: criticalStage ? { stageId: criticalStage.stageId, durationMs: criticalStage.durationMs, participantId: criticalBarrier?.stageId === criticalStage.stageId ? criticalBarrier.criticalParticipant : null } : null,
       events,
       integrity: {
@@ -260,6 +288,44 @@
         clockSkewWarnings: [], redactedFieldsCount: events.reduce((sum, event) => sum + Number(event.redactedFieldsCount || 0), 0),
         schemaValidationErrors: events.flatMap((event) => (event.validationErrors || []).map((error) => ({ eventId: event.eventId, error })))
       }
+    };
+  }
+
+  function filterProblems(report, options = {}) {
+    if (!report || typeof report !== 'object') return report;
+    const sharedFilter = options.problemContextFilter || null;
+    const isProblem = (item) => sharedFilter?.isProblem
+      ? sharedFilter.isProblem(item)
+      : ['warning', 'high', 'critical'].includes(String(item?.severity || '').toLowerCase())
+        || /(ERROR|FAILED|FAILURE|TIMEOUT|REJECTED|EXCEPTION|DIVERGENCE|MISMATCH)/i.test(String(item?.eventType || item?.status || ''));
+    const contextKey = (item) => item?.correlation?.stageId || item?.stageId || '__unscoped__';
+    const events = Array.isArray(report.events) ? report.events : [];
+    const visibleEvents = sharedFilter?.filterWithContext
+      ? sharedFilter.filterWithContext(events, { isProblem, getContextKey: contextKey })
+      : events.filter(isProblem);
+    const visibleEventIds = new Set(visibleEvents.map((event) => event.eventId).filter(Boolean));
+    const diagnoses = Array.isArray(report.diagnoses) ? report.diagnoses.slice() : [];
+    const diagnosedStages = new Set(diagnoses.map((item) => item.affectedStageId).filter(Boolean));
+    const intersectsVisibleEvidence = (item) => (item?.evidenceEventIds || []).some((id) => visibleEventIds.has(id));
+    return {
+      ...report,
+      events: visibleEvents,
+      diagnoses,
+      stageExecutions: (report.stageExecutions || []).filter((stage) => diagnosedStages.has(stage.stageId)
+        || stage.deviations?.length || ['failed', 'skipped'].includes(stage.status)),
+      participantExecutions: (report.participantExecutions || []).filter((item) => item.recoveries
+        || ['failed', 'error'].includes(String(item.submitStatus || '').toLowerCase())
+        || ['failed', 'error'].includes(String(item.completionStatus || '').toLowerCase())
+        || ['failed', 'error'].includes(String(item.finalStatus || '').toLowerCase())
+        || intersectsVisibleEvidence(item)),
+      barriers: (report.barriers || []).filter((barrier) => ['waiting', 'timeout'].includes(barrier.outcome)
+        || Number(barrier.durationMs) > 0 || intersectsVisibleEvidence(barrier)),
+      dispatchAttempts: (report.dispatchAttempts || []).filter((attempt) => attempt.submitStatus === 'failed'
+        || /(?:ERROR|FAIL|TIMEOUT|REJECT)/i.test(String(attempt.terminalStatus || ''))
+        || intersectsVisibleEvidence(attempt)),
+      recoveryAttempts: (report.recoveryAttempts || []).filter((item) => visibleEventIds.has(item.eventId)),
+      stateDivergences: (report.stateDivergences || []).filter((item) => visibleEventIds.has(item.eventId)),
+      artifacts: []
     };
   }
 
@@ -292,7 +358,10 @@
     return lines.join('\n');
   }
 
-  const api = Object.freeze({ projectStages, projectDiagnoses, projectParticipants, projectBarriers, projectDispatchAttempts, classifyHealth, buildReport, toMarkdown });
+  const api = Object.freeze({
+    projectStages, projectDiagnoses, projectParticipants, projectBarriers,
+    projectDispatchAttempts, classifyHealth, buildReport, filterProblems, toMarkdown
+  });
   root.DebateTraceProjections = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this));

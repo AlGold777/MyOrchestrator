@@ -10,7 +10,9 @@
   const RESPONSE_LIFECYCLE_DEFAULTS = {
     enabled: true,
     answerStartTimeoutMs: 30000,
-    answerCompleteTimeoutMs: 180000,
+    // The effective per-run value is raised to the active pipeline hardMax:
+    // 450s Standard / 900s Long.
+    answerCompleteTimeoutMs: 450000,
     stableMs: 1500,
     pollIntervalMs: 600,
     minCompleteConfidence: 0.75
@@ -40,6 +42,14 @@
   let cachedSettings = null;
   let runtimePatched = false;
   let bodyMutationScheduledAt = 0;
+  const answerNodeIds = new WeakMap();
+  let nextAnswerNodeId = 1;
+
+  function answerNodeKey(node) {
+    if (!node || (typeof node !== 'object' && typeof node !== 'function')) return null;
+    if (!answerNodeIds.has(node)) answerNodeIds.set(node, `answer-node-${nextAnswerNodeId++}`);
+    return answerNodeIds.get(node);
+  }
 
   function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -71,6 +81,24 @@
     });
     tracker.pollTimers = [];
     tracker.timeoutTimers = [];
+  }
+
+  function wakeTracker(tracker) {
+    if (!isTrackerActive(tracker)) return false;
+    const pending = Array.isArray(tracker.pollTimers) ? tracker.pollTimers.splice(0) : [];
+    pending.forEach((entry) => {
+      try { clearTimeout(entry?.id ?? entry); } catch (_) {}
+      try { entry?.resolve?.(true); } catch (_) {}
+    });
+    return pending.length > 0;
+  }
+
+  function wakeAllTrackers() {
+    let count = 0;
+    trackers.forEach((tracker) => {
+      if (wakeTracker(tracker)) count += 1;
+    });
+    return count;
   }
 
   function delayForTracker(tracker, ms, timerKind = 'poll') {
@@ -170,6 +198,244 @@
     return (hash >>> 0).toString(16);
   }
 
+  function platformForModel(modelName) {
+    const normalized = String(modelName || '').trim().toLowerCase();
+    if (normalized === 'gpt' || normalized === 'chatgpt') return 'chatgpt';
+    if (normalized === 'le chat' || normalized === 'mistral') return 'lechat';
+    if (normalized === 'z.ai' || normalized === 'zai') return 'zai';
+    return normalized;
+  }
+
+  function resolveStructuralTurn(modelName, turnAnchor = 0) {
+    const platform = platformForModel(modelName);
+    const selectors = window.AnswerPipelineSelectors?.PLATFORM_SELECTORS?.[platform];
+    if (!selectors || !window.TurnResolver?.resolveTurn) return null;
+    return window.TurnResolver.resolveTurn({
+      platform,
+      selectors,
+      document,
+      anchorAnswerCount: Math.max(0, Number(turnAnchor || 0)),
+      minimumTextLength: 5
+    });
+  }
+
+  function captureTurnAnchor(modelName) {
+    const turn = resolveStructuralTurn(modelName, 0);
+    return turn && Array.isArray(turn.candidates) ? turn.candidates.length : null;
+  }
+
+  function captureStructuralSnapshot(tracker) {
+    if (!tracker || !window.AnswerStructure?.inspect || !window.GenerationSignal?.inspect) return null;
+    const platform = platformForModel(tracker.modelName);
+    const selectors = window.AnswerPipelineSelectors?.PLATFORM_SELECTORS?.[platform];
+    const turn = resolveStructuralTurn(tracker.modelName, tracker.turnAnchor);
+    if (!selectors || !turn?.answerNode) return null;
+    const selectedText = window.AnswerStructure.linearizeText(turn.answerNode);
+    const messageRootText = window.AnswerStructure.linearizeText(turn.messageRoot);
+    const structure = window.AnswerStructure.inspect(turn.messageRoot, turn.answerNode);
+    const generation = window.GenerationSignal.inspect({
+      selectors,
+      queryAll: (selector) => {
+        try { return Array.from(document.querySelectorAll(selector)); } catch (_) { return []; }
+      }
+    });
+    const identity = window.ContentUtils?.ensureDispatchMeta?.({
+      runSessionId: tracker.runSessionId || null,
+      dispatchId: tracker.dispatchId || null
+    }, tracker.modelName) || {};
+    const nodes = turn.candidates.slice(-12).map((node) => {
+      const text = window.AnswerStructure.linearizeText(node);
+      return {
+        tag: String(node?.tagName || '').toLowerCase(),
+        role: node?.getAttribute?.('role') || null,
+        length: text.length,
+        hash: shortHash(text)
+      };
+    });
+    const selectedCandidateIndex = turn.candidates.indexOf(turn.answerNode);
+    return {
+      observedAt: Date.now(),
+      runSessionId: identity.runSessionId ?? tracker.runSessionId ?? null,
+      dispatchId: identity.dispatchId ?? tracker.dispatchId ?? null,
+      generationEpoch: identity.generationEpoch ?? null,
+      turnAnchor: tracker.turnAnchor ?? null,
+      selectedHash: shortHash(selectedText),
+      selectedLength: selectedText.length,
+      selectedNodeKey: answerNodeKey(turn.answerNode),
+      selectedCandidateIndex,
+      candidateOrdinalAfterAnchor: selectedCandidateIndex >= 0
+        ? selectedCandidateIndex - Number(tracker.turnAnchor || 0) + 1
+        : null,
+      messageRootHash: shortHash(messageRootText),
+      messageRootLength: messageRootText.length,
+      candidateSetHash: shortHash(JSON.stringify(nodes)),
+      candidateCount: turn.candidates.length,
+      nodes,
+      resolution: turn.resolution,
+      resolutionReason: turn.reason,
+      messageRootSelector: turn.messageRootSelector || null,
+      structuralComplete: turn.resolution === 'exact' && structure.complete === true,
+      structuralIssues: Array.isArray(structure.issues) ? structure.issues : [],
+      generationActive: generation.active,
+      generationSignalKind: generation.kind,
+      generationSignalSelector: generation.selector || null,
+      generationSignalChecks: Array.isArray(generation.checks) ? generation.checks : [],
+      _selectedText: selectedText
+    };
+  }
+
+  async function verifyStructuralCompletion(tracker) {
+    if (!window.AnswerVerification?.verifySnapshotPair) return null;
+    const finalization = window.AnswerPipelineConfig?.finalization || {};
+    const checks = Math.max(2, Number(finalization.stabilityChecks || 2));
+    const retryBudget = Math.max(0, Number(finalization.stabilityRetryBudget || 0));
+    const interval = Math.max(5, Number(finalization.stabilityInterval || 25));
+    const maxSnapshots = checks + retryBudget;
+    let previous = null;
+    let latest = null;
+    let latestResult = null;
+    let verifiedCount = 0;
+    let maxObservedTextLength = 0;
+    let lengthDecreaseCount = 0;
+    let lastLengthDecrease = null;
+    let lengthRegressionActive = false;
+    let lengthRegressionFloor = 0;
+    const recentLengths = [];
+    for (let index = 0; index < maxSnapshots; index += 1) {
+      if (!isTrackerActive(tracker)) return null;
+      latest = captureStructuralSnapshot(tracker);
+      if (!latest) return null;
+      const selectedLength = Number(latest.selectedLength || 0);
+      const maximumBeforeSnapshot = maxObservedTextLength;
+      maxObservedTextLength = Math.max(maxObservedTextLength, selectedLength);
+      recentLengths.push({ observedAt: latest.observedAt, length: latest.selectedLength, nodeKey: latest.selectedNodeKey });
+      if (recentLengths.length > 12) recentLengths.shift();
+      if (previous) {
+        if (selectedLength < Number(previous.selectedLength || 0)) {
+          lengthDecreaseCount += 1;
+          lengthRegressionActive = true;
+          lengthRegressionFloor = Math.max(lengthRegressionFloor, maximumBeforeSnapshot, Number(previous.selectedLength || 0));
+          lastLengthDecrease = {
+            observedAt: latest.observedAt,
+            from: Number(previous.selectedLength || 0),
+            to: selectedLength,
+            delta: selectedLength - Number(previous.selectedLength || 0),
+            recoveryFloor: lengthRegressionFloor
+          };
+          emitLifecycleTelemetry('ANSWER_LENGTH_DECREASED', {
+            modelName: tracker.modelName, state: tracker.state, level: 'warning',
+            textLength: latest.selectedLength, phaseEvidence: lastLengthDecrease
+          });
+        }
+        if (lengthRegressionActive && selectedLength >= lengthRegressionFloor) {
+          lengthRegressionActive = false;
+          verifiedCount = 0;
+          emitLifecycleTelemetry('ANSWER_LENGTH_REGRESSION_RECOVERED', {
+            modelName: tracker.modelName, state: tracker.state, level: 'info',
+            textLength: selectedLength,
+            phaseEvidence: { selectedLength, recoveryFloor: lengthRegressionFloor }
+          });
+        }
+        if (previous.selectedNodeKey && latest.selectedNodeKey && previous.selectedNodeKey !== latest.selectedNodeKey) {
+          emitLifecycleTelemetry('ANSWER_NODE_REPLACED', {
+            modelName: tracker.modelName, state: tracker.state, level: 'warning',
+            textLength: latest.selectedLength,
+            phaseEvidence: { previousNodeKey: previous.selectedNodeKey, selectedNodeKey: latest.selectedNodeKey }
+          });
+        }
+        latestResult = window.AnswerVerification.verifySnapshotPair(previous, latest, { minimumLength: 1 });
+        verifiedCount = lengthRegressionActive ? 0 : (latestResult.verified ? verifiedCount + 1 : 0);
+        if (verifiedCount >= checks - 1) {
+          const { _selectedText, ...snapshot } = latest;
+          const verifiedSnapshot = {
+            ...latestResult,
+            ...snapshot,
+            snapshotsCompared: index + 1,
+            requiredSnapshots: checks,
+            retryBudget,
+            retriesUsed: Math.max(0, index + 1 - checks),
+            maxObservedTextLength,
+            lengthDecreaseCount,
+            lastLengthDecrease,
+            lengthRegressionActive,
+            lengthRegressionFloor,
+            recentLengths,
+            candidateFirstSeenAt: tracker.answerStartedAt || latest.observedAt,
+            firstMutationAfterDispatchAt: tracker.firstMutationAfterDispatchAt || null,
+            effectiveConfig: window.AnswerPipelineTiming?.getEffectiveSnapshot?.() || null,
+            selectedText: _selectedText
+          };
+          const selectedBaselineHash = shortHash(normalizeText(_selectedText || ''));
+          const baselineEquivalent = tracker.baselineTextLength > 0
+            && selectedBaselineHash === tracker.baselineTextHash;
+          verifiedSnapshot.baselineEquivalent = baselineEquivalent;
+          if (baselineEquivalent) {
+            return {
+              ...verifiedSnapshot,
+              verified: false,
+              state: 'candidate',
+              reasons: Array.from(new Set([
+                ...(Array.isArray(verifiedSnapshot.reasons) ? verifiedSnapshot.reasons : []),
+                'stale_baseline_answer'
+              ]))
+            };
+          }
+          return verifiedSnapshot;
+        }
+      }
+      previous = latest;
+      if (index + 1 < maxSnapshots && !(await delayForTracker(tracker, interval, 'poll'))) return null;
+    }
+    const { _selectedText, ...snapshot } = latest || {};
+    if (latest && lengthRegressionActive) {
+      const result = {
+        ...(latestResult || {}),
+        ...snapshot,
+        verified: false,
+        state: 'candidate',
+        snapshotsCompared: maxSnapshots,
+        requiredSnapshots: checks,
+        retryBudget,
+        retriesUsed: Math.max(0, maxSnapshots - checks),
+        maxObservedTextLength,
+        lengthDecreaseCount,
+        lastLengthDecrease,
+        lengthRegressionActive,
+        lengthRegressionFloor,
+        recentLengths,
+        candidateFirstSeenAt: tracker.answerStartedAt || latest?.observedAt || null,
+        firstMutationAfterDispatchAt: tracker.firstMutationAfterDispatchAt || null,
+        effectiveConfig: window.AnswerPipelineTiming?.getEffectiveSnapshot?.() || null,
+        selectedText: _selectedText || ''
+      };
+      result.reasons = Array.from(new Set([
+        ...(Array.isArray(result.reasons) ? result.reasons : []),
+        'answer_length_regression_unrecovered'
+      ]));
+      return result;
+    }
+    return latest ? {
+      ...(latestResult || { verified: false, state: 'candidate', reasons: ['insufficient_stable_observations'] }),
+      ...snapshot,
+      verified: false,
+      state: 'candidate',
+      snapshotsCompared: maxSnapshots,
+      requiredSnapshots: checks,
+      retryBudget,
+      retriesUsed: Math.max(0, maxSnapshots - checks),
+      maxObservedTextLength,
+      lengthDecreaseCount,
+      lastLengthDecrease,
+      lengthRegressionActive,
+      lengthRegressionFloor,
+      recentLengths,
+      candidateFirstSeenAt: tracker.answerStartedAt || latest?.observedAt || null,
+      firstMutationAfterDispatchAt: tracker.firstMutationAfterDispatchAt || null,
+      effectiveConfig: window.AnswerPipelineTiming?.getEffectiveSnapshot?.() || null,
+      selectedText: _selectedText || ''
+    } : null;
+  }
+
   async function readStorage(key) {
     try {
       if (chrome?.storage?.local?.get) {
@@ -207,7 +473,7 @@
         event: {
           type: 'LIFECYCLE',
           label: event,
-          level: payload.state === 'ERROR' ? 'warning' : 'info',
+          level: payload.level || (payload.state === 'ERROR' ? 'warning' : 'info'),
           details: `state=${payload.state || 'n/a'} textLength=${payload.textLength || 0}`,
           meta: {
             modelName: payload.modelName || null,
@@ -220,11 +486,86 @@
             hasLoadingIndicator: !!payload.hasLoadingIndicator,
             composerReady: !!payload.composerReady,
             sendButtonReady: !!payload.sendButtonReady,
-            confidence: typeof payload.confidence === 'number' ? payload.confidence : null
+            confidence: typeof payload.confidence === 'number' ? payload.confidence : null,
+            answerMethod: payload.answerMethod || null,
+            responsePhase: payload.responsePhase || null,
+            phaseEvidence: payload.phaseEvidence || null
           }
         }
       });
     } catch (_) {}
+  }
+
+  function detectResponsePhaseEvidence(modelName, snapshotElement = null) {
+    const normalizedModel = String(modelName || '').trim().toLowerCase();
+    if (normalizedModel !== 'qwen') {
+      return {
+        phase: 'unknown',
+        snapshotInsideReasoning: false,
+        snapshotInsideAnswer: false,
+        reasoningVisible: false,
+        answerVisible: false,
+        reasoningTextLength: 0,
+        answerTextLength: 0
+      };
+    }
+    const reasoningSelectors = [
+      '[class*="reasoning" i]',
+      '[class*="thinking" i]',
+      '[data-testid*="reason" i]',
+      '[data-testid*="think" i]',
+      '[aria-label*="reason" i]',
+      '[aria-label*="think" i]'
+    ];
+    const answerSelectors = [
+      '.qwen-chat-message-assistant .custom-qwen-markdown',
+      '.qwen-chat-message-assistant .qwen-markdown',
+      '[data-testid="chat-response"] .qwen-markdown'
+    ];
+    const collectVisible = (selectors) => {
+      const nodes = [];
+      selectors.forEach((selector) => {
+        try {
+          document.querySelectorAll(selector).forEach((node) => {
+            if (isVisible(node) && !nodes.includes(node)) nodes.push(node);
+          });
+        } catch (_) {}
+      });
+      return nodes;
+    };
+    const reasoningNodes = collectVisible(reasoningSelectors);
+    const answerNodes = collectVisible(answerSelectors);
+    const containsSnapshot = (nodes) => !!snapshotElement && nodes.some((node) => (
+      node === snapshotElement
+      || node.contains?.(snapshotElement)
+      || snapshotElement.contains?.(node)
+    ));
+    const maxTextLength = (nodes) => nodes.reduce((max, node) => Math.max(
+      max,
+      normalizeText(node.innerText || node.textContent || '').length
+    ), 0);
+    const snapshotInsideReasoning = containsSnapshot(reasoningNodes);
+    const snapshotInsideAnswer = containsSnapshot(answerNodes);
+    const reasoningVisible = reasoningNodes.length > 0;
+    const answerVisible = answerNodes.length > 0;
+    const phase = snapshotInsideReasoning && !snapshotInsideAnswer
+      ? 'reasoning'
+      : snapshotInsideAnswer && !snapshotInsideReasoning
+        ? 'answer'
+        : reasoningVisible && !answerVisible
+          ? 'reasoning'
+          : reasoningVisible && answerVisible
+            ? 'mixed'
+            : 'unknown';
+    return {
+      phase,
+      snapshotInsideReasoning,
+      snapshotInsideAnswer,
+      reasoningVisible,
+      answerVisible,
+      reasoningTextLength: maxTextLength(reasoningNodes),
+      answerTextLength: maxTextLength(answerNodes)
+    };
   }
 
   function isTextStable(previous, current, stableSince, stableMs) {
@@ -248,26 +589,43 @@
     };
   }
 
-  function detectGeneratingIndicators({ root = document }) {
+  function detectGeneratingIndicators({ modelName = null, root = document }) {
     const indicators = [];
     const canQuery = !!(root && typeof root.querySelectorAll === 'function');
     let queriesAttempted = 0;
     let queriesFailed = 0;
+    const platform = platformForModel(modelName);
+    const platformSelectors = window.AnswerPipelineSelectors?.PLATFORM_SELECTORS?.[platform] || null;
+    const selectorApi = window.GenerationSignal;
+    const configuredDescriptors = platformSelectors && selectorApi?.selectorList
+      ? [
+          ...selectorApi.selectorList(platformSelectors.generatingIndicators).map((selector) => ({ selector, kind: 'generating' })),
+          ...selectorApi.selectorList(platformSelectors.streaming).map((selector) => ({ selector, kind: 'streaming' })),
+          ...selectorApi.selectorList(platformSelectors.stopButton).map((selector) => ({ selector, kind: 'stopButton' }))
+        ]
+      : GENERATING_SELECTORS.map((selector) => ({ selector, kind: 'legacy' }));
     if (canQuery) {
-      for (const selector of GENERATING_SELECTORS) {
+      for (const descriptor of configuredDescriptors) {
+        const { selector } = descriptor;
         queriesAttempted += 1;
         try {
-          const nodes = Array.from(root.querySelectorAll(selector)).filter((el) => isVisible(el));
-          if (nodes.length) indicators.push(selector);
+          const visible = selectorApi?.isVisible
+            ? (node) => selectorApi.isVisible(node)
+            : (node) => isVisible(node);
+          const nodes = Array.from(root.querySelectorAll(selector)).filter(visible);
+          if (nodes.length) indicators.push(descriptor);
         } catch (_) { queriesFailed += 1; }
       }
     }
     // Localized stop labels (Останов/Detener/Arrêter) do not contain "stop"; without
     // matching them a present stop button would read as absent -> false completion.
-    const hasStopButton = indicators.some((selector) => /stop|останов|detener|arrêter/i.test(selector));
-    const hasLoadingIndicator = indicators.some((selector) => /busy|loading|spinner|generating/i.test(selector));
-    const hasStreamingCursor = indicators.some((selector) => /streaming/i.test(selector));
-    const hasProgressbar = indicators.some((selector) => /progressbar/i.test(selector));
+    const hasStopButton = indicators.some(({ selector, kind }) =>
+      kind === 'stopButton' || /stop|останов|detener|arrêter/i.test(selector));
+    const hasLoadingIndicator = indicators.some(({ selector, kind }) =>
+      kind === 'generating' || /busy|loading|spinner|generating/i.test(selector));
+    const hasStreamingCursor = indicators.some(({ selector, kind }) =>
+      kind === 'streaming' || /streaming/i.test(selector));
+    const hasProgressbar = indicators.some(({ selector }) => /progressbar/i.test(selector));
     // Tri-state completion contract: the probe is trustworthy only if we could query the
     // DOM and not every query threw. When untrustworthy, "no stop button" means UNKNOWN,
     // not "generation finished" — so completion must NOT be inferred from absence
@@ -281,8 +639,8 @@
       hasProgressbar,
       stopButtonSignal,
       probeTrusted,
-      indicators,
-      diagnostics: {}
+      indicators: indicators.map(({ selector }) => selector),
+      diagnostics: { platform, configured: !!platformSelectors }
     };
   }
 
@@ -291,10 +649,12 @@
     const registered = registeredCandidates.get(modelName);
     const registeredMatchesTrace = !traceId || !registered?.traceId || String(registered.traceId) === String(traceId);
     if (registeredMatchesTrace && registered?.element?.isConnected) {
-      const text = normalizeText(registered.element.innerText || registered.element.textContent || '');
+      const rawText = String(registered.element.innerText || registered.element.textContent || '').trim();
+      const text = normalizeText(rawText);
       return {
         element: registered.element,
         text,
+        rawText,
         textLength: text.length,
         method: registered.method || 'registered',
         traceId
@@ -307,10 +667,12 @@
         traceId
       });
       if (result?.ok && result.element) {
-        const text = normalizeText(result.element.innerText || result.element.textContent || '');
+        const rawText = String(result.element.innerText || result.element.textContent || '').trim();
+        const text = normalizeText(rawText);
         return {
           element: result.element,
           text,
+          rawText,
           textLength: text.length,
           method: result.method || 'resolver',
           traceId
@@ -334,14 +696,22 @@
     }
     const observeTarget = target === document.body ? document.body : target;
     if (!observeTarget) return false;
+    const observingBody = observeTarget === document.body;
     const observer = new MutationObserver(() => {
       const now = Date.now();
-      if (observeTarget === document.body && now - bodyMutationScheduledAt < BODY_MUTATION_THROTTLE_MS) {
+      if (observingBody && now - bodyMutationScheduledAt < BODY_MUTATION_THROTTLE_MS) {
+        // Throttle accounting, not liveness: a Stop/loading removal can be the
+        // second mutation in the window and must still wake a sleeping check.
+        wakeTracker(tracker);
         return;
       }
       bodyMutationScheduledAt = now;
       tracker.lastMutationAt = now;
+      if (!tracker.firstMutationAfterDispatchAt && now >= Number(tracker.promptSubmittedAt || 0)) {
+        tracker.firstMutationAfterDispatchAt = now;
+      }
       tracker.mutationCount += 1;
+      wakeTracker(tracker);
     });
     observer.observe(observeTarget, {
       childList: true,
@@ -377,7 +747,10 @@
     const tracker = trackers.get(modelName);
     if (tracker) {
       tracker.latestAnswerEl = element;
-      attachTrackerObserver(tracker, element);
+      // Generation controls usually live outside the answer node. Keep the
+      // observer on the page body so removal of Stop/loading wakes completion
+      // checks even while Chrome throttles timers in a background tab.
+      attachTrackerObserver(tracker, document.body);
     }
     return true;
   }
@@ -401,9 +774,11 @@
       baselineTextHash: shortHash(normalizeText(baselineSnapshot?.text || '')),
       baselineTextLength: Number(baselineSnapshot?.textLength || 0),
       baselineCapturedAt: Date.now(),
+      turnAnchor: null,
       freshAnswerObserved: false,
       answerStartedAt: null,
       lastMutationAt: 0,
+      firstMutationAfterDispatchAt: null,
       lastTextChangeAt: 0,
       lastTextHash: null,
       lastTextLength: 0,
@@ -418,6 +793,7 @@
       pollTimers: [],
       timeoutTimers: [],
       finalReadinessCheckedAt: null,
+      nextStructuralVerificationAt: 0,
       cancelledAt: null,
       cancelReason: null,
       cancelled: false
@@ -438,6 +814,7 @@
         return trackerCancelledResult(tracker);
       }
       const snapshot = await getLatestAnswerSnapshot(modelName, traceId);
+      const phaseEvidence = detectResponsePhaseEvidence(modelName, snapshot.element);
       const registered = registeredCandidates.get(modelName);
       if (snapshot.element && !tracker.latestAnswerEl) {
         tracker.latestAnswerEl = snapshot.element;
@@ -476,7 +853,10 @@
           state: 'ANSWER_STARTED',
           textLength,
           elapsedMs: answerStartedAt - promptSubmittedAt,
-          mutationCount: tracker.mutationCount
+          mutationCount: tracker.mutationCount,
+          answerMethod: snapshot.method || null,
+          responsePhase: phaseEvidence.phase,
+          phaseEvidence
         });
         return {
           ok: true,
@@ -514,10 +894,11 @@
         return trackerCancelledResult(tracker);
       }
       const snapshot = await getLatestAnswerSnapshot(modelName, traceId);
+      const phaseEvidence = detectResponsePhaseEvidence(modelName, snapshot.element);
       tracker.latestAnswerEl = snapshot.element || tracker.latestAnswerEl;
       tracker.latestAnswerText = snapshot.text;
-      if (tracker.latestAnswerEl && (!tracker.observer || tracker.observedTarget !== tracker.latestAnswerEl)) {
-        attachTrackerObserver(tracker, tracker.latestAnswerEl);
+      if (!tracker.observer || tracker.observedTarget !== document.body) {
+        attachTrackerObserver(tracker, document.body);
       }
       const stability = isTextStable(previous, snapshot.text, stableSince, stableMs);
       previous = { hash: stability.hash, length: stability.length };
@@ -621,7 +1002,10 @@
             elapsedMs: Date.now() - tracker.promptSubmittedAt,
             mutationCount: tracker.mutationCount,
             hasStopButton: indicators.hasStopButton,
-            hasLoadingIndicator: indicators.hasLoadingIndicator
+            hasLoadingIndicator: indicators.hasLoadingIndicator,
+            answerMethod: snapshot.method || null,
+            responsePhase: phaseEvidence.phase,
+            phaseEvidence
           });
         }
       } else if (stability.stable) {
@@ -660,13 +1044,68 @@
         indicators.stopButtonSignal === false &&
         (!indicators.hasLoadingIndicator || stuckBusyOverride) &&
         !indicators.hasProgressbar &&
-        confidence >= MIN_COMPLETE_CONFIDENCE
+        confidence >= MIN_COMPLETE_CONFIDENCE &&
+        Date.now() >= Number(tracker.nextStructuralVerificationAt || 0)
       ) {
         if (!isTrackerActive(tracker)) {
           return trackerCancelledResult(tracker);
         }
+        const structuralVerification = await verifyStructuralCompletion(tracker);
+        if (!isTrackerActive(tracker)) {
+          return trackerCancelledResult(tracker);
+        }
+        const structuralProofAvailable = !!(
+          window.AnswerVerification?.verifySnapshotPair
+          && window.AnswerStructure?.inspect
+          && window.GenerationSignal?.inspect
+          && window.TurnResolver?.resolveTurn
+        );
+        if (structuralProofAvailable && structuralVerification?.verified !== true) {
+          const reasons = Array.isArray(structuralVerification?.reasons)
+            ? structuralVerification.reasons
+            : [structuralVerification ? 'structural_verification_pending' : 'anchored_turn_unresolved'];
+          tracker.state = 'STABLE';
+          tracker.nextStructuralVerificationAt = Date.now() + Math.max(1000, pollIntervalMs * 2);
+          emitLifecycleTelemetry('LIFECYCLE_STRUCTURAL_VERIFICATION_PENDING', {
+            modelName,
+            state: 'STABLE',
+            level: 'info',
+            textLength: Number(structuralVerification?.selectedLength || textLength || 0),
+            elapsedMs: Date.now() - tracker.promptSubmittedAt,
+            answerMethod: snapshot.method || null,
+            phaseEvidence: {
+              reasons,
+              resolution: structuralVerification?.resolution || 'unresolved',
+              structuralComplete: structuralVerification?.structuralComplete === true,
+              generationActive: structuralVerification?.generationActive ?? null,
+              snapshotsCompared: Number(structuralVerification?.snapshotsCompared || 0)
+            }
+          });
+          if (!(await delayForTracker(tracker, pollIntervalMs, 'poll'))) {
+            return trackerCancelledResult(tracker);
+          }
+          continue;
+        }
         const completedAt = Date.now();
+        const completedAnswerText = String(
+          structuralVerification?.selectedText || snapshot.rawText || snapshot.text || ''
+        ).trim();
+        const answerVerification = structuralVerification
+          ? (({ selectedText: _selectedText, ...value }) => value)(structuralVerification)
+          : null;
         tracker.state = 'COMPLETE';
+        if (phaseEvidence.phase === 'reasoning') {
+          emitLifecycleTelemetry('LIFECYCLE_COMPLETION_PHASE_SUSPECT', {
+            modelName,
+            state: 'COMPLETE',
+            level: 'warning',
+            textLength,
+            elapsedMs: completedAt - tracker.promptSubmittedAt,
+            answerMethod: snapshot.method || null,
+            responsePhase: phaseEvidence.phase,
+            phaseEvidence
+          });
+        }
         emitLifecycleTelemetry('ANSWER_COMPLETE_DETECTED', {
           modelName,
           state: 'COMPLETE',
@@ -678,7 +1117,10 @@
           hasLoadingIndicator: false,
           composerReady,
           sendButtonReady,
-          confidence
+          confidence,
+          answerMethod: snapshot.method || null,
+          responsePhase: phaseEvidence.phase,
+          phaseEvidence
         });
         if (!isTrackerActive(tracker)) {
           return trackerCancelledResult(tracker);
@@ -687,6 +1129,9 @@
           chrome.runtime.sendMessage({
             type: 'LLM_RESPONSE_READY',
             llmName: modelName,
+            // Atomic completion contract: background must evaluate the exact
+            // snapshot that produced COMPLETE, not re-select the DOM later.
+            answerText: completedAnswerText,
             meta: {
               dispatchId: tracker.dispatchId || null,
               runSessionId: tracker.runSessionId || null,
@@ -694,7 +1139,14 @@
               state: 'COMPLETE',
               confidence,
               textLength,
+              answerHash: shortHash(completedAnswerText),
+              answerMethod: snapshot.method || null,
+              responsePhase: phaseEvidence.phase,
+              phaseEvidence,
               completionSignals,
+              answerVerification,
+              generationEpoch: answerVerification?.generationEpoch ?? null,
+              turnAnchor: answerVerification?.turnAnchor ?? tracker.turnAnchor ?? null,
               completedAt
             }
           });
@@ -704,7 +1156,7 @@
           state: 'COMPLETE',
           completedAt,
           latestAnswerEl: snapshot.element,
-          answerText: snapshot.text,
+          answerText: completedAnswerText,
           textLength,
           confidence,
           completionSignals,
@@ -738,6 +1190,22 @@
         elapsedMs: Date.now() - (trackers.get(modelName)?.promptSubmittedAt || Date.now())
       });
     }
+    try {
+      chrome.runtime.sendMessage({
+        type: 'AUTOMATION_DEADLINE_SIGNAL',
+        llmName: modelName,
+        phase: 'generation',
+        budgetMs: timeoutMs,
+        meta: {
+          dispatchId: tracker.dispatchId || null,
+          runSessionId: tracker.runSessionId || null,
+          sessionId: tracker.runSessionId || null,
+          source: 'response_lifecycle_timeout',
+          textLength: latest.textLength,
+          partial
+        }
+      });
+    } catch (_) {}
     return {
       ok: false,
       state: 'TIMEOUT',
@@ -759,18 +1227,68 @@
     dispatchId = null,
     runSessionId = null,
     promptSubmittedAt = Date.now(),
-    traceId = null
+    traceId = null,
+    baselineText = null,
+    turnAnchor = null
   }) {
-    const settings = await getSettings();
-    if (!settings.enabled || !modelName) return { ok: false, reason: 'lifecycle_disabled_or_missing_model' };
+    if (!modelName) return { ok: false, reason: 'lifecycle_disabled_or_missing_model' };
+    const activeTracker = trackers.get(modelName);
+    const sameDispatch = !!activeTracker
+      && isTrackerActive(activeTracker)
+      && (!dispatchId || !activeTracker.dispatchId || String(activeTracker.dispatchId) === String(dispatchId))
+      && (!runSessionId || !activeTracker.runSessionId || Number(activeTracker.runSessionId) === Number(runSessionId));
+    if (sameDispatch) {
+      return { ok: true, reused: true, tracker: activeTracker };
+    }
+
+    // Capture the positional baseline synchronously, before the first await.
+    // All adapters report their dispatch baseline before interacting with Send;
+    // waiting for storage or PROMPT_SUBMITTED here can otherwise count the new
+    // assistant node as part of the old conversation.
+    const suppliedBaseline = typeof baselineText === 'string'
+      ? {
+          element: null,
+          text: normalizeText(baselineText),
+          textLength: normalizeText(baselineText).length,
+          method: 'dispatch_baseline',
+          traceId
+        }
+      : null;
+    const capturedTurnAnchor = turnAnchor !== null
+      && turnAnchor !== undefined
+      && Number.isFinite(Number(turnAnchor))
+      ? Math.max(0, Number(turnAnchor))
+      : captureTurnAnchor(modelName);
     stopResponseLifecycleTracking({ modelName, reason: 'new_dispatch' });
+    const tracker = createTracker({
+      modelName,
+      dispatchId,
+      runSessionId,
+      promptSubmittedAt,
+      traceId,
+      baselineSnapshot: suppliedBaseline
+    });
+    tracker.turnAnchor = capturedTurnAnchor;
+    trackers.set(modelName, tracker);
+    attachTrackerObserver(tracker, document.body);
+
+    const settings = await getSettings();
+    if (!settings.enabled || !modelName) {
+      stopResponseLifecycleTracking({ modelName, dispatchId, runSessionId, reason: 'lifecycle_disabled_or_missing_model' });
+      return { ok: false, reason: 'lifecycle_disabled_or_missing_model' };
+    }
     const previouslyRegistered = registeredCandidates.get(modelName);
     if (previouslyRegistered?.traceId && traceId && String(previouslyRegistered.traceId) !== String(traceId)) {
       registeredCandidates.delete(modelName);
     }
-    const baselineSnapshot = await getLatestAnswerSnapshot(modelName, traceId);
-    const tracker = createTracker({ modelName, dispatchId, runSessionId, promptSubmittedAt, traceId, baselineSnapshot });
-    trackers.set(modelName, tracker);
+    if (!suppliedBaseline) {
+      const baselineSnapshot = await getLatestAnswerSnapshot(modelName, traceId);
+      if (!isTrackerActive(tracker)) return trackerCancelledResult(tracker);
+      tracker.baselineElement = baselineSnapshot?.element || null;
+      tracker.baselineTextHash = shortHash(normalizeText(baselineSnapshot?.text || ''));
+      tracker.baselineTextLength = Number(baselineSnapshot?.textLength || 0);
+      tracker.baselineCapturedAt = Date.now();
+    }
     const registered = registeredCandidates.get(modelName);
     if (registered?.element) {
       tracker.latestAnswerEl = registered.element;
@@ -790,9 +1308,16 @@
         return trackerCancelledResult(tracker);
       }
       tracker.state = 'GENERATING';
+      const pipelineHardMaxMs = Number(
+        window.AnswerPipelineConfig?.streaming?.adaptiveTimeout?.hardMax
+        || 0
+      );
       return waitForAnswerComplete({
         modelName,
-        timeoutMs: settings.answerCompleteTimeoutMs,
+        timeoutMs: Math.max(
+          Number(settings.answerCompleteTimeoutMs || 0),
+          pipelineHardMaxMs
+        ),
         stableMs: settings.stableMs,
         pollIntervalMs: settings.pollIntervalMs,
         traceId
@@ -845,6 +1370,13 @@
       try { tracker.observer?.disconnect?.(); } catch (_) {}
       tracker.observer = null;
       clearTrackerTimers(tracker);
+      emitLifecycleTelemetry('LIFECYCLE_TRACKING_STOPPED', {
+        modelName: tracker.modelName,
+        state: 'CANCELLED',
+        level: 'info',
+        textLength: tracker.lastTextLength || 0,
+        phaseEvidence: { reason }
+      });
       if (tracker.diagnostics) {
         tracker.diagnostics.stopReason = reason;
       }
@@ -926,6 +1458,8 @@
         const stopTypes = new Set(['STOP_AND_CLEANUP', 'SESSION_EXPIRED', 'SPA_NAVIGATION']);
         if (stopTypes.has(message?.type)) {
           stopResponseLifecycleTracking({ reason: String(message.type).toLowerCase() });
+        } else if (message?.type === 'LATE_COLLECT_PING' || message?.action === 'LATE_COLLECT_PING') {
+          wakeAllTrackers();
         }
       });
     } catch (_) {}
@@ -935,8 +1469,8 @@
       }, { passive: true });
     } catch (_) {}
     try {
-      window.addEventListener('pagehide', () => {
-        stopResponseLifecycleTracking({ reason: 'pagehide' });
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') wakeAllTrackers();
       }, { passive: true });
     } catch (_) {}
   }
@@ -976,6 +1510,8 @@
     isTrackerActive,
     getLatestAnswerSnapshot,
     registerAnswerCandidate,
+    captureTurnAnchor,
+    verifyStructuralCompletion,
     RESPONSE_LIFECYCLE_DEFAULTS,
     LIFECYCLE_READINESS_RESOLVER_TIMEOUT_MS,
     STUCK_BUSY_OVERRIDE_MIN_MS,

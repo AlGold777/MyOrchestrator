@@ -104,6 +104,10 @@ describe('dispatch baseline stale guard (follow-up false-green)', () => {
 
   test('ContentUtils exposes baseline helpers and all adapters report pre-send baseline', () => {
     expect(UTILS_SRC).toContain('const reportDispatchBaseline');
+    expect(UTILS_SRC).toContain('startResponseLifecycleTracking');
+    expect(UTILS_SRC).toContain('captureTurnAnchor');
+    expect(UTILS_SRC).toContain("baselineText: String(baselineText || '')");
+    expect(UTILS_SRC).toContain('turnAnchor: anchorAnswerCount');
     expect(UTILS_SRC).toContain('const isBaselineEquivalent');
     expect(UTILS_SRC).toContain("type: 'DISPATCH_BASELINE_CAPTURED'");
     expect(UTILS_SRC).toMatch(/\breportDispatchBaseline,/); // exported

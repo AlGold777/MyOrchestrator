@@ -25,4 +25,36 @@ describe('Disput telemetry view', () => {
     expect(document.getElementById('disput-participants').textContent).toContain('Qwen');
     expect(document.getElementById('disput-raw-events').textContent).toContain('RUN_STARTED');
   });
+
+  test('Only problems keeps preceding events from the same stage as context', () => {
+    document.body.innerHTML = `
+      <input type="checkbox" id="disput-only-problems" checked>
+      <div id="disput-health-summary"></div><div id="disput-problems"></div>
+      <div id="disput-plan-actual"></div><div id="disput-participants"></div>
+      <div id="disput-critical-path"></div><div id="disput-raw-events"></div>
+      <span id="disput-trace-status"></span>`;
+    const baseEvent = { sourceTimestamp: Date.now(), source: 'application', reasonCode: '' };
+    const report = {
+      metadata: { topology: 'universal', presetId: 'UNIVERSAL', dataCompleteness: 'complete' },
+      health: { classification: 'failed', terminalOutcome: 'failed', severity: 'critical', manualRecoveryCount: 0, forcedCompletionCount: 0 },
+      runOutcome: { durationMs: 1000 },
+      diagnoses: [],
+      stageExecutions: [],
+      participantExecutions: [],
+      criticalPath: null,
+      barriers: [],
+      events: [
+        { ...baseEvent, receivedSeq: 1, eventType: 'STAGE_STARTED', severity: 'info', correlation: { stageId: 'stage-a' } },
+        { ...baseEvent, receivedSeq: 2, eventType: 'OTHER_STAGE_PROGRESS', severity: 'info', correlation: { stageId: 'stage-b' } },
+        { ...baseEvent, receivedSeq: 3, eventType: 'MODEL_TIMEOUT', severity: 'critical', correlation: { stageId: 'stage-a' } }
+      ],
+      integrity: { eventsTotal: 3 }
+    };
+
+    expect(View.render(report, document)).toBe(true);
+    const trace = document.getElementById('disput-raw-events').textContent;
+    expect(trace).toContain('STAGE_STARTED');
+    expect(trace).toContain('MODEL_TIMEOUT');
+    expect(trace).not.toContain('OTHER_STAGE_PROGRESS');
+  });
 });

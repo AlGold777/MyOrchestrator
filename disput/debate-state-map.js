@@ -1,6 +1,8 @@
 (function initDebateStateMap(root) {
   'use strict';
-  const VERSION = 3;
+  const VERSION = 4;
+  const ContextBudget = root.DebateContextBudget || (typeof require === 'function' ? require('./debate-context-budget') : null);
+  const CaseSchema = root.DebateCaseSchema || (typeof require === 'function' ? require('./debate-case-schema') : null);
   const text = (value) => String(value == null ? '' : value).trim();
   const values = (object) => object && typeof object === 'object' ? Object.values(object) : [];
 
@@ -22,6 +24,7 @@
   }
 
   const isOpen = (item) => ['proposed', 'open', 'raised', 'unresolved', 'clarifying', 'partially_closed', 'reopened', 'asserted', 'contested', 'disputed'].includes(item.status);
+  const isActionable = (item) => typeof CaseSchema?.isActionable === 'function' ? CaseSchema.isActionable(item) : isOpen(item);
   const isBlocking = (item) => item.severity === 'blocking' || item.severity === 'critical' || item.severity === 'high';
 
   function readiness({ blockers, axes, open, evidenceGaps, dissent }) {
@@ -54,6 +57,7 @@
       const artifacts = values(input.artifacts).map(normalizeArtifact).filter((item) => item.id);
       input = {
         runId: input.runId || input.caseId,
+        caseVersion: Number(input.caseVersion || 0),
         sessionId: input.sessionId,
         status: input.technicalStatus,
         epistemicOutcome: input.epistemicOutcome,
@@ -82,6 +86,15 @@
     const decisionCriteria = artifacts.filter((item) => item.type === 'decision_criterion');
     const dissent = artifacts.filter((item) => item.type === 'dissent' || item.status === 'dissent');
     const workingSyntheses = artifacts.filter((item) => item.type === 'synthesis_working');
+    const artifactAuthors = Object.fromEntries(artifacts.filter((item) => item.id && item.owner).map((item) => [item.id, item.owner]));
+    const actionableObjections = objections.filter(isActionable);
+    const actionableContradictions = contradictions.filter(isActionable);
+    const actionableDissent = dissent.filter(isActionable);
+    const actionableQuestions = openQuestions.filter(isActionable);
+    const finalArtifacts = artifacts.filter((item) => item.type === 'synthesis_conclusion' && !item.supersededBy && !item.mergedInto);
+    const contextChars = artifacts.reduce((total, item) => total + text(item.title).length + text(item.description).length, 0);
+    const budget = ContextBudget?.check?.({ parts: artifacts.map((item) => ({ id: item.id, text: `${item.title}\n${item.description}` })) });
+    const contextPressure = budget ? Math.min(1, budget.totalChars / Math.max(1, budget.totalChars + Math.max(0, 52000 - budget.totalChars))) : Math.min(1, contextChars / 52000);
     const limitations = artifacts.filter((item) => item.status === 'accepted_as_limitation' || item.status === 'limitation');
     const evidenceGaps = artifacts.filter((item) => item.type === 'evidence_gap');
     const open = artifacts.filter(isOpen);
@@ -99,10 +112,16 @@
     const eventList = Array.isArray(aggregate?.events) ? aggregate.events : [];
     const timeline = eventList.filter((event) => ['START_REQUESTED', 'CHECKPOINT_COMPLETED', 'REGISTRY_UPDATED', 'HUMAN_DECISION_RECORDED', 'DECISION_REQUESTED', 'DECISION_RESOLVED', 'RULE_FIRED', 'PROGRESS_WINDOW_UPDATED', 'FINALIZATION_COMPLETED', 'RUN_FAILED', 'CANCEL_REQUESTED', 'SOURCE_EVENT'].includes(event.type)).map((event) => ({ id: event.id, type: event.type, at: event.at, title: text(event.payload?.title || event.payload?.question || event.payload?.triggerId || event.payload?.stageId || event.type), delta: event.payload?.delta || null }));
     const decisionRequests = Array.isArray(aggregate?.decisionRequests) ? aggregate.decisionRequests.slice() : [];
+    if (aggregate?.pendingHumanDecision?.requestId
+      && !decisionRequests.some((item) => item.requestId === aggregate.pendingHumanDecision.requestId)) {
+      decisionRequests.push({ ...aggregate.pendingHumanDecision, status: 'pending' });
+    }
     const ruleEvaluations = Array.isArray(aggregate?.ruleEvaluations) ? aggregate.ruleEvaluations.slice() : [];
     const pendingDecisions = decisionRequests.filter((item) => item.status === 'pending');
     return Object.freeze({
       version: VERSION, runId, sessionId: text(aggregate?.sessionId),
+      sourceCaseVersion: Number(input?.caseVersion ?? aggregate?.caseVersion ?? 0),
+      projectorVersion: VERSION,
       title: text(aggregate?.config?.topic || protocol.topic || 'Текущее дело'),
       profileId: text(aggregate?.executionPlan?.profileId || aggregate?.executionPlan?.presetId || aggregate?.preset?.presetId),
       currentStageId: text(aggregate?.currentStageId || aggregate?.execution?.activeStageId || protocol.currentStageId || protocol.phase),
@@ -120,7 +139,11 @@
         awaitingHuman: pendingDecisions.length ? pendingDecisions : (protocol.triggerState.queue || []).filter((task) => task.status === 'awaiting_confirmation'),
         budget: { ...(protocol.triggerState.budget || {}) }
       } : null,
-      claims, assumptions, objections, evidence, revisions, dissent, workingSyntheses, contradictions, openQuestions, decisionCriteria, limitations, evidenceGaps, links, axes, blockers, attention, timeline, readiness: ready,
+      claims, assumptions, objections, evidence, revisions, dissent, workingSyntheses, contradictions, openQuestions, questions: openQuestions, decisionCriteria, limitations, evidenceGaps, links, axes, blockers, attention, timeline, readiness: ready,
+      artifactAuthors, contextPressure, contextChars,
+      contextTokensEstimate: Math.ceil(contextChars / 4),
+      finalArtifactIds: finalArtifacts.map((item) => item.id),
+      actionableObjections, actionableContradictions, actionableDissent, actionableQuestions,
       diff: caseDiff, snapshots,
       stats: { open: open.length, blockers: blockers.length, dissent: dissent.length, contradictions: contradictions.length, openQuestions: openQuestions.length, evidenceGaps: evidenceGaps.length, claims: claims.length, evidence: evidence.length }
     });

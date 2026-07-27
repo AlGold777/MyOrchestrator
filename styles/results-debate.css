@@ -138,17 +138,17 @@
 
 @media (max-width: 1160px) {
     .top-control-bar {
-        row-gap: 10px;
+        gap: 8px;
     }
 
     .top-models-bar {
-        order: 3;
-        width: 100%;
-        justify-content: center;
+        order: initial;
+        width: auto;
+        justify-content: flex-start;
     }
 
     .models-row-header .llm-buttons {
-        flex-wrap: wrap;
+        flex-wrap: nowrap;
     }
 }
 
@@ -537,6 +537,27 @@
     min-height: 120px;
     display: block;
     box-sizing: border-box;
+}
+
+.attribution-unproven-banner {
+    display: inline-flex;
+    align-items: center;
+    width: max-content;
+    margin: 2px 8px 4px 0;
+    padding: 2px 7px;
+    border: 1px solid #f59e0b;
+    border-radius: 999px;
+    background: #fff7ed;
+    color: #9a3412;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1.4;
+}
+
+.llm-panel.has-unproven-attribution .output,
+.debate-model-card.has-unproven-attribution .debate-model-card-output {
+    border-left: 3px solid #f59e0b;
+    padding-left: 8px;
 }
 
 .llm-results.view-stack .llm-panel .output {
@@ -1058,7 +1079,7 @@ body.llm-stream-preview-open .llm-results .llm-panel.llm-panel-session-restored:
 }
 
 .status-indicator.receiving {
-    background-color: #4ade80; /* green with pulse - receiving response */
+    background-color: #f59e0b; /* orange with pulse - answer is not terminal yet */
     animation: status-pulse 1.5s infinite;
 }
 

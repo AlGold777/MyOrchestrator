@@ -2,6 +2,7 @@ const Schema = require('../disput/debate-trace-schema');
 global.DebateTraceSchema = Schema;
 const TraceStore = require('../disput/debate-trace-store');
 const Projections = require('../disput/debate-trace-projections');
+const ProblemContextFilter = require('../shared/problem-context-filter');
 
 const plan = {
   version: 1,
@@ -44,6 +45,54 @@ describe('Debate trace schema', () => {
     expect(event.redactedFieldsCount).toBe(2);
     expect(event.validationErrors).toEqual([]);
   });
+
+  test('redacts generic and camelCase response content recursively', () => {
+    const event = Schema.createEvent({
+      eventType: 'ANSWER_COLLECTED', source: 'background',
+      correlation: { debateRunId: 'run-1', stageId: 'r1:wave' },
+      payload: {
+        text: 'full response',
+        answerText: 'camel response',
+        responseHtml: '<p>response</p>',
+        compiledPrompt: 'full compiled prompt',
+        evidence: { answerEvidence: { text: 'nested answer' } },
+        delta: { artifacts: [{ id: 'a1', type: 'claim', text: 'artifact content', description: 'claim body' }] },
+        attachments: [{ name: 'private.pdf', dataUrl: 'data:private' }],
+        stateMap: { claims: [{ title: 'private claim' }] },
+        answerLength: 13,
+        answerHash: 'hash-safe'
+      }
+    }, { receivedSeq: 1 });
+
+    expect(event.payload).toEqual(expect.objectContaining({
+      text: '[REDACTED]',
+      answerText: '[REDACTED]',
+      responseHtml: '[REDACTED]',
+      compiledPrompt: '[REDACTED]',
+      answerLength: 13,
+      answerHash: 'hash-safe'
+    }));
+    expect(event.payload.evidence.answerEvidence).toBe('[REDACTED]');
+    expect(event.payload.delta.artifacts[0]).toEqual(expect.objectContaining({
+      id: 'a1',
+      type: 'claim',
+      text: '[REDACTED]',
+      description: '[REDACTED]'
+    }));
+    expect(event.payload.attachments).toBe('[REDACTED]');
+    expect(event.payload.stateMap).toBe('[REDACTED]');
+    expect(event.redactedFieldsCount).toBeGreaterThanOrEqual(9);
+  });
+
+  test('bounds free-form diagnostic details', () => {
+    const event = Schema.createEvent({
+      eventType: 'LEGACY_DIAGNOSTIC_EVENT', source: 'background',
+      correlation: { debateRunId: 'run-1' },
+      payload: { details: 'x'.repeat(1000) }
+    }, { receivedSeq: 1 });
+    expect(event.payload.details.length).toBe(240);
+    expect(event.payload.details.endsWith('…')).toBe(true);
+  });
 });
 
 describe('Debate trace store', () => {
@@ -82,6 +131,50 @@ describe('Debate trace store', () => {
     expect(await restored.restore()).toBe(true);
     expect(restored.getRun('run-1').plan.planId).toBe('plan-1');
   });
+
+  test('re-sanitizes legacy persisted trace events during restore', async () => {
+    const legacyEvent = {
+      schemaVersion: 4,
+      eventId: 'legacy-answer',
+      eventType: 'ANSWER_COLLECTED',
+      source: 'background',
+      severity: 'info',
+      sourceTimestamp: 1000,
+      receivedAt: 1001,
+      receivedSeq: 1,
+      reasonCode: '',
+      correlation: { debateRunId: 'run-legacy', correlationQuality: 'exact' },
+      causality: {},
+      payload: { model: 'Qwen', text: 'legacy full answer', answerText: 'legacy camel answer', answerLength: 18 },
+      provenance: 'legacy_adapter',
+      redactedFieldsCount: 0,
+      semanticHash: 'old-hash',
+      validationErrors: []
+    };
+    const saved = {
+      llmCodexDebateTrace: {
+        schemaVersion: 4,
+        receivedSeq: 1,
+        activeRunId: 'run-legacy',
+        runs: [{ debateRunId: 'run-legacy', createdAt: 1, updatedAt: 1, plan, events: [legacyEvent] }]
+      }
+    };
+    const storageKey = 'llmCodexDebateTrace';
+    const writes = [];
+    const storage = {
+      get: (key, cb) => cb({ [key]: saved[key] }),
+      set: (value, cb) => { writes.push(value); cb?.(); }
+    };
+    const store = TraceStore.createStore({ storage, storageKey });
+    expect(await store.restore()).toBe(true);
+    const restored = store.getRun('run-legacy').events[0];
+    expect(restored.payload.text).toBe('[REDACTED]');
+    expect(restored.payload.answerText).toBe('[REDACTED]');
+    expect(restored.payload.answerLength).toBe(18);
+    expect(writes.length).toBeGreaterThan(0);
+    expect(JSON.stringify(writes)).not.toContain('legacy full answer');
+    expect(JSON.stringify(writes)).not.toContain('legacy camel answer');
+  });
 });
 
 describe('Debate trace projections', () => {
@@ -111,6 +204,48 @@ describe('Debate trace projections', () => {
     expect(markdown).toContain('Health: **success**');
     expect(markdown).toContain('r1:wave');
     expect(markdown).toContain('Qwen');
+  });
+
+  test('report does not duplicate full events inside derived sections', () => {
+    const store = TraceStore.createStore();
+    store.beginRun({ debateRunId: 'run-1', plan });
+    store.append({
+      eventType: 'ANSWER_COLLECTED', source: 'background',
+      correlation: { debateRunId: 'run-1', stageId: 'r1:wave', dispatchId: 'dispatch-1' },
+      payload: { model: 'Qwen', text: 'private answer'.repeat(1000), answerLength: 14000 }
+    });
+    const report = Projections.buildReport(store.getRun('run-1'));
+    expect(report.events.at(-1).payload.text).toBe('[REDACTED]');
+    expect(report.dispatchAttempts[0].events).toBeUndefined();
+    expect(report.dispatchAttempts[0].evidenceEventIds).toEqual([report.events.at(-1).eventId]);
+    expect(JSON.stringify(report)).not.toContain('private answer');
+  });
+
+  test('Only problems filters every event-derived report section', () => {
+    const store = completedTrace([
+      {
+        eventType: 'ANSWER_COLLECTED', sourceTimestamp: 1200,
+        correlation: { debateRunId: 'run-1', stageId: 'r1:wave', dispatchId: 'dispatch-ok' },
+        payload: { model: 'Qwen', text: 'private answer', answerLength: 14 }
+      },
+      {
+        eventType: 'SUBMIT_TIMEOUT', severity: 'high', sourceTimestamp: 1210,
+        correlation: { debateRunId: 'run-1', stageId: 'r1:wave', dispatchId: 'dispatch-fail' },
+        payload: { model: 'DeepSeek' }
+      },
+      {
+        eventType: 'STAGE_ARTIFACT_PRODUCED', sourceTimestamp: 1220,
+        correlation: { debateRunId: 'run-1', stageId: 'r1:wave' },
+        payload: { artifactId: 'artifact-1', artifact: { id: 'artifact-1', text: 'private artifact' } }
+      }
+    ]);
+    const report = Projections.buildReport(store.getRun('run-1'));
+    const filtered = Projections.filterProblems(report, { problemContextFilter: ProblemContextFilter });
+
+    expect(filtered.artifacts).toEqual([]);
+    expect(filtered.dispatchAttempts.some((attempt) => attempt.dispatchId === 'dispatch-fail')).toBe(true);
+    expect(JSON.stringify(filtered)).not.toContain('private answer');
+    expect(JSON.stringify(filtered)).not.toContain('private artifact');
   });
 
   test('classifies a recorded parallel-stage recovery pattern as degraded and exposes its evidence', () => {

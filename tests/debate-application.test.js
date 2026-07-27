@@ -2,11 +2,13 @@ const RunStore = require('../disput/debate-run-store');
 const DebateApplication = require('../disput/debate-application');
 const ArtifactPipeline = require('../disput/debate-artifact-pipeline');
 
-const makeApplication = () => {
+const makeApplicationWith = (options = {}) => {
   const store = RunStore.createStore();
   const application = DebateApplication.createApplication({
+    ...options,
     store,
     deps: {
+      ...(options.deps || {}),
       runModelBatch: async ({ models }) => ({
         responses: Object.fromEntries(models.map((model) => [model, `answer:${model}`])), failed: {}
       }),
@@ -20,6 +22,7 @@ const makeApplication = () => {
   });
   return { application, store };
 };
+const makeApplication = () => makeApplicationWith();
 
 const config = (overrides = {}) => ({
   runId: 'run-1', sessionId: 'session-1', topic: 'Universal lifecycle',
@@ -59,5 +62,67 @@ describe('DebateApplication — universal lifecycle bridge', () => {
     await application.start(config({ deferExecution: false, maxSteps: 1 }));
     expect(store.getState().events.some((item) => item.type === RunStore.EVENTS.STAGE_STARTED)).toBe(true);
     expect(store.getState().events.some((item) => item.type === RunStore.EVENTS.STAGE_COMPLETED)).toBe(true);
+  });
+
+  test('terminal aggregate projection survives a throwing UI subscriber', async () => {
+    const errors = [];
+    const store = RunStore.createStore({}, { onListenerError: (error) => errors.push(error.message) });
+    const application = DebateApplication.createApplication({
+      store,
+      deps: {
+        runModelBatch: async ({ models }) => ({
+          responses: Object.fromEntries(models.map((model) => [model, `answer:${model}`])), failed: {}
+        }),
+        acceptResponse: () => ({ ok: true }),
+        compilePrompt: () => 'prompt',
+        extractArtifacts: ArtifactPipeline.extractArtifacts,
+        proposeStateDelta: ArtifactPipeline.proposeStateDelta,
+        commitStateDelta: ArtifactPipeline.commitStateDelta,
+        projectStateMap: ArtifactPipeline.projectStateMap
+      }
+    });
+    store.subscribe((_state, aggregateEvent) => {
+      if (aggregateEvent?.type === RunStore.EVENTS.FINALIZATION_COMPLETED) throw new Error('render_failed');
+    });
+    await application.start(config({
+      policies: { finalization: { mode: 'after_required_goals' } },
+      openGoals: [],
+      deferExecution: false
+    }));
+    expect(store.getState().status).toBe('completed');
+    expect(errors).toContain('render_failed');
+  });
+
+  test('application recovery restores orchestrator runtime before exposing recovered UI state', async () => {
+    const memory = { events: [], snapshots: [], lease: null, published: 0 };
+    const persistence = {
+      appendEvent: (event) => memory.events.push(JSON.parse(JSON.stringify(event))),
+      loadEvents: (after = 0) => memory.events.filter((event) => event.eventSequence > after),
+      saveSnapshot: (snapshot) => memory.snapshots.push(JSON.parse(JSON.stringify(snapshot))),
+      loadLatestSnapshot: () => memory.snapshots.at(-1) || null,
+      loadRecoveryCheckpoint: () => memory.events.slice().reverse()
+        .find((event) => event.type === 'RUN_STATE_CHECKPOINTED')?.payload?.snapshot || null,
+      readLastPublishedSequence: () => memory.published,
+      markPublished: (sequence) => { memory.published = Math.max(memory.published, sequence); },
+      readLease: () => memory.lease,
+      writeLease: (lease) => { memory.lease = lease ? JSON.parse(JSON.stringify(lease)) : null; return true; },
+      compareAndSetLease: (_expected, lease) => {
+        memory.lease = lease ? JSON.parse(JSON.stringify(lease)) : null;
+        return true;
+      }
+    };
+    const first = makeApplicationWith({ persistence });
+    await first.application.start(config());
+    await first.application.pause();
+    const aggregateSnapshot = RunStore.serialize(first.store.getState());
+
+    const second = makeApplicationWith({ persistence });
+    const recovery = await second.application.recover(aggregateSnapshot);
+    expect(recovery).toMatchObject({
+      ok: true,
+      lifecycle: 'PAUSED',
+      aggregate: { runId: 'run-1', status: 'technical_pause' }
+    });
+    expect(second.application.getOrchestrator().getState().lifecycle).toBe('PAUSED');
   });
 });

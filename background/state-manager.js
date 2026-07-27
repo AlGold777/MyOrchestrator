@@ -6,7 +6,17 @@
 function clonePlainForStateTelemetry(value) {
   if (!value || typeof value !== 'object') return null;
   try {
-    return JSON.parse(JSON.stringify(value));
+    const clone = JSON.parse(JSON.stringify(value));
+    const redactTextField = (target, key) => {
+      if (!target || !Object.prototype.hasOwnProperty.call(target, key)) return;
+      const text = String(target[key] || '');
+      target[`${key}Length`] = text.trim().length;
+      delete target[key];
+    };
+    redactTextField(clone, 'answer');
+    redactTextField(clone, 'answerHtml');
+    redactTextField(clone, 'pendingFinalAnswer');
+    return clone;
   } catch (_) {
     return { unserializable: true };
   }

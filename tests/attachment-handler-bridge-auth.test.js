@@ -18,6 +18,10 @@ const UTILS_SRC = fs.readFileSync(
   path.join(__dirname, '..', 'content-scripts', 'content-utils.js'),
   'utf8'
 );
+const PERPLEXITY_TRANSACTION_SRC = fs.readFileSync(
+  path.join(__dirname, '..', 'content-scripts', 'perplexity-composer-transaction.js'),
+  'utf8'
+);
 const ROUTER_SRC = fs.readFileSync(
   path.join(__dirname, '..', 'background', 'message-router.js'),
   'utf8'
@@ -204,12 +208,11 @@ describe('attachment bridge authentication', () => {
     const source = PROVIDER_SOURCES.Perplexity;
     expect(source).toContain('dismissPerplexityPromotion');
     expect(source).toContain('PERPLEXITY_PROMOTION_DISMISSED');
-    expect(source).toContain("'button.reset.interactable.select-none.outline-none'");
-    expect(source).toContain('container !== document.body');
-    expect(source).toContain('containerRect.width * 0.55');
-    expect(source).toContain("'[role=\"dialog\"], dialog[open], [aria-modal=\"true\"]");
-    expect(source).toContain("button.querySelector?.('svg')");
-    expect(source).toContain('dialogRect.width * 0.6');
+    expect(source).toContain('PerplexityComposerTransaction?.findOwnedPromotionClose');
+    expect(PERPLEXITY_TRANSACTION_SRC).toContain('container === doc.body || container === doc.documentElement');
+    expect(PERPLEXITY_TRANSACTION_SRC).toContain('text.length > 1800');
+    expect(PERPLEXITY_TRANSACTION_SRC).toContain('rect.width * rect.height > viewportArea * 0.6');
+    expect(PERPLEXITY_TRANSACTION_SRC).toContain("container.querySelector?.(DEFAULT_SELECTORS.join(','))");
     const attachmentBlock = source.slice(
       source.indexOf('if (Array.isArray(attachments) && attachments.length)'),
       source.indexOf("console.log('[content-perplexity] Input field found. Injecting prompt...')")
@@ -225,6 +228,8 @@ describe('attachment bridge authentication', () => {
   });
 
   test('Perplexity clicks the live utility-class close button inside a promotion ancestor', async () => {
+    delete window.PerplexityComposerTransaction;
+    window.eval(PERPLEXITY_TRANSACTION_SRC);
     document.body.innerHTML = `
       <div id="promotion">Upgrade to Perplexity Pro
         <button class="reset interactable select-none [-webkit-user-drag:none] outline-none font-semibold">
@@ -242,10 +247,11 @@ describe('attachment bridge authentication', () => {
       PROVIDER_SOURCES.Perplexity.indexOf('const runAntiSleepPulse')
     );
     const factory = new Function(
-      'document', 'getComputedStyle', 'chrome', 'sleep', 'MODEL',
+      'window', 'document', 'getComputedStyle', 'chrome', 'sleep', 'MODEL',
       `${dismissSource}; return dismissPerplexityPromotion;`
     );
     const dismiss = factory(
+      window,
       document,
       getComputedStyle,
       { runtime: { sendMessage: jest.fn() } },
@@ -335,13 +341,35 @@ describe('attachment bridge authentication', () => {
     expect(orchestrator.indexOf('const providerPipelineActive')).toBeLessThan(orchestrator.indexOf("ROUND2_REPAIR_MODELS.has(llmName)"));
   });
 
-  test('Le Chat and Perplexity click only their enabled Send control through CDP', () => {
+  test('Le Chat and Perplexity submission never attaches the Chrome debugger', () => {
+    for (const source of [PROVIDER_SOURCES['Le Chat'], PROVIDER_SOURCES.Perplexity]) {
+      expect(source).not.toContain("type: 'PROVIDER_TRUSTED_INPUT_REQUEST'");
+      expect(source).not.toContain("type: 'PROVIDER_TRUSTED_SEND_REQUEST'");
+      expect(source).not.toContain("type: 'PERPLEXITY_TRUSTED_INPUT_REQUEST'");
+      expect(source).not.toContain("type: 'PERPLEXITY_TRUSTED_ENTER_REQUEST'");
+      expect(source).not.toContain("type: 'LECHAT_TRUSTED_SEND_REQUEST'");
+    }
+  });
+
+  test('Le Chat keeps page button, form and keyboard fallbacks reachable', () => {
     const source = PROVIDER_SOURCES['Le Chat'];
-    expect(source).toContain("type: 'PROVIDER_TRUSTED_SEND_REQUEST'");
-    expect(PROVIDER_SOURCES.Perplexity).toContain("type: 'PROVIDER_TRUSTED_SEND_REQUEST'");
-    expect(ROUTER_SRC).toContain("case 'PROVIDER_TRUSTED_SEND_REQUEST'");
-    expect(ROUTER_SRC).toContain('buildProviderSendControlExpression(expectedText)');
-    expect(ROUTER_SRC).toContain('PROVIDER_TRUSTED_SEND_CLICKED');
+    const buttonAt = source.indexOf('const sendButton = await waitForSendEnabled');
+    const formAt = source.indexOf('form.requestSubmit()', buttonAt);
+    const enterAt = source.indexOf('dispatchEnter();', formAt);
+    expect(buttonAt).toBeGreaterThan(-1);
+    expect(formAt).toBeGreaterThan(buttonAt);
+    expect(enterAt).toBeGreaterThan(formAt);
+  });
+
+  test('Le Chat confirms a new submission signal rather than a pre-existing busy element', () => {
+    const source = PROVIDER_SOURCES['Le Chat'];
+    expect(source).toContain('const baselineGenerationEvidence = new Set(collectGenerationEvidence())');
+    expect(source).toContain('hasFreshGenerationEvidence()');
+    expect(source).toContain('countUserTurns() > baselineUserTurns');
+    expect(source).not.toContain("if (typing || stopButton || ariaBusy) return true;");
+    expect(source).not.toContain('if (!composerText.length) return true;');
+    expect(source).not.toContain('composerText.length <= Math.max(1, Math.floor(beforeTextLength * 0.1))');
+    expect(source).toContain('ProviderSubmitConfirmation');
   });
 
   test('Gemini waits for the background CDP result and fails before UI confirmation when dispatch fails', () => {

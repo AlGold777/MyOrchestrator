@@ -181,8 +181,70 @@ describe('materialize recovery freshness gate', () => {
 
     expect(gate).toEqual(expect.objectContaining({
       ok: false,
-      reason: 'materialize_recovery_freshness_unproven'
+      reason: 'materialize_recovery_freshness_unproven',
+      attributionState: 'unproven'
     }));
+  });
+
+  test('delivers complete content with unproven attribution as a non-terminal marked artifact', () => {
+    const answer = 'complete but ownership-unproven answer '.repeat(100);
+    const { context, telemetryEvents } = createSandbox({
+      llms: {
+        Qwen: {
+          tabId: 404,
+          status: 'NO_SEND',
+          lastDispatchMeta: { dispatchId: 'Qwen:run:2' },
+          answerVerification: {
+            verified: true,
+            resolution: 'exact',
+            structuralComplete: true,
+            generationActive: false,
+            selectedLength: answer.trim().length,
+            lengthRegressionActive: false
+          }
+        }
+      }
+    });
+    const entry = context.jobState.llms.Qwen;
+    const gate = context.shouldAcceptMaterializeRecoveryResult('Qwen', entry, {
+      text: answer,
+      source: 'late_collect'
+    }, { text: answer, source: 'late_collect', dispatchId: 'Qwen:run:2' });
+
+    expect(context.preserveUnprovenMaterializeArtifact('Qwen', entry, {
+      text: answer,
+      html: '<p>answer</p>',
+      source: 'late_collect'
+    }, { text: answer, source: 'late_collect', dispatchId: 'Qwen:run:2' }, gate)).toBe(true);
+    expect(entry).toEqual(expect.objectContaining({
+      status: 'RECEIVING',
+      pendingFinalAnswer: answer.trim(),
+      attributionState: 'unproven',
+      answerState: 'candidate',
+      unverifiedArtifact: expect.objectContaining({
+        text: answer.trim(),
+        completenessState: 'complete',
+        attributionState: 'unproven'
+      })
+    }));
+    expect(entry.finalStatusRecorded).not.toBe(true);
+    expect(context.sendMessageToResultsTab).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'LLM_PARTIAL_RESPONSE',
+      llmName: 'Qwen',
+      answer: answer.trim(),
+      metadata: expect.objectContaining({
+        status: 'RECEIVING',
+        terminal: false,
+        attributionState: 'unproven',
+        attributionLabel: 'Attribution unverified'
+      })
+    }));
+    expect(telemetryEvents).toContainEqual(expect.objectContaining({
+      llmName: 'Qwen',
+      event: 'MATERIALIZE_RECOVERY_CONTENT_UNVERIFIED'
+    }));
+    expect(JOB_ORCHESTRATOR_SOURCE).toContain('preserveUnprovenMaterializeArtifact(llmName, afterVisit, result, evidence.summary, materializeGate)');
+    expect(JOB_ORCHESTRATOR_SOURCE).toContain('delete entry.unverifiedArtifact;');
   });
 
   test('allows a non-baseline candidate after content-confirmed submission', () => {
@@ -297,7 +359,7 @@ describe('recovered final upgrade requires confirmed dispatch (run 1782940321214
     expect(telemetryEvents.some((e) => e.event === 'RECOVERED_FINAL_UPGRADE_BLOCKED_UNCONFIRMED_SEND')).toBe(true);
   });
 
-  test('recovered answer still upgrades the locked failure once the dispatch was confirmed', async () => {
+  test('confirmed dispatch alone cannot upgrade a locked failure without structural proof', async () => {
     const llms = { 'Le Chat': lockedUncertainEntry() };
     llms['Le Chat'].promptSubmittedAt = Date.now() - 60000;
     const { context } = createSandbox({ llms });
@@ -310,7 +372,7 @@ describe('recovered final upgrade requires confirmed dispatch (run 1782940321214
     }, '');
     await new Promise((resolve) => setTimeout(resolve, 300));
 
-    expect(entry.finalStatus).toBe('SUCCESS');
+    expect(entry.finalStatus).toBe('UNCERTAIN');
   });
 
   test('manual recovery keeps its existing bypass even without submit confirmation', async () => {

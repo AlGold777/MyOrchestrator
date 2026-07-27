@@ -67,7 +67,9 @@
     maxTotalStages: 50,
     maxModelCalls: null,
     maxHumanWaits: null,
+    maxRetryAttempts: null,
     maxContextTokens: null,
+    maxCorrections: null,
     maxEstimatedCost: null,
     maxElapsedTimeMs: null
   });
@@ -139,6 +141,15 @@
       errors.push(violation(finalization.policyId, 'SYNTHESIS_NEEDS_PARTICIPANT',
         'Required synthesis needs at least one participant with synthesis capability', 0, '>= 1'));
     }
+    const budgets = policies.budgets || DEFAULT_BUDGETS;
+    appliedPolicies.push(budgets.policyId);
+    Object.entries(budgets).forEach(([key, value]) => {
+      if (key === 'policyId' || value == null) return;
+      if (!Number.isFinite(Number(value)) || Number(value) < 0) {
+        errors.push(violation(budgets.policyId, 'BUDGET_LIMIT_INVALID',
+          `${key} must be a non-negative finite number or null`, value, '>= 0 or null'));
+      }
+    });
     return { valid: errors.length === 0, errors, appliedPolicies };
   }
 

@@ -9,6 +9,8 @@
   const Planner = root.DebatePlanner || (typeof require === 'function' ? require('./debate-planner') : null);
   const StageExecutor = root.DebateStageExecutor || (typeof require === 'function' ? require('./debate-stage-executor') : null);
   const Orchestrator = root.DebateOrchestrator || (typeof require === 'function' ? require('./debate-orchestrator') : null);
+  const CaseStore = root.DebateCaseStore || (typeof require === 'function' ? require('./debate-case-store') : null);
+  const OrchestratorPersistence = root.DebateOrchestratorPersistence || (typeof require === 'function' ? require('./debate-orchestrator-persistence') : null);
 
   const makeFallbackId = () => `debate-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -16,6 +18,7 @@
     const store = options.store || RunStore?.createStore?.();
     if (!store) throw new Error('DebateApplication requires DebateRunStore');
     const deps = Object.freeze({ ...(options.deps || {}) });
+    const semanticStore = options.semanticStore || (options.enableCanonicalStore ? CaseStore?.createStore?.(options.caseStoreOptions || {}) : null);
     const dispatch = (type, payload = {}) => store.dispatch({ type, payload });
     const event = RunStore?.EVENTS || {};
 
@@ -159,7 +162,8 @@
         planner: options.planner || Planner.createPlanner(),
         executor,
         revisionStore: universalRevisions,
-        persistence: options.persistence,
+        persistence: options.persistence || (options.enableDurablePersistence ? OrchestratorPersistence?.createPersistence?.({ runId }) : undefined),
+        semanticStore,
         commitStateDelta: options.commitStateDelta || deps.commitStateDelta,
         projectStateMap: options.projectStateMap || deps.projectStateMap,
         extractArtifacts: options.extractArtifacts || deps.extractArtifacts,
@@ -172,13 +176,16 @@
     }
 
     function recordUniversalEvent(type, payload = {}) {
-      dispatch(event.TIMELINE_EVENT_RECORDED, { kind: type, ...payload });
       const body = payload?.payload || payload;
+      // Lifecycle projections are committed before ancillary timeline work. This
+      // guarantees that a completed orchestrator cannot be left with a running
+      // UI aggregate if telemetry/rendering fails.
       if (type === 'STAGE_STARTED') dispatch(event.STAGE_STARTED, { stageId: body.stageInstanceId });
       if (type === 'STAGE_COMPLETED') dispatch(event.STAGE_COMPLETED, { stageId: body.stageInstanceId });
       if (type === 'RUN_COMPLETED') dispatch(event.FINALIZATION_COMPLETED, { reason: body.reason || 'completed' });
       if (type === 'RUN_CANCELLED') dispatch(event.CANCEL_REQUESTED, { reason: body.reason || 'cancelled' });
       if (type === 'RUN_FAILED') dispatch(event.RUN_FAILED, { reason: body.reason || 'failed' });
+      dispatch(event.TIMELINE_EVENT_RECORDED, { kind: type, ...payload });
     }
 
     const revisionCommand = (commandType, payload, meta = {}) => ({
@@ -203,6 +210,12 @@
       async startUniversal(config = {}) {
         const created = createUniversalRun(config);
         if (!created.ok) return created;
+        if (semanticStore?.create) {
+          let canonical = semanticStore.getState?.();
+          if (canonical?.caseId !== created.runId && semanticStore.load) canonical = await semanticStore.load(created.runId);
+          if (!canonical) canonical = await semanticStore.create(created.debateCase);
+          created.debateCase = canonical;
+        }
         dispatch(event.START_REQUESTED, {
           runId: created.runId,
           sessionId: config.sessionId,
@@ -234,6 +247,7 @@
       insertHumanStage: (stage, meta) => universal?.activatePlanRevision(revisionCommand('INSERT_HUMAN_STAGE', { stage }, meta), meta),
       submitIntervention: (command) => universal?.submitIntervention(command),
       submitParticipantResponse: (command) => universal?.submitParticipantResponse(command),
+      resolveHumanDecision: (command) => universal?.resolveHumanDecision(command),
       pauseRun: (command) => universal?.requestPause(command || {}),
       continueRun: (command) => universal?.requestContinue(command || {}),
       async start(config = {}) {
@@ -262,11 +276,54 @@
         await deps.cancelTransport?.(state?.runId, reason);
         return store.getState();
       },
-      recover(snapshot) {
+      async recover(snapshot, command = {}) {
         const recovered = RunStore?.hydrate?.(snapshot) || snapshot;
+        if (!recovered?.runId) return { ok: false, code: 'RECOVERY_SNAPSHOT_INVALID' };
+        if (RunStore?.isTerminal?.(recovered)) {
+          store.replace(recovered);
+          return { ok: true, lifecycle: 'TERMINAL', aggregate: store.getState() };
+        }
+        const created = createUniversalRun({
+          ...(recovered.config || {}),
+          runId: recovered.runId,
+          sessionId: recovered.sessionId,
+          persistedConfig: recovered.config || {}
+        });
+        if (!created?.ok || !created.orchestrator?.recoverRun) {
+          return { ok: false, code: created?.code || 'RUNTIME_RECOVERY_UNAVAILABLE' };
+        }
+        let runtimeRecovery = await created.orchestrator.recoverRun({
+          runId: recovered.runId,
+          deferExecution: command.deferExecution !== false,
+          maxSteps: command.maxSteps
+        });
+        if (!runtimeRecovery?.ok) return runtimeRecovery;
+        if (runtimeRecovery.lifecycle === 'RUNNING') {
+          const paused = await created.orchestrator.requestPause({
+            policy: 'finish_current_stage',
+            requestedBy: 'recovery'
+          });
+          if (!paused?.ok) return paused;
+          runtimeRecovery = { ...runtimeRecovery, lifecycle: paused.lifecycle };
+        }
         store.replace(recovered);
-        dispatch(event.TECHNICAL_PAUSE, { reason: 'page_recovered' });
-        return store.getState();
+        if (runtimeRecovery.lifecycle === 'COMPLETED') {
+          dispatch(event.FINALIZATION_COMPLETED, { reason: 'runtime_recovered_completed' });
+        } else if (runtimeRecovery.lifecycle === 'CANCELLED') {
+          dispatch(event.CANCEL_REQUESTED, { reason: 'runtime_recovered_cancelled' });
+        } else if (runtimeRecovery.lifecycle === 'FAILED') {
+          dispatch(event.RUN_FAILED, { reason: 'runtime_recovered_failed' });
+        } else if (!RunStore?.isTerminal?.(store.getState())) {
+          dispatch(event.TECHNICAL_PAUSE, { reason: 'page_recovered' });
+        }
+        return {
+          ok: true,
+          lifecycle: runtimeRecovery.lifecycle,
+          aggregate: store.getState()
+        };
+      },
+      recoverRun(snapshot, command) {
+        return api.recover(snapshot, command);
       },
       dispose(reason = 'application_disposed') {
         universal?.requestCancel?.({ reason });

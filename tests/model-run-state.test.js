@@ -55,7 +55,8 @@ describe('ModelRunState architecture contract', () => {
       answerHash: ModelRunState.hashText(entry.answer),
       dispatchId: 'dispatch-1',
       tabId: 42,
-      runSessionId: 1779916480462
+      runSessionId: 1779916480462,
+      verified: true
     });
 
     expect(result.applied).toBe(true);
@@ -68,6 +69,37 @@ describe('ModelRunState architecture contract', () => {
       tabId: 42,
       runSessionId: 1779916480462
     }));
+  });
+
+  test('keeps an explicitly unverified accepted candidate in verification phase', () => {
+    const entry = { llmName: 'Z.ai', status: 'RECEIVING', answer: 'candidate answer' };
+    ModelRunState.applyModelRunTransition(entry, 'ANSWER_CANDIDATE_ACCEPTED', {
+      status: 'SUCCESS', answerLength: entry.answer.length, verified: false
+    });
+    expect(entry.modelRunState.extractionState).toBe('accepted_unverified');
+    expect(entry.modelRunState.verificationState).toBe('candidate');
+    expect(StatusContract.deriveResultMeta(entry).phase).toBe('verifying');
+  });
+
+  test('records structural verification independently from terminal application', () => {
+    const entry = { llmName: 'Qwen', status: 'RECEIVING', answer: 'candidate answer' };
+    ModelRunState.applyModelRunTransition(entry, 'ANSWER_CANDIDATE_OBSERVED', { status: 'FINALIZING' });
+    expect(entry.modelRunState.terminalState).toBe('open');
+    ModelRunState.applyModelRunTransition(entry, 'ANSWER_VERIFIED', { method: 'dom_structural_stability' });
+    expect(entry.modelRunState.verificationState).toBe('verified');
+    expect(entry.modelRunState.verificationMethod).toBe('dom_structural_stability');
+  });
+
+  test('marks restored success without verification evidence as legacy_unverified', () => {
+    const entry = {
+      status: 'SUCCESS', finalStatus: 'SUCCESS', finalStatusRecorded: true,
+      finalizedAt: Date.now(), answer: 'old stored answer'
+    };
+    const state = ModelRunState.deriveModelRunState(entry);
+    expect(state.verificationState).toBe('legacy_unverified');
+    expect(state.extractionState).toBe('legacy_unverified');
+    entry.modelRunState = state;
+    expect(StatusContract.deriveResultMeta(entry).phase).toBe('verifying');
   });
 
   test('does not close the run on RECOVERABLE_ERROR', () => {

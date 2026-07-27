@@ -222,25 +222,6 @@ function renderDebateDom() {
         <div class="stage-column synthesis-capable" id="synthesisColumn" data-stage="synthesis" hidden aria-hidden="true">
           <div class="model-stack synthesis-stack" id="synthesis-stack" data-render="pipeline-synthesis-stack"></div>
         </div>
-        <div id="connectorToOutput">
-          <svg class="connector-svg" id="svg-stage-output"></svg>
-        </div>
-        <div id="outputColumn">
-        <div class="output-stack" id="output-stack">
-          <div class="output-block" data-output="notes">
-            <input type="checkbox" class="output-checkbox" checked>
-            <span class="output-name">Renamed A</span>
-          </div>
-          <div class="output-block" data-output="export">
-            <input type="checkbox" class="output-checkbox">
-            <span class="output-name">Renamed B</span>
-          </div>
-          <div class="output-block" data-output="exportHtml">
-            <input type="checkbox" class="output-checkbox" checked>
-            <span class="output-name">Renamed C</span>
-          </div>
-        </div>
-        </div>
         <div class="pipeline-items" id="pipelineItems">
           <div class="pipeline-item active" data-name="Research & Analysis">
             <input type="radio" name="pipeline" class="pipeline-radio" checked>
@@ -364,6 +345,7 @@ async function loadResultsScript() {
   installChromeStorageMock();
   installDomMocks();
   window.__RESULTS_TEST_DEBUG__ = true;
+  window.eval(fs.readFileSync(path.join(__dirname, '..', 'shared', 'status-contract.js'), 'utf8'));
   const pipelineRuntime = fs.readFileSync(path.join(__dirname, '..', 'pipeline', 'pipeline-runtime.js'), 'utf8');
   window.eval(pipelineRuntime);
   window.eval(fs.readFileSync(path.join(__dirname, '..', 'shared', 'transport-policy.js'), 'utf8'));
@@ -497,6 +479,9 @@ describe('Pipeline debate favorites view', () => {
     expect(fragment.dataset.sourceMessageId).toBe('source-1');
     expect(fragment.dataset.sourceCardId).toBe(source.id);
     expect(fragment.textContent).toContain('important fragment');
+    // applyDebateSessionFilter now coalesces its DOM sweep into one rAF, so the
+    // display flip lands on the next frame instead of synchronously.
+    await delay(20);
     expect(fragment.style.display).toBe('none');
 
     const tab = document.querySelector('.debate-session-tab.active');
@@ -559,6 +544,49 @@ describe('Pipeline debate favorites view', () => {
     expect(leChat.dataset.approved).toBe('true');
     expect(leChat.querySelector('.debate-approval-check')).toBeNull();
     expect(qwen.dataset.approved).not.toBe('true');
+  });
+
+  test('answer approval checkboxes exist only in manual mode', () => {
+    const policy = document.getElementById('debate-run-policy-select');
+    const debug = window.__pipelineLifecycleDebug;
+    policy.value = 'auto';
+    policy.dispatchEvent(new Event('change', { bubbles: true }));
+
+    debug.updateLLMPanelOutput('GPT', 'Automatic answer', '', { status: 'SUCCESS' });
+    let card = document.querySelector('.debate-model-card[data-llm-name="GPT"]');
+    expect(card.querySelector('.debate-approval-check')).toBeNull();
+
+    policy.value = 'manual';
+    policy.dispatchEvent(new Event('change', { bubbles: true }));
+    card = document.querySelector('.debate-model-card[data-llm-name="GPT"]');
+    expect(card.querySelector('.debate-approval-check')).not.toBeNull();
+  });
+
+  test('unproven attribution is visibly marked and remains non-final in panel and feed card', () => {
+    const debug = window.__pipelineLifecycleDebug;
+    const panelFixture = document.createElement('section');
+    panelFixture.id = 'panel-gpt';
+    panelFixture.className = 'llm-panel';
+    panelFixture.innerHTML = '<div class="output"></div>';
+    document.body.appendChild(panelFixture);
+    debug.updateLLMPanelOutput('GPT', 'Complete recovered answer', '', {
+      status: 'RECEIVING',
+      terminal: false,
+      attributionState: 'unproven',
+      attributionLabel: 'Attribution unverified'
+    });
+
+    const panel = document.getElementById('panel-gpt');
+    const card = document.querySelector('.debate-model-card[data-llm-name="GPT"]');
+    expect(panel.classList.contains('has-unproven-attribution')).toBe(true);
+    expect(panel.querySelector(':scope > .attribution-unproven-banner')?.textContent).toBe('Attribution unverified');
+    expect(card.classList.contains('has-unproven-attribution')).toBe(true);
+    expect(card.dataset.turnClosed).toBe('false');
+    expect(card.querySelector('.attribution-unproven-banner')?.textContent).toBe('Attribution unverified');
+
+    debug.updateLLMPanelOutput('GPT', 'Verified replacement answer', '', { status: 'SUCCESS' });
+    expect(panel.classList.contains('has-unproven-attribution')).toBe(false);
+    expect(panel.querySelector('.attribution-unproven-banner')).toBeNull();
   });
 
   test('selection toolbar formats the source card text in the normal timeline', async () => {
@@ -741,6 +769,28 @@ describe('Pipeline debate favorites view', () => {
     expect(second.querySelector('.debate-card-show-more').textContent).toBe('Show more');
   });
 
+  test('wide card overlay uses the viewport and finalization removes printing marker', () => {
+    const css = readResolvedCss();
+    expect(css).toContain('.debate-model-card.is-wide-expanded {\n    position: fixed !important;');
+    expect(css).toContain('inset: 16px;');
+    expect(css).toContain('width: auto !important;');
+
+    const debug = window.__pipelineLifecycleDebug;
+    const card = addDebateCard({ id: 'printing-perplexity', model: 'Perplexity', text: 'Answer in progress' });
+    card.dataset.live = 'true';
+    card.dataset.turnClosed = 'false';
+    const printing = document.createElement('div');
+    printing.className = 'debate-model-card-printing';
+    printing.textContent = '[Perplexity] printing';
+    card.appendChild(printing);
+
+    debug.finalizeDebatePrintingForModel('Perplexity');
+
+    expect(card.querySelector('.debate-model-card-printing')).toBeNull();
+    expect(card.dataset.live).toBe('false');
+    expect(card.dataset.turnClosed).toBe('true');
+  });
+
   test('debate cards render text through the same Markdown formatter as main response cards', () => {
     const card = addDebateCard({ id: 'msg-markdown-format', text: '', model: 'GPT' });
     const output = card.querySelector('.debate-model-card-output');
@@ -828,7 +878,7 @@ describe('Pipeline debate favorites view', () => {
     expect(debug.resolvePipelineWaitTimeoutMs(['Qwen'], 900000)).toBe(900000);
   });
 
-  test('visible Gemini answer upgrades non-hidden PARTIAL indicator to success', () => {
+  test('visible Gemini answer cannot upgrade an unverified PARTIAL indicator to green', () => {
     const debug = window.__pipelineLifecycleDebug;
     const indicator = document.querySelector('.status-indicator[data-llm-name="Gemini"]');
     const answer = 'Gemini returned a complete visible answer. '.repeat(8);
@@ -842,9 +892,11 @@ describe('Pipeline debate favorites view', () => {
     debug.updateLLMPanelOutput('Gemini', answer, '', {});
 
     expect(document.getElementById('output-gemini').textContent).toContain('Gemini returned');
-    expect(indicator.dataset.currentStatus).toBe('SUCCESS');
-    expect(indicator.classList.contains('success')).toBe(true);
-    expect(indicator.classList.contains('partial')).toBe(false);
+    expect(indicator.dataset.currentStatus).toBe('PARTIAL');
+    expect(indicator.dataset.resultPhase).toBe('partial');
+    expect(indicator.classList.contains('success')).toBe(false);
+    expect(indicator.classList.contains('receiving')).toBe(false);
+    expect(indicator.classList.contains('partial')).toBe(true);
   });
 
   test('a settled debate card indicator is not repainted by a later force status for the same model', () => {
@@ -852,11 +904,17 @@ describe('Pipeline debate favorites view', () => {
     const card = document.createElement('div');
     card.className = 'debate-model-card';
     card.dataset.llmName = 'GPT';
-    card.innerHTML = '<span class="status-indicator" data-llm-name="GPT"></span>';
+    card.innerHTML = '<span class="status-indicator" data-llm-name="GPT"></span><div class="debate-model-card-output">verified answer</div>';
     document.body.appendChild(card);
     const indicator = card.querySelector('.status-indicator');
 
-    debug.updateModelStatusUI('GPT', 'SUCCESS', { source: 'FINAL_STATUS', finalStatus: 'SUCCESS' });
+    debug.updateModelStatusUI('GPT', 'SUCCESS', {
+      source: 'FINAL_STATUS', finalStatus: 'SUCCESS', answer: 'verified answer',
+      modelRunState: {
+        executionState: 'terminal_success', terminalStatus: 'SUCCESS', uiStatus: 'SUCCESS',
+        answerState: 'accepted', verificationState: 'verified'
+      }
+    });
     expect(indicator.classList.contains('success')).toBe(true);
     expect(indicator.dataset.statusFinal).toBe('1');
 
@@ -892,6 +950,26 @@ describe('Pipeline debate favorites view', () => {
 
     debug.updateLLMPanelOutput('GPT', 'Dedup test after duplicate injected.', '', {});
     expect(openGptCards().length).toBe(1);
+  });
+
+  test('final answers from later rounds append instead of replacing earlier model cards', () => {
+    const debug = window.__pipelineLifecycleDebug;
+    const cards = () => Array.from(document.querySelectorAll('.debate-model-card[data-llm-name="GPT"]'));
+
+    debug.updateLLMPanelOutput('GPT', 'Round one concept', '', {
+      status: 'SUCCESS',
+      requestId: 'round-1-request'
+    });
+    debug.updateLLMPanelOutput('GPT', 'Round two improved concept', '', {
+      status: 'SUCCESS',
+      requestId: 'round-2-request'
+    });
+
+    expect(cards()).toHaveLength(2);
+    expect(cards().map((card) => card.dataset.requestId)).toEqual(['round-1-request', 'round-2-request']);
+    expect(cards().map((card) => card.querySelector('.debate-model-card-output').textContent))
+      .toEqual(expect.arrayContaining(['Round one concept', 'Round two improved concept']));
+    expect(cards().every((card) => card.dataset.turnClosed === 'true')).toBe(true);
   });
 
   test('debate approval waiter rejects and cleans up on abort', async () => {
@@ -996,47 +1074,11 @@ describe('Pipeline debate favorites view', () => {
     ]));
   });
 
-  test('pipeline output selection uses data-output keys instead of visible labels', () => {
-    const debug = window.__pipelineLifecycleDebug;
-    const selection = debug.getPipelineOutputSelection();
-
-    expect(selection).toEqual({
-      notes: true,
-      export: false,
-      exportHtml: true
-    });
-  });
-
   test('Action chips never become moderator dispatch text', () => {
     const debug = window.__pipelineLifecycleDebug;
     expect(document.getElementById('mod-mini-prompts').textContent).not.toContain('Role:');
     expect(document.getElementById('mod-message-body').textContent).toBe('');
     expect(debug.getModeratorDispatchText()).toBe('');
-  });
-
-  test('successful Debate terminal flow executes selected Output actions once', async () => {
-    const debug = window.__pipelineLifecycleDebug;
-    const blocks = Array.from(document.querySelectorAll('#output-stack .output-block'));
-    blocks.forEach((block) => {
-      block.querySelector('.output-checkbox').checked = block.dataset.output === 'notes';
-    });
-    window.PipelineNotes = { savePipelineRun: jest.fn().mockResolvedValue(true) };
-    const state = {
-      runId: 'terminal-output-test',
-      topic: 'Output ownership',
-      moderatorMessage: 'Review this architecture',
-      stateMap: { artifacts: { synthesis: { id: 'synthesis', type: 'synthesis_conclusion', text: 'Canonical synthesis' } } }
-    };
-
-    await debug.handleDebateTerminalOutputs(state);
-    await debug.handleDebateTerminalOutputs(state);
-
-    expect(window.PipelineNotes.savePipelineRun).toHaveBeenCalledTimes(1);
-    expect(window.PipelineNotes.savePipelineRun).toHaveBeenCalledWith(expect.objectContaining({
-      title: 'Output ownership',
-      text: expect.stringContaining('Canonical synthesis')
-    }));
-    delete window.PipelineNotes;
   });
 
   test('pipeline runtime snapshot uses R1 Pipeline UI as source of truth', () => {
@@ -1063,10 +1105,13 @@ describe('Pipeline debate favorites view', () => {
 
   test('pipeline runtime snapshot stores universal configuration', () => {
     document.getElementById('debate-run-policy-select').value = 'auto';
-    window.setSynthesisModelFromName('Claude');
     document.querySelectorAll('.llm-button').forEach((button) => {
       button.classList.toggle('active', ['llm-gpt', 'llm-claude', 'llm-gemini'].includes(button.id));
     });
+    document.dispatchEvent(new CustomEvent('llm-selection-change', {
+      detail: { selected: ['GPT', 'Gemini', 'Claude'] }
+    }));
+    window.setSynthesisModelFromName('Claude');
     const snapshot = window.__pipelineLifecycleDebug.buildPipelineRuntimeSnapshot();
     expect(snapshot.config.protocol).toMatchObject({
       type: 'universal', runPolicy: 'auto', synthesizer: 'Claude',
@@ -1078,6 +1123,44 @@ describe('Pipeline debate favorites view', () => {
       .map((item) => item.dataset.name);
     expect(names).toEqual(['Universal', 'Research', 'Red Team']);
     expect(document.querySelectorAll('#pipelineItems .pipeline-item-delete')).toHaveLength(0);
+  });
+
+  test('new empty pipeline resets an inherited round limit to the three-round default', () => {
+    document.getElementById('debate-round-limit-select').value = '5';
+    document.getElementById('pipeline-add-btn').click();
+
+    expect(document.getElementById('debate-round-limit-select').value).toBe('3');
+    expect(document.getElementById('round1')).not.toBeNull();
+    expect(document.getElementById('round2')).not.toBeNull();
+    expect(document.getElementById('round3')).not.toBeNull();
+    expect(document.querySelectorAll('.stage-column[data-round]')).toHaveLength(3);
+    expect(document.querySelectorAll('.model-stack .pipeline-empty-slot')).toHaveLength(3);
+  });
+
+  test('new empty pipeline clears synthesizer and enables its selector after model choice', () => {
+    document.getElementById('pipeline-add-btn').click();
+
+    const synthesisSelect = document.getElementById('synthesis-flow-select');
+    const synthesisBlock = document.querySelector('.pipeline-synthesis-block');
+    expect(synthesisSelect.value).toBe('');
+    expect(synthesisBlock.classList.contains('selected-synthesizer')).toBe(false);
+    expect(synthesisBlock.classList.contains('inactive')).toBe(true);
+
+    document.getElementById('llm-gpt').click();
+    expect(synthesisSelect.disabled).toBe(false);
+  });
+
+  test('built-in pipeline round changes are not remembered after switching away and back', () => {
+    const universal = document.querySelector('.pipeline-item[data-name="Universal"]');
+    const research = document.querySelector('.pipeline-item[data-name="Research"]');
+    universal.click();
+    const roundLimit = document.getElementById('debate-round-limit-select');
+    roundLimit.value = '5';
+    roundLimit.dispatchEvent(new Event('change', { bubbles: true }));
+    research.click();
+    document.querySelector('.pipeline-item[data-name="Universal"]').click();
+
+    expect(roundLimit.value).toBe('3');
   });
 
   test('Universal runtime default activates exactly two models', () => {
@@ -1098,6 +1181,10 @@ describe('Pipeline debate favorites view', () => {
   test('explicit synthesizer remains visible after an infinite-limit reload state', () => {
     const roundLimit = document.getElementById('debate-round-limit-select');
     roundLimit.value = 'infinite';
+    document.getElementById('llm-claude').classList.add('active');
+    document.dispatchEvent(new CustomEvent('llm-selection-change', {
+      detail: { selected: ['Claude'] }
+    }));
     window.setSynthesisModelFromName('Claude');
     window.syncDebateSchemeUi();
 
@@ -1107,7 +1194,7 @@ describe('Pipeline debate favorites view', () => {
       .toBe('Claude');
   });
 
-  test('terminal pipeline cards align to the visible model-stack centre', () => {
+  test('terminal synthesis card aligns to the visible model-stack centre', () => {
     document.getElementById('debate-round-limit-select').value = '3';
     window.syncDebateSchemeUi();
     document.getElementById('synthesisColumn').hidden = false;
@@ -1116,23 +1203,19 @@ describe('Pipeline debate favorites view', () => {
       .filter((stack) => stack.id !== 'synthesis-stack');
     const referenceStack = modelStacks[modelStacks.length - 1];
     const synthesisStack = document.getElementById('synthesis-stack');
-    const outputStack = document.getElementById('output-stack');
     document.getElementById('synthesisColumn').style.setProperty('--pipeline-terminal-offset', '0px');
-    document.getElementById('outputColumn').style.setProperty('--pipeline-terminal-offset', '0px');
     const makeRect = (top, height) => ({ top, height, bottom: top + height, left: 0, right: 100, width: 100, x: 0, y: top, toJSON() { return this; } });
     Object.defineProperty(referenceStack, 'getBoundingClientRect', { configurable: true, value: () => makeRect(20, 180) });
     Object.defineProperty(synthesisStack, 'getBoundingClientRect', { configurable: true, value: () => makeRect(60, 60) });
-    Object.defineProperty(outputStack, 'getBoundingClientRect', { configurable: true, value: () => makeRect(55, 50) });
 
     const layoutResult = window.__pipelineLifecycleDebug.updatePipelineLayout();
 
     expect(layoutResult).toMatchObject({
       aligned: true,
       referenceId: referenceStack.id,
-      offsets: { synthesisColumn: 20, outputColumn: 30 }
+      offsets: { synthesisColumn: 20 }
     });
     expect(document.getElementById('synthesisColumn').style.getPropertyValue('--pipeline-terminal-offset')).toBe('20px');
-    expect(document.getElementById('outputColumn').style.getPropertyValue('--pipeline-terminal-offset')).toBe('30px');
   });
 
 
@@ -1186,23 +1269,15 @@ describe('Pipeline debate favorites view', () => {
     expect(snapshot.rounds[1].sendModels).not.toEqual(expect.arrayContaining(['Claude', 'GPT', 'Gemini']));
   });
 
-  test('pipeline HTML export sanitizes model text before embedding it', () => {
-    const debug = window.__pipelineLifecycleDebug;
-    const html = debug.safePipelineMarkdownToHtml('**Safe** <img src=x onerror=alert(1)> [x](javascript:alert(2))');
-
-    expect(html).toContain('<strong>Safe</strong>');
-    expect(html).not.toContain('onerror');
-    expect(html).not.toContain('javascript:');
-    expect(html).not.toContain('<img');
-  });
-
   test('pipeline HTML entrypoints expose mount points instead of hard-coded model blocks', () => {
     ['pipeline_panel.html', 'result_new.html'].forEach((fileName) => {
       const html = fs.readFileSync(path.join(__dirname, '..', fileName), 'utf8');
       expect(html).toContain('pipeline/pipeline-runtime.js');
       expect(html).toContain('data-render="pipeline-model-stack-r1"');
       expect(html).toContain('data-render="pipeline-model-stack-r2"');
-      expect(html).toContain('data-render="pipeline-output-stack"');
+      expect(html).not.toContain('data-render="pipeline-output-stack"');
+      expect(html).not.toContain('id="outputColumn"');
+      expect(html).not.toContain('id="connectorToOutput"');
       expect(html).not.toContain('class="model-block');
       expect(html).not.toContain('class="output-block');
     });

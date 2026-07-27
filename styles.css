@@ -6,11 +6,3 @@
 @import url("styles/devtools-selectors.css");
 @import url("styles/results-debate.css");
 @import url("styles/modals-responsive.css");
-
-.triad-only {
-    display: none;
-}
-
-.scheme-triad .triad-only {
-    display: inline-flex;
-}

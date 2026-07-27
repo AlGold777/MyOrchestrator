@@ -234,9 +234,25 @@
       if ('value' in sel) {
         setNativeValue(sel, text);
       } else {
-        sel.textContent = text;
-        sel.dispatchEvent(new Event('input', { bubbles: true }));
-        sel.dispatchEvent(new Event('change', { bubbles: true }));
+        try { sel.focus?.({ preventScroll: true }); } catch (_) { try { sel.focus?.(); } catch (_) {} }
+        const doc = sel.ownerDocument || document;
+        const selection = doc.getSelection?.();
+        const range = doc.createRange?.();
+        range?.selectNodeContents(sel);
+        selection?.removeAllRanges?.();
+        if (range) selection?.addRange?.(range);
+        try {
+          sel.dispatchEvent(new InputEvent('beforeinput', {
+            bubbles: true, cancelable: true, composed: true,
+            inputType: 'insertReplacementText', data: text
+          }));
+        } catch (_) {}
+        const inserted = doc.execCommand?.('insertText', false, text) === true;
+        if (!inserted && !String(sel.innerText || sel.textContent || '').includes(text)) {
+          sel.textContent = text;
+        }
+        sel.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, inputType: 'insertText', data: text }));
+        sel.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
       }
     } catch (err) {
       console.warn('[MainBridge] EXT_SET_TEXT error', err);

@@ -129,6 +129,80 @@ function createSandbox() {
 }
 
 describe('early terminal success guard', () => {
+  test('late-upgrade production path passes turnAnchor and never backfills incoming identity from the entry', () => {
+    const { context } = createSandbox();
+    const entry = context.jobState.llms.GPT;
+    Object.assign(entry, {
+      status: 'SUCCESS',
+      finalStatus: 'SUCCESS',
+      finalStatusRecorded: true,
+      finalizedAt: Date.now() - 1000,
+      promptSubmittedAt: Date.now() - 5000,
+      answer: 'short terminal answer',
+      generationEpoch: 7,
+      preDispatchAnswerNodeCount: 3
+    });
+    const canAutoUpgrade = jest.fn(() => ({ ok: false, reasons: ['test_stop'] }));
+    context.AnswerVerification = { canAutoUpgrade, appendRevision: jest.fn() };
+
+    const accepted = context.acceptLateCollectResult('GPT', {
+      ok: true,
+      text: `${entry.answer} with a verified appended continuation that is safely longer`,
+      source: 'post_success_answer_audit'
+    }, {
+      source: 'post_success_answer_audit',
+      responseMeta: { answerVerification: { verified: true, state: 'verified', generationActive: false } }
+    });
+
+    expect(accepted).toBe(false);
+    expect(canAutoUpgrade).toHaveBeenCalledTimes(1);
+    const [previous, incoming] = canAutoUpgrade.mock.calls[0];
+    expect(previous).toEqual(expect.objectContaining({
+      runSessionId: 1778621552201,
+      dispatchId: 'dispatch-gpt',
+      generationEpoch: 7,
+      turnAnchor: 3
+    }));
+    expect(incoming).toEqual(expect.objectContaining({
+      runSessionId: null,
+      dispatchId: null,
+      generationEpoch: null,
+      turnAnchor: null
+    }));
+  });
+
+  test('late-upgrade production path forwards all incoming identity fields when explicitly supplied', () => {
+    const { context } = createSandbox();
+    const entry = context.jobState.llms.GPT;
+    Object.assign(entry, {
+      status: 'SUCCESS', finalStatus: 'SUCCESS', finalStatusRecorded: true,
+      finalizedAt: Date.now() - 1000, promptSubmittedAt: Date.now() - 5000,
+      answer: 'short terminal answer', generationEpoch: 7, preDispatchAnswerNodeCount: 3
+    });
+    const canAutoUpgrade = jest.fn(() => ({ ok: false, reasons: ['test_stop'] }));
+    context.AnswerVerification = { canAutoUpgrade, appendRevision: jest.fn() };
+
+    context.acceptLateCollectResult('GPT', {
+      ok: true,
+      text: `${entry.answer} with a verified appended continuation that is safely longer`,
+      source: 'post_success_answer_audit'
+    }, {
+      source: 'post_success_answer_audit',
+      runSessionId: 1778621552201,
+      dispatchId: 'dispatch-gpt',
+      generationEpoch: 7,
+      turnAnchor: 3,
+      responseMeta: { answerVerification: { verified: true, state: 'verified', generationActive: false } }
+    });
+
+    expect(canAutoUpgrade.mock.calls[0][1]).toEqual(expect.objectContaining({
+      runSessionId: 1778621552201,
+      dispatchId: 'dispatch-gpt',
+      generationEpoch: 7,
+      turnAnchor: 3
+    }));
+  });
+
   test('defers risky terminal success before lifecycle ready', () => {
     const { context, logs, stateUpdates, partialMessages } = createSandbox();
     const entry = context.jobState.llms.Perplexity;
@@ -333,6 +407,76 @@ describe('early terminal success guard', () => {
     );
   });
 
+  test('does not publish Z.ai MODEL_FINAL when pre-terminal recovery evidence is rejected', () => {
+    const { context, stateUpdates, partialMessages } = createSandbox();
+    const entry = context.jobState.llms['Z.ai'];
+    entry.promptSubmittedAt = Date.now() - 20000;
+    entry.submitSource = 'content';
+    entry.lastDispatchAt = Date.now() - 21000;
+
+    context.handleLLMResponse('Z.ai', 'Answer loading...', null, {
+      dispatchId: 'dispatch-zai',
+      preTerminalMaterialize: true,
+      responseMeta: {
+        source: 'deferred_finalization',
+        completionReason: 'generation_inactive',
+        preTerminalMaterialize: true
+      }
+    });
+
+    expect(entry.finalStatus).not.toBe('SUCCESS');
+    expect(entry.finalStatus).toBeFalsy();
+    expect(entry.pendingFinalAnswer).toBe('Answer loading...');
+    expect(entry.modelRunState).toEqual(expect.objectContaining({
+      executionStatus: 'running'
+    }));
+    expect(entry.modelRunState.terminalStatus).toBeFalsy();
+    expect(stateUpdates).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        llmName: 'Z.ai',
+        status: 'RECEIVING',
+        meta: expect.objectContaining({ message: 'awaiting_stronger_answer_evidence' })
+      })
+    ]));
+    expect(partialMessages).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'LLM_PARTIAL_RESPONSE',
+        metadata: expect.objectContaining({ status: 'SUCCESS' })
+      })
+    ]));
+  });
+
+  test('infers Qwen submit confirmation from a growing post-dispatch answer', () => {
+    const { context, logs } = createSandbox();
+    const entry = context.jobState.llms.Qwen;
+    entry.lastDispatchAt = Date.now() - 45000;
+    entry.awaitingSubmitConfirmation = true;
+    entry.awaitingSubmitConfirmationDispatchId = 'dispatch-qwen';
+    entry.pendingFinalAnswer = 'q'.repeat(2576);
+    const grownAnswer = 'q'.repeat(3977);
+
+    const inferred = context.inferPromptSubmittedFromAnswerEvidence('Qwen', entry, {
+      trimmedAnswer: grownAnswer,
+      responseSource: 'deferred_finalization',
+      responseMeta: {
+        source: 'deferred_finalization',
+        completionReason: 'generation_inactive'
+      },
+      metaObj: { dispatchId: 'dispatch-qwen' }
+    });
+
+    expect(inferred).toBe(true);
+    expect(entry.promptSubmittedAt).toBeTruthy();
+    expect(entry.submitSource).toBe('inferred_answer_evidence');
+    expect(entry.awaitingSubmitConfirmation).toBe(false);
+    expect(logs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        llmName: 'Qwen',
+        entry: expect.objectContaining({ label: 'Submit confirmation inferred from answer evidence' })
+      })
+    ]));
+  });
+
   test('does not defer explicit user late collect terminal success', async () => {
     const { context, stateUpdates, partialMessages } = createSandbox();
     const entry = context.jobState.llms.Qwen;
@@ -351,6 +495,7 @@ describe('early terminal success guard', () => {
       dispatchId: 'dispatch-qwen',
       responseMeta: {
         source: 'collect_responses_staged_late_collect',
+        manualRecovery: true,
         completionReason: 'user_collect_late_collect',
         lateCollectFinal: true,
         forceTerminalSuccess: true
@@ -433,7 +578,7 @@ describe('early terminal success guard', () => {
     ]));
   });
 
-  test('recovers Qwen false NO_SEND when answer appears after prompt confirmation miss', async () => {
+  test('does not auto-upgrade Qwen false NO_SEND from answer-inferred submission evidence', async () => {
     const { context, stateUpdates, partialMessages, logs } = createSandbox();
     const entry = context.jobState.llms.Qwen;
 
@@ -484,23 +629,12 @@ describe('early terminal success guard', () => {
 
     expect(accepted).toBe(true);
     expect(entry.finalStatusRecorded).toBe(true);
-    expect(entry.finalStatus).toBe('SUCCESS');
+    expect(entry.finalStatus).toBe('NO_SEND');
     expect(entry.promptSubmittedAt).toBeTruthy();
     expect(entry.submitSource).toBe('inferred_answer_evidence');
-    expect(stateUpdates).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ llmName: 'Qwen', status: 'SUCCESS' })
-      ])
-    );
-    expect(partialMessages).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          type: 'LLM_PARTIAL_RESPONSE',
-          llmName: 'Qwen',
-          metadata: expect.objectContaining({ status: 'SUCCESS' })
-        })
-      ])
-    );
+    expect(stateUpdates).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ llmName: 'Qwen', status: 'SUCCESS' })
+    ]));
     expect(logs).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -676,7 +810,7 @@ describe('early terminal success guard', () => {
     );
   });
 
-  test('auto-finalizes long stable pending answer when stop button is not visible', async () => {
+  test('does not auto-finalize long stable pending answer without structural proof', async () => {
     jest.useFakeTimers();
     try {
       const { context, logs } = createSandbox();
@@ -698,16 +832,7 @@ describe('early terminal success guard', () => {
       await Promise.resolve();
       await Promise.resolve();
 
-      expect(entry.finalStatusRecorded).toBe(true);
-      expect(entry.finalStatus).toBe('SUCCESS');
-      expect(logs).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            llmName: 'Qwen',
-            entry: expect.objectContaining({ label: 'Stable pending auto-finalization' })
-          })
-        ])
-      );
+      expect(entry.finalStatusRecorded).toBeFalsy();
     } finally {
       jest.useRealTimers();
     }
@@ -807,6 +932,7 @@ describe('early terminal success guard', () => {
       dispatchId: 'dispatch-gpt',
       responseMeta: {
         source: 'manual_ping_late_collect',
+        manualRecovery: true,
         completionReason: 'manual_ping_late_collect',
         lateCollectFinal: true,
         forceTerminalSuccess: true
@@ -837,7 +963,7 @@ describe('early terminal success guard', () => {
       { result: { active: true, stopVisible: false, busyVisible: true } }
     ]));
     const entry = context.jobState.llms.GPT;
-    entry.finalizationDeferStartedAt = Date.now() - 181000;
+    entry.finalizationDeferStartedAt = Date.now() - 461000;
     const answer = 'long answer still streaming '.repeat(90);
 
     context.handleLLMResponse('GPT', answer, null, {
@@ -868,12 +994,35 @@ describe('early terminal success guard', () => {
     );
   });
 
-  test('treats Round2 answer evidence as confirmation signal', () => {
+  test('does not treat unverified Round2 lifecycle activity as confirmation signal', () => {
     const { context } = createSandbox();
     const entry = context.jobState.llms.GPT;
     entry.pendingFinalAnswer = 'Recovered answer evidence. '.repeat(8);
     entry.lifecycleReadyAt = Date.now();
     entry.lifecycleReadyMeta = { dispatchId: 'dispatch-gpt' };
+
+    expect(context.hasRound2SubmitOrAnswerEvidence(entry)).toBe(false);
+    expect(context.getRound2SubmitConfirmationState('GPT', 'dispatch-gpt')).toEqual(
+      expect.objectContaining({
+        ok: false,
+        reason: 'not_confirmed'
+      })
+    );
+  });
+
+  test('treats dispatch-matched verified Round2 answer evidence as confirmation', () => {
+    const { context } = createSandbox();
+    const entry = context.jobState.llms.GPT;
+    entry.pendingFinalAnswer = 'Verified recovered answer evidence. '.repeat(8);
+    entry.lastDispatchMeta = { dispatchId: 'dispatch-gpt' };
+    entry.answerVerification = {
+      state: 'verified',
+      verified: true,
+      resolution: 'exact',
+      structuralComplete: true,
+      generationActive: false,
+      dispatchId: 'dispatch-gpt'
+    };
 
     expect(context.hasRound2SubmitOrAnswerEvidence(entry)).toBe(true);
     expect(context.getRound2SubmitConfirmationState('GPT', 'dispatch-gpt')).toEqual(
@@ -966,7 +1115,7 @@ describe('early terminal success guard', () => {
 });
 
 describe('stable answer at streaming max (run 1782940321214 GPT case)', () => {
-  test('text observed unchanged across defer checks finalizes SUCCESS, not streaming_incomplete', async () => {
+  test('text stability alone cannot finalize SUCCESS without structural proof', async () => {
     const { context, stateUpdates } = createSandbox();
     context.chrome.scripting.executeScript = jest.fn(() => Promise.resolve([
       { result: { active: true, stopVisible: false, busyVisible: true } }
@@ -989,19 +1138,16 @@ describe('stable answer at streaming max (run 1782940321214 GPT case)', () => {
     // gone and only a stuck busy indicator remains — the stable evidence wins.
     // The early-terminal guard still demands one re-observation of the same
     // text after its stability window before releasing the SUCCESS.
-    entry.finalizationDeferStartedAt = Date.now() - 181000;
+    entry.finalizationDeferStartedAt = Date.now() - 461000;
     context.handleLLMResponse('GPT', answer, null, { dispatchId: 'dispatch-gpt' });
     await new Promise((resolve) => setTimeout(resolve, 2600));
     context.handleLLMResponse('GPT', answer, null, { dispatchId: 'dispatch-gpt' });
     await new Promise((resolve) => setTimeout(resolve, 100));
 
-    expect(entry.finalStatusRecorded).toBe(true);
-    expect(entry.finalStatus).toBe('SUCCESS');
-    expect(stateUpdates).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ llmName: 'GPT', status: 'SUCCESS' })
-      ])
-    );
+    expect(entry.finalStatusRecorded).toBeFalsy();
+    expect(stateUpdates).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ llmName: 'GPT', status: 'SUCCESS' })
+    ]));
   });
 
   test('single long snapshot at streaming max still finalizes PARTIAL (no observed stability)', async () => {
@@ -1010,7 +1156,7 @@ describe('stable answer at streaming max (run 1782940321214 GPT case)', () => {
       { result: { active: true, stopVisible: false, busyVisible: true } }
     ]));
     const entry = context.jobState.llms.GPT;
-    entry.finalizationDeferStartedAt = Date.now() - 181000;
+    entry.finalizationDeferStartedAt = Date.now() - 461000;
 
     context.handleLLMResponse('GPT', 'long answer still streaming '.repeat(90), null, {
       dispatchId: 'dispatch-gpt'
@@ -1023,7 +1169,7 @@ describe('stable answer at streaming max (run 1782940321214 GPT case)', () => {
 });
 
 describe('pre-send finalization gate (run 1782945983672 Claude case)', () => {
-  test('deferred force-final never fires while the submit is unconfirmed, then finalizes after confirmation', async () => {
+  test('submission confirmation alone does not replace structural completion proof', async () => {
     const { context } = createSandbox();
     context.chrome.scripting.executeScript = jest.fn(() => Promise.resolve([
       { result: { active: false, stopVisible: false, busyVisible: false } }
@@ -1043,10 +1189,11 @@ describe('pre-send finalization gate (run 1782945983672 Claude case)', () => {
     // The send confirms; the real answer may now finalize normally.
     entry.awaitingSubmitConfirmation = false;
     entry.promptSubmittedAt = Date.now();
+    entry.confirmedDispatchId = 'dispatch-gpt';
     entry.lifecycleReadyAt = Date.now();
     context.handleLLMResponse('GPT', staleAnswer, null, { dispatchId: 'dispatch-gpt' });
     await new Promise((resolve) => setTimeout(resolve, 100));
-    expect(entry.finalStatusRecorded).toBe(true);
+    expect(entry.finalStatus).not.toBe('SUCCESS');
   });
 
   test('stable pending auto-finalization is blocked while the submit is unconfirmed', async () => {
@@ -1115,5 +1262,71 @@ describe('stable pending vs longer completed answer (run 1782945983672 Z.ai case
 
     expect(entry.finalStatusRecorded).toBe(true);
     expect(entry.finalStatus).toBe('PARTIAL');
+  });
+});
+
+describe('automation deadline terminal contract', () => {
+  test('stops automation and preserves an available answer as terminal PARTIAL', () => {
+    const { context } = createSandbox();
+    const entry = context.jobState.llms.GPT;
+    entry.status = 'RECEIVING';
+    entry.pendingFinalAnswer = 'Ответ уже виден в карточке, но генерация провайдера может продолжаться.';
+    entry.pendingFinalAnswerHtml = '<p>Ответ уже виден в карточке.</p>';
+
+    const applied = context.finalizeAutomationDeadline('GPT', 'generation', 180000, {
+      source: 'test_deadline'
+    });
+
+    expect(applied).toBe(true);
+    expect(entry.automationDeadlineReached).toBe(true);
+    expect(entry.skipHumanLoop).toBe(true);
+    expect(entry.finalStatusRecorded).toBe(true);
+    expect(entry.finalStatus).toBe('PARTIAL');
+    expect(entry.answer).toContain('Ответ уже виден');
+    expect(context.closePingWindowForLLM).toHaveBeenCalledWith('GPT');
+    expect(context.completeHumanPresenceForModel).toHaveBeenCalledWith('GPT', 'automation_deadline');
+    expect(context.chrome.tabs.sendMessage).not.toHaveBeenCalledWith(
+      101,
+      expect.objectContaining({ type: 'HUMANOID_FORCE_STOP' })
+    );
+  });
+
+  test('uses terminal STREAM_TIMEOUT when the deadline has no answer candidate', () => {
+    const { context } = createSandbox();
+    const entry = context.jobState.llms.GPT;
+    entry.status = 'GENERATING';
+
+    const applied = context.finalizeAutomationDeadline('GPT', 'generation', 180000, {
+      source: 'test_deadline_empty'
+    });
+
+    expect(applied).toBe(true);
+    expect(entry.finalStatusRecorded).toBe(true);
+    expect(entry.finalStatus).toBe('STREAM_TIMEOUT');
+    expect(entry.skipHumanLoop).toBe(true);
+  });
+
+  test('does not let an early content lifecycle timeout shorten the background deadline', () => {
+    const { context } = createSandbox();
+    const entry = context.jobState.llms.GPT;
+    entry.status = 'GENERATING';
+    entry.promptSubmittedAt = Date.now() - 1000;
+    entry.budgetTimers = {
+      generation: {
+        startedAt: entry.promptSubmittedAt,
+        deadlineAt: Date.now() + 60000,
+        budgetMs: 180000,
+        timerId: null
+      }
+    };
+
+    const applied = context.finalizeAutomationDeadline('GPT', 'generation', null, {
+      contentLifecycleSignal: true,
+      reportedBudgetMs: 180000
+    });
+
+    expect(applied).toBe(false);
+    expect(entry.finalStatusRecorded).toBeFalsy();
+    expect(entry.skipHumanLoop).not.toBe(true);
   });
 });

@@ -104,8 +104,20 @@ describe('GET_RUN_OUTCOME_SUMMARY contract', () => {
             answerLength: 3861,
             responseMeta: { source: 'stable_text' },
             lastDispatchMeta: { dispatchId: 'GPT:1781157526316:1' },
+            generationEpoch: 3,
+            preDispatchAnswerNodeCount: 6,
+            preDispatchAnswerNodeCountDispatchId: 'GPT:1781157526316:1',
             promptSubmittedAt: 1781157540000,
-            finalizationEvidence: { lengthPolicy: { policyRef: 'answer-length-policy@2', suspectShortSuccess: false } }
+            submitSource: 'content',
+            submitConfirmedBy: 'composer_cleared',
+            finalizationEvidence: {
+              accepted: true,
+              contradictions: [],
+              calibrationEndMarker: 'B2-S2-LONG-END-91AC7F',
+              calibrationEndMarkerPresent: true,
+              decisionSnapshot: { selectedLength: 3861, generationActive: false },
+              lengthPolicy: { policyRef: 'answer-length-policy@2', suspectShortSuccess: false }
+            }
           },
           Claude: {
             finalStatus: 'SUCCESS',
@@ -132,6 +144,16 @@ describe('GET_RUN_OUTCOME_SUMMARY contract', () => {
     expect(byName.GPT.finalStatus).toBe('SUCCESS');
     expect(byName.GPT.answerLength).toBe(3861);
     expect(byName.GPT.lengthPolicyRef).toBe('answer-length-policy@2');
+    expect(byName.GPT).toEqual(expect.objectContaining({
+      submitSource: 'content',
+      submitConfirmedBy: 'composer_cleared',
+      generationEpoch: 3,
+      turnAnchor: 6,
+      turnAnchorDispatchId: 'GPT:1781157526316:1',
+      finalizationAccepted: true,
+      calibrationEndMarkerPresent: true,
+      decisionSnapshot: { selectedLength: 3861, generationActive: false }
+    }));
 
     expect(byName.Claude.suspectShortSuccess).toBe(true);
 

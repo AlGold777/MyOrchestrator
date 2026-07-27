@@ -4,7 +4,6 @@ const Policies = require('../disput/debate-policies');
 const baseInput = (overrides = {}) => ({
   runId: 'run-1',
   caseVersion: 1,
-  stateMapVersion: 1,
   activePlanRevisionId: 'rev-0',
   debateCase: {},
   stateMap: {},
@@ -77,6 +76,32 @@ describe('Planner — derived goals (§7)', () => {
       'verify_claim', 'test_revision', 'verify_evidence', 'resolve_objection',
       'resolve_contradiction', 'answer_open_question', 'examine_dissent'
     ]));
+  });
+
+  test('a resolved derived goal is re-derived before finalization while its condition remains true', () => {
+    const input = baseInput({
+      openGoals: [{
+        goalId: 'derived:verify_claim:c1',
+        type: 'verify_claim',
+        targetArtifactIds: ['c1'],
+        status: 'resolved',
+        derived: true
+      }],
+      stateMap: { claims: [{ id: 'c1', status: 'unsupported' }] }
+    });
+    const decision = Planner.evaluate(input);
+    expect(decision.type).toBe('CREATE_STAGES');
+    expect(decision.selectedGoalIds).toContain('derived:verify_claim:c1');
+  });
+
+  test('derived condition evaluator reuses derivation and rejects non-derived goal types', () => {
+    const input = baseInput({ stateMap: { claims: [{ id: 'c1', status: 'unsupported' }] } });
+    expect(Planner.evaluateDerivedGoalCondition({
+      goalId: 'derived:verify_claim:c1', type: 'verify_claim', targetArtifactIds: ['c1'], derived: true
+    }, input)).toMatchObject({ evaluable: true, active: true });
+    expect(Planner.evaluateDerivedGoalCondition({
+      goalId: 'manual:produce', type: 'produce_synthesis', targetArtifactIds: []
+    }, input)).toMatchObject({ evaluable: false, active: null });
   });
 
   test('context pressure derives compact_context goal (§20)', () => {

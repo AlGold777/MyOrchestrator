@@ -1,7 +1,7 @@
 const Pipeline = require('../disput/debate-artifact-pipeline');
 
 describe('DebateArtifactPipeline', () => {
-  const stage = { runId: 'run-1', stageInstanceId: 'stage-1', purpose: 'position' };
+  const stage = { runId: 'run-1', stageInstanceId: 'stage-1', purpose: 'position', goalIds: ['goal-1'] };
   const participant = { participantId: 'alpha' };
 
   test('extracts deterministic provenance-bearing artifacts', () => {
@@ -57,7 +57,8 @@ describe('DebateArtifactPipeline', () => {
     const delta = Pipeline.proposeStateDelta({ stage, participant, artifacts, context: { caseVersion: 1 } });
     const state = { runId: 'run-1', caseVersion: 1, lifecycle: 'RUNNING', debateCase: { caseId: 'run-1', topic: { title: 'T' }, artifacts: [] } };
     const result = Pipeline.commitStateDelta({ state, stage, delta });
-    expect(result.applied).toBe(true);
+    expect(result).toMatchObject({ applied: true, changed: true });
+    expect(delta.goalIds).toEqual(['goal-1']);
     expect(state.debateCase.artifacts).toHaveLength(1);
     expect(result.stateMap.claims).toHaveLength(1);
   });

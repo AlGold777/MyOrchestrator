@@ -30,6 +30,7 @@ const contentBlocks = manifest.content_scripts || [];
 // Block 0 matches every provider; each later block targets one provider. The
 // set actually co-injected on a provider page is block0 ∪ that block.
 const baseBlock = contentBlocks[0];
+const { COMMON_FILES } = require('../scripts/build-bundles');
 
 describe('content-script load-order contract', () => {
   test('manifest declares at least the shared block plus per-provider blocks', () => {
@@ -46,6 +47,24 @@ describe('content-script load-order contract', () => {
       }
     }
     expect(missing).toEqual([]);
+  });
+
+  test('optional common bundle contains every shared answer-gate runtime dependency', () => {
+    const required = [
+      'shared/answer-verification.js',
+      'content-scripts/answer-pipeline-selectors.js',
+      'content-scripts/turn-resolver.js',
+      'content-scripts/answer-structure.js',
+      'content-scripts/generation-signal.js',
+      'shared/secret-redaction.js',
+      'content-scripts/dom-skeleton-capture.js',
+      'content-scripts/unified-answer-watcher.js',
+      'content-scripts/unified-answer-pipeline.js'
+    ];
+    expect(required.filter((file) => baseBlock.js.includes(file) && !COMMON_FILES.includes(file))).toEqual([]);
+    required.forEach((file) => {
+      expect(COMMON_FILES.indexOf(file)).toBeLessThanOrEqual(COMMON_FILES.indexOf('content-scripts/unified-answer-pipeline.js'));
+    });
   });
 
   test('no top-level const/let/class collisions within any co-injected page set', () => {

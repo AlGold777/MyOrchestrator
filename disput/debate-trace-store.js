@@ -72,7 +72,7 @@
           debateRunId: id,
           createdAt: Number(seed.createdAt || 0) || Date.now(),
           updatedAt: Number(seed.updatedAt || 0) || Date.now(),
-          plan: seed.plan || null,
+          plan: Schema.sanitizePlan?.(seed.plan) || null,
           topology: String(seed.topology || ''),
           presetId: String(seed.presetId || ''),
           sessionId: String(seed.sessionId || ''),
@@ -122,7 +122,7 @@
         presetId: seed.presetId,
         sessionId: seed.sessionId
       });
-      if (seed.plan) run.plan = seed.plan;
+      if (seed.plan) run.plan = Schema.sanitizePlan?.(seed.plan) || null;
       if (!run.events.some((event) => event.eventType === 'RUN_CREATED')) {
         append({
           eventType: 'RUN_CREATED', source: Schema.SOURCES.APPLICATION,
@@ -131,10 +131,16 @@
         });
       }
       if (seed.plan && !run.events.some((event) => event.eventType === 'PLAN_COMPILED')) {
+        const safePlan = Schema.sanitizePlan?.(seed.plan) || null;
         append({
           eventType: 'PLAN_COMPILED', source: Schema.SOURCES.APPLICATION,
           correlation: { debateRunId: runId, planId: seed.plan.planId, sessionId: seed.sessionId },
-          payload: { plan: seed.plan }
+          payload: {
+            planId: safePlan?.planId || '',
+            presetId: safePlan?.presetId || '',
+            topology: safePlan?.topology || '',
+            stageCount: safePlan?.stages?.length || 0
+          }
         });
       }
       return run;
@@ -148,10 +154,19 @@
       snapshot.runs.slice(-maxRuns).forEach((run) => {
         if (!run?.debateRunId) return;
         const events = (Array.isArray(run.events) ? run.events.slice(-maxEvents) : []).map((event) => (
-          event.semanticHash ? event : Schema.createEvent(event, { receivedSeq: event.receivedSeq, receivedAt: event.receivedAt })
+          Schema.createEvent(event, { receivedSeq: event.receivedSeq, receivedAt: event.receivedAt })
         ));
-        runs.set(String(run.debateRunId), { ...run, events });
+        runs.set(String(run.debateRunId), {
+          ...run,
+          plan: Schema.sanitizePlan?.(run.plan) || null,
+          events
+        });
       });
+      // Persist the sanitized migration immediately. Otherwise an old trace is
+      // safe in memory/export but its raw content remains in chrome.storage
+      // until some unrelated future event triggers a flush.
+      dirty = true;
+      await flush();
       return true;
     };
     const clear = async (runId = null) => {

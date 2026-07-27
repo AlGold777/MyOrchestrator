@@ -30,7 +30,8 @@ describe('shared status contract', () => {
       status: 'RECEIVING',
       finalStatusRecorded: true,
       finalStatus: 'SUCCESS',
-      answer: 'done'
+      answer: 'done',
+      answerVerification: { verified: true, state: 'verified' }
     });
     expect(state.executionState).toBe('finalized');
     expect(state.answerState).toBe('complete');
@@ -43,7 +44,10 @@ describe('shared status contract', () => {
       phase: 'pending',
       label: 'Pending'
     }));
-    expect(StatusContract.deriveResultMeta({ status: 'SUCCESS', answer: 'done' })).toEqual(expect.objectContaining({
+    expect(StatusContract.deriveResultMeta({
+      status: 'SUCCESS', answer: 'done',
+      answerVerification: { verified: true, state: 'verified' }
+    })).toEqual(expect.objectContaining({
       phase: 'success',
       label: 'Success'
     }));
@@ -65,6 +69,38 @@ describe('shared status contract', () => {
       label: 'Uncertain',
       terminal: true
     }));
+  });
+
+  test.each(['candidate', 'legacy_unverified', 'unknown', 'none', null])(
+    'green terminal status remains verifying for %s verification', (verificationState) => {
+      const entry = {
+        status: 'SUCCESS', answer: 'stored answer',
+        modelRunState: {
+          executionState: 'terminal_success', terminalStatus: 'SUCCESS', uiStatus: 'SUCCESS',
+          answerState: 'accepted', verificationState
+        }
+      };
+      expect(StatusContract.deriveStatusContract(entry).answerState).toBe('partial');
+      expect(StatusContract.deriveResultMeta(entry)).toEqual(expect.objectContaining({
+        phase: 'verifying', label: 'Verifying answer'
+      }));
+    }
+  );
+
+  test('accepted answer becomes complete only with verified proof state', () => {
+    const entry = {
+      status: 'SUCCESS', answer: 'stored answer',
+      modelRunState: {
+        executionState: 'terminal_success', terminalStatus: 'SUCCESS', uiStatus: 'SUCCESS',
+        answerState: 'accepted', verificationState: 'verified'
+      }
+    };
+    expect(StatusContract.deriveStatusContract(entry).answerState).toBe('complete');
+    expect(StatusContract.deriveResultMeta(entry).phase).toBe('success');
+  });
+
+  test('legacy success without model state fails closed as verifying', () => {
+    expect(StatusContract.deriveResultMeta({ status: 'SUCCESS', answer: 'old stored answer' }).phase).toBe('verifying');
   });
 
   test('exposes release terminal outcome taxonomy', () => {

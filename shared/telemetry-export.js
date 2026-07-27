@@ -71,9 +71,37 @@
   function buildModelOutcome(platform, events = []) {
     let best = null;
     let lastEventTs = 0;
+    let latestObservedTextLength = 0;
+    let maxObservedTextLength = 0;
+    let latestLifecycleState = null;
+    let latestLifecycleAt = 0;
+    let tabClosed = null;
     events.forEach((event) => {
       const ts = Number(event?.ts || 0) || 0;
       if (ts > lastEventTs) lastEventTs = ts;
+      const label = normalizeLabel(event);
+      const observedLength = Number(
+        event?.meta?.textLength
+        || event?.meta?.answerLength
+        || event?.meta?.answerLen
+        || 0
+      ) || 0;
+      if (observedLength > 0 && ts >= latestLifecycleAt) {
+        latestObservedTextLength = observedLength;
+      }
+      maxObservedTextLength = Math.max(maxObservedTextLength, observedLength);
+      if (/^ANSWER_(START_DETECTED|GENERATING|TEXT_STABLE|COMPLETE_DETECTED|PARTIAL_ON_TIMEOUT|COMPLETE_TIMEOUT)$/.test(label)) {
+        latestLifecycleState = event?.meta?.state || label;
+        latestLifecycleAt = Math.max(latestLifecycleAt, ts);
+      }
+      if (label === 'TAB_CLOSED' && (!tabClosed || ts >= tabClosed.ts)) {
+        tabClosed = {
+          ts,
+          closureState: event?.meta?.closureState || event?.details || 'tab_closed',
+          generationActive: event?.meta?.generationActive ?? null,
+          answerLength: Number(event?.meta?.answerLength || 0) || 0
+        };
+      }
       const signal = resolveTerminalSignal(event);
       if (!signal) return;
       if (!best
@@ -82,6 +110,31 @@
         best = { ...signal, ts };
       }
     });
+    const generationActive = !best && (
+      latestLifecycleState === 'GENERATING'
+      || latestLifecycleState === 'ANSWER_STARTED'
+      || latestLifecycleState === 'ANSWER_GENERATING'
+      || latestLifecycleState === 'ANSWER_START_DETECTED'
+    );
+    const observedState = tabClosed?.closureState === 'tab_closed_during_generation'
+      ? 'tab_closed_during_generation'
+      : generationActive && latestObservedTextLength > 0
+        ? 'generating_partial_answer'
+        : generationActive
+          ? 'generating'
+          : best
+            ? 'terminal'
+            : latestObservedTextLength > 0
+              ? 'answer_observed_without_terminal'
+              : 'no_terminal_outcome';
+    const consistencyIssues = [];
+    const finalEvent = [...events].reverse().find((event) => normalizeLabel(event) === 'MODEL_FINAL');
+    if (
+      best?.status === 'SUCCESS'
+      && String(finalEvent?.meta?.doneReason || '').toLowerCase() === 'error'
+    ) {
+      consistencyIssues.push('success_with_error_done_reason');
+    }
     return {
       ts: best?.ts || lastEventTs || Date.now(),
       type: 'SUMMARY',
@@ -96,7 +149,15 @@
         finalSignalSource: best?.source || null,
         finalizedAt: best?.ts || null,
         lastEventTs: lastEventTs || null,
-        eventsCount: events.length
+        eventsCount: events.length,
+        observedState,
+        generationActive,
+        latestLifecycleState,
+        latestLifecycleAt: latestLifecycleAt || null,
+        latestObservedTextLength,
+        maxObservedTextLength,
+        tabClosed,
+        consistencyIssues
       }
     };
   }
@@ -106,6 +167,7 @@
   function buildRunSummaryGroup(groups = {}, { runSessionId = null, exportedAt = Date.now() } = {}) {
     const summaryEntries = [];
     const pendingModels = [];
+    const pendingStages = {};
     const modelNames = [];
     Object.entries(groups || {}).forEach(([groupKey, events]) => {
       const platform = String(groupKey || '').replace(/^<|>$/g, '');
@@ -113,7 +175,15 @@
       modelNames.push(platform);
       const outcome = buildModelOutcome(platform, Array.isArray(events) ? events : []);
       summaryEntries.push(outcome);
-      if (!outcome.meta.terminal) pendingModels.push(platform);
+      if (!outcome.meta.terminal) {
+        pendingModels.push(platform);
+        pendingStages[platform] = {
+          stage: outcome.meta.observedState || 'unknown',
+          lifecycle: outcome.meta.latestLifecycleState || null,
+          latestObservedTextLength: outcome.meta.latestObservedTextLength || 0,
+          reason: outcome.details || 'no_terminal_outcome'
+        };
+      }
     });
     summaryEntries.push({
       ts: Number(exportedAt) || Date.now(),
@@ -128,6 +198,8 @@
         exportedAt: Number(exportedAt) || Date.now(),
         models: modelNames,
         pendingModels,
+        pendingStages,
+        exportComplete: pendingModels.length === 0,
         complete: pendingModels.length === 0
       }
     });

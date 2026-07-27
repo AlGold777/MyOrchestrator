@@ -60,12 +60,15 @@
     const totalCount = map.claims.length + (map.assumptions || []).length + (map.decisionCriteria || []).length + map.objections.length + map.dissent.length + (map.contradictions || []).length + (map.openQuestions || []).length + map.limitations.length + map.evidenceGaps.length + map.evidence.length + map.revisions.length;
     const hidden = Math.max(0, totalCount - visibleCount);
     const empty = '<p class="disput-map-empty">Нет элементов, соответствующих фильтру. <button type="button" data-map-reset>Сбросить</button></p>';
-    const decisions = (map.pendingDecisions || []).map((request) => `<article class="disput-map-decision"><strong>${escape(request.question)}</strong><span>${escape(request.reason)}</span><div>${(request.options || []).map((option) => `<button type="button" data-map-decision-option="${escape(option.id)}" data-request-id="${escape(request.requestId)}"${option.id === request.recommendedOptionId ? ' class="is-recommended"' : ''}>${escape(option.label)}</button>`).join('')}</div></article>`).join('');
+    const decisions = (map.pendingDecisions || []).map((request) => `<article class="disput-map-decision" data-decision-request="${escape(request.requestId)}" aria-labelledby="decision-title-${escape(request.requestId)}"><strong id="decision-title-${escape(request.requestId)}">${escape(request.question)}</strong><span>${escape(request.reason)}</span><small>Request ${escape(request.requestId)}${request.affectedStageId || request.stageId ? ` · Stage ${escape(request.affectedStageId || request.stageId)}` : ''}</small><div>${(request.options || []).map((option) => `<button type="button" data-map-decision-option="${escape(option.id)}" data-request-id="${escape(request.requestId)}"${option.id === request.recommendedOptionId ? ' class="is-recommended"' : ''}>${escape(option.label || option.id)}</button>`).join('')}</div></article>`).join('');
+    const conflicts = (map.contradictions || []).length
+      ? `<section class="disput-map-conflicts" aria-label="Конфликты карты"><h3>Конфликты</h3>${map.contradictions.map((item) => `<article data-conflict-id="${escape(item.id)}"><strong>${label(item)}</strong><span>${escape(item.description || item.status)}</span><small>Source ${escape(item.provenance?.turnId || item.provenance?.source || 'unknown')}</small><button type="button" data-map-human-action="approve_closure" data-item-id="${escape(item.id)}">Разрешить</button><button type="button" data-map-human-action="request_evidence" data-item-id="${escape(item.id)}">Запросить evidence</button></article>`).join('')}</section>`
+      : '';
     const automation = map.automation ? `<section class="disput-map-automation"><header><h3>Universal orchestration</h3><span>${map.automation.active.length} active · ${map.automation.queue.length} queued · budget ${map.automation.budget.used || 0}/${map.automation.budget.limit == null ? '∞' : map.automation.budget.limit}</span><div><button type="button" data-map-human-action="pause" data-item-id="">${map.technicalStatus === 'paused' ? 'Resume' : 'Pause'}</button><button type="button" data-map-human-action="synthesize" data-item-id="">Synthesize now</button><button type="button" data-map-human-action="stop" data-item-id="">Stop</button></div></header>
       ${decisions}${[...map.automation.active, ...map.automation.queue].filter((task) => task.status !== 'awaiting_confirmation').slice(0, 8).map((task) => `<article><strong>${escape(task.role)} · ${escape(task.actionContract?.instruction || task.action)}</strong><span>${escape(task.explanation || task.reason)}</span><small>${escape(task.status)}${task.independence ? ` · ${escape(task.independence)}` : ''}</small></article>`).join('') || (decisions ? '' : '<p class="disput-map-empty">Очередь пуста.</p>')}</section>` : (decisions ? `<section class="disput-map-automation">${decisions}</section>` : '');
     const diff = map.diff && (map.diff.added.length || map.diff.changed.length || map.diff.removed.length) ? `<section class="disput-map-diff"><strong>Изменения последнего снимка</strong><span>+${map.diff.added.length} · ~${map.diff.changed.length} · −${map.diff.removed.length}</span><small>${escape([...map.diff.added, ...map.diff.changed, ...map.diff.removed].slice(0, 12).join(', '))}</small></section>` : '';
     const task = map.taskContract ? `<section class="disput-map-task-contract"><strong>${escape(map.taskContract.objective)}</strong><span>${escape(map.taskContract.taskClass)} · evidence ${escape(map.taskContract.evidencePolicy)}${map.taskContract.maxWords ? ` · ≤ ${escape(map.taskContract.maxWords)} слов` : ''}</span>${map.taskContract.currentInstruction ? `<small>Сейчас: ${escape(map.taskContract.currentInstruction)}</small>` : ''}</section>` : '';
-    return `<div class="disput-map-results-count">Показано ${visibleCount} из ${totalCount}${hidden ? ` · скрыто ${hidden}` : ''}</div>${task}${diff}${automation}<section class="disput-map-attention"><h3>Требует внимания</h3>${attention(map)}</section>
+    return `<div class="disput-map-results-count" aria-live="polite">Показано ${visibleCount} из ${totalCount}${hidden ? ` · скрыто ${hidden}` : ''}</div>${task}${diff}${automation}${conflicts}<section class="disput-map-attention"><h3>Требует внимания</h3>${attention(map)}</section>
       <div class="disput-map-structure">
         <section class="disput-map-panel"><header><h3>Текущие позиции</h3><span>${claims.length}</span></header><div>${claims.map((item) => card(item, map)).join('') || empty}</div></section>
         <aside class="disput-map-side">
@@ -138,6 +141,7 @@
     const compareA = panel.querySelector('[data-map-compare-a]');
     const compareB = panel.querySelector('[data-map-compare-b]');
     let mode = 'structure'; let filter = 'all'; let zoom = 1; let selectedId = ''; let comparison = null; let map = root.DebateStateMap.project({}); let caseMap = map;
+    let pendingAggregate;
     const drawLinks = () => {
       const graph = content.querySelector('.disput-graf'); const svg = graph?.querySelector('.disput-graf-links'); const group = svg?.querySelector('g');
       if (!graph || !svg || !group) return;
@@ -151,8 +155,16 @@
         return `<path class="disput-graf-link disput-graf-link-${escape(link.type)}${link.blocking ? ' is-blocking' : ''}" d="M ${x1} ${y1} C ${(x1 + x2) / 2} ${y1}, ${(x1 + x2) / 2} ${y2}, ${x2} ${y2}" marker-end="url(#disput-graf-arrow)"></path>`;
       }).join('');
     };
-    const render = (aggregate) => {
-      if (aggregate) { map = root.DebateStateMap.project({ ...aggregate, ruleHistory: aggregate.ruleHistory || options.getRuleHistory?.() || null }); caseMap = map; comparison = null; }
+    const renderWorkspace = () => {
+      if (pendingAggregate !== undefined) {
+        const aggregate = pendingAggregate;
+        pendingAggregate = undefined;
+        if (aggregate) {
+          map = root.DebateStateMap.project({ ...aggregate, ruleHistory: aggregate.ruleHistory || options.getRuleHistory?.() || null });
+          caseMap = map;
+          comparison = null;
+        }
+      }
       title.textContent = map.title || 'Карта состояния';
       summaries.forEach((summary) => { summary.textContent = `${map.profileId || 'Без профиля'} · ${map.currentStageId || 'этап не начат'} · ${map.readiness.label} · ${map.stats.blockers} blocking · ${map.technicalStatus}`; });
       panel.dataset.status = map.readiness.id;
@@ -171,7 +183,17 @@
       requestAnimationFrame(drawLinks);
       return map;
     };
-    const setOpen = (open) => { panel.classList.toggle('is-open', open); header.setAttribute('aria-expanded', String(open)); body.hidden = !open; };
+    const render = (aggregate) => {
+      if (aggregate !== undefined) pendingAggregate = aggregate;
+      if (!panel.classList.contains('is-open')) return map;
+      return renderWorkspace();
+    };
+    const setOpen = (open) => {
+      panel.classList.toggle('is-open', open);
+      header.setAttribute('aria-expanded', String(open));
+      body.hidden = !open;
+      if (open) renderWorkspace();
+    };
     const handleOutsideClick = (event) => {
       if (!panel.classList.contains('is-open') || panel.contains(event.target)) return;
       setOpen(false);
@@ -198,7 +220,7 @@
       const source = event.target.closest('[data-map-source]'); if (source) { const turnId = source.dataset.mapSource; const target = document.querySelector(`[data-turn-id="${CSS.escape(turnId)}"], [data-message-id="${CSS.escape(turnId)}"], [data-entry-id="${CSS.escape(turnId)}"]`); target?.scrollIntoView?.({ behavior: 'smooth', block: 'center' }); target?.focus?.(); target?.classList.add('is-focused'); setTimeout(() => target?.classList.remove('is-focused'), 1600); return; }
       const humanAction = event.target.closest('[data-map-human-action]'); if (humanAction) { options.onHumanAction?.({ action: humanAction.dataset.mapHumanAction, itemId: humanAction.dataset.itemId, item: findItem(map, humanAction.dataset.itemId) }); return; }
       const axisButton = event.target.closest('[data-map-axis]'); if (axisButton) { selectedId = axisButton.dataset.mapAxis; drawer.innerHTML = drawerHtml(findItem(map, selectedId), map); drawer.hidden = false; return; }
-      const decisionOption = event.target.closest('[data-map-decision-option]'); if (decisionOption) { panel.dispatchEvent(new CustomEvent('disput:decision-resolved', { bubbles: true, detail: { requestId: decisionOption.dataset.requestId, optionId: decisionOption.dataset.mapDecisionOption } })); return; }
+      const decisionOption = event.target.closest('[data-map-decision-option]'); if (decisionOption) { const detail = { requestId: decisionOption.dataset.requestId, optionId: decisionOption.dataset.mapDecisionOption }; void options.onDecisionResolved?.(detail); panel.dispatchEvent(new CustomEvent('disput:decision-resolved', { bubbles: true, detail })); return; }
       const decision = event.target.closest('[data-map-trigger-decision]'); if (decision) { panel.dispatchEvent(new CustomEvent('disput:trigger-decision', { bubbles: true, detail: { taskId: decision.dataset.taskId, approved: decision.dataset.mapTriggerDecision === 'approve' } })); return; }
       if (event.target.closest('[data-map-export]')) { const blob = new Blob([JSON.stringify(map, null, 2)], { type: 'application/json' }); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `disput-state-map-${map.runId || 'idle'}.json`; link.click(); URL.revokeObjectURL(link.href); return; }
       if (event.target.closest('[data-case-export]')) { const serialized = options.caseStore?.exportCase?.(); if (!serialized) return; const blob = new Blob([serialized], { type: 'application/json' }); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `disput-case-${map.runId || 'case'}.json`; link.click(); URL.revokeObjectURL(link.href); return; }

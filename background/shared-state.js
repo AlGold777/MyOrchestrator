@@ -93,13 +93,16 @@ self.SUCCESS_STATUSES = SUCCESS_STATUSES;
 self.FAILURE_STATUSES = FAILURE_STATUSES;
 self.TERMINAL_STATUSES = TERMINAL_STATUSES;
 
-// ── Generation wait profile (short/long) ─────────────────────────────────────
+// ── Generation wait profile (standard/long) ──────────────────────────────────
 // results.js writes 'longGenerationMode' to chrome.storage.local; the content
 // side already scales its pipeline ceilings from it (pipeline-config.js), but
 // the background ladder stayed fixed — SCRIPT_RUNTIME_HARD_STOP killed long
 // generations at 180s while the content was patiently waiting up to 450s
 // (timing review 2026-07-02). The background now reads the same flag and every
-// ladder ceiling resolves through profiledTimeoutMs().
+// ladder ceiling resolves through profiledTimeoutMs(). The persisted boolean
+// key stays unchanged for backwards compatibility: false = Standard, true = Long.
+const ACTIVE_FOCUS_WINDOW_STANDARD_MS = 60000;
+const ACTIVE_FOCUS_WINDOW_LONG_MS = 90000;
 let generationWaitProfileLong = false;
 const hydrateGenerationWaitProfile = () => {
   try {
@@ -118,4 +121,21 @@ try {
 } catch (_) {}
 self.isLongGenerationProfile = () => generationWaitProfileLong === true;
 self.profiledTimeoutMs = (shortMs, longMs) => (generationWaitProfileLong ? longMs : shortMs);
+self.getActiveFocusWindowMs = () => (generationWaitProfileLong
+  ? ACTIVE_FOCUS_WINDOW_LONG_MS
+  : ACTIVE_FOCUS_WINDOW_STANDARD_MS);
+self.isActiveFocusAllowedForEntry = (entry, now = Date.now()) => {
+  if (!entry) return false;
+  const startedAt = Number(
+    entry.activeFocusStartedAt
+    || entry?.budgetTimers?.generation?.startedAt
+    || entry.promptSubmittedAt
+    || 0
+  );
+  // Focus needed to submit the prompt is outside the post-submit activity window.
+  if (!startedAt) return true;
+  const budgetMs = Number(entry.activeFocusBudgetMs || self.getActiveFocusWindowMs()) || 0;
+  const deadlineAt = Number(entry.activeFocusDeadlineAt || (startedAt + budgetMs));
+  return budgetMs > 0 && Number(now) < deadlineAt;
+};
 self.__setGenerationWaitProfileForTests = (long) => { generationWaitProfileLong = long === true; };

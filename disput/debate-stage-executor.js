@@ -268,6 +268,11 @@
         if (!participants.length) throw new Error('StageInstance requires participants');
         const signal = executionContext.signal || null;
         const mode = DISPATCH_MODES.includes(stage.dispatchMode) ? stage.dispatchMode : (participants.length > 1 ? 'parallel' : 'single');
+        if (mode === 'single' && participants.length !== 1) {
+          const error = new Error('single dispatch mode requires exactly one participant');
+          error.code = 'SINGLE_DISPATCH_PARTICIPANT_COUNT';
+          throw error;
+        }
         emit('STAGE_EXECUTION_STARTED', { stageInstanceId: stage.stageInstanceId, dispatchMode: mode, participants: participants.map((p) => p.participantId) });
         let results = [];
         if (mode === 'parallel' && participants.length > 1) {
@@ -277,13 +282,15 @@
             ? await executeParallelBatch(stage, participants, batchAdapter, signal, executionContext)
             : null;
           if (!results) results = await Promise.all(participants.map((p) => executeParticipant(stage, p, signal, executionContext)));
-        } else {
+        } else if (mode === 'sequential') {
           for (const participant of participants) {
             const result = await executeParticipant(stage, participant, signal, executionContext);
             results.push(result);
             if (stage.completionMode === 'first_success' && result.status === 'accepted') break;
             if (signal?.aborted) break;
           }
+        } else {
+          results = [await executeParticipant(stage, participants[0], signal, executionContext)];
         }
         const summary = summarize(stage, results);
         emit('STAGE_EXECUTION_FINISHED', { stageInstanceId: stage.stageInstanceId, executionStatus: summary.executionStatus });

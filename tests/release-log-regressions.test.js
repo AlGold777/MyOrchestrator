@@ -75,6 +75,23 @@ describe('release log regression guards', () => {
     expect(readOrder(resultHtml, expectedPanelIds)).toEqual(expectedPanelIds);
   });
 
+  test('top control bar keeps model buttons and right controls on one row', () => {
+    const css = readResolvedCss();
+    const appControls = fs.readFileSync(path.join(__dirname, '..', 'styles', 'app-controls.css'), 'utf8');
+    const debateCss = fs.readFileSync(path.join(__dirname, '..', 'styles', 'results-debate.css'), 'utf8');
+
+    expect(appControls).toContain('.top-control-bar {');
+    expect(appControls).toContain('flex-wrap: nowrap;');
+    expect(appControls).toContain('.top-models-bar {');
+    expect(appControls).toContain('min-width: 0;');
+    expect(appControls).toContain('overflow-x: auto;');
+    expect(appControls).toContain('.top-bar-right {');
+    expect(appControls).toContain('flex: 0 0 auto;');
+    expect(debateCss).toContain('order: initial;');
+    expect(debateCss).toContain('flex-wrap: nowrap;');
+    expect(css).not.toContain('order: 3;\n        width: 100%;');
+  });
+
   test('state map actions use icon buttons and keep Case before Export', () => {
     const htmlFiles = ['pipeline_panel.html', 'result_new.html'];
     htmlFiles.forEach((file) => {
@@ -97,9 +114,9 @@ describe('release log regression guards', () => {
   test('telemetry export accentuates the active Generation Wait Profile', () => {
     const source = fs.readFileSync(path.join(__dirname, '..', 'results.js'), 'utf8');
     // Captured at dispatch so the export reflects the profile actually used.
-    expect(source).toContain("lastGenerationWaitProfile = (longModeCheckbox && longModeCheckbox.checked) ? 'long' : 'short';");
+    expect(source).toContain("lastGenerationWaitProfile = (longModeCheckbox && longModeCheckbox.checked) ? 'long' : 'standard';");
     // Prominent header line in the All Logs markdown export.
-    expect(source).toContain('const profileLine = `Generation wait profile: **${lastGenerationWaitProfile === \'long\' ? \'LONG\' : \'SHORT\'}**');
+    expect(source).toContain('const profileLine = `Generation wait profile: **${lastGenerationWaitProfile === \'long\' ? \'LONG\' : \'STANDARD\'}**');
     // Profile getter exposed via ResultsShared so devtools export can include it.
     expect(source).toContain('window.ResultsShared.getGenerationWaitProfile = () => lastGenerationWaitProfile;');
     // Structured field in the Telemetry JSON export (in results-devtools.js).
@@ -216,6 +233,11 @@ describe('release log regression guards', () => {
     });
   });
 
+  test('collapsible setup covers both Telemetry and Disput cards', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'results-devtools.js'), 'utf8');
+    expect(source).toContain('#telemetry-tabpanel .devtools-card[data-collapsible], #disput-tabpanel .devtools-card[data-collapsible]');
+  });
+
   test('debate round limit syncs Pro columns without adding an extra Disput round', () => {
     const source = fs.readFileSync(path.join(__dirname, '..', 'results.js'), 'utf8');
 
@@ -230,11 +252,49 @@ describe('release log regression guards', () => {
     expect(source).toContain('syncPipelineRoundModelsFromSelectedLLMs({ force: true });\n            syncPipelineRoundsToDebateLimit();\n            if (window.__pendingPipelineSynthesizer !== undefined) {\n                const restoredPlan = draftPlanForCanvas(getActiveDraftPlan());\n                persistActiveDraftPlan(restoredPlan);\n                delete window.__pendingPipelineSynthesizer;\n            }\n            window.syncDebateSchemeUi?.();');
     expect(source).toContain('syncDebateRoundStepperUi();\n            syncDebateAutoPauseButton();\n            syncDebateAutoToggleButton();\n            if (typeof syncAutoToggleState === \'function\') syncAutoToggleState();\n            syncPipelineChromeControls();\n            updatePipelineAll();');
     expect(source).toContain('syncPipelineRoundsToDebateLimit();\n            updateDebateButtonsUi();');
-    expect(source).toContain('syncDebateRoundStepperUi();\n            syncPipelineRoundsToDebateLimit();\n            updateDebateButtonsUi();');
+    expect(source).toContain('syncDebateRoundStepperUi();\n            syncDebateApprovalControls();\n            syncPipelineRoundsToDebateLimit();\n            updateDebateButtonsUi();');
+  });
+
+  test('Disput stage insertion, tab reuse, manual mode and reload cleanup share one contract', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'results.js'), 'utf8');
+    const html = fs.readFileSync(path.join(__dirname, '..', 'pipeline_panel.html'), 'utf8');
+    const css = readResolvedCss();
+
+    expect(source).toContain('activePipelineRunContext?.newPagesDispatched !== true');
+    expect(source).toContain('activePipelineRunContext.newPagesDispatched = true;');
+    expect(source).toContain("pipelinePanel?.addEventListener('dblclick', (event) => {");
+    expect(source).toContain('void toggleIntermediateSynthesis(insert);');
+    expect(source).toContain('planned-working-synthesis-after-${afterPlannedStageId}');
+    expect(source).not.toContain('pipeline-stage-insert-menu');
+    expect(source).not.toContain('pipeline-stage-synthesis-select');
+    expect(css).toContain('.pipeline-stage-insert.has-intermediate-synthesis');
+    expect(css).toContain('background: var(--pipeline-blue);');
+    expect(css).toContain('box-shadow: none;');
+    expect(source).toContain('const hasSelectedPipelineModels = () => getSelectedLLMs().length > 0;');
+    expect(source).toContain('if (!hasSelectedPipelineModels()) return false;');
+    expect(source).toContain('currentFlowSelect.disabled = runActive || !shouldRenderSynthesisStage || !hasActivePipelineModels;');
+    expect(source).toContain("targetMode: 'synthesis'");
+    expect(source).toContain("class=\"connector-line ${activePath ? colorClass : 'inactive'}${activePath ? ' flow-anim' : ''}\"");
+    expect(html).not.toContain('class="pipeline-item active" data-name="Universal"');
+    expect(source).toContain('void startManualModeratorDispatch();');
+    expect(source).toContain('function isDebateApprovalAutoMode()');
+    expect(source).toContain('if (isDebateApprovalAutoMode()) return null;');
+    expect(source).not.toContain('debate-card-branch');
+    expect(source).toContain('finalizeDebatePrintingForModel');
+    expect(css).toContain('position: fixed !important;');
+    expect(css).toContain('inset: 16px;');
+    expect(source).toContain('await safeStorageLocalRemove(modelSelectionStorageKey);');
+    expect(source).toContain('scheduleCrossViewUiStatePersist();');
+    expect(source).toContain("const DISPUT_RESPONSE_LIMIT_MARKER = '[DISPUT_RESPONSE_LIMIT]';");
+    expect(source).toContain('if (context?.pipelineRunId) {\n                prompt = ensureDisputResponseLimit(prompt);');
+    expect(source).toContain("const contentScopeKey = `${modelKey}:${requestId || 'unscoped'}`;");
+    expect(source).toContain("card.dataset.turnClosed = isFinal ? 'true' : 'false';");
+    expect(html).not.toContain('<option value="inf">∞</option>');
   });
 
   test('debate length stepper is rendered left of the run button and pipeline export uses download icon', () => {
     const html = fs.readFileSync(path.join(__dirname, '..', 'pipeline_panel.html'), 'utf8');
+    const source = fs.readFileSync(path.join(__dirname, '..', 'results.js'), 'utf8');
     const css = readResolvedCss();
 
     expect(html).toContain('id="debate-length-select"');
@@ -258,12 +318,17 @@ describe('release log regression guards', () => {
     expect(css).toContain('.stage-header-row .stage-label {');
     expect(css).toContain('.pipeline-stage-insert::before,');
     expect(css).toContain('.pipeline-stage-insert::after {');
-    expect(css).toContain('.pipeline-flow #connectorToOutput,');
-    expect(css).toContain('.pipeline-flow #outputColumn {');
+    expect(html).not.toContain('id="connectorToOutput"');
+    expect(html).not.toContain('id="outputColumn"');
+    expect(css).not.toContain('#connectorToOutput');
+    expect(css).not.toContain('#outputColumn');
     expect(css).toContain('align-self: center;');
     expect(css).toContain('justify-content: center;');
     expect(css).toContain('.pipeline-flow .connector-group.pipeline-stage-future .connector-line,');
     expect(css).toContain('.pipeline-flow .stage-column.pipeline-stage-future .model-block,');
+    expect(source).toContain('class="model-block inactive pipeline-empty-slot" aria-hidden="false"');
+    expect(css).toContain('.model-block.pipeline-empty-slot {');
+    expect(css).toContain('display: flex;');
     expect(css).toContain('--pipeline-block-height: 59.52px;');
     expect(css).toContain('--pipeline-block-gap: 11px;');
     expect(css).toContain('animation: none;');
@@ -318,7 +383,7 @@ describe('release log regression guards', () => {
     expect(css).toContain('.pipeline-items {');
     expect(css).toContain('grid-auto-flow: column;');
     expect(css).toContain('grid-template-rows: repeat(3, max-content);');
-    expect(css).toContain('grid-auto-columns: 220px;');
+    expect(css).toContain('grid-auto-columns: 170px;');
     expect(css).toContain('.pipeline-items-row {');
     expect(css).toContain('display: contents;');
     expect(css).toContain('width: 220px;');
@@ -332,12 +397,14 @@ describe('release log regression guards', () => {
     expect(css).toContain('column-gap: 12px;');
   });
 
-  test('pro controls use one msg-header run button and list add action while output column is gated by R1 models', () => {
+  test('pro controls use one msg-header run button and list add action without an Output canvas stage', () => {
     const html = fs.readFileSync(path.join(__dirname, '..', 'pipeline_panel.html'), 'utf8');
     const source = fs.readFileSync(path.join(__dirname, '..', 'results.js'), 'utf8');
     const css = readResolvedCss();
 
     expect(html).toContain('<div class="pipeline-list-header-actions" aria-label="Pipeline actions">');
+    expect(html.indexOf('<div class="panel-header">')).toBeLessThan(html.indexOf('<div class="pipeline-list-header-actions" aria-label="Pipeline actions">'));
+    expect(html.indexOf('<div class="pipeline-list-header">')).toBeGreaterThan(html.indexOf('<div class="pipeline-list-header-actions" aria-label="Pipeline actions">'));
     expect(html).toContain('id="debate-run-toggle-btn"');
     expect(html).toContain('id="pipeline-panel-toggle-title"');
     expect(html.indexOf('id="pipeline-toggle-modifiers-btn"')).toBeLessThan(html.indexOf('id="pipeline-panel-toggle-title"'));
@@ -357,20 +424,46 @@ describe('release log regression guards', () => {
     expect(html).not.toContain('id="pipeline-delete-btn"');
     expect(html).toContain('<h3>Pipelines</h3>');
     expect(html).toContain('id="pipeline-add-btn"');
+    expect(html).toContain('id="debate-composer-clear-btn"');
+    expect(html).toContain('class="ti ti-trash"');
+    expect(html).toContain('id="debate-auto-toggle-btn"');
+    expect(html).toContain('data-persist-state="true"');
     expect(html).toContain('id="round1" data-round="1"');
-    expect(html.indexOf('id="pipeline-add-btn"')).toBeGreaterThan(html.indexOf('<div class="pipeline-list-header">'));
+    expect(html).not.toContain('id="customerPipelineItems"');
+    expect(html).not.toContain('class="pipeline-items-divider"');
+    expect(source).toContain("pipelineAddBtn?.addEventListener('click', startEmptyPipelineFlow);");
+    expect(source).toContain("const DEFAULT_DEBATE_ROUND_LIMIT = '3';");
+    expect(source).toContain('resetToMinimalTemplate();\n            setDebateRoundLimitValue(DEFAULT_DEBATE_ROUND_LIMIT);');
+    expect(source).not.toContain('showPipelineBuilderModal');
+    expect(source).not.toContain('pipeline-builder-modal');
+    expect(css).not.toContain('.pipeline-builder-modal');
+    expect(html.indexOf('id="pipeline-add-btn"')).toBeGreaterThan(html.indexOf('<div class="panel-header">'));
     expect(html).not.toContain('<div class="round-buttons">');
     expect(css).toContain('.pipeline-list-header-actions');
+    expect(css).not.toContain('.customer-pipeline-items');
+    expect(css).toContain('.pipeline-panel .panel-header > .pipeline-list-header-actions');
+    expect(css).toContain('width: 18ch;');
+    expect(css).toContain('text-overflow: ellipsis;');
+    expect(source).toContain('const PIPELINE_HEADER_DISPLAY_LIMIT = 18;');
+    expect(source).toContain('fullName.length > PIPELINE_HEADER_DISPLAY_LIMIT');
+    expect(source).toContain('fullName.slice(0, PIPELINE_HEADER_DISPLAY_LIMIT - 1)}…');
+    expect(source).toContain("delete pipelineStore.draftPlans['Unsaved Pipeline'];");
+    expect(source).toContain("window.__pendingPipelineSynthesizer = '';");
+    expect(source).toContain("if (isDefaultPipelineName(key)) return '';");
+    expect(source).toContain('block.classList.toggle(\'inactive\', !isActive);');
     expect(css).toContain('margin-left: auto;');
-    expect(css).toContain('.output-column-hidden');
+    expect(css).not.toContain('.output-column-hidden');
     expect(css).toContain('min-height: 0;');
     expect(css).toContain('.pipeline-flow .connector-group.pipeline-stage-future .connector-line,');
     expect(css).toContain('.pipeline-flow .stage-column.pipeline-stage-future .model-block,');
-    expect(source).toContain("state.rememberWhenHidden = true;");
-    expect(source).toContain("state.visible = !outputColumn?.classList?.contains('output-column-hidden');");
     expect(source).toContain("pipelineCanvas?.classList.remove('pipeline-canvas-empty');");
-    expect(source).toContain("outputColumn?.classList.remove('output-column-hidden');");
-    expect(source).toContain("outputColumn?.setAttribute('data-remember-output-state', 'true');");
+    expect(source).not.toContain('getPipelineOutputSelection');
+    expect(source).not.toContain('handleDebateTerminalOutputs');
+    expect(source).toContain("const DEBATE_AUTO_MODE_STORAGE_KEY = 'llmDisputAutoMode.v1';");
+    expect(source).toContain('const restoreDebateAutoMode = async () => {');
+    expect(source).toContain('persistDebateAutoMode(autoMode);');
+    expect(source).not.toContain('autoCheckbox.checked = false;');
+    expect(source.indexOf('await restoreDebateAutoMode();')).toBeLessThan(source.indexOf('await loadPipelineActionModifiers();'));
   });
 
   test('debate transcript persists across navigation but is cleared on explicit page reload', () => {
@@ -385,7 +478,8 @@ describe('release log regression guards', () => {
     // results.js still wires the extracted helpers and the reload-clear call site.
     expect(source).toContain('} = window.ResultsBootUtils;');
     expect(source).toContain("clearDebateTranscriptOnReload().catch?.((err) => console.warn('[RESULTS] debate transcript reload clear failed', err));");
-    expect(source).toContain('if (isPageReloadNavigation()) return Promise.resolve(false);');
+    expect(source).toContain('clearTelemetryOnReload()');
+    expect(source).toContain('return safeStorageLocalRemove(DebateEngineRuntime.STORAGE_KEY).then(() => false);');
     expect(source).toContain('return DebateEngineRuntime.loadStore()');
   });
 
@@ -434,6 +528,7 @@ describe('release log regression guards', () => {
     expect(runtime).toContain('activeIndices: [], withRole: true, onlyActive: true');
     expect(source).toContain("pipelineCanvas?.classList.remove('pipeline-canvas-empty');");
     expect(source).toContain('const setR1ModelsFromSelectedLLMs = (options = {}) => syncPipelineRoundModelsFromSelectedLLMs(options);');
+    expect(source).toContain('window.syncDebateSchemeUi?.();');
     expect(source).toContain('const buildSelectedRoundModelBlocksHtml = (withRole = true) => {');
     expect(source).toContain('const judgeBlocksHtml = buildSelectedRoundModelBlocksHtml(true);');
     expect(source).toContain('syncPipelineRoundModelsFromSelectedLLMs({ force: true });');
@@ -442,7 +537,7 @@ describe('release log regression guards', () => {
     expect(source).toContain('resetPipelineStatusIndicators();\n            setR1ModelsFromSelectedLLMs({ force: true });');
   });
 
-  test('serial pipeline start defines tab policy and Pro output is HTML-only', () => {
+  test('serial pipeline start defines tab policy and canvas Output runtime is removed', () => {
     const source = fs.readFileSync(path.join(__dirname, '..', 'results.js'), 'utf8');
     const runtime = fs.readFileSync(path.join(__dirname, '..', 'pipeline', 'pipeline-runtime.js'), 'utf8');
 
@@ -454,10 +549,11 @@ describe('release log regression guards', () => {
     expect(source).toContain('const pipelineExportBuildDebateFeedHtml = () => {');
     expect(source).toContain('const pipelineExportDownloadDebateFeedHtml = (button = null) => {');
     expect(source).toContain("const ok = pipelineExportDownloadDebateFeedHtml(btn);");
-    expect(source).toContain('const ok = pipelineExportDownloadDebateFeedHtml();');
-    expect(runtime).toContain("{ key: 'exportHtml', label: 'Export HTML', desc: 'HTML', checked: true }");
-    expect(runtime).not.toContain("key: 'notes'");
-    expect(runtime).not.toContain("key: 'export', label: 'Export'");
+    expect(source).not.toContain('getPipelineOutputSelection');
+    expect(source).not.toContain('handlePipelineOutputs');
+    expect(runtime).not.toContain('DEFAULT_OUTPUTS');
+    expect(runtime).not.toContain('buildOutputBlocksHtml');
+    expect(runtime).not.toContain('captureOutputStackState');
   });
 
   test('DebateEngine turns and feed cards carry stable response ids', () => {

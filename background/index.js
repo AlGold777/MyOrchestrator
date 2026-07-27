@@ -175,6 +175,7 @@ importScripts(
   '../shared/model-run-state.js',
   '../shared/answer-length-policy.js',
   '../shared/answer-evidence.js',
+  '../shared/answer-verification.js',
   '../shared/answer-content-classifier.js',
   '../shared/finalization-controller.js',
   '../shared/recovery-intent.js',
@@ -196,6 +197,7 @@ importScripts(
   // и это инвариант транспорта (см. docs/graph-mode/AUDIT_REPORT.md).
   'shared-state.js',
   'llm-targets.js',
+  'b1-skeleton-collector.js',
   'telemetry-logs.js',
   'human-presence.js',
   'rate-limit.js',

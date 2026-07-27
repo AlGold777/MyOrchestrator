@@ -787,6 +787,7 @@
     box-shadow: none;
 }
 
+#telemetry-tabpanel .telemetry-only-problems-label,
 #disput-tabpanel .disput-only-problems-label {
     margin-left: 15px;
 }

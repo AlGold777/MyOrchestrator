@@ -41,6 +41,10 @@
   });
 
   const INDEPENDENT_PURPOSES = new Set(['verification', 'audit', 'critique', 'evidence_review']);
+  const PURE_DERIVED_GOAL_TYPES = new Set([
+    'verify_claim', 'verify_evidence', 'resolve_objection', 'resolve_contradiction',
+    'answer_open_question', 'examine_dissent', 'test_revision', 'compact_context'
+  ]);
 
   const text = (value) => String(value == null ? '' : value).trim();
   const arr = (value) => Array.isArray(value) ? value : [];
@@ -68,18 +72,10 @@
     for (const evidence of arr(map.evidence)) {
       if (evidence.status === 'disputed') push('verify_evidence', [evidence.id], 60, evidence.id);
     }
-    for (const objection of arr(map.objections)) {
-      if (objection.severity === 'blocking' && objection.status === 'unresolved') push('resolve_objection', [objection.id], 80, objection.id);
-    }
-    for (const contradiction of arr(map.contradictions)) {
-      if (contradiction.status === 'open') push('resolve_contradiction', [contradiction.id], 75, contradiction.id);
-    }
-    for (const question of arr(map.questions)) {
-      if (question.status === 'open') push('answer_open_question', [question.id], 50, question.id);
-    }
-    for (const dissent of arr(map.dissent)) {
-      if (dissent.status === 'unexamined') push('examine_dissent', [dissent.id], 45, dissent.id);
-    }
+    for (const objection of arr(map.actionableObjections || map.objections).filter((item) => item.severity === 'blocking' || item.severity === 'critical' || item.severity === 'high')) push('resolve_objection', [objection.id], 80, objection.id);
+    for (const contradiction of arr(map.actionableContradictions || map.contradictions)) push('resolve_contradiction', [contradiction.id], 75, contradiction.id);
+    for (const question of arr(map.actionableQuestions || map.questions)) push('answer_open_question', [question.id], 50, question.id);
+    for (const dissent of arr(map.actionableDissent || map.dissent)) push('examine_dissent', [dissent.id], 45, dissent.id);
     const compaction = input.policies?.compaction || {};
     if (Number(map.contextPressure || 0) > Number(compaction.contextPressureThreshold ?? 0.8)) {
       push('compact_context', [], 70, 'context_pressure');
@@ -101,6 +97,20 @@
       }
     }
     return derived;
+  }
+
+  function evaluateDerivedGoalCondition(goal = {}, input = {}) {
+    const derived = goal.derived === true || String(goal.goalId || '').startsWith('derived:');
+    if (!derived || !PURE_DERIVED_GOAL_TYPES.has(String(goal.type || ''))) {
+      return Object.freeze({ evaluable: false, active: null, reason: 'goal_condition_not_reusable' });
+    }
+    const key = (candidate) => `${candidate.type}|${arr(candidate.targetArtifactIds).slice().sort().join(',')}`;
+    const active = deriveGoals(input).some((candidate) => key(candidate) === key(goal));
+    return Object.freeze({
+      evaluable: true,
+      active,
+      reason: active ? 'derivation_condition_still_true' : 'derivation_condition_cleared'
+    });
   }
 
   // §6.5 Goal deduplication against open goals and active stages.
@@ -317,9 +327,12 @@
 
   function makeDecision(input, partial) {
     return Object.freeze({
-      decisionId: `decision-${input.runId}-${input.caseVersion}-${input.stateMapVersion}-${Number(input.totalStagesExecuted || 0)}`,
+      decisionId: `decision-${input.runId}-${input.caseVersion}-${input.stateMap?.projectorVersion || 0}-${Number(input.totalStagesExecuted || 0)}`,
       inputCaseVersion: input.caseVersion,
-      inputStateMapVersion: input.stateMapVersion,
+      inputStateMapIdentity: {
+        sourceCaseVersion: Number(input.stateMap?.sourceCaseVersion ?? input.caseVersion),
+        projectorVersion: Number(input.stateMap?.projectorVersion || input.stateMap?.version || 0)
+      },
       inputPlanRevisionId: input.activePlanRevisionId,
       ruleSetVersion: input.ruleSetVersion || RULE_SET_VERSION,
       plannerAlgorithmVersion: PLANNER_ALGORITHM_VERSION,
@@ -365,10 +378,23 @@
     // Budget exhaustion (§16.3)
     const stagesSoFar = Number(input.totalStagesExecuted || 0);
     const activeStages = arr(input.activeStages).filter((s) => !['completed', 'failed', 'cancelled', 'stale'].includes(s.status));
-    const budgetExhausted = (budgets.maxTotalStages != null && stagesSoFar >= budgets.maxTotalStages)
-      || (budgets.maxModelCalls != null && Number(input.totalModelCalls || 0) >= budgets.maxModelCalls)
-      || (budgets.maxEstimatedCost != null && Number(input.estimatedCost || 0) >= budgets.maxEstimatedCost)
-      || (budgets.maxElapsedTimeMs != null && Number(input.elapsedTimeMs || 0) >= budgets.maxElapsedTimeMs);
+    const budgetChecks = [
+      ['stages', 'maxTotalStages', stagesSoFar],
+      ['model_calls', 'maxModelCalls', Number(input.totalModelCalls || 0)],
+      ['human_waits', 'maxHumanWaits', Number(input.humanWaits || 0)],
+      ['retry_attempts', 'maxRetryAttempts', Number(input.retryAttempts || 0)],
+      ['context_tokens', 'maxContextTokens', Number(input.contextTokens || input.stateMap?.contextTokensEstimate || 0)],
+      ['corrections', 'maxCorrections', Number(input.totalCorrections || 0)],
+      ['estimated_cost', 'maxEstimatedCost', Number(input.estimatedCost || 0)],
+      ['elapsed_time_ms', 'maxElapsedTimeMs', Number(input.elapsedTimeMs || 0)]
+    ];
+    const exhaustedBudgets = budgetChecks
+      .filter(([, policyKey, actual]) => budgets[policyKey] != null && actual >= Number(budgets[policyKey]))
+      .map(([resource, policyKey, actual]) => ({
+        type: 'budget_exhausted', resource, policyKey,
+        actual, limit: Number(budgets[policyKey]), severity: 'limitation'
+      }));
+    const budgetExhausted = exhaustedBudgets.length > 0;
     const requiredOpen = openGoals.filter((g) => g.required && g.status !== 'resolved');
     if (budgetExhausted) {
       const finalization = {
@@ -376,7 +402,8 @@
         finalizationMode: input.stateMap?.synthesisArtifactId ? 'SYNTHESIS' : (arr(input.stateMap?.claims).length ? 'STATE_MAP' : 'ARTIFACTS_ONLY'),
         unresolvedGoalIds: requiredOpen.map((g) => g.goalId),
         selectedFinalArtifactIds: arr(input.stateMap?.finalArtifactIds),
-        humanApprovalRequired: finalizationPolicy.mode === 'manual'
+        humanApprovalRequired: finalizationPolicy.mode === 'manual',
+        degradationEvidence: exhaustedBudgets
       };
       if (finalizationPolicy.mode === 'manual') {
         return makeDecision(input, {
@@ -385,7 +412,8 @@
             requestId: `hdr-${input.runId}-budget`, type: 'APPROVE_FINALIZATION',
             question: 'Budget exhausted. Finalize the run?',
             options: [{ id: 'finalize', label: 'Finalize' }, { id: 'extend', label: 'Extend budget' }],
-            blocking: true, relatedGoalIds: requiredOpen.map((g) => g.goalId), relatedArtifactIds: []
+            blocking: true, relatedGoalIds: requiredOpen.map((g) => g.goalId), relatedArtifactIds: [],
+            degradationEvidence: exhaustedBudgets
           }
         });
       }
@@ -589,13 +617,13 @@
   }
 
   function createPlanner() {
-    return Object.freeze({ evaluate, ruleSetVersion: RULE_SET_VERSION });
+    return Object.freeze({ evaluate, evaluateDerivedGoalCondition, ruleSetVersion: RULE_SET_VERSION });
   }
 
   const api = Object.freeze({
     RULE_SET_VERSION, PLANNER_ALGORITHM_VERSION, UTILITY_FORMULA_VERSION, GOAL_SCHEMA_VERSION,
     GOAL_TYPES, DECISION_TYPES, SUPPRESSION, GOAL_PURPOSE,
-    deriveGoals, dedupeGoals, computeUtility, detectStagnation, evaluate, createPlanner
+    deriveGoals, evaluateDerivedGoalCondition, dedupeGoals, computeUtility, detectStagnation, evaluate, createPlanner
   });
   root.DebatePlanner = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

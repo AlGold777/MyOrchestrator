@@ -25,11 +25,17 @@ function buildGlobalStateSnapshot(options = {}) {
       finalStatusRecorded: !!entry?.finalStatusRecorded,
       executionState: modelRunState?.executionState || statusContract?.executionState || null,
       generationState: modelRunState?.generationState || null,
+      extractionState: modelRunState?.extractionState || null,
+      verificationState: modelRunState?.verificationState || entry?.answerVerification?.state || null,
       answerState: modelRunState?.answerState || statusContract?.answerState || null,
+      attributionState: entry?.attributionState || entry?.unverifiedArtifact?.attributionState || null,
       terminalState: modelRunState?.terminalState || null,
       statusRank: statusContract?.rank || 0,
       statusData: entry?.statusData || null,
       modelRunState,
+      answerVerification: entry?.answerVerification || null,
+      stageTimeline: Array.isArray(entry?.stageTimeline) ? entry.stageTimeline.slice(-30) : [],
+      answerRevisions: Array.isArray(entry?.answerRevisions) ? entry.answerRevisions.slice(-12) : [],
       hasAnswer: !!entry?.answer,
       // Recovery payload: STATUS_UPDATE and LLM_PARTIAL_RESPONSE are separate MV3
       // messages. If the latter is missed while the results page is reloading, the
@@ -37,7 +43,17 @@ function buildGlobalStateSnapshot(options = {}) {
       // of restoring only a green status indicator.
       ...(includeAnswers ? {
         answer: String(entry?.answer || ''),
-        answerHtml: String(entry?.answerHtml || '')
+        answerHtml: String(entry?.answerHtml || ''),
+        unverifiedArtifact: entry?.unverifiedArtifact ? {
+          text: String(entry.unverifiedArtifact.text || ''),
+          html: String(entry.unverifiedArtifact.html || ''),
+          capturedAt: entry.unverifiedArtifact.capturedAt || null,
+          source: entry.unverifiedArtifact.source || null,
+          dispatchId: entry.unverifiedArtifact.dispatchId || null,
+          completenessState: entry.unverifiedArtifact.completenessState || null,
+          attributionState: entry.unverifiedArtifact.attributionState || 'unproven',
+          reason: entry.unverifiedArtifact.reason || null
+        } : null
       } : {}),
       tabId: entry?.tabId || mappedTabId || null,
       humanVisits: entry?.humanVisits || 0,

@@ -13,7 +13,7 @@ const FULL_PORTS = {
   compilePrompt: ({ stage, participant }) => `${stage.purpose} for ${participant.participantId}`,
   extractArtifacts: ({ text }) => [{ type: 'position', text }],
   proposeStateDelta: ({ participant, artifacts }) => ({ by: participant.participantId, artifacts }),
-  commitStateDelta: ({ state }) => ({ applied: true, stateMap: state.stateMap }),
+  commitStateDelta: ({ state }) => ({ applied: true, changed: true, stateMap: state.stateMap }),
   projectStateMap: (state) => state.stateMap
 };
 

@@ -26,8 +26,14 @@
     const now = deps.now || (() => Date.now());
     const nowIso = () => new Date(now()).toISOString();
     const leaseTtlMs = Number(deps.leaseTtlMs || 30000);
+    const leaseHeartbeatMs = Math.max(1, Number(
+      deps.leaseHeartbeatMs || Math.floor(leaseTtlMs / 3) || 1
+    ));
+    const scheduleInterval = deps.setInterval || (typeof setInterval === 'function' ? setInterval : null);
+    const cancelInterval = deps.clearInterval || (typeof clearInterval === 'function' ? clearInterval : null);
     const ownerId = String(deps.ownerId || `owner-${Math.random().toString(36).slice(2, 10)}`);
     const persistence = deps.persistence || createMemoryPersistence();
+    const semanticStore = deps.semanticStore || null;
     const commitStateDelta = deps.commitStateDelta || null;
     const projectStateMap = deps.projectStateMap || ((state) => state.stateMap);
 
@@ -36,7 +42,6 @@
       runId: '',
       lifecycle: LIFECYCLE.CREATED,
       caseVersion: 0,
-      stateMapVersion: 0,
       debateCase: null,
       stateMap: {},
       openGoals: [],
@@ -53,21 +58,29 @@
       pausePolicy: null,
       finalization: null,
       totalStagesExecuted: 0,
+      usage: { modelCalls: 0, humanWaits: 0, retryAttempts: 0, corrections: 0, estimatedCost: 0 },
       stagnationSignals: { consecutiveNoStateDelta: 0, unchangedStateMapCount: 0, repeatedActionCount: 0 },
       recentActionFingerprints: []
     };
     let lease = null;
     let tickInFlight = false;
     let quiescePromise = null;
-    let abortController = deps.AbortController ? new deps.AbortController() : (typeof AbortController !== 'undefined' ? new AbortController() : null);
+    let commitPortMissingSignalled = false;
+    const createAbortController = () => deps.AbortController
+      ? new deps.AbortController()
+      : (typeof AbortController !== 'undefined' ? new AbortController() : null);
+    let abortController = createAbortController();
 
     function createMemoryPersistence() {
-      const store = { events: [], snapshots: [], lease: null };
+      const store = { events: [], snapshots: [], lease: null, lastPublishedSequence: 0 };
       return {
         appendEvent: (event) => { store.events.push(clone(event)); },
         loadEvents: (afterSequence = 0) => store.events.filter((e) => e.eventSequence > afterSequence).map(clone),
         saveSnapshot: (snapshot) => { store.snapshots.push(clone(snapshot)); },
         loadLatestSnapshot: () => clone(store.snapshots[store.snapshots.length - 1] || null),
+        loadRecoveryCheckpoint: () => clone(store.events.slice().reverse().find((event) => event.type === 'RUN_STATE_CHECKPOINTED')?.payload?.snapshot || null),
+        readLastPublishedSequence: () => store.lastPublishedSequence,
+        markPublished: (sequence) => { store.lastPublishedSequence = Math.max(store.lastPublishedSequence, Number(sequence || 0)); return store.lastPublishedSequence; },
         readLease: () => clone(store.lease),
         writeLease: (value) => { store.lease = clone(value); return true; },
         compareAndSetLease: (expectedVersion, value) => {
@@ -84,6 +97,22 @@
       return { ok: false, fatal: true, reason };
     };
 
+    function publishPersistedEvent(event) {
+      const cursor = Number(persistence.readLastPublishedSequence?.() || 0);
+      if (Number(event.eventSequence) <= cursor) return false;
+      try {
+        const published = deps.emit?.(event.type, event);
+        if (published && typeof published.then === 'function') {
+          published.then(() => persistence.markPublished?.(event.eventSequence)).catch(() => {});
+        } else {
+          persistence.markPublished?.(event.eventSequence);
+        }
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+
     function emit(type, payload = {}) {
       state.eventSequence += 1;
       const event = {
@@ -99,7 +128,7 @@
       };
       state.events.push(event);
       persistence.appendEvent(event);
-      deps.emit?.(type, event);
+      publishPersistedEvent(event);
       return event;
     }
 
@@ -117,11 +146,19 @@
       try { deps.onLeaseChange?.(clone(change)); } catch (_) {}
       try { persistence.publishLeaseChange?.(clone(change)); } catch (_) {}
     }
-    function acquireLease() {
+    async function acquireLease() {
       const existing = persistence.readLease?.();
       const expired = !existing || existing.expiresAt <= now() || existing.ownerId === ownerId;
       if (!expired) return { ok: false, code: 'LEASE_HELD', holder: existing.ownerId };
-      const previousRevision = Number(existing?.leaseRevision || existing?.version || 0);
+      if (typeof persistence.acquireExclusiveLease === 'function' && !(await persistence.acquireExclusiveLease())) {
+        return { ok: false, code: 'LEASE_HELD' };
+      }
+      const latest = persistence.readLease?.();
+      if (latest && latest.expiresAt > now() && latest.ownerId !== ownerId) {
+        persistence.releaseExclusiveLease?.();
+        return { ok: false, code: 'LEASE_HELD', holder: latest.ownerId };
+      }
+      const previousRevision = Number(latest?.leaseRevision || latest?.version || existing?.leaseRevision || existing?.version || 0);
       lease = {
         runId: state.runId, ownerId,
         acquiredAt: now(), expiresAt: now() + leaseTtlMs,
@@ -132,7 +169,7 @@
       const committed = typeof persistence.compareAndSetLease === 'function'
         ? persistence.compareAndSetLease(previousRevision, lease)
         : persistence.writeLease?.(lease);
-      if (!committed) { lease = null; return { ok: false, code: 'LEASE_RACE' }; }
+      if (!committed) { lease = null; persistence.releaseExclusiveLease?.(); return { ok: false, code: 'LEASE_RACE' }; }
       notifyLease({ type: 'LEASE_ACQUIRED', lease });
       return { ok: true, lease };
     }
@@ -145,9 +182,21 @@
         return false;
       }
       lease = { ...lease, expiresAt: now() + leaseTtlMs };
-      if (!persistence.writeLease?.(lease)) { lease = null; return false; }
+      const renewed = typeof persistence.compareAndSetLease === 'function'
+        ? persistence.compareAndSetLease(Number(current.leaseRevision || current.version || 0), lease)
+        : persistence.writeLease?.(lease);
+      if (!renewed) { lease = null; return false; }
       notifyLease({ type: 'LEASE_RENEWED', lease });
       return true;
+    }
+    function startLeaseHeartbeat() {
+      if (!scheduleInterval || !cancelInterval) return () => {};
+      const timer = scheduleInterval(() => {
+        if (!lease || NO_LEASE_RENEWAL.has(state.lifecycle)) return;
+        if (!renewLease()) handleLeaseLost('lease_renewal_failed_during_stage');
+      }, leaseHeartbeatMs);
+      timer?.unref?.();
+      return () => cancelInterval(timer);
     }
     function assertLease() {
       const current = persistence.readLease?.();
@@ -169,6 +218,7 @@
         ? persistence.compareAndSetLease(Number(lease.leaseRevision || lease.version || 0), null)
         : persistence.writeLease?.(null);
       lease = null;
+      persistence.releaseExclusiveLease?.();
       if (!committed) return false;
       notifyLease({ type: 'LEASE_RELEASED', lease: released });
       return true;
@@ -177,17 +227,33 @@
       if (state.lifecycle === LIFECYCLE.RUNNING || state.lifecycle === LIFECYCLE.STARTING) {
         abortController?.abort?.(reason);
         state.lifecycle = LIFECYCLE.PAUSED;
-        emit('LEASE_LOST', { reason });
+        // A fenced owner is read-only: retain a local diagnostic without
+        // appending to the shared event log or advancing its sequence.
+        state.events.push({
+          type: 'LEASE_LOST',
+          payload: { reason },
+          at: now(),
+          sequence: state.eventSequence,
+          localOnly: true
+        });
       }
       lease = null;
+      persistence.releaseExclusiveLease?.();
       return { ok: false, code: 'LEASE_LOST' };
     }
+
+    persistence.subscribeLeaseChange?.((change) => {
+      const next = change?.lease;
+      if (change?.type === 'LEASE_ACQUIRED' && lease && next?.ownerId && next.ownerId !== ownerId) {
+        handleLeaseLost('cross_context_invalidation');
+      }
+    });
 
     // ---- Snapshot (§15) ----
     function buildSnapshot() {
       return {
         runId: state.runId,
-        snapshotVersion: 2,
+        snapshotVersion: 3,
         eventSequence: state.eventSequence,
         debateCase: clone(state.debateCase),
         activePlanRevisionId: revisions.getActive?.()?.revisionId || null,
@@ -197,7 +263,6 @@
         openGoals: clone(state.openGoals),
         runLifecycle: state.lifecycle,
         caseVersion: state.caseVersion,
-        stateMapVersion: state.stateMapVersion,
         stateMap: clone(state.stateMap),
         participantStatus: clone(state.participantStatus),
         configuredParticipants: clone(state.configuredParticipants),
@@ -205,9 +270,54 @@
         droppedParticipants: clone(state.droppedParticipants),
         pendingHumanDecision: clone(state.pendingHumanDecision || null),
         totalStagesExecuted: state.totalStagesExecuted,
+        usage: clone(state.usage),
         stagnationSignals: clone(state.stagnationSignals),
         createdAt: nowIso()
       };
+    }
+
+    function validRecoverySnapshot(snapshot) {
+      return Boolean(snapshot && String(snapshot.runId || '')
+        && Number.isFinite(Number(snapshot.eventSequence))
+        && snapshot.debateCase && typeof snapshot.debateCase === 'object'
+        && Array.isArray(snapshot.openGoals)
+        && Array.isArray(snapshot.stages || snapshot.activeStages));
+    }
+
+    function hydrateSnapshot(snapshot) {
+      state.runId = snapshot.runId;
+      state.debateCase = clone(snapshot.debateCase);
+      state.caseVersion = Number(snapshot.caseVersion ?? snapshot.debateCase?.caseVersion ?? 0);
+      state.stateMap = projectStateMap(state) || clone(snapshot.stateMap || {});
+      state.participantStatus = clone(snapshot.participantStatus || {});
+      state.configuredParticipants = clone(snapshot.configuredParticipants || []);
+      state.activeParticipants = clone(snapshot.activeParticipants || []);
+      state.droppedParticipants = clone(snapshot.droppedParticipants || []);
+      state.pendingHumanDecision = clone(snapshot.pendingHumanDecision || null);
+      if (!state.configuredParticipants.length) initializeParticipants(state.debateCase?.participants);
+      state.openGoals = clone(snapshot.openGoals || []);
+      state.stages = clone(snapshot.stages || snapshot.activeStages || []);
+      state.eventSequence = Number(snapshot.eventSequence || 0);
+      state.totalStagesExecuted = Number(snapshot.totalStagesExecuted || 0);
+      state.usage = { ...state.usage, ...(clone(snapshot.usage || {})) };
+      state.stagnationSignals = clone(snapshot.stagnationSignals) || state.stagnationSignals;
+      state.lifecycle = snapshot.runLifecycle;
+      revisions.hydrate?.({ revisions: snapshot.revisions || [] });
+    }
+
+    function persistRecoveryPoint(reason) {
+      const snapshot = buildSnapshot();
+      snapshot.eventSequence = state.eventSequence + 1;
+      snapshot.createdAt = nowIso();
+      emit('RUN_STATE_CHECKPOINTED', { reason, snapshot });
+      return snapshot;
+    }
+
+    function republishUnpublished(events) {
+      const cursor = Number(persistence.readLastPublishedSequence?.() || 0);
+      events.filter((event) => Number(event.eventSequence) > cursor)
+        .sort((a, b) => Number(a.eventSequence) - Number(b.eventSequence))
+        .forEach(publishPersistedEvent);
     }
 
     // ---- Planner tick (§9) ----
@@ -216,7 +326,6 @@
       return {
         runId: state.runId,
         caseVersion: state.caseVersion,
-        stateMapVersion: state.stateMapVersion,
         activePlanRevisionId: active?.revisionId,
         activePlanRevision: active,
         debateCase: state.debateCase,
@@ -236,6 +345,12 @@
         policies: state.debateCase?.policies || {},
         budgets: state.debateCase?.policies?.budgets || {},
         totalStagesExecuted: state.totalStagesExecuted,
+        totalModelCalls: state.usage.modelCalls,
+        humanWaits: state.usage.humanWaits,
+        retryAttempts: state.usage.retryAttempts,
+        totalCorrections: state.usage.corrections,
+        contextTokens: Number(state.stateMap?.contextTokensEstimate || 0),
+        estimatedCost: state.usage.estimatedCost,
         stagnationSignals: clone(state.stagnationSignals),
         recentActionFingerprints: state.recentActionFingerprints.slice(),
         pendingHumanDecision: clone(state.pendingHumanDecision || null),
@@ -261,8 +376,12 @@
           return { ok: false, code: 'PLANNING_FAILED', reason: error?.message };
         }
         // Stale check (§9.2): versions must be unchanged at commit time.
+        const projectionIdentity = {
+          sourceCaseVersion: Number(state.stateMap?.sourceCaseVersion ?? state.caseVersion),
+          projectorVersion: Number(state.stateMap?.projectorVersion || state.stateMap?.version || 0)
+        };
         if (decision.inputCaseVersion !== state.caseVersion
-          || decision.inputStateMapVersion !== state.stateMapVersion
+          || JSON.stringify(decision.inputStateMapIdentity || {}) !== JSON.stringify(projectionIdentity)
           || decision.inputPlanRevisionId !== revisions.getActive?.()?.revisionId) {
           emit('PLANNING_DECISION_STALE', { decisionId: decision.decisionId });
           return { ok: false, code: 'PLANNING_DECISION_STALE' };
@@ -328,8 +447,125 @@
       return created;
     }
 
+    function operationReceipt(change, result, delta, deltaIndex, stage, batchDuplicate) {
+      const duplicate = result?.duplicate === true || (result == null && batchDuplicate === true);
+      const explicitGoalIds = arr(delta?.goalIds);
+      return {
+        deltaIndex,
+        deltaId: String(delta?.deltaId || ''),
+        kind: String(change?.kind || 'STATE_DELTA'),
+        artifactId: String(change?.artifact?.id || change?.artifactId || result?.receipt?.result?.details?.artifactId || ''),
+        artifactType: String(change?.artifact?.type || result?.receipt?.result?.details?.artifactType || ''),
+        artifactStatus: String(change?.artifact?.status || result?.receipt?.result?.details?.after?.status || ''),
+        targetId: String(change?.targetId || change?.artifact?.targetId || result?.receipt?.result?.details?.targetId || ''),
+        goalIds: explicitGoalIds.length ? explicitGoalIds.slice() : arr(stage?.goalIds),
+        goalLink: explicitGoalIds.length ? 'explicit_delta' : 'stage_candidate',
+        duplicate,
+        changed: !duplicate
+      };
+    }
+
+    const GOAL_ARTIFACT_TYPES = Object.freeze({
+      establish_position: ['claim'],
+      verify_claim: ['evidence', 'axis_verdict', 'audit'],
+      verify_evidence: ['evidence', 'axis_verdict', 'audit'],
+      resolve_objection: ['revision', 'human_decision'],
+      resolve_contradiction: ['revision', 'human_decision'],
+      answer_open_question: ['revision', 'finding', 'human_decision'],
+      examine_dissent: ['dissent', 'revision', 'human_decision'],
+      test_revision: ['objection', 'evidence', 'axis_verdict'],
+      recheck_conclusion: ['evidence', 'audit', 'axis_verdict'],
+      compact_context: ['finding'],
+      produce_synthesis: ['synthesis_conclusion'],
+      correct_synthesis: ['synthesis_conclusion'],
+      audit_output: ['audit'],
+      request_human_judgment: ['human_decision']
+    });
+    const GOALS_REQUIRING_TARGET = new Set([
+      'verify_claim', 'verify_evidence', 'resolve_objection', 'resolve_contradiction',
+      'answer_open_question', 'examine_dissent', 'test_revision', 'recheck_conclusion',
+      'correct_synthesis', 'audit_output'
+    ]);
+
+    function operationSatisfiesGoal(operation, goal) {
+      if (!operation?.changed || !arr(operation.goalIds).includes(goal.goalId)) return false;
+      const criteria = goal.acceptanceCriteria && typeof goal.acceptanceCriteria === 'object'
+        ? goal.acceptanceCriteria
+        : {};
+      const allowedTypes = arr(criteria.artifactTypes).length
+        ? arr(criteria.artifactTypes)
+        : (GOAL_ARTIFACT_TYPES[goal.type] || []);
+      if (!allowedTypes.length || !allowedTypes.includes(operation.artifactType)) return false;
+      const requiredTargets = arr(criteria.targetArtifactIds).length
+        ? arr(criteria.targetArtifactIds)
+        : arr(goal.targetArtifactIds);
+      const artifactCollection = Array.isArray(state.debateCase?.artifacts)
+        ? state.debateCase.artifacts
+        : Object.values(state.debateCase?.artifacts || {});
+      const targetArtifact = artifactCollection.find((artifact) => artifact.id === operation.targetId);
+      const targetMatches = requiredTargets.includes(operation.targetId)
+        || requiredTargets.includes(targetArtifact?.targetId);
+      if (requiredTargets.length && GOALS_REQUIRING_TARGET.has(goal.type)
+        && !targetMatches) return false;
+      const allowedStatuses = arr(criteria.artifactStatuses);
+      if (allowedStatuses.length && !allowedStatuses.includes(operation.artifactStatus)) return false;
+      if (goal.type === 'audit_output' && operation.artifactStatus !== 'verified') return false;
+      return true;
+    }
+
+    function evaluateGoalOutcome(goal, beforeStateMap, afterStateMap, commitReport) {
+      const evaluator = planner?.evaluateDerivedGoalCondition;
+      if (typeof evaluator === 'function') {
+        const inputBase = {
+          debateCase: state.debateCase,
+          openGoals: state.openGoals,
+          activeStages: state.stages,
+          activePlanRevision: revisions.getActive?.(),
+          policies: state.debateCase?.policies || {},
+          currentTime: nowIso()
+        };
+        const before = evaluator(goal, { ...inputBase, stateMap: beforeStateMap });
+        const after = evaluator(goal, { ...inputBase, stateMap: afterStateMap });
+        if (after?.evaluable && after.active === false) {
+          return {
+            goalId: goal.goalId,
+            outcome: 'satisfied',
+            reason: after.reason,
+            conditionWasActive: before?.evaluable ? before.active : null
+          };
+        }
+        if (after?.evaluable) {
+          const relatedChange = arr(commitReport.operations)
+            .some((operation) => operation.changed && arr(operation.goalIds).includes(goal.goalId));
+          return {
+            goalId: goal.goalId,
+            outcome: relatedChange ? 'progressed' : 'not_satisfied',
+            reason: relatedChange ? 'related_state_change_without_clearing_condition' : after.reason,
+            conditionWasActive: before?.evaluable ? before.active : null
+          };
+        }
+      }
+      const satisfyingOperation = arr(commitReport.operations).find((operation) => operationSatisfiesGoal(operation, goal));
+      if (satisfyingOperation) {
+        return {
+          goalId: goal.goalId,
+          outcome: 'satisfied',
+          reason: 'acceptance_criterion_matched',
+          artifactId: satisfyingOperation.artifactId,
+          artifactType: satisfyingOperation.artifactType
+        };
+      }
+      const relatedChange = arr(commitReport.operations).some((operation) =>
+        operation.changed && arr(operation.goalIds).includes(goal.goalId));
+      return {
+        goalId: goal.goalId,
+        outcome: relatedChange ? 'progressed' : 'not_satisfied',
+        reason: relatedChange ? 'acceptance_criterion_not_met' : 'no_goal_linked_state_change'
+      };
+    }
+
     // ---- Commit transaction (§12) ----
-    function commitStageResult(stage, result) {
+    async function commitStageResult(stage, result) {
       // Atomic semantic commit: artifacts + goal update + case version + terminal status.
       for (const failure of arr(result.terminalFailures)) {
         const participantId = String(failure.participantId || '');
@@ -351,60 +587,195 @@
         ...state,
         debateCase: clone(state.debateCase),
         stateMap: clone(state.stateMap),
-        caseVersion: baseCaseVersion,
-        stateMapVersion: state.stateMapVersion
+        caseVersion: baseCaseVersion
       };
-      for (const delta of arr(result.proposedStateDeltas)) {
+      const beforeStateMap = clone(state.stateMap);
+      const proposedDeltas = arr(result.proposedStateDeltas);
+      const eligible = [];
+      for (const delta of proposedDeltas) {
         emit('STATE_DELTA_PROPOSED', { stageInstanceId: stage.stageInstanceId, delta });
         const expected = delta.expectedCaseVersion;
-        if (expected != null && expected !== baseCaseVersion) {
-          emit('STATE_DELTA_STALE', { stageInstanceId: stage.stageInstanceId, expected, actual: baseCaseVersion });
+        if (expected != null && Number(expected) !== Number(baseCaseVersion)) {
+          emit('STATE_DELTA_STALE', { stageInstanceId: stage.stageInstanceId, expected, actual: baseCaseVersion, delta: clone(delta) });
+        } else eligible.push(delta);
+      }
+      let semanticBatchHandled = false;
+      let idempotentReplay = false;
+      const commitReport = {
+        accepted: eligible.length > 0,
+        committed: false,
+        changed: false,
+        recoveryReplay: false,
+        semanticNoOp: false,
+        operations: []
+      };
+      if (semanticStore?.commit) {
+        semanticBatchHandled = true;
+        const envelopes = eligible.flatMap((delta, deltaIndex) => arr(delta.artifacts).map((artifact, artifactIndex) => ({
+          delta,
+          deltaIndex,
+          change: {
+            kind: 'UPSERT_ARTIFACT', artifact,
+            correlationId: `${delta.deltaId || stage.stageInstanceId}:artifact:${artifact.id || artifactIndex}`,
+            actor: delta.participantId || 'orchestrator'
+          }
+        })));
+        const proposedConclusions = envelopes.filter((envelope) => envelope.change.artifact?.type === 'synthesis_conclusion');
+        if (proposedConclusions.length === 1) {
+          const replacement = proposedConclusions[0].change.artifact;
+          const currentConclusion = Object.values(workingState.debateCase?.artifacts || {}).find((artifact) =>
+            artifact.type === 'synthesis_conclusion' && artifact.id !== replacement.id
+            && !artifact.supersededBy && !artifact.mergedInto
+            && !['superseded', 'merged', 'rejected', 'withdrawn'].includes(artifact.status));
+          if (currentConclusion) {
+            envelopes.push({
+              delta: proposedConclusions[0].delta,
+              deltaIndex: proposedConclusions[0].deltaIndex,
+              change: {
+                kind: 'SUPERSEDE_ARTIFACT',
+                artifactId: currentConclusion.id,
+                targetId: replacement.id,
+                expectedRevision: currentConclusion.revision,
+                correlationId: `${proposedConclusions[0].change.correlationId}:supersede:${currentConclusion.id}`,
+                actor: proposedConclusions[0].change.actor
+              }
+            });
+          }
+        }
+        const changes = envelopes.map((envelope) => envelope.change);
+        if (changes.length) {
+          const committed = await semanticStore.commit({ expectedCaseVersion: baseCaseVersion, leaseRevision: lease?.leaseRevision, changes });
+          if (committed.ok) {
+            commitReport.committed = true;
+            workingState.debateCase = clone(committed.case || semanticStore.getState?.() || workingState.debateCase);
+            workingState.caseVersion = Number(committed.caseVersion ?? baseCaseVersion + changes.length);
+            workingState.stateMap = projectStateMap(workingState) || workingState.stateMap;
+            commitReport.operations = envelopes.map((envelope, index) =>
+              operationReceipt(
+                envelope.change,
+                arr(committed.results)[index],
+                envelope.delta,
+                envelope.deltaIndex,
+                stage,
+                committed.duplicate
+              ));
+            commitReport.changed = commitReport.operations.some((operation) => operation.changed);
+            idempotentReplay = commitReport.operations.length > 0
+              && commitReport.operations.every((operation) => operation.duplicate);
+            idempotentReplay = idempotentReplay || committed.duplicate === true;
+            commitReport.recoveryReplay = idempotentReplay;
+            const changedDeltaIndexes = new Set(commitReport.operations
+              .filter((operation) => operation.changed)
+              .map((operation) => operation.deltaIndex));
+            applied.push(...eligible.filter((_, index) => changedDeltaIndexes.has(index)));
+          } else {
+            emit('STATE_DELTA_REJECTED', { stageInstanceId: stage.stageInstanceId, reason: committed.code || 'semantic_commit_rejected' });
+          }
+        } else if (eligible.length) {
+          commitReport.semanticNoOp = true;
+        }
+      }
+      for (const delta of semanticBatchHandled ? [] : eligible) {
+        if (!commitStateDelta && !commitPortMissingSignalled) {
+          commitPortMissingSignalled = true;
+          emit('SEMANTIC_COMMIT_DEGRADED', { stageInstanceId: stage.stageInstanceId, reason: 'commit_port_missing' });
+        }
+        const outcome = commitStateDelta
+          ? (commitStateDelta({ state: workingState, stage, delta }) || { applied: false, reason: 'commit_port_no_result' })
+          : { applied: false, reason: 'commit_port_missing' };
+        if (outcome.applied !== true) {
+          if (outcome.reason === 'no_state_change') commitReport.semanticNoOp = true;
+          emit('STATE_DELTA_REJECTED', { stageInstanceId: stage.stageInstanceId, reason: outcome.reason || 'commit_not_applied' });
           continue;
         }
-        let outcome = { applied: true, stateMap: workingState.stateMap };
-        if (commitStateDelta) outcome = commitStateDelta({ state: workingState, stage, delta }) || outcome;
-        if (outcome.applied === false) {
-          emit('STATE_DELTA_REJECTED', { stageInstanceId: stage.stageInstanceId, reason: outcome.reason });
+        if (typeof outcome.changed !== 'boolean') {
+          emit('SEMANTIC_COMMIT_CONTRACT_VIOLATION', {
+            stageInstanceId: stage.stageInstanceId,
+            reason: 'changed_boolean_required',
+            deltaId: delta.deltaId || ''
+          });
+          emit('STATE_DELTA_REJECTED', { stageInstanceId: stage.stageInstanceId, reason: 'commit_change_undetermined' });
           continue;
         }
+        if (!outcome.changed) {
+          commitReport.committed = true;
+          commitReport.semanticNoOp = true;
+          workingState.stateMap = outcome.stateMap || workingState.stateMap;
+          continue;
+        }
+        commitReport.committed = true;
+        commitReport.changed = true;
         applied.push(delta);
+        const artifacts = arr(delta.artifacts);
+        const appliedIds = arr(outcome.appliedArtifactIds);
+        const operationArtifacts = artifacts.length ? artifacts : appliedIds.map((id) => ({ id }));
+        commitReport.operations.push(...(operationArtifacts.length ? operationArtifacts : [{}]).map((artifact) => ({
+          deltaIndex: eligible.indexOf(delta),
+          deltaId: String(delta.deltaId || ''),
+          kind: 'UPSERT_ARTIFACT',
+          artifactId: String(artifact?.id || ''),
+          artifactType: String(artifact?.type || ''),
+          artifactStatus: String(artifact?.status || ''),
+          targetId: String(artifact?.targetId || ''),
+          goalIds: arr(delta.goalIds).length ? arr(delta.goalIds) : arr(stage.goalIds),
+          goalLink: arr(delta.goalIds).length ? 'explicit_delta' : 'stage_candidate',
+          duplicate: false,
+          changed: true
+        })));
         workingState.stateMap = outcome.stateMap || projectStateMap(workingState) || workingState.stateMap;
       }
-      const meaningful = applied.length > 0;
+      const meaningful = commitReport.changed;
+      emit('STATE_COMMIT_REPORTED', { stageInstanceId: stage.stageInstanceId, report: clone(commitReport) });
       if (meaningful) {
         state.debateCase = workingState.debateCase;
         state.stateMap = workingState.stateMap;
-        state.caseVersion = baseCaseVersion + 1;
-        state.stateMapVersion += 1;
+        state.caseVersion = semanticBatchHandled ? Number(workingState.caseVersion) : baseCaseVersion + 1;
         if (state.debateCase) state.debateCase.version = state.caseVersion;
         applied.forEach((delta) => emit('STATE_DELTA_APPLIED', {
-          stageInstanceId: stage.stageInstanceId, deltaId: delta.deltaId || '', caseVersion: state.caseVersion
+          stageInstanceId: stage.stageInstanceId,
+          deltaId: delta.deltaId || '',
+          caseVersion: state.caseVersion,
+          operations: commitReport.operations.filter((operation) => operation.deltaIndex === eligible.indexOf(delta))
         }));
         state.stagnationSignals.consecutiveNoStateDelta = 0;
         state.stagnationSignals.unchangedStateMapCount = 0;
+      } else if (idempotentReplay) {
+        emit('STATE_DELTA_REPLAYED', { stageInstanceId: stage.stageInstanceId, caseVersion: state.caseVersion });
       } else {
         state.stagnationSignals.consecutiveNoStateDelta += 1;
         state.stagnationSignals.unchangedStateMapCount += 1;
         emit('NO_STATE_CHANGE', { stageInstanceId: stage.stageInstanceId });
       }
-      const fingerprint = `${stage.purpose}|${arr(stage.inputArtifactIds).join(',')}`;
-      if (state.recentActionFingerprints.includes(fingerprint)) state.stagnationSignals.repeatedActionCount += 1;
-      else state.stagnationSignals.repeatedActionCount = 0;
-      state.recentActionFingerprints = [...state.recentActionFingerprints, fingerprint].slice(-6);
+      if (!idempotentReplay) {
+        const fingerprint = `${stage.purpose}|${arr(stage.inputArtifactIds).join(',')}`;
+        if (state.recentActionFingerprints.includes(fingerprint)) state.stagnationSignals.repeatedActionCount += 1;
+        else state.stagnationSignals.repeatedActionCount = 0;
+        state.recentActionFingerprints = [...state.recentActionFingerprints, fingerprint].slice(-6);
+      }
 
+      const goalEvaluations = [];
       stage.goalIds.forEach((goalId) => {
         const goal = state.openGoals.find((g) => g.goalId === goalId);
         if (!goal) return;
-        // Goal resolves only via committed StateDelta satisfying its criteria (Planner §6.6).
-        if (meaningful && result.executionStatus === 'completed') goal.status = 'resolved';
-        else if (result.executionStatus === 'completed' || result.executionStatus === 'partial') goal.status = 'open';
-        else goal.status = 'open';
+        const evaluation = evaluateGoalOutcome(goal, beforeStateMap, workingState.stateMap, commitReport);
+        goalEvaluations.push(evaluation);
+        goal.status = evaluation.outcome === 'satisfied' ? 'resolved' : 'open';
+        emit('GOAL_EVALUATED', { stageInstanceId: stage.stageInstanceId, ...evaluation, status: goal.status });
       });
       stage.status = result.executionStatus === 'completed' ? 'completed'
         : result.executionStatus === 'partial' ? 'completed'
         : result.executionStatus === 'cancelled' ? 'cancelled' : 'failed';
       state.totalStagesExecuted += 1;
-      emit('STAGE_COMPLETED', { stageInstanceId: stage.stageInstanceId, executionStatus: result.executionStatus, meaningfulDelta: meaningful });
+      const attempts = arr(result.attempts);
+      state.usage.modelCalls += attempts.length || (arr(result.acceptedResponses).length + arr(result.failedParticipants).length);
+      state.usage.retryAttempts += attempts.reduce((total, attempt) => total + Math.max(0, Number(attempt.attempts || 1) - 1), 0);
+      emit('STAGE_COMPLETED', {
+        stageInstanceId: stage.stageInstanceId,
+        executionStatus: result.executionStatus,
+        meaningfulDelta: meaningful,
+        goalEvaluations
+      });
+      persistRecoveryPoint('stage_completed');
     }
 
     async function executeStage(stage) {
@@ -427,10 +798,19 @@
         constraints: arr(state.debateCase?.constraints),
         attachments: arr(state.debateCase?.attachments),
         caseVersion: state.caseVersion,
-        stateMapVersion: state.stateMapVersion,
+        stateMapIdentity: {
+          sourceCaseVersion: Number(state.stateMap?.sourceCaseVersion ?? state.caseVersion),
+          projectorVersion: Number(state.stateMap?.projectorVersion || state.stateMap?.version || 0)
+        },
         planRevisionId: activeRevisionId
       };
-      const result = await executor.execute(stage, executionContext);
+      const stopLeaseHeartbeat = startLeaseHeartbeat();
+      let result;
+      try {
+        result = await executor.execute(stage, executionContext);
+      } finally {
+        stopLeaseHeartbeat();
+      }
       // A slow provider response must not be committed by a former owner after
       // another context has fenced it out or the lease has expired.
       const leaseCheck = assertLease();
@@ -444,6 +824,15 @@
         emit('STAGE_AWAITING_PARTICIPANT', { stageInstanceId: stage.stageInstanceId, participants: result.awaitingParticipants });
         return result;
       }
+      if (stage.resultDisposition === 'CANCEL' || stage.resultDisposition === 'IGNORE_RESULT' || stage.resultDisposition === 'RESTART') {
+        stage.status = stage.resultDisposition === 'IGNORE_RESULT' ? 'stale' : 'cancelled';
+        emit('STAGE_RESULT_DISCARDED', {
+          stageInstanceId: stage.stageInstanceId,
+          policy: stage.resultDisposition,
+          replacementStageInstanceId: stage.replacementStageInstanceId || ''
+        });
+        return result;
+      }
       // Pause policies (§13): finish_received_only rejects semantic commit of in-flight work.
       if (state.lifecycle === LIFECYCLE.QUIESCING && state.pausePolicy === 'finish_received_only') {
         state.lateResponses.push({ stageInstanceId: stage.stageInstanceId, result: clone(result) });
@@ -451,7 +840,36 @@
         emit('LATE_RESPONSE_RECORDED', { stageInstanceId: stage.stageInstanceId });
         return result;
       }
-      commitStageResult(stage, result);
+      if (stage.resultDisposition === 'CONVERT_TO_AUDIT') {
+        const originalGoalIds = stage.goalIds.slice();
+        stage.goalIds = [];
+        await commitStageResult(stage, result);
+        stage.goalIds = originalGoalIds;
+        const artifactIds = arr(result.proposedStateDeltas).flatMap((delta) => arr(delta.artifacts).map((artifact) => artifact.id)).filter(Boolean);
+        const auditStage = {
+          ...clone(stage),
+          stageInstanceId: `${stage.stageInstanceId}:audit`,
+          proposedStageId: `${stage.proposedStageId || stage.stageInstanceId}:audit`,
+          plannedStageId: null,
+          planRevisionId: revisions.getActive?.()?.revisionId,
+          purpose: 'audit',
+          status: 'pending',
+          goalIds: originalGoalIds,
+          inputArtifactIds: artifactIds,
+          expectedOutputs: ['audit'],
+          dispatchMode: stage.participants.length > 1 ? 'parallel' : 'single',
+          resultDisposition: null
+        };
+        state.stages.push(auditStage);
+        emit('STAGE_CONVERTED_TO_AUDIT', {
+          stageInstanceId: stage.stageInstanceId,
+          auditStageInstanceId: auditStage.stageInstanceId,
+          inputArtifactIds: artifactIds
+        });
+        if (state.lifecycle === LIFECYCLE.RUNNING) await executeStage(auditStage);
+        return result;
+      }
+      await commitStageResult(stage, result);
       return result;
     }
 
@@ -473,6 +891,8 @@
         case 'REQUEST_HUMAN_DECISION':
           emit('PLANNING_HUMAN_DECISION_REQUIRED', { request: decision.humanDecisionRequest });
           state.pendingHumanDecision = decision.humanDecisionRequest;
+          state.usage.humanWaits += 1;
+          persistRecoveryPoint('human_decision_requested');
           return { ok: true, decision };
         case 'FINALIZE':
           return finalize(decision.finalizationDecision || { reason: 'REQUIRED_GOALS_RESOLVED', finalizationMode: 'STATE_MAP' });
@@ -514,14 +934,15 @@
         finalizedAt: nowIso()
       };
       state.lifecycle = LIFECYCLE.COMPLETED;
-      persistence.saveSnapshot(buildSnapshot());
       emit('RUN_COMPLETED', { reason: finalizationDecision.reason });
+      persistRecoveryPoint('run_completed');
+      persistence.saveSnapshot(buildSnapshot());
       releaseLease('terminal_completed');
       return { ok: true, finalization: state.finalization };
     }
 
     // ---- Reconciliation shared by continue/recover (§14.2) ----
-    function reconcile() {
+    async function reconcile() {
       state.lifecycle = LIFECYCLE.RECONCILING;
       emit('RECONCILING_STARTED', {});
       // Late responses: commit or discard against current revision.
@@ -529,16 +950,16 @@
         const stage = state.stages.find((s) => s.stageInstanceId === late.stageInstanceId);
         if (!stage) continue;
         if (stage.planRevisionId === revisions.getActive?.()?.revisionId) {
-          commitStageResult(stage, late.result);
+          await commitStageResult(stage, late.result);
           emit('LATE_RESPONSE_RECONCILED', { stageInstanceId: stage.stageInstanceId });
         } else {
           stage.status = 'stale';
-          emit('LATE_RESPONSE_DISCARDED', { stageInstanceId: stage.stageInstanceId, reason: 'revision_superseded' });
+          emit('LATE_RESPONSE_DISCARDED', { stageInstanceId: stage.stageInstanceId, reason: 'revision_superseded', delta: clone(late.result?.proposedStateDeltas || []) });
         }
       }
       // Interventions become goals/constraints before the next Planner tick (§16).
       for (const intervention of state.pendingInterventions.splice(0)) {
-        applyIntervention(intervention);
+        await applyIntervention(intervention);
         emit('INTERVENTION_APPLIED', { interventionId: intervention.interventionId });
       }
       // Stage invalidation against active revision.
@@ -557,14 +978,22 @@
       emit('RECONCILING_COMPLETED', {});
     }
 
-    function applyIntervention(intervention) {
+    async function applyIntervention(intervention) {
       const payload = intervention.payload || {};
+      const beforeCase = clone(state.debateCase);
+      const beforeGoals = clone(state.openGoals);
       switch (intervention.type) {
         case 'ADD_CONSTRAINT':
-          if (state.debateCase) state.debateCase.constraints = [...arr(state.debateCase.constraints), payload.constraint];
+          if (!semanticStore?.commit && state.debateCase) {
+            state.debateCase.constraints = [...arr(state.debateCase.constraints), {
+              ...(payload.constraint || {}),
+              constraintId: String(payload.constraint?.constraintId || payload.constraint?.id || `constraint-${intervention.interventionId}`)
+            }];
+          }
           break;
         case 'CORRECT_FACT':
         case 'ADD_CLARIFICATION':
+          state.usage.corrections += 1;
           state.openGoals.push({
             goalId: `goal-intervention-${intervention.interventionId}`,
             type: 'recheck_conclusion', targetArtifactIds: arr(payload.artifactIds),
@@ -598,8 +1027,48 @@
           break;
         default: break;
       }
-      state.caseVersion += 1;
-      state.stateMapVersion += 1;
+      if (semanticStore?.commit && state.debateCase) {
+        const correlationId = `intervention:${intervention.interventionId}`;
+        const targetId = arr(intervention.payload?.artifactIds)[0] || intervention.payload?.artifactId || '';
+        const action = String(intervention.payload?.action || intervention.type);
+        let changes = intervention.type === 'DELETE_ARTIFACT'
+          ? [{ kind: 'DELETE_ARTIFACT', artifactId: targetId, correlationId: `${correlationId}:delete`, actor: 'human' }]
+          : intervention.type === 'ADD_CONSTRAINT'
+            ? [{
+              kind: 'ADD_CONSTRAINT', correlationId: `${correlationId}:constraint`, actor: 'human',
+              constraint: {
+                ...(payload.constraint || {}),
+                constraintId: String(payload.constraint?.constraintId || payload.constraint?.id || `constraint-${intervention.interventionId}`)
+              }
+            }]
+            : [{ kind: 'RECORD_HUMAN_DECISION', correlationId: `${correlationId}:decision`, decision: { decisionId: intervention.interventionId, value: action, text: action, targetId }, actor: 'human' }];
+        const targetArtifact = state.debateCase.artifacts?.[targetId];
+        if (intervention.type === 'HUMAN_DECISION' && targetArtifact && ['approve_closure', 'reject_closure'].includes(action)) {
+          changes.push({
+            kind: 'UPSERT_ARTIFACT', correlationId: `${correlationId}:target`, actor: 'human', expectedRevision: targetArtifact.revision,
+            artifact: { ...targetArtifact, status: action === 'approve_closure' ? 'closed' : 'reopened', provenance: { ...(targetArtifact.provenance || {}), decisionId: intervention.interventionId } }
+          });
+        }
+        if (intervention.type === 'REQUEST_VERIFICATION' && action === 'request_evidence' && targetId) {
+          changes.push({
+            kind: 'UPSERT_ARTIFACT', correlationId: `${correlationId}:gap`, actor: 'human',
+            artifact: { id: `evidence-gap-${intervention.interventionId}`, type: 'evidence_gap', status: 'open', targetId, title: `Требуется дополнительное evidence для ${targetId}`, provenance: { source: 'state_map_drawer', decisionId: intervention.interventionId, runId: state.runId } }
+          });
+        }
+        const committed = await semanticStore.commit({ expectedCaseVersion: state.caseVersion, leaseRevision: lease?.leaseRevision, changes, deltaId: correlationId });
+        if (committed.ok) {
+          state.debateCase = clone(committed.case || semanticStore.getState?.() || state.debateCase);
+          state.caseVersion = Number(committed.caseVersion ?? state.caseVersion);
+        } else {
+          state.debateCase = beforeCase;
+          state.openGoals = beforeGoals;
+          return { ok: false, code: committed.code || 'INTERVENTION_COMMIT_REJECTED', errors: committed.errors || [] };
+        }
+      } else {
+        state.caseVersion += 1;
+      }
+      state.stateMap = projectStateMap(state) || state.stateMap;
+      return { ok: true };
     }
 
     // ---- Public API (§5) ----
@@ -607,7 +1076,6 @@
       LIFECYCLE,
       getState: () => ({
         runId: state.runId, lifecycle: state.lifecycle, caseVersion: state.caseVersion,
-        stateMapVersion: state.stateMapVersion,
         activePlanRevisionId: revisions.getActive?.()?.revisionId || null,
         stages: clone(state.stages), openGoals: clone(state.openGoals),
         events: state.events.slice(), finalization: clone(state.finalization),
@@ -615,6 +1083,8 @@
         stateMap: clone(state.stateMap), participantStatus: clone(state.participantStatus),
         configuredParticipants: clone(state.configuredParticipants), activeParticipants: clone(state.activeParticipants),
         droppedParticipants: clone(state.droppedParticipants)
+        , stagnationSignals: clone(state.stagnationSignals)
+        , usage: clone(state.usage)
       }),
       getOwnerId: () => ownerId,
 
@@ -623,14 +1093,13 @@
         // DebateCase and initial revision exist before runtime (Roadmap §6.1).
         if (!command.debateCase) return { ok: false, code: 'DEBATE_CASE_REQUIRED' };
         state.runId = String(command.runId || command.debateCase.caseId || `run-${now()}`);
-        const leased = acquireLease();
+        const leased = await acquireLease();
         if (!leased.ok) return leased;
         state.debateCase = clone(command.debateCase);
-        state.caseVersion = Number(state.debateCase.version || 1);
+        state.caseVersion = Number(state.debateCase.caseVersion ?? state.debateCase.version ?? 0);
         state.openGoals = clone(arr(command.debateCase.openGoals));
         initializeParticipants(state.debateCase.participants);
-        state.stateMap = clone(command.stateMap || {});
-        state.stateMapVersion = 1;
+        state.stateMap = projectStateMap(state) || clone(command.stateMap || {});
         if (!revisions.getActive?.()) {
           revisions.initialize({
             runId: state.runId,
@@ -644,6 +1113,7 @@
         emit('RUN_START_REQUESTED', {});
         state.lifecycle = LIFECYCLE.RUNNING;
         emit('RUN_STARTED', {});
+        persistRecoveryPoint('run_started');
         const outcome = command.deferExecution ? { ok: true } : await runLoop(command.maxSteps);
         return { ok: true, runId: state.runId, outcome, lifecycle: state.lifecycle };
       },
@@ -665,12 +1135,13 @@
         const stillRunning = state.stages.some((s) => s.status === 'running');
         if (!stillRunning) {
           state.lifecycle = LIFECYCLE.PAUSED;
-          persistence.saveSnapshot(buildSnapshot());
           emit('RUN_PAUSED', {});
+          persistRecoveryPoint('run_paused');
+          persistence.saveSnapshot(buildSnapshot());
           releaseLease('paused');
         }
         if (abortController && state.pausePolicy === 'cancel_active_dispatch' && deps.AbortController) {
-          abortController = new deps.AbortController();
+          abortController = createAbortController();
         }
         return { ok: true, lifecycle: state.lifecycle };
       },
@@ -678,12 +1149,13 @@
       async requestContinue(command = {}) {
         if (state.lifecycle !== LIFECYCLE.PAUSED) return { ok: false, code: 'NOT_PAUSED' };
         emit('CONTINUE_REQUESTED', { requestedBy: command.requestedBy });
-        const leased = acquireLease();
+        const leased = await acquireLease();
         if (!leased.ok) return leased;
         if (command.expectedCaseVersion != null && command.expectedCaseVersion !== state.caseVersion) {
+          releaseLease('continue_case_version_stale');
           return { ok: false, code: 'CASE_VERSION_STALE' };
         }
-        reconcile();
+        await reconcile();
         state.lifecycle = LIFECYCLE.RUNNING;
         emit('RUN_RESUMED', {});
         const outcome = command.deferExecution ? { ok: true } : await runLoop(command.maxSteps);
@@ -700,8 +1172,9 @@
           }
         });
         state.lifecycle = LIFECYCLE.CANCELLED;
-        persistence.saveSnapshot(buildSnapshot());
         emit('RUN_CANCELLED', { reason: command.reason || 'cancelled' });
+        persistRecoveryPoint('run_cancelled');
+        persistence.saveSnapshot(buildSnapshot());
         releaseLease('terminal_cancelled');
         return { ok: true, lifecycle: state.lifecycle };
       },
@@ -711,6 +1184,8 @@
         const stage = state.stages.find((s) => s.stageInstanceId === command.stageInstanceId);
         if (!stage) return { ok: false, code: 'STAGE_NOT_FOUND' };
         if (stage.status !== 'awaiting_participant') return { ok: false, code: 'STAGE_NOT_AWAITING' };
+        const leaseCheck = assertLease();
+        if (!leaseCheck.ok) return leaseCheck;
         const participantId = String(command.participantId || '');
         if (!stage.participants.some((p) => p.participantId === participantId)) return { ok: false, code: 'PARTICIPANT_NOT_ASSIGNED' };
         const duplicate = state.events.some((e) => e.type === 'PARTICIPANT_RESPONSE_SUBMITTED'
@@ -726,7 +1201,7 @@
           proposedStateDeltas: command.stateDelta ? [command.stateDelta] : (deps.proposeStateDelta ? [deps.proposeStateDelta({ stage, participant: { participantId }, text: command.text, artifacts })].filter(Boolean) : []),
           awaitingParticipants: [], failedParticipants: []
         };
-        commitStageResult(stage, result);
+        await commitStageResult(stage, result);
         state.pendingHumanDecision = null;
         if (state.lifecycle === LIFECYCLE.RUNNING && !command.deferExecution) await runLoop(command.maxSteps);
         return { ok: true, stageInstanceId: stage.stageInstanceId };
@@ -741,16 +1216,31 @@
         };
         const duplicate = state.events.some((e) => e.type === 'INTERVENTION_RECORDED' && e.payload.interventionId === intervention.interventionId);
         if (duplicate) return { ok: false, code: 'DUPLICATE_INTERVENTION' };
-        emit('INTERVENTION_RECORDED', intervention);
         if (state.lifecycle === LIFECYCLE.PAUSED || state.lifecycle === LIFECYCLE.RUNNING) {
+          const wasPaused = state.lifecycle === LIFECYCLE.PAUSED;
+          if (wasPaused) {
+            const leased = await acquireLease();
+            if (!leased.ok) return leased;
+          } else {
+            const leaseCheck = assertLease();
+            if (!leaseCheck.ok) return handleLeaseLost('intervention_after_lease_loss');
+          }
+          emit('INTERVENTION_RECORDED', intervention);
           if (state.lifecycle === LIFECYCLE.RUNNING) {
             const runningStages = state.stages.filter((s) => s.status === 'running');
             runningStages.forEach((stage) => emit('STAGE_MARKED_STALE_AFTER_COMPLETION', { stageInstanceId: stage.stageInstanceId }));
           }
-          applyIntervention(intervention);
+          const applied = await applyIntervention(intervention);
+          if (!applied?.ok) {
+            if (wasPaused) releaseLease('paused_intervention_rejected');
+            return applied;
+          }
           emit('INTERVENTION_APPLIED', { interventionId: intervention.interventionId });
+          persistRecoveryPoint('intervention_applied');
+          if (wasPaused) releaseLease('paused_intervention_committed');
           if (state.lifecycle === LIFECYCLE.RUNNING && !command.deferExecution) await runLoop(command.maxSteps);
         } else {
+          emit('INTERVENTION_RECORDED', intervention);
           state.pendingInterventions.push(intervention);
         }
         return { ok: true, interventionId: intervention.interventionId };
@@ -768,12 +1258,14 @@
         if (request.type === 'APPROVE_FINALIZATION' && command.optionId === 'finalize') {
           return finalize({ reason: 'MANUAL_STOP', finalizationMode: 'STATE_MAP', humanApprovalRequired: false });
         }
+        persistRecoveryPoint('human_decision_resolved');
         return { ok: true };
       },
 
       // Plan revision activation (§17): delegates to revision store, then invalidates + replans.
       async activatePlanRevision(commandOrCommands, context = {}) {
         const activeStages = state.stages.filter((s) => ['pending', 'running', 'awaiting_participant'].includes(s.status));
+        const restartStages = [];
         const result = revisions.submit(commandOrCommands, { ...context, activeStages, stageHistory: state.stages });
         if (!result.ok) {
           emit('PLAN_REVISION_REJECTED', { code: result.code });
@@ -796,43 +1288,62 @@
           } else if (stage.status === 'running' && item.invalidation !== 'UNCHANGED') {
             // Running stages follow the revision's runningStagePolicy (§17.2); default FINISH.
             emit('RUNNING_STAGE_POLICY_APPLIED', { stageInstanceId: stage.stageInstanceId, policy: result.runningStagePolicy });
-            if (result.runningStagePolicy === 'CANCEL') { abortController?.abort?.('revision'); stage.status = 'cancelled'; }
-            if (result.runningStagePolicy === 'IGNORE_RESULT') stage.ignoreResult = true;
+            const policy = result.runningStagePolicy || 'FINISH';
+            if (policy === 'CANCEL' || policy === 'RESTART') {
+              stage.resultDisposition = policy;
+              abortController?.abort?.('revision');
+              if (policy === 'RESTART') {
+                const replacement = {
+                  ...clone(stage),
+                  stageInstanceId: `${stage.stageInstanceId}:restart:${result.revision.revisionNumber}`,
+                  planRevisionId: result.revision.revisionId,
+                  status: 'pending',
+                  resultDisposition: null,
+                  replacementStageInstanceId: null
+                };
+                stage.replacementStageInstanceId = replacement.stageInstanceId;
+                state.stages.push(replacement);
+                restartStages.push(replacement);
+                emit('STAGE_RESTART_SCHEDULED', {
+                  stageInstanceId: stage.stageInstanceId,
+                  replacementStageInstanceId: replacement.stageInstanceId
+                });
+              }
+              abortController = createAbortController();
+            } else if (policy === 'IGNORE_RESULT') {
+              stage.resultDisposition = 'IGNORE_RESULT';
+            } else if (policy === 'CONVERT_TO_AUDIT') {
+              stage.resultDisposition = 'CONVERT_TO_AUDIT';
+            }
           }
         }
-        state.caseVersion += 1;
-        if (state.lifecycle === LIFECYCLE.RUNNING && !context.deferExecution) await runLoop(context.maxSteps);
+        persistRecoveryPoint('plan_revision_activated');
+        if (state.lifecycle === LIFECYCLE.RUNNING && !context.deferExecution) {
+          for (const replacement of restartStages) await executeStage(replacement);
+          await runLoop(context.maxSteps);
+        }
         return result;
       },
 
       // Recovery (§15.4): snapshot + replay; idempotent.
       async recoverRun(command = {}) {
-        const snapshot = persistence.loadLatestSnapshot?.();
-        if (snapshot) {
-          state.runId = snapshot.runId;
-          state.debateCase = clone(snapshot.debateCase);
-          state.caseVersion = snapshot.caseVersion;
-          state.stateMapVersion = snapshot.stateMapVersion;
-          state.stateMap = clone(snapshot.stateMap || {});
-          state.participantStatus = clone(snapshot.participantStatus || {});
-          state.configuredParticipants = clone(snapshot.configuredParticipants || []);
-          state.activeParticipants = clone(snapshot.activeParticipants || []);
-          state.droppedParticipants = clone(snapshot.droppedParticipants || []);
-          state.pendingHumanDecision = clone(snapshot.pendingHumanDecision || null);
-          // Migration for snapshots written before participant collections existed.
-          if (!state.configuredParticipants.length) initializeParticipants(state.debateCase?.participants);
-          state.openGoals = clone(snapshot.openGoals);
-          state.stages = clone(snapshot.stages || snapshot.activeStages);
-          state.eventSequence = snapshot.eventSequence;
-          state.totalStagesExecuted = snapshot.totalStagesExecuted || 0;
-          state.stagnationSignals = clone(snapshot.stagnationSignals) || state.stagnationSignals;
-          state.lifecycle = snapshot.runLifecycle;
-          revisions.hydrate?.({ revisions: snapshot.revisions });
-        } else if (command.runId) {
-          state.runId = String(command.runId);
-        } else {
+        const persistedSnapshot = persistence.loadLatestSnapshot?.();
+        const allEvents = persistence.loadEvents?.(0) || [];
+        let snapshot = validRecoverySnapshot(persistedSnapshot) ? persistedSnapshot : null;
+        let recoveredFrom = snapshot ? 'snapshot' : '';
+        if (!snapshot) {
+          const checkpoint = persistence.loadRecoveryCheckpoint?.()
+            || allEvents.slice().reverse().find((event) => event.type === 'RUN_STATE_CHECKPOINTED')?.payload?.snapshot;
+          if (validRecoverySnapshot(checkpoint)) {
+            snapshot = checkpoint;
+            recoveredFrom = 'event_log';
+          }
+        }
+        if (!snapshot) {
+          if (persistedSnapshot || allEvents.length) return fatal('RECOVERY_CHECKPOINT_INVALID', { runId: command.runId || '' });
           return { ok: false, code: 'NOTHING_TO_RECOVER' };
         }
+        hydrateSnapshot(snapshot);
         const replayed = persistence.loadEvents?.(snapshot?.eventSequence || 0) || [];
         for (const event of replayed) {
           // Event replay validation: sequence must be continuous (§19.2 fatal otherwise).
@@ -842,12 +1353,15 @@
           }
           state.eventSequence = Math.max(state.eventSequence, event.eventSequence);
         }
-        const leased = acquireLease();
-        if (!leased.ok) return leased;
-        emit('RUN_RECOVERED', { fromSnapshot: Boolean(snapshot), replayedEvents: replayed.length });
+        republishUnpublished(allEvents);
+        if (state.lifecycle !== LIFECYCLE.PAUSED) {
+          const leased = await acquireLease();
+          if (!leased.ok) return leased;
+        }
+        emit('RUN_RECOVERED', { recoveredFrom, replayedEvents: replayed.length });
         if (!TERMINAL.has(state.lifecycle)) {
           if (state.lifecycle !== LIFECYCLE.PAUSED) {
-            reconcile();
+            await reconcile();
             state.lifecycle = LIFECYCLE.RUNNING;
             emit('RUN_RESUMED', {});
             if (!command.deferExecution) await runLoop(command.maxSteps);

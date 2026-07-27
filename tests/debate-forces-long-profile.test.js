@@ -1,5 +1,5 @@
 // Locks: universal stage dispatch forces the LONG generation-wait profile so slow
-// participant answers are not truncated by the SHORT default.
+// participant answers can use the extended Long window instead of Standard.
 const fs = require('fs');
 const path = require('path');
 

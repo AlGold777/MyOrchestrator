@@ -1317,23 +1317,51 @@ chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
     let llmTabClosed = false;
     
     //-- 4.4. Cleanup при закрытии вкладок --//
-    const closedLlmName = TabMapManager.getNameByTabId(tabId);
+    const mappedLlmName = TabMapManager.getNameByTabId(tabId);
+    const stateMatchedLlmName = Object.entries(jobState?.llms || {})
+        .find(([, entry]) => Number(entry?.tabId) === Number(tabId))?.[0] || null;
+    const closedLlmName = mappedLlmName || stateMatchedLlmName;
     if (closedLlmName) {
         globalThis.LLMLog?.debug?.(`[BACKGROUND] LLM tab ${closedLlmName} closed, sending cleanup...`);
+        const closedEntry = jobState?.llms?.[closedLlmName] || null;
+        const alreadyFinished = isTerminalRouterEntry(closedEntry);
+        const answerLength = String(closedEntry?.answer || closedEntry?.pendingFinalAnswer || '').trim().length;
+        const modelRunState = closedEntry?.modelRunState || null;
+        const generationActive = !alreadyFinished && (
+            String(closedEntry?.status || '').toUpperCase() === 'GENERATING'
+            || String(modelRunState?.generationState || '').toLowerCase().includes('generat')
+            || String(modelRunState?.liveStatus || '').toUpperCase() === 'GENERATING'
+        );
+        const closureState = removeInfo?.isWindowClosing
+            ? 'window_closed'
+            : alreadyFinished
+                ? 'post_terminal_tab_closed'
+                : generationActive
+                    ? 'tab_closed_during_generation'
+                    : 'tab_closed_before_terminal';
         emitTelemetry(closedLlmName, 'TAB_CLOSED', {
-            details: 'llm_tab_closed',
+            details: closureState,
             level: 'warning',
             meta: {
                 tabId,
                 windowId: removeInfo?.windowId ?? null,
                 isWindowClosing: !!removeInfo?.isWindowClosing,
-                reason: 'tab_removed'
+                reason: 'tab_removed',
+                closureState,
+                closeOrigin: 'user_or_external',
+                mappingSource: mappedLlmName ? 'tab_map' : 'job_state_fallback',
+                status: closedEntry?.status || null,
+                finalStatus: closedEntry?.finalStatus || null,
+                terminal: alreadyFinished,
+                generationActive,
+                answerLength,
+                generationState: modelRunState?.generationState || null,
+                answerState: modelRunState?.answerState || null
             }
         });
         clearDeferredAnswerTimer(closedLlmName);
         llmTabClosed = true;
         if (jobState?.llms?.[closedLlmName]) {
-            const alreadyFinished = isTerminalRouterEntry(jobState.llms[closedLlmName]);
             if (!alreadyFinished) {
                 handleLLMResponse(closedLlmName, 'Error: Tab closed during generation', {
                     type: 'tab_closed_prematurely'
@@ -1394,6 +1422,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             return true;
         }
         switch (message.type) {
+            case 'CAPTURE_B1_SANITIZED_SKELETONS': {
+                const senderUrl = String(sender?.url || sender?.tab?.url || '');
+                const allowedPages = [
+                    chrome.runtime.getURL('result_new.html'),
+                    chrome.runtime.getURL('pipeline_panel.html')
+                ];
+                if (sender?.id !== chrome.runtime.id || !allowedPages.some((url) => senderUrl.startsWith(url))) {
+                    sendResponse({ success: false, error: 'b1_capture_sender_not_authorized' });
+                    return false;
+                }
+                if (!self.B1SkeletonCollector?.collectAll) {
+                    sendResponse({ success: false, error: 'b1_collector_unavailable' });
+                    return false;
+                }
+                self.B1SkeletonCollector.collectAll({ chromeApi: chrome })
+                    .then((result) => sendResponse(result))
+                    .catch((error) => sendResponse({
+                        success: false,
+                        error: error?.message || 'b1_capture_failed'
+                    }));
+                return true;
+            }
             case 'START_FULLPAGE_PROCESS': {
                 const forceNewTabs = message.forceNewTabs !== undefined ? message.forceNewTabs : true;
                 const useApiFallback = message.useApiFallback !== undefined ? message.useApiFallback : cachedApiMode;
@@ -1672,7 +1722,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     const dispatchId = incomingDispatchId || expectedDispatchId || null;
                     // F6.2: positional turn anchor from the unified pipeline —
                     // how many answer nodes the page already had at dispatch.
-                    const anchorAnswerCount = Number.isFinite(Number(message.anchorAnswerCount))
+                    const anchorAnswerCount = message.anchorAnswerCount !== null
+                        && message.anchorAnswerCount !== undefined
+                        && Number.isFinite(Number(message.anchorAnswerCount))
                         ? Number(message.anchorAnswerCount)
                         : null;
                     if (anchorAnswerCount !== null) {
@@ -1833,6 +1885,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 dispatchProviderTrustedInput(
                     tabId,
                     'Perplexity',
+                    String(message.text || ''),
+                    message.isMac === true
+                )
+                    .then(sendResponse)
+                    .catch((err) => sendResponse({ ok: false, reason: err?.message || 'trusted_input_failed' }));
+                return true;
+            }
+
+            case 'PROVIDER_TRUSTED_INPUT_REQUEST': {
+                const tabId = sender?.tab?.id;
+                const senderUrl = String(sender?.tab?.url || sender?.url || '');
+                const model = String(message.llmName || '');
+                const allowed = (model === 'Le Chat' && /^https:\/\/chat\.mistral\.ai\//i.test(senderUrl))
+                    || (model === 'Perplexity' && /^https:\/\/(?:www\.)?perplexity\.ai\//i.test(senderUrl));
+                if (!tabId || !allowed) {
+                    sendResponse({ ok: false, reason: 'untrusted_sender' });
+                    break;
+                }
+                dispatchProviderTrustedInput(
+                    tabId,
+                    model,
                     String(message.text || ''),
                     message.isMac === true
                 )
@@ -2946,6 +3019,54 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     if (entry) {
                         entry.lifecycleReadyAt = Date.now();
                         entry.lifecycleReadyMeta = message.meta || {};
+                        const lifecycleAnswerText = String(message.answerText || '').trim();
+                        const lifecycleDispatchId = message?.meta?.dispatchId
+                            || entry?.lastDispatchMeta?.dispatchId
+                            || entry?.confirmedDispatchId
+                            || null;
+                        const lifecycleValidation = lifecycleAnswerText && typeof self.validateMaterializedAnswerEvidence === 'function'
+                            ? self.validateMaterializedAnswerEvidence(message.llmName, lifecycleAnswerText, {
+                                source: 'lifecycle_complete_snapshot',
+                                entry,
+                                dispatchId: lifecycleDispatchId
+                            })
+                            : { valid: false, rejectReason: lifecycleAnswerText ? 'validator_unavailable' : 'empty' };
+                        if (lifecycleValidation.valid) {
+                            entry.lifecycleAnswerCandidate = {
+                                text: lifecycleAnswerText,
+                                length: lifecycleAnswerText.length,
+                                hash: lifecycleValidation.hash || message?.meta?.answerHash || null,
+                                source: 'lifecycle_complete_snapshot',
+                                dispatchId: lifecycleDispatchId,
+                                capturedAt: Number(message?.meta?.completedAt || Date.now())
+                            };
+                            entry.pendingFinalAnswer = lifecycleAnswerText;
+                            emitTelemetry(message.llmName, 'LIFECYCLE_SNAPSHOT_ACCEPTED', {
+                                level: 'success',
+                                details: `len=${lifecycleAnswerText.length}`,
+                                meta: {
+                                    dispatchId: lifecycleDispatchId,
+                                    answerLength: lifecycleAnswerText.length,
+                                    answerHash: entry.lifecycleAnswerCandidate.hash,
+                                    answerMethod: message?.meta?.answerMethod || null,
+                                    responsePhase: message?.meta?.responsePhase || null,
+                                    phaseEvidence: message?.meta?.phaseEvidence || null,
+                                    completionSignals: message?.meta?.completionSignals || null
+                                },
+                                force: true
+                            });
+                        } else if (lifecycleAnswerText) {
+                            emitTelemetry(message.llmName, 'LIFECYCLE_SNAPSHOT_REJECTED', {
+                                level: 'warning',
+                                details: lifecycleValidation.rejectReason || 'invalid_candidate',
+                                meta: {
+                                    dispatchId: lifecycleDispatchId,
+                                    answerLength: lifecycleAnswerText.length,
+                                    answerHash: lifecycleValidation.hash || message?.meta?.answerHash || null
+                                },
+                                force: true
+                            });
+                        }
                         entry.earlyTerminalGuard = null;
                         entry.earlyTerminalGuardNextPingAt = 0;
                         if (self.PipelineFSM?.markAwaitingFinal) {
@@ -2991,13 +3112,75 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                             });
                         }
                         try { saveJobState(jobState); } catch (_) {}
+                        const lifecycleAnswerVerification = message?.meta?.answerVerification || null;
+                        if (lifecycleAnswerVerification && typeof self.recordPipelineAnswerVerification === 'function') {
+                            self.recordPipelineAnswerVerification(message.llmName, lifecycleAnswerVerification, sender);
+                        }
+                        if (lifecycleValidation.valid && typeof handleLLMResponse === 'function') {
+                            handleLLMResponse(
+                                message.llmName,
+                                lifecycleAnswerText,
+                                null,
+                                {
+                                    ...(message.meta || {}),
+                                    dispatchId: lifecycleDispatchId,
+                                    sessionId: jobState?.session?.startTime || undefined,
+                                    runSessionId: jobState?.session?.startTime || undefined,
+                                    lifecycleCompleteSnapshot: true,
+                                    responseMeta: {
+                                        source: 'lifecycle_complete_snapshot',
+                                        completionReason: 'lifecycle_complete_snapshot',
+                                        forceTerminalSuccess: true,
+                                        lateCollectFinal: true,
+                                        freshTurnEvidence: true,
+                                        lifecycleSnapshot: true,
+                                        answerVerification: lifecycleAnswerVerification
+                                    }
+                                },
+                                ''
+                            );
+                        }
                     }
-                    updateModelState?.(message.llmName, 'RECEIVING', {
-                        message: 'Answer appears complete; ready for collection',
-                        lifecycle: message.meta || {}
-                    });
+                    const responseReadyEntry = jobState?.llms?.[message.llmName];
+                    if (!isTerminalRouterEntry(responseReadyEntry)) {
+                        updateModelState?.(message.llmName, 'RECEIVING', {
+                            message: 'Answer appears complete; ready for collection',
+                            lifecycle: message.meta || {}
+                        });
+                    }
                 }
                 sendResponse({ status: 'response_ready_ack' });
+                break;
+
+            case 'AUTOMATION_DEADLINE_SIGNAL':
+                {
+                    const senderGate = validateLifecycleSender(message.llmName, sender, 'AUTOMATION_DEADLINE_SIGNAL');
+                    if (!senderGate.ok) {
+                        sendResponse({ status: 'automation_deadline_rejected', reason: senderGate.reason });
+                        break;
+                    }
+                    const correlationGate = validateLifecycleCorrelation(message.llmName, message, 'AUTOMATION_DEADLINE_SIGNAL');
+                    if (!correlationGate.ok) {
+                        sendResponse({ status: 'automation_deadline_rejected', reason: correlationGate.reason });
+                        break;
+                    }
+                    const applied = typeof self.finalizeAutomationDeadline === 'function'
+                        ? self.finalizeAutomationDeadline(
+                            message.llmName,
+                            message.phase || 'generation',
+                            null,
+                            {
+                                source: message?.meta?.source || 'content_lifecycle_timeout',
+                                reportedBudgetMs: Number(message.budgetMs || 0),
+                                textLength: Number(message?.meta?.textLength || 0),
+                                contentLifecycleSignal: true
+                            }
+                        )
+                        : false;
+                    sendResponse({
+                        status: applied ? 'automation_deadline_applied' : 'automation_deadline_ignored'
+                    });
+                }
                 break;
 
             case 'STORE_TAB_STATE': {
@@ -3159,12 +3342,40 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             case 'DIAG_EVENT': {
                 (async () => {
                     try {
-                        const evt = Object.assign({}, message.event || {}, {
+                        const sourceEvent = message.event || {};
+                        const platform = sourceEvent.platform || message.platform || null;
+                        const llmName = typeof resolveLlmName === 'function' ? resolveLlmName(platform) : platform;
+                        const currentEntry = llmName ? jobState?.llms?.[llmName] : null;
+                        const senderTabId = Number(sender?.tab?.id);
+                        const expectedTabId = Number(currentEntry?.tabId || TabMapManager?.get?.(llmName));
+                        const senderMatchesCurrentModel = Number.isFinite(senderTabId)
+                            && Number.isFinite(expectedTabId)
+                            && senderTabId === expectedTabId;
+                        const currentRunSessionId = Number(jobState?.session?.startTime);
+                        const sourceMeta = sourceEvent.meta && typeof sourceEvent.meta === 'object'
+                            ? sourceEvent.meta
+                            : {};
+                        const canAttachCurrentRun = senderMatchesCurrentModel
+                            && Number.isFinite(currentRunSessionId)
+                            && currentRunSessionId > 0;
+                        const meta = {
+                            ...sourceMeta,
+                            ...(canAttachCurrentRun && !sourceMeta.runSessionId && !sourceMeta.sessionId ? {
+                                runSessionId: currentRunSessionId
+                            } : {}),
+                            ...(canAttachCurrentRun && !sourceMeta.dispatchId && currentEntry?.lastDispatchMeta?.dispatchId ? {
+                                dispatchId: currentEntry.lastDispatchMeta.dispatchId
+                            } : {}),
+                            ...(llmName && !sourceMeta.llmName ? { llmName } : {})
+                        };
+                        const evt = Object.assign({}, sourceEvent, {
                             ts: Date.now(),
-                            platform: message.event?.platform || message.platform || null,
-                            traceId: message.event?.traceId || null,
-                            sessionId: message.event?.sessionId || null,
-                            source: message.event?.source || sender?.url || sender?.tab?.url || null
+                            platform,
+                            traceId: sourceEvent.traceId || null,
+                            sessionId: sourceEvent.sessionId || (canAttachCurrentRun ? currentRunSessionId : null),
+                            runSessionId: sourceEvent.runSessionId || (canAttachCurrentRun ? currentRunSessionId : null),
+                            source: sourceEvent.source || sender?.url || sender?.tab?.url || null,
+                            meta
                         });
                         const appendEvent = (arr) => {
                             let next = diagTrimDiagnosticsBuffer(
@@ -3209,14 +3420,41 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                         answerLength: Number(entry?.answerLength || String(entry?.answer || '').length || 0),
                         answerSource: entry?.responseMeta?.source || entry?.responseSource || null,
                         dispatchId: entry?.lastDispatchMeta?.dispatchId || null,
+                        generationEpoch: entry?.generationEpoch ?? null,
+                        turnAnchor: entry?.preDispatchAnswerNodeCount
+                            ?? entry?.anchorAnswerCount
+                            ?? entry?.baselineAnswerCount
+                            ?? null,
+                        turnAnchorDispatchId: entry?.preDispatchAnswerNodeCountDispatchId || null,
                         promptSubmittedAt: entry?.promptSubmittedAt || null,
+                        submitSource: entry?.submitSource || null,
+                        submitConfirmedBy: entry?.submitConfirmedBy || null,
                         lengthPolicyRef: entry?.finalizationEvidence?.lengthPolicy?.policyRef || null,
                         suspectShortSuccess: entry?.finalizationEvidence?.lengthPolicy?.suspectShortSuccess === true
+                        , finalizationAccepted: entry?.finalizationEvidence?.accepted ?? null
+                        , finalizationContradictions: Array.isArray(entry?.finalizationEvidence?.contradictions)
+                            ? entry.finalizationEvidence.contradictions.slice(0, 20)
+                            : []
+                        , decisionSnapshot: entry?.finalizationEvidence?.decisionSnapshot || null
+                        , calibrationEndMarker: entry?.finalizationEvidence?.calibrationEndMarker || null
+                        , calibrationEndMarkerPresent: entry?.finalizationEvidence?.calibrationEndMarkerPresent ?? null
+                        , answerFreshness: entry?.answerFreshness ? {
+                            fresh: entry.answerFreshness.fresh === true,
+                            dispatchId: entry.answerFreshness.dispatchId || null,
+                            source: entry.answerFreshness.source || null
+                        } : null
+                        , verificationState: entry?.modelRunState?.verificationState || entry?.answerVerification?.state || null
+                        , extractionState: entry?.modelRunState?.extractionState || null
+                        , currentStage: Array.isArray(entry?.stageTimeline) && entry.stageTimeline.length
+                            ? entry.stageTimeline[entry.stageTimeline.length - 1].stage : null
+                        , pendingReason: !(entry?.finalStatusRecorded || entry?.finalStatus)
+                            ? (entry?.statusReason || entry?.status || 'not_terminal')
+                            : (entry?.modelRunState?.verificationState === 'candidate' ? 'answer_not_verified' : null)
                     }));
                     sendResponse({
                         success: true,
                         runSessionId: session?.startTime || null,
-                        complete: models.length > 0 && models.every((m) => m.terminal),
+                        complete: models.length > 0 && models.every((m) => m.terminal && m.verificationState !== 'candidate'),
                         models
                     });
                 } catch (err) {
@@ -3859,6 +4097,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     label: event.label || event.event || event?.meta?.event || 'PIPELINE'
                 };
                 const force = ['PIPELINE_COMPLETE', 'FINALIZATION_DONE', 'STREAMING_DONE'].includes(payload.label);
+                if (payload.label === 'ANSWER_VERIFICATION_RESULT' && resolvedName && typeof self.recordPipelineAnswerVerification === 'function') {
+                    self.recordPipelineAnswerVerification(resolvedName, payload.meta || {}, sender);
+                }
                 const saved = dispatchTelemetry(resolvedName, payload, { sender, source: event?.source, force });
                 sendResponse({ status: 'pipeline_logged', stored: !!saved, sampled: !!saved });
                 break;

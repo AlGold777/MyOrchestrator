@@ -65,6 +65,12 @@ describe('StageExecutor — dispatch and completion modes', () => {
     expect(calls.map((c) => c.participantId)).toEqual(['alpha', 'beta']);
   });
 
+  test('single dispatch rejects an ambiguous multi-participant stage', async () => {
+    const { executor } = makeExecutor(() => ({ status: 'received', text: 'ok' }));
+    await expect(executor.execute(stage({ dispatchMode: 'single' })))
+      .rejects.toMatchObject({ code: 'SINGLE_DISPATCH_PARTICIPANT_COUNT' });
+  });
+
   test('parallel LLM participants use one native batch dispatch', async () => {
     const runModelBatch = jest.fn(async ({ models, promptsByModel }) => ({
       responses: Object.fromEntries(models.map((model) => [model, `answer:${model}:${promptsByModel[model]}`])), failed: {}

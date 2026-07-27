@@ -12,7 +12,8 @@
       runButton.appendChild(icon);
       runButton.title = view.title;
       runButton.setAttribute('aria-label', view.title);
-      runButton.disabled = false;
+      runButton.disabled = view.enabled !== true;
+      runButton.setAttribute('aria-disabled', String(view.enabled !== true));
       runButton.classList.toggle('is-active', view.active === true);
       runButton.dataset.action = view.action;
     }

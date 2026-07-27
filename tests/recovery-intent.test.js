@@ -86,4 +86,32 @@ describe('RecoveryIntent', () => {
       mutatesPage: true
     }));
   });
+
+  test('unverified lifecycle activity on an old answer cannot block a needed resend', () => {
+    const entry = {
+      lifecycleReadyAt: Date.now(),
+      lifecycleReadyMeta: { dispatchId: 'Qwen:run:1' },
+      answerVerification: {
+        verified: false,
+        resolution: 'unresolved',
+        structuralComplete: false,
+        generationActive: false,
+        dispatchId: 'Qwen:run:1'
+      },
+      lastDispatchMeta: { dispatchId: 'Qwen:run:1' }
+    };
+    const decision = RecoveryIntent.authorize(entry, {
+      intent: 'resend_prompt',
+      dispatchId: 'Qwen:run:1'
+    });
+
+    expect(decision).toEqual(expect.objectContaining({
+      ok: true,
+      evidenceHit: false,
+      reason: 'allowed_no_answer_evidence'
+    }));
+    expect(RecoveryIntent.evaluateFreshEvidence(entry, {
+      dispatchId: 'Qwen:run:1'
+    }).reason).toBe('lifecycle_without_verified_answer');
+  });
 });

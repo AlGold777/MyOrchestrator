@@ -1,7 +1,7 @@
 # Model tabs architecture
 
 > Нормативный документ для главной страницы результатов и вкладок выбранных
-> моделей. Общая карта документации — в `docs/disput-docs/D0_documentation-map.md`.
+> моделей. Общая карта документации — в `docs/documentation-map.md`.
 
 ## Scope
 
@@ -9,8 +9,8 @@
 выбранном наборе моделей. Этот документ описывает только выбор моделей,
 владение вкладками, dispatch и связь UI → background → content script.
 
-Debate topology, FSM, prompts и round plans описаны отдельно в
-`docs/disput-docs/D2_disput-architecture.md` и protocol specs. Детали CSS-селекторов и ручного
+Debate topology, FSM, prompts и round plans описаны отдельно в актуальном
+каталоге `docs/disput/` и protocol specs. Детали CSS-селекторов и ручного
 record/override находятся в selector guides; не копировать их сюда.
 
 ## Ownership map
@@ -81,6 +81,12 @@ is stale evidence and is quarantined. Submit waiters are scoped by
 `model + dispatchId`; a late confirmation from attempt N cannot release attempt
 N+1.
 
+`LLM_RESPONSE_READY` follows an atomic completion contract: when the lifecycle
+detector declares `COMPLETE`, it includes the exact text snapshot used for that
+decision. Background validates that snapshot with the shared prompt-echo,
+baseline and freshness guards and may finalize it directly. It must not require
+a second DOM selection that can resolve to a different, shorter UI element.
+
 ### Extension reload reset
 
 An extension update/reload starts a new extension runtime and must not project
@@ -122,13 +128,425 @@ the previous runtime's telemetry or model statuses onto the main page.
   `GET_ANSWER` alone is not proof of delivery.
 - Failed submission attempts are retried by the background supervisor with
   bounded backoff. A provider timeout must not block unrelated models.
+- Истечение automation deadline является terminal-границей для расширения:
+  модель исключается из human-presence, automation visits, автоматических
+  collection ping и recovery. После этой границы background не имеет права
+  активировать вкладку модели ради автоматического сбора.
+- Automation deadline не останавливает генерацию на странице провайдера и не
+  закрывает вкладку. Пользователь может позднее двойным кликом по status
+  indicator запустить явный manual latest recovery; только этот
+  пользовательский запрос вправе снова прочитать вкладку и повысить timeout
+  outcome до полного `SUCCESS`.
 - If the model binding changes after a command was prepared, that command is
   quarantined. It is never rerouted to the replacement tab with the old
   `tabSessionId` or dispatch identity; the supervisor creates a fresh dispatch.
 
 The canonical dispatch boundary is `background/dispatch-coordinator.js`.
-Changes to focus or retry timing belong in `docs/timing-map.md` and the relevant
+Changes to focus or retry timing belong in `docs/timings-settings.md` and the relevant
 policy/config, not in this document.
+
+## Pages Visit
+
+This section is the normative description of foreground visits to provider
+pages on the main results-page path. It consolidates the architectural rules
+from this document, the current values from `docs/timings-settings.md`, the
+diagnostic vocabulary from `docs/telemetry.md`, the historical findings from
+`docs/timing-review-2026-07-02.md`, and the behavior currently implemented by:
+
+- `background/job-orchestrator.js` — round order, forced visits, recovery and
+  collection;
+- `background/human-presence.js` — the recurring human-presence loop, focus
+  tracking, leases, quota and in-page activity;
+- `background/dispatch-coordinator.js` — dispatch focus ownership and safe
+  restoration of the previous tab;
+- `background/tab-manager.js` — provider-tab activation;
+- `background/shared-state.js` — Standard/Long active-focus limits;
+- `shared/visit-policy.js` — useful/short visit classification and retry.
+
+Debate/Disput stage scheduling is outside this contract. It is owned by the
+current contracts in `docs/disput/` and the protocol specifications.
+
+### Terms and boundaries
+
+In this document a **page visit** is a bounded interval during which a provider
+tab is intentionally brought to the foreground so the page can receive focus,
+visibility, scroll and pointer activity. A visit is not proof that:
+
+- the prompt was submitted;
+- generation started or completed;
+- answer extraction succeeded;
+- the model made semantic progress.
+
+Those facts require their own correlated dispatch, lifecycle and answer
+evidence.
+
+There are three related operations that must not be conflated:
+
+1. **Dispatch focus** activates a page only for the critical
+   activation → command-delivery phase.
+2. **Foreground visit** holds the provider page for a bounded dwell interval
+   and may run simulated activity.
+3. **Background probe/nudge** sends a message or executes a script in a bound
+   tab without making it the foreground page. Adaptive collection pings,
+   deferred-answer DOM nudges and post-success scroll audits normally belong to
+   this category.
+
+### Actual scheduler model
+
+There is currently no global priority queue that orders every requested visit.
+Visit-producing subsystems schedule their own work. They are coordinated by:
+
+- one active tab lease;
+- a per-`model:tabId` automation overlap lock;
+- the dispatch focus mutex;
+- terminal, session and active-focus-window guards;
+- per-model foreground quota/backoff;
+- transport backoff;
+- hard caps and focus restoration.
+
+Therefore the actual winner between two simultaneously eligible automated
+visits is determined by which request reaches the lease first. The historical
+proposal `materialize > round3 > round2 verification` in
+`docs/timing-review-2026-07-02.md` is not an implemented priority policy and
+must not be treated as one.
+
+The user has the highest effective focus authority: an explicit
+`user_focus` may preempt an unexpired automated lease. Automated requests may
+reuse the same lease or preempt an expired lease, but otherwise receive
+`LEASE_DENIED`.
+
+### Canonical run order
+
+The round orchestrator preserves the order of the run snapshot
+`selectedLLMs`/`session.selectedModels`. UI selection changes made after that
+snapshot do not reorder the active run.
+
+```text
+Round 0: for each selected model
+  attach/reuse or create tab
+  wait for model → tab binding
+  stagger before the next model
+
+Round 1: for each selected model
+  resolve and validate the bound tab
+  focus when dispatch requires it
+  deliver GET_ANSWER
+  continue without waiting for the full answer
+
+Round 2: for each selected model
+  skip terminal/API/already-confirmed cases as appropriate
+  verify or repair prompt submission
+  run a bounded verification visit when required
+  nudge/probe and schedule later collection
+
+Round 3: for each still-incomplete model
+  run one bounded pre-collection visit
+  run a background scroll nudge
+  request response collection
+  keep adaptive probes scheduled
+
+Round 4:
+  wait for all tracked models to become terminal
+  do not visit provider pages merely to render Round 4
+  focus the results page only when no pending model remains
+
+After rounds:
+  start supervisor
+  start recurring human-presence only if eligible models remain
+```
+
+Round 0 and Round 1 are sequential. Round 2 and Round 3 also iterate in the
+original model order. Timed recovery tasks created by earlier rounds can later
+overlap the round timeline, but they remain subject to lease, overlap, quota,
+session, terminal and focus-window guards.
+
+### Visit producers
+
+| Producer | Trigger and purpose | Foreground behavior |
+|---|---|---|
+| Initial/repair dispatch | Provider requires focus to accept the command | Uses the dispatch focus mutex; focus is held only through command delivery/confirmation policy |
+| Round 2 verification | Prompt submission is unconfirmed and a verification visit is still useful | One or two visits within the calculated per-model and batch budget |
+| Round 3 pre-collect | Model is still incomplete when collection begins | One visit, then nudge and collection ping |
+| Post-Round-2 auto collect | Confirmed model remains incomplete after the post-R2 delay | One visit, then collection ping |
+| Early gesture recovery | Repeated transport errors after the minimum elapsed time | One short visit, then collection ping |
+| Provider retry | Currently the dedicated hard-timeout extraction retry path is used for Claude | One visit, then collection ping |
+| Pre-terminal materialization | A supported model is about to end as `NO_SEND`, `EXTRACT_FAILED` or qualifying `ERROR` | One controlled visit; may use a bounded direct-focus fallback, then read-only recovery |
+| Deferred hard-stop recovery | Recent runtime/transport evidence justifies one last bounded recovery | One short visit, then follow-up/final pings and snapshot fallback |
+| Recurring human-presence | Rounds have finished and pending eligible models remain | Visits pending models cyclically in `session.selectedModels` order |
+| Explicit user focus | User activates a bound provider tab | Tracked as `user_focus`; may preempt the automated lease |
+
+Adaptive collection itself is normally a background `getResponses` ping and
+does not activate the tab. It can indirectly schedule early gesture recovery
+after repeated transport failures. Likewise:
+
+- `scheduleDeferredAnswerVisit()` executes an in-page scroll/click attempt but
+  does not activate or focus the tab despite the historical “visit” name;
+- post-success scroll audit executes background scroll attempts and does not
+  reopen foreground ownership;
+- manual latest recovery initiated by double-clicking a status indicator is an
+  explicit user recovery path, not permission to restart the autonomous visit
+  loop.
+
+### Round 2 selection and budget
+
+Round 2 walks `selectedLLMs` in order and applies these decisions for each
+model:
+
+1. Abort if the run session is stale.
+2. Skip a terminal model and emit explicit start/end skip evidence.
+3. Skip web-page verification for API dispatch.
+4. Resolve the current bound tab and require dispatch readiness.
+5. If a content-script `PROMPT_SUBMITTED` is already present, avoid a redundant
+   foreground verification visit; nudge/probe the page and schedule post-R2 and
+   adaptive collection instead.
+6. If the original provider pipeline still owns the tab, defer rather than
+   racing it with repair or collection.
+7. For models in the repair set, attempt a correlated repair dispatch when
+   submission is not confirmed. A delayed confirmation is continued
+   asynchronously; a failed confirmation is not promoted to success.
+8. Before a verification visit, divide the remaining batch budget across the
+   current model and the remaining tail. Skip when the useful minimum cannot
+   fit.
+9. Use one or two visits according to the available per-model slice. Each
+   visit is bounded to the remaining active-focus window.
+10. Stop the batch at its calculated deadline. Remaining models receive
+    explicit cutoff/skip evidence; confirmed prompts may still receive
+    background collection scheduling.
+
+The batch budget is `max(ROUND2_BATCH_MAX_MS,
+selected-model-count × ROUND2_MODEL_TIME_SLICE_MS)`. Exact current values and
+all visit intervals are canonical only in `docs/timings-settings.md`.
+
+### Recurring human-presence order
+
+The recurring loop starts only when dispatch is not active, the feature is not
+paused/manually stopped, the browser is focused, and at least one eligible
+model remains.
+
+For every cycle it:
+
+1. Reads `session.selectedModels`; only if that snapshot is absent does it fall
+   back to `Object.keys(jobState.llms)`.
+2. Builds the pending list without re-sorting it.
+3. Removes terminal models, models outside the active-focus window,
+   `skipHumanLoop` models, models already owned by automation, and models under
+   quota or transport backoff.
+4. Visits the remaining models sequentially in that order.
+5. Waits the loop pause and rebuilds eligibility from live state before the
+   next cycle.
+
+The visit counter is per model. When it reaches the alert threshold, the model
+is marked stalled, removed from the loop and requires explicit user action to
+resume. Pause stops the whole loop; Continue clears the manual stop and starts
+it immediately if work remains; Stop prevents automatic restart. A per-model
+toggle controls `skipHumanLoop` independently.
+
+Human-presence visits require the browser window to be focused. Browser blur
+ends the tracked visit, clears stuck-focus tracking, cancels the current human
+visit and stops the loop. Browser focus can restart the loop if it was not
+paused or manually stopped. Forced automation visits do not use this
+human-presence browser-focus precondition: they may focus the provider window
+themselves, subject to the other guards.
+
+### Admission guards
+
+A foreground visit is admitted only while all applicable conditions hold:
+
+- the requested `tabId` is valid and still bound to the intended model;
+- the captured run session is still current;
+- the model is not terminal;
+- the post-submit active-focus window is still open;
+- autonomous activity for the model has not been disabled;
+- no per-model automation visit is already active for the same tab;
+- quota and transport backoff have expired;
+- the active lease can be acquired;
+- dispatch/human-presence ownership rules allow the operation.
+
+Eligibility is checked before activation and again after focus changes. During
+an active human or automated visit, terminal/session/focus-window state is
+polled, so a model that completes mid-visit releases focus without waiting for
+the full dwell.
+
+The focus required to submit the original prompt is explicitly outside the
+post-submit active-focus window. The window begins with the generation budget,
+normally from `PROMPT_SUBMITTED`/generation start. It is:
+
+- Standard: 60 seconds;
+- Long: 90 seconds.
+
+After it expires, the entry receives `skipHumanLoop` and
+`ACTIVE_FOCUS_WINDOW_EXHAUSTED`. Autonomous foreground visits stop, while
+passive generation observation continues until the separate generation
+deadline. The complete timing ladder is maintained in
+`docs/timings-settings.md`.
+
+### Lease and overlap contract
+
+`background/human-presence.js` owns the foreground visit lease:
+
+- key: `model:tabId`;
+- owner/source: for example `user_focus`, `human_visit`,
+  `automation_focus` or `verification_focus`;
+- expiry: the current `TAB_LEASE_TTL_MS`;
+- same tab/model: renew the lease;
+- expired lease: finalize the previous visit, then grant the new one;
+- user focus: may preempt an unexpired lease;
+- other competing source: deny with `LEASE_DENIED`.
+
+This is an in-memory runtime lease. It coordinates the current service-worker
+runtime; it is not a durable cross-runtime queue. Separately,
+`automationVisitLocks` prevents overlapping automated visits for the same
+`model:tabId`. Dispatch also pauses the recurring human-presence loop and uses
+its own focus mutex for activation → delivery.
+
+### Quota, useful visits and retry
+
+Every finalized tracked visit contributes its duration to the model's rolling
+foreground history. The current implementation computes usage over the quota
+window after a visit ends. If the accumulated duration exceeds the quota, it
+sets `visitQuotaBackoffUntil`; subsequent human and automation visits skip the
+model until cooldown ends.
+
+This means quota is a post-visit rolling guard, not advance reservation of
+future visit time. It does not globally reorder already scheduled visit
+producers.
+
+`shared/visit-policy.js` classifies a visit shorter than the minimum useful
+duration as `shortVisit`. A forced visit may retry one such short visit by
+default. Terminal/session/stop/tab-closed endings are non-retryable and must
+not create a retry loop. Visit histories are bounded in model state rather than
+growing without limit.
+
+Exact quota window, quota amount, cooldown and minimum useful duration belong
+to `docs/timings-settings.md`.
+
+### Focus activation and restoration
+
+Before programmatically activating a provider or previous tab, the background
+records a short-lived programmatic-focus marker. `tabs.onActivated` consumes
+that marker and emits `TAB_ACTIVATION_IGNORED_PROGRAMMATIC` instead of treating
+the system's own action as a user visit. A real unmarked activation of a bound
+model tab is recorded as `USER_FOCUS_CHANGE` and `user_focus`.
+
+Automated visits snapshot the previously active tab. On completion, dispatch
+and visit code restore it, when restoration is enabled for that path, only if:
+
+- it still exists and differs from the provider tab; and
+- the provider tab is still the active tab.
+
+Therefore restoration must not override a tab choice the user made during the
+visit. Restoration itself is marked programmatic so it cannot consume visit
+quota as a false user visit. Round 1 deliberately uses sprint dispatch with
+focus restoration disabled between models; it advances through the selected
+model order and leaves the last dispatch target active until a later owner
+changes focus.
+
+### In-page activity
+
+An admitted human or automation visit may execute the shared activity routine:
+
+- progressive scrolling;
+- scrolling of nested and eligible shadow-root containers;
+- a completion nudge that moves upward and returns to the bottom;
+- hover/pointer activity around composer and actionable controls;
+- optional `Humanoid.readPage`/movement when available;
+- a continuous pressed-pointer scroll gesture for GPT, Gemini and Perplexity.
+
+Activity is skipped after the page-level hard-stop flag. The activity routine
+does not click Send and does not establish submission or completion evidence.
+Its purpose is visibility/materialization and provider activity, after which
+the normal lifecycle and extraction paths must still prove progress.
+
+### Dwell, hard caps and stuck focus
+
+Human and automation visits have independent local completion timers and also
+participate in the shared visit tracker:
+
+- normal completion occurs after the requested dwell/activity;
+- a model becoming terminal or the session becoming stale ends the visit
+  early;
+- human/automation foreground sources are protected by the visit hard cap;
+- automation additionally uses a local cap bounded by the requested dwell plus
+  recovery margin;
+- `FOCUS_STUCK` is a final safety signal when tracked focus survives beyond the
+  stuck threshold.
+
+Hard-cap or stuck-focus termination releases ownership, clears automation
+state, returns to the results page when appropriate, and emits explicit
+diagnostics. User focus is tracked but is not subject to the short automated
+dwell timer; the stuck-focus safety remains the backstop.
+
+### Terminal and deadline behavior
+
+Terminal state is the universal stop condition for new visits. Active visit
+polling releases a model that becomes terminal mid-visit. Success-like
+finalization and the automation-deadline path additionally call the explicit
+human-presence cleanup, which cancels the current visit and clears overlap
+locks, post-success audit timers and per-model quota/transport backoff state.
+Forced-visit loops recheck terminal state before each attempt and stop
+immediately when it appears.
+
+At the passive automation deadline:
+
+- preserve a detected answer as `PARTIAL`, otherwise use the appropriate
+  timeout outcome;
+- stop human-presence, automation visits, automated collection pings and
+  recovery for that model;
+- do not press provider Stop;
+- do not close the provider tab;
+- allow only an explicit later manual latest recovery to read and possibly
+  upgrade the outcome.
+
+Round 4 is a waiting/finalization gate, not a reason to keep foreground focus
+on model pages. It focuses the results page only after no pending model
+remains; on its own maximum it deterministically finalizes the remaining
+models.
+
+### Telemetry and diagnosis
+
+The minimum event chain for foreground ownership is:
+
+```text
+PROGRAMMATIC_FOCUS_START (for system activation)
+  → TAB_ACTIVATION_IGNORED_PROGRAMMATIC
+  → LEASE_GRANTED
+  → HUMAN_VISIT_START
+  → TAB_VISIT or TAB_VISIT_SHORT
+  → HUMAN_VISIT_END
+  → LEASE_RELEASED
+```
+
+Depending on the path, also inspect:
+
+- `FORCED_VISIT`, `FORCED_VISIT_SHORT_RETRY`, `FORCED_VISIT_SKIPPED`;
+- `AUTOMATION_VISIT_SKIPPED`, `AUTOMATION_VISIT_HARD_CAP`;
+- `VISIT_QUOTA_BACKOFF`;
+- `LEASE_DENIED`, `LEASE_EXPIRED`;
+- `USER_FOCUS_CHANGE`;
+- `ACTIVE_FOCUS_WINDOW_EXHAUSTED`;
+- `FOCUS_STUCK`, `HUMAN_VISIT_HARD_CAP`,
+  `HUMAN_VISIT_FOCUS_STUCK_TERMINATED`;
+- `ROUND2_*`, `ROUND3_*`, `ROUND4_GATE_*`;
+- producer-specific recovery start/end/error events.
+
+A visit event without a correlated `PROMPT_SUBMITTED`, lifecycle transition or
+accepted answer is only foreground evidence. When diagnosing unexpected focus,
+identify the producer from the visit `source`/`reason`, then verify lease,
+quota, active-focus deadline, terminal state and focus-restoration events in
+that order.
+
+### Documentation ownership
+
+- This section owns the visit-ordering and focus-ownership contract.
+- `docs/timings-settings.md` owns every current numeric timing value.
+- `docs/telemetry.md` owns event schema/export and UI interpretation.
+- `docs/timing-review-2026-07-02.md` is a historical audit and rationale, not
+  current policy.
+- `docs/CHANGELOG.md` records how the behavior evolved; it is not a substitute
+  for this contract.
+- Executable truth remains in the owner modules listed at the start of this
+  section. A behavior change must update code, focused tests, this section and,
+  when timing changes, `docs/timings-settings.md` in the same set.
 
 ## Content-script boundary
 
@@ -505,12 +923,11 @@ When changing model tabs or main-page selection:
 3. Add/adjust focused tests for selection, tab scope, dispatch or lifecycle.
 4. Update this document only when the contract or ownership changes.
 5. Add one concise entry to `docs/CHANGELOG.md`.
-6. Put unresolved work in `docs/disput-docs/reports/D19_disput-next-steps.md`, not in this document.
+6. Put unresolved work in `docs/disput/OPEN-ITEMS-v3.0.md`, not in this document.
 
 Related operational documents:
 
 - `docs/selectors-tab-first-run-guide.md` — first-run selector workflow;
 - `docs/devtools-selectors-user-guide.md` — selector health/override UI;
 - `docs/storage-tab-guide.md` — storage-oriented tab troubleshooting;
-- `docs/session-stability-ops.md` — focus/session manual validation;
-- `docs/timing-map.md` — timing values and ladder decisions.
+- `docs/timings-settings.md` — timing ownership, ladder decisions and current values.

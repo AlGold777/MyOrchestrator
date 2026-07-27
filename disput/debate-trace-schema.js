@@ -2,7 +2,7 @@
 (function initDebateTraceSchema(root) {
   'use strict';
 
-  const VERSION = 4;
+  const VERSION = 5;
   const SOURCES = Object.freeze({
     APPLICATION: 'application', RUNNER: 'runner', RUN_STORE: 'run_store',
     BACKGROUND: 'background', CONTENT: 'content', RECOVERY: 'recovery',
@@ -47,6 +47,9 @@
     'pipelineRoundId', 'pipelineBatchId', 'dispatchId', 'tabId', 'sessionId'
   ]);
   const FORBIDDEN_KEY = /(?:^|_)(?:prompt|answer|html|dom|cookie|authorization|api.?key|access.?token|refresh.?token|credential|secret)(?:$|_)/i;
+  const CONTENT_KEY = /^(?:text|content|body|raw|rawtext|markdown|transcript|prompt|prompttext|prompthtml|compiledprompt|promptbymodel|promptsbymodel|answer|answertext|answerhtml|answerevidence|response|responsetext|responsehtml|rawrequest|moderatormessage|currentinstruction|instruction|objective|desiredoutput|successcriteria|description|formulation|title|claim|statement|quote|excerpt|constraints|context|contexttext|contextparts|statemap|debatecase|snapshot|attachment|attachments|file|files|blob|base64|dataurl)$/i;
+  const BOUNDED_DIAGNOSTIC_KEY = /^(?:details|message|note|summary|reason|userimpact|resolution)$/i;
+  const MAX_DIAGNOSTIC_TEXT = 240;
   const SECRET_PATTERNS = [
     /\bBearer\s+[A-Za-z0-9._~+/=-]{12,}/gi,
     /\bsk-[A-Za-z0-9_-]{12,}/g,
@@ -59,19 +62,65 @@
     return root.SecretRedaction?.redactString ? root.SecretRedaction.redactString(text) : text;
   };
 
+  const normalizeKey = (key) => String(key || '').replace(/[^a-z0-9]+/gi, '').toLowerCase();
+
+  function isForbiddenContentKey(key) {
+    const raw = String(key || '');
+    const normalized = normalizeKey(raw);
+    if (FORBIDDEN_KEY.test(raw)) {
+      if (/(?:length|count|hash|fingerprint|status|state|source|id|type|reason|policy|eligible)$/i.test(normalized)) return false;
+      return true;
+    }
+    return CONTENT_KEY.test(normalized);
+  }
+
   function sanitize(value, stats = { redactedFieldsCount: 0 }, key = '') {
-    if (FORBIDDEN_KEY.test(String(key || ''))) {
+    if (isForbiddenContentKey(key)) {
       stats.redactedFieldsCount += 1;
       return '[REDACTED]';
     }
-    if (typeof value === 'string') return cleanString(value);
-    if (Array.isArray(value)) return value.map((item) => sanitize(item, stats));
+    if (typeof value === 'string') {
+      const cleaned = cleanString(value);
+      if (BOUNDED_DIAGNOSTIC_KEY.test(normalizeKey(key)) && cleaned.length > MAX_DIAGNOSTIC_TEXT) {
+        return `${cleaned.slice(0, MAX_DIAGNOSTIC_TEXT - 1)}…`;
+      }
+      return cleaned;
+    }
+    if (Array.isArray(value)) return value.map((item) => sanitize(item, stats, key));
     if (!value || typeof value !== 'object') return value;
     const result = {};
     Object.entries(value).forEach(([childKey, childValue]) => {
       result[childKey] = sanitize(childValue, stats, childKey);
     });
     return result;
+  }
+
+  function sanitizePlan(plan = null) {
+    if (!plan || typeof plan !== 'object') return null;
+    const stages = Array.isArray(plan.stages) ? plan.stages : [];
+    return {
+      version: plan.version ?? null,
+      planId: String(plan.planId || ''),
+      presetId: String(plan.presetId || ''),
+      topology: String(plan.topology || ''),
+      runPolicy: String(plan.runPolicy || ''),
+      participants: Array.isArray(plan.participants) ? plan.participants.map(String) : [],
+      synthesizer: String(plan.synthesizer || ''),
+      stages: stages.map((stage) => ({
+        stageId: String(stage.stageId || stage.stageInstanceId || ''),
+        kind: String(stage.kind || stage.purpose || ''),
+        round: Number(stage.round || 0) || null,
+        participants: Array.isArray(stage.participants || stage.participantIds)
+          ? (stage.participants || stage.participantIds).map(String)
+          : [],
+        inputs: Array.isArray(stage.inputs || stage.inputArtifactIds) ? (stage.inputs || stage.inputArtifactIds).map(String) : [],
+        outputs: Array.isArray(stage.outputs || stage.expectedArtifactTypes) ? (stage.outputs || stage.expectedArtifactTypes).map(String) : [],
+        tabPolicy: String(stage.tabPolicy || ''),
+        completionPolicy: String(stage.completionPolicy || stage.completionMode || ''),
+        failurePolicy: String(stage.failurePolicy || ''),
+        nextStageId: String(stage.nextStageId || '')
+      }))
+    };
   }
 
   const normalizeCorrelation = (value = {}) => {
@@ -161,7 +210,7 @@
 
   const api = Object.freeze({
     VERSION, SOURCES, SEVERITIES, EVENT_TYPES, CORRELATION_KEYS, CRITICAL_FLUSH,
-    sanitize, normalizeCorrelation, validate, canonicalize, semanticHash, createEvent
+    sanitize, sanitizePlan, isForbiddenContentKey, normalizeCorrelation, validate, canonicalize, semanticHash, createEvent
   });
   root.DebateTraceSchema = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

@@ -56,6 +56,8 @@
     DISPATCH_SENT: 'DISPATCH_SENT',
     GENERATION_SIGNAL: 'GENERATION_SIGNAL',
     LIFECYCLE_READY: 'LIFECYCLE_READY',
+    ANSWER_CANDIDATE_OBSERVED: 'ANSWER_CANDIDATE_OBSERVED',
+    ANSWER_VERIFIED: 'ANSWER_VERIFIED',
     ANSWER_CANDIDATE_ACCEPTED: 'ANSWER_CANDIDATE_ACCEPTED',
     ANSWER_CANDIDATE_REJECTED: 'ANSWER_CANDIDATE_REJECTED',
     TERMINAL_FAILURE: 'TERMINAL_FAILURE',
@@ -164,7 +166,7 @@
     const failure = isFailureStatus(terminalStatus || uiStatus);
     const now = Date.now();
     const state = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       llmName: entry.llmName || previous.llmName || null,
       runSessionId: previous.runSessionId || null,
       dispatchId: entry.confirmedDispatchId || entry.lastDispatchMeta?.dispatchId || previous.dispatchId || null,
@@ -172,7 +174,8 @@
       dispatchState: entry.dispatchState || previous.dispatchState || 'UNKNOWN',
       executionState: terminal ? (success ? 'terminal_success' : 'terminal_failure') : deriveExecutionState(entry, uiStatus),
       generationState: terminal ? 'closed' : deriveGenerationState(entry, uiStatus),
-      extractionState: previous.extractionState || (answerText ? 'has_candidate' : 'none'),
+      extractionState: previous.extractionState || (terminal && success && answerText ? 'legacy_unverified' : (answerText ? 'has_candidate' : 'none')),
+      verificationState: previous.verificationState || (terminal && success && answerText ? 'legacy_unverified' : 'none'),
       answerState: deriveAnswerState(entry, uiStatus),
       terminalState: terminal ? (success ? 'success' : (failure ? 'failure' : 'terminal')) : 'open',
       terminalStatus: terminalStatus || null,
@@ -305,6 +308,22 @@
         state.generationState = 'complete_detected';
         state.uiStatus = normalizeStatus(payload.status || entry.status || 'RECEIVING');
         break;
+      case TRANSITIONS.ANSWER_CANDIDATE_OBSERVED:
+        state.executionState = 'collecting';
+        state.extractionState = 'candidate';
+        state.answerState = 'candidate';
+        state.verificationState = 'candidate';
+        state.uiStatus = normalizeStatus(payload.status || entry.status || 'FINALIZING');
+        break;
+      case TRANSITIONS.ANSWER_VERIFIED:
+        state.executionState = 'collecting';
+        state.extractionState = 'verified';
+        state.answerState = 'verified';
+        state.verificationState = 'verified';
+        state.verifiedAt = payload.verifiedAt || now;
+        state.verificationMethod = payload.method || null;
+        state.uiStatus = normalizeStatus(payload.status || entry.status || 'FINALIZING');
+        break;
       case TRANSITIONS.ANSWER_CANDIDATE_REJECTED:
         state.answerState = payload.reason === 'prompt_echo_candidate' ? 'rejected_prompt_echo' : 'rejected';
         state.extractionState = 'rejected';
@@ -328,7 +347,8 @@
         state.terminalState = isSuccessStatus(status) ? 'success' : (isFailureStatus(status) ? 'failure' : 'terminal');
         state.executionState = isSuccessStatus(status) ? 'terminal_success' : 'terminal_failure';
         state.generationState = 'closed';
-        state.extractionState = 'accepted';
+        state.extractionState = payload.verified === true ? 'verified' : 'accepted_unverified';
+        state.verificationState = payload.verified === true ? 'verified' : 'candidate';
         state.answerState = isFailureStatus(status)
           ? (answerLength ? 'preserved_after_failure' : 'failed')
           : (status === 'PARTIAL' || status === 'STREAM_TIMEOUT_HIDDEN' ? 'partial_accepted' : 'accepted');

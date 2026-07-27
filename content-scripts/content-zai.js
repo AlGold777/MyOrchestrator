@@ -6,6 +6,7 @@
 
   const MODEL = 'Z.ai';
   const PLATFORM = 'zai';
+  const ZAI_STABLE_TEXT_MS = 6000;
   const COMPOSER_SELECTORS = [
     '#chat-input',
     'textarea[placeholder*="help you today" i]',
@@ -181,7 +182,7 @@
         if (latest.text === previous) {
           stableSince ||= Date.now();
           const generating = !!document.querySelector('button[aria-label*="stop" i], [data-generating="true"], [data-streaming="true"], [aria-busy="true"]');
-          if (!generating && Date.now() - stableSince >= 1800) return latest;
+          if (!generating && Date.now() - stableSince >= ZAI_STABLE_TEXT_MS) return latest;
         } else {
           previous = latest.text;
           stableSince = Date.now();
@@ -200,7 +201,7 @@
       const pipeline = new window.UnifiedAnswerPipeline(PLATFORM, {
         llmName: MODEL,
         baselineText: baseline,
-        stableTextMs: 1800
+        stableTextMs: ZAI_STABLE_TEXT_MS
       });
       const result = await pipeline.execute();
       if (result?.success && result.answer) {

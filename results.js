@@ -12,6 +12,11 @@ if (window.__RESULTS_PAGE_LOADED) {
     window.__RESULTS_PAGE_LOADED = true;
 
 document.addEventListener('DOMContentLoaded', async () => {
+    // Live model tabs can emit hundreds of diagnostic events while this page is
+    // backgrounded.  Keep the data, but do not rebuild the hidden results DOM
+    // for every event; the concrete flusher is installed with the diagnostics
+    // UI below and invoked when the page becomes visible again.
+    let flushPendingDiagnosticsRenders = () => {};
     const shared = window.ResultsShared || {};
     const escapeHtmlFallback = (value = '') => String(value)
         .replace(/&/g, '&amp;')
@@ -43,6 +48,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         resetGeometryState,
         recoverUiIfHidden,
         isPageReloadNavigation,
+        clearTelemetryOnReload,
         clearDebateTranscriptOnReload,
         normalizeExternalLinkUrl,
         decorateLinksForNewTab,
@@ -204,7 +210,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         // has repainted and getBoundingClientRect reports real sizes (avoids a false
         // "collapsed" trigger on the first post-visible frame).
         if (document.visibilityState === 'visible') {
-            requestAnimationFrame(() => requestAnimationFrame(() => recoverUiIfHidden('visibilitychange')));
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                recoverUiIfHidden('visibilitychange');
+                flushPendingDiagnosticsRenders();
+            }));
         }
     });
     window.addEventListener('pageshow', (event) => {
@@ -1540,8 +1549,6 @@ document.addEventListener('click', (event) => {
     const sidebarSessionViewIntentKey = 'llmSidebarPendingSessionView';
     const sidebarSessionViewIntentTtlMs = 15000;
     const DEBATE_SCHEME_STORAGE_KEY = 'llmCodexDebateScheme.v1';
-    let debateSchemeValue = '2';
-    window.__debateSchemeValue = debateSchemeValue;
     let preserveCrossViewStateOnLoad = false;
     let suppressCrossViewPersistenceOnLoad = false;
     function getCurrentViewKey() {
@@ -1711,6 +1718,16 @@ document.addEventListener('click', (event) => {
         }
         await safeStorageLocalSet({ [crossViewUiStateKey]: nextState });
     };
+    let crossViewUiPersistTimer = null;
+    const scheduleCrossViewUiStatePersist = (delayMs = 250) => {
+        if (crossViewUiPersistTimer) clearTimeout(crossViewUiPersistTimer);
+        crossViewUiPersistTimer = setTimeout(() => {
+            crossViewUiPersistTimer = null;
+            persistCrossViewUiState().catch((err) => {
+                console.warn('[RESULTS] Deferred UI state persistence failed', err);
+            });
+        }, Math.max(0, Number(delayMs) || 0));
+    };
     const applyCrossViewUiState = (rawState = {}) => {
         if (!rawState || typeof rawState !== 'object') return;
         const normalized = normalizeCrossViewUiState(rawState);
@@ -1798,6 +1815,11 @@ document.addEventListener('click', (event) => {
         await safeStorageLocalSet({ [modelSelectionStorageKey]: captureSelectedModelButtonIds() });
     }
     async function restoreModelSelectionForCurrentView() {
+        if (isPageReloadNavigation()) {
+            await safeStorageLocalRemove(modelSelectionStorageKey);
+            applyModelButtonSelection([]);
+            return false;
+        }
         const stored = await safeStorageLocalGet(modelSelectionStorageKey);
         const buttonIds = Array.isArray(stored[modelSelectionStorageKey]) ? stored[modelSelectionStorageKey] : [];
         if (buttonIds.length || Object.prototype.hasOwnProperty.call(stored, modelSelectionStorageKey)) {
@@ -1834,7 +1856,7 @@ document.addEventListener('click', (event) => {
     document.addEventListener('input', (event) => {
         if (!event.target?.closest?.('.app-main')) return;
         if (!event.target.matches?.('input[id], textarea[id], select[id]')) return;
-        persistCrossViewUiState();
+        scheduleCrossViewUiStatePersist();
     });
     document.addEventListener('change', (event) => {
         if (!event.target?.closest?.('.app-main')) return;
@@ -1848,12 +1870,37 @@ document.addEventListener('click', (event) => {
     const debateAutoPauseBtn = document.getElementById('debate-auto-pause-btn');
     const debateMaxTurnsInput = document.getElementById('debate-max-turns-input');
         const debateRoundLimitSelect = document.getElementById('debate-round-limit-select');
+        const DEFAULT_DEBATE_ROUND_LIMIT = '3';
         const debateRoundValue = document.getElementById('debate-round-value');
         const debateRoundMinusBtn = document.getElementById('debate-round-minus-btn');
         const debateRoundPlusBtn = document.getElementById('pipeline-add-round-btn');
     const debateRunPolicySelect = document.getElementById('debate-run-policy-select');
     const debateAutoToggleBtn = document.getElementById('debate-auto-toggle-btn');
+    const DEBATE_AUTO_MODE_STORAGE_KEY = 'llmDisputAutoMode.v1';
     let autoMode = false;
+    const persistDebateAutoMode = (enabled) => safeStorageLocalSet({
+        [DEBATE_AUTO_MODE_STORAGE_KEY]: !!enabled
+    }).catch((err) => {
+        console.warn('[RESULTS] Failed to persist Disput Auto mode:', err);
+    });
+    const restoreDebateAutoMode = async () => {
+        if (!autoCheckbox) return;
+        try {
+            const stored = await safeStorageLocalGet(DEBATE_AUTO_MODE_STORAGE_KEY);
+            if (typeof stored?.[DEBATE_AUTO_MODE_STORAGE_KEY] !== 'boolean') return;
+            const isAuto = stored[DEBATE_AUTO_MODE_STORAGE_KEY];
+            autoCheckbox.checked = isAuto;
+            if (debateAutoToggleBtn) debateAutoToggleBtn.checked = isAuto;
+            if (debateRunPolicySelect) {
+                debateRunPolicySelect.value = isAuto ? 'auto' : 'manual';
+                debateRunPolicySelect.dispatchEvent(new Event('change', { bubbles: true }));
+            } else {
+                autoMode = isAuto;
+            }
+        } catch (err) {
+            console.warn('[RESULTS] Failed to restore Disput Auto mode:', err);
+        }
+    };
     const prefixToggleLabel = document.querySelector('.modifiers-toggle-label[data-mod-type="prefix"]');
     const suffixToggleLabel = document.querySelector('.modifiers-toggle-label[data-mod-type="suffix"]');
     const proSection = document.getElementById('pro-section');
@@ -1861,16 +1908,16 @@ document.addEventListener('click', (event) => {
     const apiModeCheckbox = document.getElementById('api-mode-checkbox');
     // Long generation mode (main page): a shared flag read by each model tab's
     // content script (pipeline-config.js) to switch the answer-wait timing
-    // profile from Short to the patient Long profile. Default OFF every load.
+    // profile from Standard to the extended Long profile.
     const longModeCheckbox = document.getElementById('long-mode-checkbox');
     const LONG_GENERATION_MODE_KEY = 'longGenerationMode';
-    // Generation Wait Profile that the last dispatched run used ('short'|'long').
+    // Generation Wait Profile that the last dispatched run used ('standard'|'long').
     // Captured at dispatch so the telemetry export reflects what was actually
     // used, not whatever the toggle happens to be at export time.
-    let lastGenerationWaitProfile = 'long';
+    let lastGenerationWaitProfile = 'standard';
     const generationWaitProfileLabel = (profile) => (profile === 'long'
-        ? 'Long (patient — waits for long answers)'
-        : 'Short (default)');
+        ? 'Long (15 min passive wait, 90 sec active focus)'
+        : 'Standard (7.5 min passive wait, 60 sec active focus)');
     const writeLongGenerationMode = (enabled) => {
         try {
             chrome?.storage?.local?.set?.({ [LONG_GENERATION_MODE_KEY]: !!enabled });
@@ -1879,12 +1926,9 @@ document.addEventListener('click', (event) => {
         }
     };
     if (longModeCheckbox) {
-        // Default the main page to the LONG generation-wait profile: full answers from
-        // slow models matter more than speed; SHORT demonstrably truncated Grok/Perplexity.
-        // The user can still switch to SHORT via the toggle for fast runs.
-        longModeCheckbox.checked = true;
-        lastGenerationWaitProfile = 'long';
-        writeLongGenerationMode(true);
+        longModeCheckbox.checked = false;
+        lastGenerationWaitProfile = 'standard';
+        writeLongGenerationMode(false);
         longModeCheckbox.addEventListener('change', () => {
             writeLongGenerationMode(longModeCheckbox.checked);
         });
@@ -2083,6 +2127,10 @@ document.addEventListener('click', (event) => {
     const manualPingReveal = new Set();
     const statusIndicatorClickTimers = {};
     const statusStateByModel = {};
+    // A terminal success can arrive before its answer payload (separate MV3
+    // messages). Keep that success pending until the answer is actually painted
+    // in the live result card; otherwise the user sees a green empty card.
+    const deferredSuccessStatusByModel = {};
     const llmLogs = {};
     window.__getDiagnosticLogs = () => llmLogs;
     const diagnosticsState = {};
@@ -2544,6 +2592,14 @@ document.addEventListener('click', (event) => {
         getAggregate: () => ({ ...(debateAggregateStore?.getState?.() || {}), ruleHistory: debateRuleHistoryStore?.summary?.() || null }),
         getRuleHistory: () => debateRuleHistoryStore?.summary?.() || null,
         caseStore: debateCaseStore,
+        onDecisionResolved: async ({ requestId, optionId }) => {
+            const result = await debateApplication?.resolveHumanDecision?.({
+                requestId, optionId,
+                expectedCaseVersion: debateApplication?.getOrchestrator?.()?.getState?.()?.caseVersion,
+                expectedPlanRevisionId: debateApplication?.getOrchestrator?.()?.getState?.()?.activePlanRevisionId
+            });
+            showNotification(result?.ok ? 'Решение применено.' : `Решение не применено: ${result?.code || 'unknown'}`, result?.ok ? 'success' : 'error');
+        },
         onHumanAction: async ({ action, itemId }) => {
             if (action === 'stop') { await window.cancelPipelineRun?.(); return; }
             if (action === 'pause') { setDebatePausedState(!debatePaused, debatePaused ? 'state_map_resume' : 'state_map_pause'); return; }
@@ -2552,52 +2608,21 @@ document.addEventListener('click', (event) => {
                 showNotification(result?.ok ? 'Этап синтеза добавлен в универсальный план.' : 'Не удалось добавить этап синтеза.', result?.ok ? 'success' : 'warn');
                 return;
             }
-            if (!debateCaseStore?.getState?.()) return;
-            const at = Date.now();
-            const decisionResult = await debateCaseStore.apply({
-                kind: 'RECORD_HUMAN_DECISION', actor: 'human', correlationId: `human:${action}:${itemId}:${at}`,
-                decision: { decisionId: `human:${at}`, targetId: itemId, value: action, text: action.replaceAll('_', ' '), source: 'state_map_drawer' }
+            if (!debateApplication?.submitIntervention) return;
+            const interventionId = `human:${action}:${itemId}:${Date.now()}`;
+            const decisionResult = await debateApplication.submitIntervention({
+                interventionId,
+                type: action === 'request_evidence' ? 'REQUEST_VERIFICATION' : 'HUMAN_DECISION',
+                payload: { action, artifactIds: itemId ? [itemId] : [] }, deferExecution: true
             });
-            if (decisionResult.ok) await debateCaseStore.apply({
-                kind: 'UPSERT_ARTIFACT', actor: 'human', correlationId: `human-artifact:${action}:${itemId}:${at}`,
-                artifact: {
-                    id: `human-${at}`, type: 'human_decision', status: 'accepted',
-                    targetId: itemId, title: action.replaceAll('_', ' '), requiredAction: action === 'request_evidence' ? 'provide_evidence' : '',
-                    provenance: { source: 'state_map_drawer', runId: debateCaseStore.getState().runId, at }
-                }
-            });
-            const targetArtifact = debateCaseStore.getState()?.artifacts?.[itemId];
-            if (decisionResult.ok && targetArtifact && ['approve_closure', 'reject_closure'].includes(action)) {
-                await debateCaseStore.apply({
-                    kind: 'UPSERT_ARTIFACT', actor: 'human', correlationId: `human-target:${action}:${itemId}:${at}`,
-                    artifact: {
-                        ...targetArtifact,
-                        status: action === 'approve_closure' ? 'closed' : 'reopened',
-                        provenance: { source: 'state_map_drawer', decisionId: `human:${at}`, runId: debateCaseStore.getState().runId, at }
-                    }
-                });
-            }
-            if (decisionResult.ok && targetArtifact && action === 'request_evidence') {
-                await debateCaseStore.apply({
-                    kind: 'UPSERT_ARTIFACT', actor: 'human', correlationId: `human-gap:${itemId}:${at}`,
-                    artifact: {
-                        id: `evidence-gap-${at}`, type: 'evidence_gap', status: 'open', targetId: itemId,
-                        title: `Требуется дополнительное evidence для ${itemId}`,
-                        provenance: { source: 'state_map_drawer', decisionId: `human:${at}`, runId: debateCaseStore.getState().runId, at }
-                    }
-                });
-            }
-            dispatchDebateRunEvent?.(window.DebateRunStore?.EVENTS?.HUMAN_DECISION_RECORDED || 'HUMAN_DECISION_RECORDED', { decisionId: `human:${at}`, targetId: itemId, value: action });
+            if (decisionResult.ok) dispatchDebateRunEvent?.(window.DebateRunStore?.EVENTS?.HUMAN_DECISION_RECORDED || 'HUMAN_DECISION_RECORDED', { decisionId: interventionId, targetId: itemId, value: action });
             showNotification(decisionResult.ok ? `Решение сохранено: ${action}` : `Решение не сохранено: ${(decisionResult.errors || []).join(', ')}`, decisionResult.ok ? 'success' : 'error');
         },
         onLinkRemove: async ({ linkId }) => {
-            if (!debateCaseStore?.getState?.()) return;
-            const artifact = debateCaseStore.getState()?.artifacts?.[linkId];
-            if (!artifact || artifact.provenance?.source !== 'state_map_drawer') return;
-            const at = Date.now();
-            const result = await debateCaseStore.apply({
-                kind: 'DELETE_ARTIFACT', actor: 'human', artifactId: linkId,
-                correlationId: `human-delete-link:${linkId}:${at}`
+            if (!debateApplication?.submitIntervention) return;
+            const result = await debateApplication.submitIntervention({
+                interventionId: `human-delete-link:${linkId}:${Date.now()}`,
+                type: 'DELETE_ARTIFACT', payload: { artifactId: linkId }, deferExecution: true
             });
             showNotification(result.ok ? 'Связь удалена.' : `Связь не удалена: ${(result.errors || []).join(', ')}`, result.ok ? 'success' : 'error');
         }
@@ -2605,11 +2630,6 @@ document.addEventListener('click', (event) => {
     debateCaseStore?.subscribe?.((caseState) => {
         if (caseState) disputStateMapView?.render?.(caseState);
     });
-    void debateCaseStore?.list?.().then((caseIds) => {
-        const latestCaseId = caseIds.at(-1);
-        if (latestCaseId && !debateAggregateStore?.getState?.()?.runId) return debateCaseStore.load(latestCaseId);
-        return null;
-    }).catch((error) => console.warn('[RESULTS] Debate case restore failed', error));
     let debateCaseWriteQueue = Promise.resolve();
     const queueDebateCaseWrite = (operation) => {
         debateCaseWriteQueue = debateCaseWriteQueue.then(operation, operation).catch((error) => {
@@ -2618,84 +2638,11 @@ document.addEventListener('click', (event) => {
         return debateCaseWriteQueue;
     };
     const syncAggregateArtifactsToCase = async (aggregate, aggregateEvent) => {
-        if (!debateCaseStore || !aggregate?.runId) return;
-        if (!debateCaseStore.getState() || debateCaseStore.getState().runId !== aggregate.runId) {
-            await debateCaseStore.create({
-                caseId: aggregate.runId, runId: aggregate.runId, sessionId: aggregate.sessionId,
-                title: aggregate.config?.topic || aggregate.protocolState?.topic || 'Текущее дело',
-                problemSpec: aggregate.config?.problemSpec || {},
-                taskContract: aggregate.taskContract || aggregate.executionPlan?.taskContract || aggregate.config?.taskContract || null,
-                contractVersions: aggregate.versions || {},
-                profile: { id: aggregate.executionPlan?.profileId || aggregate.executionPlan?.presetId || aggregate.preset?.presetId || '', version: aggregate.preset?.profileVersion || '' },
-                participants: aggregate.executionPlan?.participants || aggregate.config?.selectedModels || [],
-                technicalStatus: aggregate.status || 'running', epistemicOutcome: aggregate.epistemicOutcome || 'pending'
-            });
-        }
-        if (aggregateEvent?.id || aggregateEvent?.eventId) {
-            await debateCaseStore.apply({
-                kind: 'APPEND_SOURCE_EVENT', actor: aggregateEvent.payload?.participant || aggregateEvent.payload?.model || 'system',
-                correlationId: `source:${aggregateEvent.id || aggregateEvent.eventId}`,
-                event: {
-                    eventId: aggregateEvent.id || aggregateEvent.eventId,
-                    type: aggregateEvent.type || aggregateEvent.eventType,
-                    at: aggregateEvent.at || aggregateEvent.sourceTimestamp,
-                    actor: aggregateEvent.payload?.participant || aggregateEvent.payload?.model || 'system',
-                    text: aggregateEvent.payload?.text || aggregateEvent.payload?.answer || '',
-                    payload: aggregateEvent.payload || {}
-                }
-            });
-        }
-        if (aggregateEvent?.type === window.DebateRunStore?.EVENTS?.DECISION_RESOLVED) {
-            const resolution = aggregateEvent.payload || {};
-            await debateCaseStore.apply({
-                kind: 'RECORD_HUMAN_DECISION', actor: resolution.actor || 'human',
-                correlationId: `decision:${resolution.decisionId || aggregateEvent.id}`,
-                decision: {
-                    decisionId: resolution.decisionId || aggregateEvent.id,
-                    targetId: resolution.metadata?.targetId || resolution.subjectId || '',
-                    value: resolution.effect || resolution.optionId,
-                    text: resolution.label || resolution.effect || resolution.optionId,
-                    source: 'decision_request'
-                }
-            });
-            const targetId = String(resolution.metadata?.targetId || resolution.subjectId || '');
-            const target = debateCaseStore.getState()?.artifacts?.[targetId];
-            if (resolution.effect === 'accept_as_limitation' && target) await debateCaseStore.apply({
-                kind: 'UPSERT_ARTIFACT', actor: resolution.actor || 'human', correlationId: `limitation:${resolution.decisionId || aggregateEvent.id}`,
-                artifact: { ...target, status: 'accepted_as_limitation', provenance: { ...(target.provenance || {}), decisionId: resolution.decisionId, runId: aggregate.runId, at: resolution.resolvedAt || Date.now() } }
-            });
-        }
-        const registryArtifacts = Object.values(aggregate.protocolState?.registry?.artifacts || {});
-        for (const raw of registryArtifacts) {
-            const type = String(raw.type || raw.artifactType || '').trim();
-            const normalizedType = type === 'open_issue' ? 'objection' : type === 'term_mismatch' ? 'dissent' : type;
-            if (!window.DebateCaseSchema?.ARTIFACT_TYPES?.includes?.(normalizedType)) continue;
-            const targetId = String(raw.targetId || raw.claimId || raw.artifactId || '').trim();
-            const result = await debateCaseStore.apply({
-                kind: 'UPSERT_ARTIFACT', actor: raw.model || raw.owner || 'registry',
-                correlationId: `${aggregateEvent?.id || aggregateEvent?.eventId || aggregate.events?.length || 0}:${raw.id}`,
-                artifact: {
-                    ...raw, type: normalizedType, targetId,
-                    title: raw.formulation || raw.text || raw.title || raw.id,
-                    provenance: raw.provenance || raw.anchor || { runId: aggregate.runId, eventId: aggregateEvent?.id || aggregateEvent?.eventId || '' }
-                }
-            });
-            if (!result.ok && result.errors?.some?.((error) => String(error).startsWith('artifact_target_missing:'))) {
-                // A checkpoint may list a child before its parent. It will be retried
-                // by the next aggregate sync after the parent has been accepted.
-                continue;
-            }
-        }
-        const terminalOutcome = aggregate.status === 'cancelled' ? 'cancelled'
-            : aggregate.status === 'error' ? 'failed'
-                : aggregate.epistemicOutcome || null;
-        const technicalStatus = aggregate.status === 'awaiting_approval' ? 'paused'
-            : aggregate.status === 'finalization_pending' ? 'running'
-                : aggregate.status || 'running';
-        await debateCaseStore.apply({
-            kind: 'SET_STATUS', correlationId: `status:${aggregateEvent?.id || aggregate.events?.length || 0}`,
-            technicalStatus, epistemicOutcome: terminalOutcome || undefined
-        });
+        // Canonical semantic writes are owned by DebateOrchestrator. Legacy aggregate
+        // events remain diagnostic only; applying them here would create a second
+        // unfenced writer and could overwrite a newer case version.
+        void aggregate; void aggregateEvent;
+        return null;
     };
     const debateTraceStore = window.DebateTraceStore?.createStore?.({
         storage: chrome?.storage?.local,
@@ -2862,12 +2809,46 @@ document.addEventListener('click', (event) => {
         return ['LEGACY_DIAGNOSTIC_EVENT', label || 'DIAGNOSTIC', 'info'];
     };
     const ingestedDebateDiagnosticTraceKeys = new Set();
+    const buildSafeDebateDiagnosticEvidence = (meta = {}) => {
+        const scalarKeys = [
+            'status', 'finalStatus', 'modelFinalStatus', 'doneReason',
+            'completionReason', 'failureClass', 'reason', 'errorCode',
+            'durationMs', 'elapsedMs', 'foregroundMsUsed', 'focusSwitchesUsed',
+            'answerLength', 'answerLen', 'textLength', 'confidence',
+            'round', 'attempt', 'retryCount', 'hitCount', 'missCount',
+            'totalCount', 'hitRate', 'selectorPackVersion', 'responsePhase',
+            'closureState', 'mappingSource', 'generationActive', 'terminal'
+        ];
+        const evidence = {};
+        scalarKeys.forEach((key) => {
+            const value = meta?.[key];
+            if (value == null || !['string', 'number', 'boolean'].includes(typeof value)) return;
+            evidence[key] = value;
+        });
+        const copyBooleanNumberMap = (key, source) => {
+            if (!source || typeof source !== 'object' || Array.isArray(source)) return;
+            const safe = {};
+            Object.entries(source).forEach(([childKey, value]) => {
+                if (['boolean', 'number'].includes(typeof value) || value == null) safe[childKey] = value;
+                else if (typeof value === 'string' && value.length <= 80) safe[childKey] = value;
+            });
+            if (Object.keys(safe).length) evidence[key] = safe;
+        };
+        copyBooleanNumberMap('completionSignals', meta?.completionSignals);
+        copyBooleanNumberMap('phaseEvidence', meta?.phaseEvidence);
+        return evidence;
+    };
     const appendDebateDiagnosticTrace = (llmName, entry = {}) => {
         if (!debateTraceStore?.getActiveRun?.()) return null;
         const ingestionKey = `${entry.ts || ''}|${llmName || ''}|${entry.label || entry.event || entry.type || ''}|${entry.details || entry.message || ''}`;
         if (ingestedDebateDiagnosticTraceKeys.has(ingestionKey)) return null;
         ingestedDebateDiagnosticTraceKeys.add(ingestionKey);
-        const [eventType, reasonCode, severity] = diagnosticTraceMapping(entry.label || entry.event || entry.type, entry.details || entry.message);
+        const [eventType, reasonCode, mappedSeverity] = diagnosticTraceMapping(entry.label || entry.event || entry.type, entry.details || entry.message);
+        const sourceSeverity = String(entry.level || entry.severity || '').toLowerCase();
+        const severity = eventType === 'LEGACY_DIAGNOSTIC_EVENT' && ['warning', 'high', 'critical'].includes(sourceSeverity)
+            ? sourceSeverity
+            : mappedSeverity;
+        if (eventType === 'LEGACY_DIAGNOSTIC_EVENT' && severity === 'info') return null;
         const meta = entry.meta || {};
         const active = debateTraceStore.getActiveRun();
         const explicitRoot = String(meta.debateRunId || meta.pipelineRunId || '').trim();
@@ -2896,7 +2877,7 @@ document.addEventListener('click', (event) => {
                 details: entry.details || entry.message || '',
                 status: meta.finalStatus || meta.status || '',
                 answerLength: meta.answerLength || meta.textLength || null,
-                evidence: meta
+                evidence: buildSafeDebateDiagnosticEvidence(meta)
             }
         });
     };
@@ -3123,6 +3104,19 @@ document.addEventListener('click', (event) => {
     let appendModeratorNoneNoteFromComposer = () => false;
     let debateInitialTargetPromptPending = false;
     const pipelineName = document.getElementById('currentPipelineName');
+    const PIPELINE_HEADER_DISPLAY_LIMIT = 18;
+    const getPipelineHeaderName = () => String(
+        pipelineName?.dataset.fullName || pipelineName?.textContent || ''
+    ).trim();
+    const setPipelineHeaderName = (name = '') => {
+        if (!pipelineName) return;
+        const fullName = String(name || '').trim();
+        pipelineName.dataset.fullName = fullName;
+        pipelineName.textContent = fullName.length > PIPELINE_HEADER_DISPLAY_LIMIT
+            ? `${fullName.slice(0, PIPELINE_HEADER_DISPLAY_LIMIT - 1)}…`
+            : fullName;
+        pipelineName.title = fullName;
+    };
     const truncateDisputeLabel = (value = '', limit = 20) => {
         const text = String(value || '').trim();
         if (text.length <= limit) return text;
@@ -3182,11 +3176,8 @@ document.addEventListener('click', (event) => {
         const debateRunToggleBtn = document.getElementById('debate-run-toggle-btn');
         const pipelineCloseBtn = document.getElementById('pipeline-close-btn');
         const pipelineItems = document.getElementById('pipelineItems');
-        const customerPipelineItems = document.getElementById('customerPipelineItems');
         const insertionPoint = document.getElementById('insertionPoint');
         const entryWrapper = document.getElementById('entryWrapper');
-        const outputColumn = document.getElementById('outputColumn');
-        const connectorToOutput = document.getElementById('connectorToOutput');
         const pipelineCanvas = pipelinePanel.querySelector('.pipeline-canvas');
         const pipelineList = pipelinePanel.querySelector('.pipeline-list');
         const pipelineListHeader = pipelineList ? pipelineList.querySelector('.pipeline-list-header') : null;
@@ -3205,6 +3196,7 @@ document.addEventListener('click', (event) => {
             },
             draftPlans: {}
         };
+        const pipelineSessionDraftPlans = Object.create(null);
         let pipelineR1ManualDirty = false;
         let pipelineApplyingConfig = false;
 
@@ -3479,17 +3471,6 @@ document.addEventListener('click', (event) => {
             return indices;
         };
 
-        const getOutputCheckedIndices = (stackId) => {
-            const stack = document.getElementById(stackId);
-            if (!stack) return [];
-            const indices = [];
-            Array.from(stack.children).forEach((item, i) => {
-                const cb = item.querySelector('.output-checkbox');
-                if (cb && cb.checked) indices.push(i);
-            });
-            return indices;
-        };
-
         const normalizeExplicitSynthesizer = (value) => {
             const normalized = String(value || '').trim();
             return normalized.toLowerCase() === 'auto' ? '' : normalized;
@@ -3499,7 +3480,7 @@ document.addEventListener('click', (event) => {
             const lengthSelect = document.getElementById('debate-length-select');
             const presetId = getSelectedPipelinePresetId();
             const presetMeta = window.PipelinePresets?.getPipelinePreset?.(presetId) || null;
-            const activeName = String(pipelineStore.active || pipelineName?.textContent || '').trim();
+            const activeName = String(pipelineStore.active || getPipelineHeaderName()).trim();
             const activeProtocol = getPipelineConfigByName(activeName)?.protocol || {};
             const activeRoundPlan = activeProtocol.roundPlan;
             const roundPlan = Array.isArray(activeRoundPlan)
@@ -3582,7 +3563,7 @@ document.addEventListener('click', (event) => {
         };
 
         const updateActivePipelineDescription = (name = '') => {
-            const activeName = String(name || pipelineStore.active || pipelineName?.textContent || '').trim();
+            const activeName = String(name || pipelineStore.active || getPipelineHeaderName()).trim();
             const description = describePipelineProtocol(activeName);
             const activeSummary = document.getElementById('pipelineActiveSummary');
             if (!activeSummary) return;
@@ -3596,7 +3577,7 @@ document.addEventListener('click', (event) => {
             const total = Math.max(0, Number(count) || 0);
             if (!total) return '';
             return Array.from({ length: total }).map(() => `
-                <div class="model-block inactive pipeline-empty-slot" hidden aria-hidden="true">
+                <div class="model-block inactive pipeline-empty-slot" aria-hidden="false" data-placeholder="true">
                     <div class="model-header">
                         <span class="status-indicator" aria-hidden="true"></span>
                         <span class="model-slot-placeholder"></span>
@@ -3642,8 +3623,11 @@ document.addEventListener('click', (event) => {
             });
         };
 
+        const hasSelectedPipelineModels = () => getSelectedLLMs().length > 0;
+
         const setSynthesisModelFromName = (modelName = '') => {
             const trimmed = normalizeExplicitSynthesizer(modelName);
+            if (!hasSelectedPipelineModels()) return false;
             const flowSelect = getSynthesizerFlowSelect();
             if (!flowSelect) renderSynthesisStage();
             const resolvedFlowSelect = getSynthesizerFlowSelect();
@@ -3660,8 +3644,17 @@ document.addEventListener('click', (event) => {
                     draftPlan.plannedStages = draftPlan.plannedStages.filter((stage) => stage.plannedStageId !== 'planned-final-synthesis');
                 }
             }
+            // Intermediate synthesis checkpoints intentionally share the final
+            // synthesizer. There is no per-checkpoint model choice in the UI.
+            if (trimmed) {
+                draftPlan.plannedStages
+                    ?.filter((stage) => stage.outputIntent === 'working_synthesis')
+                    .forEach((stage) => {
+                        stage.participantIds = [trimmed];
+                    });
+            }
             persistActiveDraftPlan(draftPlan);
-            const activeName = String(pipelineStore.active || pipelineName?.textContent || '').trim();
+            const activeName = String(pipelineStore.active || getPipelineHeaderName()).trim();
             const activeConfig = activeName ? getPipelineConfigByName(activeName) : null;
             if (activeConfig?.protocol) {
                 if (!isDefaultPipelineName(activeName)) {
@@ -3741,7 +3734,7 @@ document.addEventListener('click', (event) => {
                 }
                 return false;
             };
-            const stacks = Array.from(pipelinePanel.querySelectorAll('.model-stack, .output-stack'))
+            const stacks = Array.from(pipelinePanel.querySelectorAll('.model-stack'))
                 .filter((stack) => !isHiddenFromPipelineLayout(stack));
             let maxHeight = 0;
             stacks.forEach((stack) => {
@@ -3772,12 +3765,10 @@ document.addEventListener('click', (event) => {
             }
 
             // Flexbox centers the whole terminal column, including its stage
-            // title.  A model column is much taller, so that puts the actual
-            // Synthesis/Output card noticeably below the centre of the model
-            // cards after a reload.  Align the visible stack bodies instead.
+            // title. A model column is much taller, so align the visible
+            // synthesis stack body against the last model stack instead.
             const terminalColumns = [
-                { column: synthesisColumn, stack: synthesisStack },
-                { column: outputColumn, stack: document.getElementById('output-stack') }
+                { column: synthesisColumn, stack: synthesisStack }
             ];
             const modelStacks = stacks.filter((stack) => (
                 stack.classList.contains('model-stack') && stack !== synthesisStack
@@ -3810,15 +3801,6 @@ document.addEventListener('click', (event) => {
 
         const captureModelStackState = (stackId) => {
             return PipelineRuntime?.captureModelStackState?.(document, stackId) || null;
-        };
-
-        const captureOutputStackState = (stackId) => {
-            const state = PipelineRuntime?.captureOutputStackState?.(document, stackId) || null;
-            if (state) {
-                state.rememberWhenHidden = true;
-                state.visible = !outputColumn?.classList?.contains('output-column-hidden');
-            }
-            return state;
         };
 
         const draftPlanForCanvas = (existingPlan = null) => {
@@ -3857,14 +3839,19 @@ document.addEventListener('click', (event) => {
             return plan;
         };
 
-        const draftPlanStorageKey = () => String(pipelineStore.active || pipelineName?.textContent || 'unsaved').trim() || 'unsaved';
-        const getActiveDraftPlan = () => pipelineStore.draftPlans?.[draftPlanStorageKey()]
+        const draftPlanStorageKey = () => String(pipelineStore.active || getPipelineHeaderName() || 'unsaved').trim() || 'unsaved';
+        const getActiveDraftPlan = () => pipelineSessionDraftPlans[draftPlanStorageKey()]
+            || pipelineStore.draftPlans?.[draftPlanStorageKey()]
             || getPipelineConfigByName(draftPlanStorageKey())?.draftPlan
             || null;
         const persistActiveDraftPlan = (plan) => {
             const normalized = window.DebateDraftPlan?.normalize?.(plan);
             if (!normalized) return false;
             const key = draftPlanStorageKey();
+            if (isDefaultPipelineName(key)) {
+                pipelineSessionDraftPlans[key] = normalized;
+                return true;
+            }
             if (!pipelineStore.draftPlans || typeof pipelineStore.draftPlans !== 'object') pipelineStore.draftPlans = {};
             pipelineStore.draftPlans[key] = normalized;
             const storedConfig = pipelineStore.pipelines?.[key];
@@ -3898,8 +3885,7 @@ document.addEventListener('click', (event) => {
                 protocol: { ...getPipelineProtocolConfig(), synthesizer: getDraftPlanSynthesizer(draftPlan) },
                 draftPlan,
                 roundCounter,
-                modelStacks,
-                outputStack: captureOutputStackState('output-stack')
+                modelStacks
             };
         };
 
@@ -3925,14 +3911,6 @@ document.addEventListener('click', (event) => {
                 send: true,
                 role: withRoles ? resolveJudgePromptId(roles[index % Math.max(1, roles.length)] || 'critical', index) : null
             }))
-        });
-        const buildPresetOutputStack = () => ({
-            checks: [true],
-            outputs: {
-                exportHtml: true
-            },
-            rememberWhenHidden: true,
-            visible: true
         });
         const normalizeReasoningBudget = (budget = {}) => {
             const source = budget && typeof budget === 'object' ? budget : {};
@@ -3961,8 +3939,7 @@ document.addEventListener('click', (event) => {
             anonymizeParticipants = true,
             profileId = '',
             profileVersion = '',
-            resourceBudget = null,
-            outputStack = buildPresetOutputStack()
+            resourceBudget = null
         } = {}) => {
             const targetRounds = Math.max(1, Math.min(50, Number(roundLimit) || 1));
             const modelStacks = {
@@ -4000,8 +3977,7 @@ document.addEventListener('click', (event) => {
                     selectedModels: selectedModels.slice()
                 },
                 roundCounter: targetRounds,
-                modelStacks,
-                outputStack
+                modelStacks
             };
         };
         const buildDefaultPipelinePresets = () => Object.fromEntries(
@@ -4049,14 +4025,20 @@ document.addEventListener('click', (event) => {
         };
         const getLongRoundLimitOverride = (name) => {
             const key = String(name || '').trim();
+            if (isDefaultPipelineName(key)) return '';
             const value = pipelineStore.overrides?.longRoundLimits?.[key];
             return value ? normalizeRoundLimitValue(value, '') : '';
         };
         const getSynthesizerOverride = (name) => {
             const key = String(name || '').trim();
+            if (isDefaultPipelineName(key)) return '';
             return normalizeExplicitSynthesizer(pipelineStore.overrides?.synthesizers?.[key]);
         };
-        const getProfileOverride = (name) => String(pipelineStore.overrides?.profiles?.[String(name || '').trim()] || '').trim();
+        const getProfileOverride = (name) => {
+            const key = String(name || '').trim();
+            if (isDefaultPipelineName(key)) return '';
+            return String(pipelineStore.overrides?.profiles?.[key] || '').trim();
+        };
         const applyRoundLimitToPipelineConfig = (config, roundLimit) => {
             if (!config?.protocol) return config;
             const normalized = normalizeRoundLimitValue(roundLimit, 'infinite');
@@ -4107,8 +4089,8 @@ document.addEventListener('click', (event) => {
             if (!pipelineStore.order.length || onlyLegacyExamples) {
                 pipelineStore.pipelines = clonePipelineConfig(defaults);
                 pipelineStore.order = defaultNames.slice();
-                pipelineStore.active = 'Universal';
-                pipelineStore.lastSaved = 'Universal';
+            pipelineStore.active = '';
+            pipelineStore.lastSaved = '';
                 pipelineStore.overrides = { longRoundLimits: {}, synthesizers: {}, profiles: {} };
                 pipelineStore.version = PIPELINE_STORE_VERSION;
                 return true;
@@ -4150,8 +4132,8 @@ document.addEventListener('click', (event) => {
                 pipelineStore.order = normalizedOrder;
                 changed = true;
             }
-            if (!pipelineStore.active || !pipelineStore.order.includes(pipelineStore.active)) {
-                pipelineStore.active = pipelineStore.order[0] || 'Universal';
+            if (pipelineStore.active && !pipelineStore.order.includes(pipelineStore.active)) {
+                pipelineStore.active = '';
                 changed = true;
             }
             if (!pipelineStore.overrides || typeof pipelineStore.overrides !== 'object') {
@@ -4170,6 +4152,19 @@ document.addEventListener('click', (event) => {
                 pipelineStore.overrides.profiles = {};
                 changed = true;
             }
+            defaultNames.forEach((name) => {
+                if (Object.prototype.hasOwnProperty.call(pipelineStore.draftPlans || {}, name)) {
+                    delete pipelineStore.draftPlans[name];
+                    changed = true;
+                }
+                delete pipelineSessionDraftPlans[name];
+                ['longRoundLimits', 'synthesizers', 'profiles'].forEach((key) => {
+                    if (Object.prototype.hasOwnProperty.call(pipelineStore.overrides[key], name)) {
+                        delete pipelineStore.overrides[key][name];
+                        changed = true;
+                    }
+                });
+            });
             Object.entries(pipelineStore.pipelines).forEach(([name, config]) => {
                 if (!config?.protocol || defaultNames.includes(name)) return;
                 if (!config.protocol.profileId) { config.protocol.profileId = 'UNIVERSAL_STANDARD'; changed = true; }
@@ -4208,23 +4203,6 @@ document.addEventListener('click', (event) => {
                     const resolvedPromptId = resolveJudgePromptId(item.role, index);
                     const hasOption = Array.from(role.options).some((opt) => opt.value === resolvedPromptId);
                     if (hasOption) role.value = resolvedPromptId;
-                }
-            });
-        };
-
-        const applyOutputStackState = (stackId, state) => {
-            if (!state || (!Array.isArray(state.checks) && !state.outputs)) return;
-            const stack = document.getElementById(stackId);
-            if (!stack) return;
-            const blocks = Array.from(stack.querySelectorAll('.output-block'));
-            blocks.forEach((block, index) => {
-                const cb = block.querySelector('.output-checkbox');
-                if (!cb) return;
-                const key = block.dataset.output || '';
-                if (key && typeof state.outputs?.[key] === 'boolean') {
-                    cb.checked = state.outputs[key];
-                } else if (Array.isArray(state.checks) && typeof state.checks[index] === 'boolean') {
-                    cb.checked = state.checks[index];
                 }
             });
         };
@@ -4353,7 +4331,13 @@ document.addEventListener('click', (event) => {
             const modeLookup = (stackId, mode) => {
                 if (mode === 'input') return getModelInputIndices(stackId);
                 if (mode === 'send') return getModelSendIndices(stackId);
-                if (mode === 'output') return getOutputCheckedIndices(stackId);
+                if (mode === 'synthesis') {
+                    const stack = document.getElementById(stackId);
+                    if (!stack || !hasSelectedPipelineModels()) return [];
+                    return Array.from(stack.children)
+                        .map((block, index) => block.classList.contains('selected-synthesizer') ? index : -1)
+                        .filter((index) => index >= 0);
+                }
                 return [];
             };
 
@@ -4368,14 +4352,12 @@ document.addEventListener('click', (event) => {
                     .map((block) => Array.from(stack.children).indexOf(block))
                     .filter((index) => index >= 0 && !activeSet.has(index));
             };
-            const inactiveSourceIndices = (sourceMode === 'send' || sourceMode === 'input')
+            const inactiveSourceIndices = (sourceMode === 'send' || sourceMode === 'input' || sourceMode === 'synthesis')
                 ? inactiveIndicesFor(sourceStack, sourceIndices, '.model-block')
                 : [];
-            const inactiveTargetIndices = targetMode === 'input'
+            const inactiveTargetIndices = (targetMode === 'input' || targetMode === 'synthesis')
                 ? inactiveIndicesFor(targetStack, targetIndices, '.model-block')
-                : targetMode === 'output'
-                    ? inactiveIndicesFor(targetStack, targetIndices, '.output-block')
-                    : [];
+                : [];
 
             const allSourceIndices = [...sourceIndices, ...inactiveSourceIndices];
             if (!sourceStack || !targetStack || allSourceIndices.length === 0 || (targetIndices.length === 0 && inactiveTargetIndices.length === 0)) {
@@ -4405,7 +4387,7 @@ document.addEventListener('click', (event) => {
             const targetMidY = (targetMinY + targetMaxY) / 2;
 
             activeSourceYs.forEach((y) => {
-                html += `<line x1="0" y1="${y}" x2="${mergeX}" y2="${y}" class="connector-line ${colorClass} flow-anim"/>`;
+                html += `<line x1="0" y1="${y}" x2="${mergeX}" y2="${y}" class="connector-line ${colorClass}${activePath ? ' flow-anim' : ''}"/>`;
             });
             inactiveSourceYs.forEach((y) => {
                 html += `<line x1="0" y1="${y}" x2="${mergeX}" y2="${y}" class="connector-line inactive"/>`;
@@ -4422,8 +4404,8 @@ document.addEventListener('click', (event) => {
             }
 
             activeTargetYs.forEach((y) => {
-                html += `<line x1="${splitX}" y1="${y}" x2="${W - 6}" y2="${y}" class="connector-line ${colorClass} flow-anim"/>`;
-                html += `<polygon points="${W - 6},${y - 4} ${W},${y} ${W - 6},${y + 4}" class="arrow-head ${colorClass}"/>`;
+                html += `<line x1="${splitX}" y1="${y}" x2="${W - 6}" y2="${y}" class="connector-line ${activePath ? colorClass : 'inactive'}${activePath ? ' flow-anim' : ''}"/>`;
+                html += `<polygon points="${W - 6},${y - 4} ${W},${y} ${W - 6},${y + 4}" class="arrow-head ${activePath ? colorClass : 'inactive'}"/>`;
             });
             inactiveTargetYs.forEach((y) => {
                 html += `<line x1="${splitX}" y1="${y}" x2="${W - 6}" y2="${y}" class="connector-line inactive"/>`;
@@ -4435,7 +4417,6 @@ document.addEventListener('click', (event) => {
 
         const syncRoundFilterChips = () => {
             if (!pipelinePanel) return;
-            const scheme = getDebateScheme();
             const protocol = getPipelineProtocolConfig();
             const roundPlan = Array.isArray(protocol?.roundPlan) ? protocol.roundPlan : [];
             pipelinePanel.querySelectorAll('.stage-column[data-round]').forEach((column) => {
@@ -4456,14 +4437,11 @@ document.addEventListener('click', (event) => {
             const synthesisLabel = synthesisColumn?.querySelector('.stage-label');
             if (synthesisLabel) {
                 const badge = synthesisLabel.querySelector('.round-badge');
-                const withFinalWords = scheme === '2' || scheme === '3';
-                const labelText = withFinalWords ? ' Words + Synthesis' : ' Synthesis';
+                const labelText = ' Synthesis';
                 const textNode = Array.from(synthesisLabel.childNodes).find((node) => node.nodeType === Node.TEXT_NODE);
                 if (textNode) textNode.textContent = labelText;
                 else if (badge) badge.after(document.createTextNode(labelText));
-                synthesisLabel.title = withFinalWords
-                    ? 'The runtime requests final words from every participant, then runs Final Synthesis only when a synthesizer is selected.'
-                    : 'After the last wave, Final Synthesis runs only when a synthesizer is selected.';
+                synthesisLabel.title = 'After the last wave, Final Synthesis runs only when a synthesizer is selected.';
             }
         };
 
@@ -4498,16 +4476,8 @@ document.addEventListener('click', (event) => {
                 }
             });
 
-            pipelinePanel.querySelectorAll('.output-block').forEach((block) => {
-                const cb = block.querySelector('.output-checkbox');
-                if (!cb) return;
-                block.classList.toggle('inactive', !cb.checked);
-            });
+            const hasActivePipelineModel = hasSelectedPipelineModels();
             pipelineCanvas?.classList.remove('pipeline-canvas-empty');
-            outputColumn?.classList.remove('output-column-hidden');
-            connectorToOutput?.classList.remove('output-column-hidden');
-            outputColumn?.setAttribute('data-remember-output-state', 'true');
-            outputColumn?.setAttribute('data-output-visible', 'true');
 
             drawInputSplitConnector('svg-in-models', 'r1-models', 'active');
 
@@ -4517,16 +4487,7 @@ document.addEventListener('click', (event) => {
                 if (hasSynthesisFlow) {
                     drawMergeSplitConnector('svg-r-last-synthesis', 'r1-models', 'synthesis-stack', 'brain-flow', {
                         sourceMode: 'send',
-                        targetMode: 'input'
-                    });
-                    drawMergeSplitConnector('svg-stage-output', 'synthesis-stack', 'output-stack', 'brain-flow', {
-                        sourceMode: 'send',
-                        targetMode: 'output'
-                    });
-                } else {
-                    drawMergeSplitConnector('svg-stage-output', 'r1-models', 'output-stack', 'brain-flow', {
-                        sourceMode: 'send',
-                        targetMode: 'output'
+                        targetMode: 'synthesis'
                     });
                 }
             } else {
@@ -4543,20 +4504,15 @@ document.addEventListener('click', (event) => {
                 if (hasSynthesisFlow) {
                     drawMergeSplitConnector('svg-r-last-synthesis', `r${roundCounter}-models`, 'synthesis-stack', 'brain-flow', {
                         sourceMode: 'send',
-                        targetMode: 'input'
-                    });
-                    drawMergeSplitConnector('svg-stage-output', 'synthesis-stack', 'output-stack', 'brain-flow', {
-                        sourceMode: 'send',
-                        targetMode: 'output'
-                    });
-                } else {
-                    drawMergeSplitConnector('svg-stage-output', `r${roundCounter}-models`, 'output-stack', 'brain-flow', {
-                        sourceMode: 'send',
-                        targetMode: 'output'
+                        targetMode: 'synthesis'
                     });
                 }
             }
             syncSynthesizerBlocks();
+            pipelinePanel.querySelectorAll('.pipeline-synthesis-block').forEach((block) => {
+                const isActive = hasActivePipelineModel && block.classList.contains('selected-synthesizer');
+                block.classList.toggle('inactive', !isActive);
+            });
             syncRoundFilterChips();
             syncPipelineFlowVisualState();
             if (deferFinalLayout && typeof window.requestAnimationFrame === 'function') {
@@ -4591,12 +4547,6 @@ document.addEventListener('click', (event) => {
                 : '';
         };
 
-        const formatPipelineTimestamp = () => {
-            const now = new Date();
-            const pad = (n) => String(n).padStart(2, '0');
-            return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}`;
-        };
-
         const setPipelineRunUi = (isRunning) => {
             debateRunToggleBtn?.setAttribute('aria-busy', String(Boolean(isRunning)));
         };
@@ -4627,7 +4577,7 @@ document.addEventListener('click', (event) => {
         debateAggregateStore?.subscribe?.((aggregate) => {
             debateRunState.status = String(aggregate?.status || 'idle');
             debateRunState.pauseReason = ['paused', 'technical_pause'].includes(debateRunState.status)
-                ? String(aggregate?.terminalReason || '') : '';
+                ? String(aggregate?.pauseReason || '') : '';
             window.__debateRunAggregate = aggregate;
         });
         window.__getDebateRunAggregate = getDebateAggregateState;
@@ -4679,7 +4629,7 @@ document.addEventListener('click', (event) => {
         function getSelectedPipelinePresetId() {
             const api = window.PipelinePresets;
             const fallback = api?.DEFAULT_PRESET_ID || 'UNIVERSAL_STANDARD';
-            const activeName = String(pipelineStore?.active || pipelineName?.textContent || '').trim();
+            const activeName = String(pipelineStore?.active || getPipelineHeaderName()).trim();
             const activeConfig = activeName ? getPipelineConfigByName(activeName) : null;
             const configured = String(activeConfig?.protocol?.presetId || '').trim();
             if (configured && api?.getPipelinePreset?.(configured)) return configured;
@@ -4689,10 +4639,9 @@ document.addEventListener('click', (event) => {
         function getSelectedPipelinePresetMeta() {
             return window.PipelinePresets?.getPipelinePreset?.(getSelectedPipelinePresetId()) || { duration: 'goal_driven' };
         }
-        function getPresetScheme() { return 'universal'; }
         function buildPipelinePresetRuntimeConfig(presetId = getSelectedPipelinePresetId()) {
             const api = window.PipelinePresets;
-            const activeName = String(pipelineStore?.active || pipelineName?.textContent || '').trim();
+            const activeName = String(pipelineStore?.active || getPipelineHeaderName()).trim();
             const activeConfig = activeName ? getPipelineConfigByName(activeName) : null;
             const protocol = activeConfig?.protocol && typeof activeConfig.protocol === 'object'
                 ? activeConfig.protocol
@@ -4807,23 +4756,14 @@ document.addEventListener('click', (event) => {
             debateRoundLimitSelect.dispatchEvent(new Event('change', { bubbles: true }));
         };
         const persistActiveLongRoundLimit = () => {
-            const activeName = String(pipelineStore.active || pipelineName?.textContent || '').trim();
+            const activeName = String(pipelineStore.active || getPipelineHeaderName()).trim();
             const activeConfig = activeName ? getPipelineConfigByName(activeName) : null;
             const protocol = activeConfig?.protocol;
             if (!protocol) return false;
             const roundLimit = getDebateRoundLimit();
             if (isDefaultPipelineName(activeName)) {
-                if (!pipelineStore.overrides || typeof pipelineStore.overrides !== 'object') {
-                    pipelineStore.overrides = { longRoundLimits: {}, synthesizers: {}, profiles: {} };
-                }
-                if (!pipelineStore.overrides.longRoundLimits || typeof pipelineStore.overrides.longRoundLimits !== 'object') {
-                    pipelineStore.overrides.longRoundLimits = {};
-                }
-                if (!pipelineStore.overrides.synthesizers || typeof pipelineStore.overrides.synthesizers !== 'object') {
-                    pipelineStore.overrides.synthesizers = {};
-                }
-                pipelineStore.overrides.longRoundLimits[activeName] = String(roundLimit);
-                persistPipelineStore();
+                delete pipelineStore.overrides?.longRoundLimits?.[activeName];
+                delete pipelineStore.overrides?.synthesizers?.[activeName];
                 renderPipelineList(pipelineStore.order, activeName, pipelineStore.lastSaved);
                 return true;
             }
@@ -4849,9 +4789,16 @@ document.addEventListener('click', (event) => {
             value: option.value,
             label: option.textContent || option.value
         }));
+        const DEFAULT_DISPUT_MAX_WORDS = 300;
+        const DISPUT_RESPONSE_LIMIT_MARKER = '[DISPUT_RESPONSE_LIMIT]';
         const getDebateMaxWords = () => window.DebatePromptCatalog?.normalizeMaxWords?.(
             document.getElementById('debate-length-select')?.value
-        ) ?? null;
+        ) ?? DEFAULT_DISPUT_MAX_WORDS;
+        const ensureDisputResponseLimit = (value, maxWords = getDebateMaxWords()) => {
+            const source = String(value || '').trim();
+            if (!source || source.includes(DISPUT_RESPONSE_LIMIT_MARKER)) return source;
+            return `${source}\n\n${DISPUT_RESPONSE_LIMIT_MARKER} Ответ — не более ${maxWords} слов. Сосредоточься на ясной концепции и ключевых идеях; убери повторы, длинные пересказы и второстепенные детали.`;
+        };
         const syncDebateLengthStepperUi = () => {
             const select = document.getElementById('debate-length-select');
             if (!select) return;
@@ -4904,13 +4851,6 @@ document.addEventListener('click', (event) => {
             try {
                 await debateTransportPort?.cancelRun?.(recovered?.runId || activePipelineRunContext.pipelineRunId);
             } catch (_) {}
-            const protocolState = recovered?.protocolState;
-            if (protocolState) {
-                window.DebateProtocols?.getProtocol?.(recovered.topology)?.reduce?.(protocolState, {
-                    type: 'CANCELLED',
-                    payload: { reason: 'recovery_restart' }
-                });
-            }
             dispatchDebateRunEvent(window.DebateRunStore.EVENTS.CANCEL_REQUESTED, { reason: 'recovery_restart' });
             pipelineRunActive = false;
             debatePaused = false;
@@ -4947,20 +4887,28 @@ document.addEventListener('click', (event) => {
             else void debateApplication?.resume?.();
         };
         let debateApplication = null;
-        const updateDebateButtonsUi = () => {
-            const waiting = debateExecutionContext?.hasApprovalWaiter?.() === true;
-            const controls = window.DebateController?.deriveRunControls?.({
-                aggregate: debateAggregateStore?.getState?.(),
-                approvalWaiting: waiting,
-                protocolActive: Boolean(pipelineRunActive || ['STARTING', 'RUNNING', 'PAUSED', 'QUIESCING'].includes(debateApplication?.getOrchestrator?.()?.getState?.()?.lifecycle)),
+        const getDebateRunControls = () => {
+            const aggregate = debateAggregateStore?.getState?.() || null;
+            const status = String(aggregate?.status || 'idle');
+            const lifecycle = String(debateApplication?.getOrchestrator?.()?.getState?.()?.lifecycle || '');
+            const startPending = ['STARTING', 'RECONCILING', 'FINALIZING'].includes(lifecycle)
+                || (pipelineRunActive && !['running', 'awaiting_approval', 'paused', 'technical_pause', 'finalization_pending'].includes(status));
+            return window.DebateController?.deriveRunControls?.({
+                aggregate,
+                approvalWaiting: debateExecutionContext?.hasApprovalWaiter?.() === true,
+                startPending,
                 autoMode: isDebateAutoPolicy()
             }) || {
-                action: debatePaused ? 'resume' : (isDebateAutoPolicy() && (pipelineRunActive || waiting) ? 'pause' : 'run'),
-                icon: isDebateAutoPolicy() && (pipelineRunActive || waiting) ? 'ti ti-player-pause' : 'ti ti-send',
-                title: debatePaused ? 'Resume debate' : (!isDebateAutoPolicy() && (pipelineRunActive || waiting) ? 'Запустить следующий раунд' : (pipelineRunActive || waiting ? 'Pause after current turn' : 'Run debate')),
-                active: debatePaused,
-                stepEnabled: waiting
+                action: startPending ? 'wait' : 'run',
+                icon: startPending ? 'ti ti-loader-2' : 'ti ti-send',
+                title: startPending ? 'Starting debate' : 'Run debate',
+                active: startPending,
+                enabled: !startPending,
+                stepEnabled: false
             };
+        };
+        const updateDebateButtonsUi = () => {
+            const controls = getDebateRunControls();
             window.DebateRenderer?.renderRunControls?.({ runButton: debateRunToggleBtn, stepButton: null, view: controls });
             if (debateMaxTurnsInput) {
                 debateMaxTurnsInput.value = String(getDebateMaxTurns());
@@ -5066,23 +5014,18 @@ document.addEventListener('click', (event) => {
             return PipelineRuntime?.buildPipelineRuntimeSnapshot?.({
                 config: snapshotConfig,
                 roundCounter: Math.max(roundCounter, domRoundCount),
-                getRoundState: getRoundModelsState,
-                getOutputSelection: getPipelineOutputSelection
-            }) || { config: capturePipelineConfig(), rounds: [], outputSelection: getPipelineOutputSelection() };
+                getRoundState: getRoundModelsState
+            }) || { config: capturePipelineConfig(), rounds: [] };
         };
 
         const setPipelineEditingEnabled = (enabled) => {
             if (!pipelinePanel) return;
             const disabled = !enabled;
                 pipelinePanel
-                .querySelectorAll('.model-input-checkbox, .model-send-checkbox, .role-selector, .output-checkbox, #pipeline-add-round-btn, .pipeline-round-delete-btn, #removeRoundBtn, #pipeline-add-btn, #pipeline-save-btn, #pipeline-delete-btn, #pipeline-import-btn')
+                .querySelectorAll('.model-input-checkbox, .model-send-checkbox, .role-selector, #pipeline-add-round-btn, .pipeline-round-delete-btn, #removeRoundBtn, #pipeline-add-btn, #pipeline-save-btn, #pipeline-delete-btn, #pipeline-import-btn')
                 .forEach((el) => {
                     el.disabled = disabled;
                 });
-        };
-
-        const getPipelineOutputSelection = (outputState = null) => {
-            return PipelineRuntime?.getPipelineOutputSelection?.(document, outputState) || { notes: false, export: false, exportHtml: false };
         };
 
         const modelNameSetsEqual = (left = [], right = []) => {
@@ -5222,6 +5165,16 @@ document.addEventListener('click', (event) => {
             generationProfile = 'long'
         }) => {
             if (!models.length) return { responses: {}, missing: [], timedOut: false };
+            // A multi-stage Disput run opens model pages only for its first
+            // dispatch. Every later round/synthesis continues in those tabs.
+            if (context?.pipelineRunId) {
+                const sameRun = activePipelineRunContext?.pipelineRunId === context.pipelineRunId;
+                const requestedForRun = sameRun
+                    ? activePipelineRunContext.forceNewTabs
+                    : forceNewTabs;
+                forceNewTabs = Boolean(requestedForRun)
+                    && activePipelineRunContext?.newPagesDispatched !== true;
+            }
             const budget = window.DebateContextBudget;
             let contextBudget = null;
             let contextBudgetCompacted = false;
@@ -5270,12 +5223,23 @@ document.addEventListener('click', (event) => {
                     promptsByModel = Object.fromEntries(Object.entries(promptsByModel).map(([model, value]) => [model, window.DebateAnonymization.anonymizeText(value, map)]));
                 }
             }
+            // Defense in depth: every Disput transport prompt carries an explicit
+            // finite answer budget, even if a custom/legacy compiler omitted it.
+            if (context?.pipelineRunId) {
+                prompt = ensureDisputResponseLimit(prompt);
+                if (promptsByModel && typeof promptsByModel === 'object') {
+                    promptsByModel = Object.fromEntries(Object.entries(promptsByModel).map(([model, value]) => [
+                        model,
+                        ensureDisputResponseLimit(value)
+                    ]));
+                }
+            }
             if (!(await ensureNoOtherViewRun())) {
                 throw new Error('Another page has an active request.');
             }
             // The generation-wait profile is the caller's choice, not a property of the
             // transport. Debate callers rely on the LONG default: each turn's
-            // completeness matters (slow models must not be truncated as on SHORT), and
+            // completeness matters beyond the Standard window, and
             // the Debate page has no Long toggle of its own. Other orchestration modes
             // (e.g. graph mode) pass their own profile per operation. With 'long' we
             // force the shared longGenerationMode flag the content adapters read,
@@ -5378,6 +5342,9 @@ document.addEventListener('click', (event) => {
 
             if (!response || response.status !== 'process_started') {
                 showNotification(`Pipeline: unexpected background response (${response?.status || 'no_response'})`, 'warn');
+            } else if (forceNewTabs && context?.pipelineRunId && activePipelineRunContext?.pipelineRunId === context.pipelineRunId) {
+                activePipelineRunContext.newPagesDispatched = true;
+                resetNewPagesCheckboxAfterOpen();
             }
 
             const resolvedTimeoutMs = resolvePipelineWaitTimeoutMs(models, timeoutMs);
@@ -5404,6 +5371,61 @@ document.addEventListener('click', (event) => {
             });
             await waitForPipelineBatchGuard({ signal });
             return batchResult;
+        };
+
+        let manualModeratorDispatchActive = false;
+        const startManualModeratorDispatch = async () => {
+            if (manualModeratorDispatchActive) {
+                showNotification('Дождитесь завершения текущей отправки модератора.', 'info');
+                return false;
+            }
+            const moderatorText = getModeratorDispatchText();
+            if (!moderatorText) {
+                showNotification('Введите сообщение модератора.', 'warn');
+                return false;
+            }
+            const models = getDebateTargetModels();
+            if (!models.length) {
+                showNotification('Выберите All models или конкретную модель-получателя.', 'warn');
+                return false;
+            }
+            manualModeratorDispatchActive = true;
+            const forceNewTabs = newPagesCheckbox ? newPagesCheckbox.checked : true;
+            try {
+                const attachments = await buildAttachmentPayload();
+                appendModeratorFeedEntry(moderatorText);
+                renderDebateModelCards('', models, { approvalSelectable: true });
+                clearModeratorComposer();
+                const result = await runModelBatch({
+                    prompt: `${moderatorText}${buildDebateActionPromptSuffix()}`,
+                    models,
+                    attachments,
+                    forceNewTabs,
+                    useApiFallback: apiModeCheckbox ? apiModeCheckbox.checked : true,
+                    context: {
+                        manualModeratorDispatch: true,
+                        sessionId: debateTabsState.activeSessionId
+                    },
+                    generationProfile: 'long'
+                });
+                Object.entries(result?.responses || {}).forEach(([model, answer]) => {
+                    if (isErrorOutput(answer)) return;
+                    updateDebateModelCardOutput(model, String(answer || ''), '', {
+                        status: 'SUCCESS',
+                        source: 'manual_moderator'
+                    });
+                });
+                if (forceNewTabs) resetNewPagesCheckboxAfterOpen();
+                return true;
+            } catch (error) {
+                console.error('[RESULTS] Manual moderator dispatch failed', error);
+                showNotification(`Не удалось отправить сообщение: ${error?.message || String(error)}`, 'error');
+                return false;
+            } finally {
+                manualModeratorDispatchActive = false;
+                clearPromptAttachments();
+                updateDebateButtonsUi();
+            }
         };
 
         const getDisputeTemplateApi = () => DebateEngineRuntime || window.DisputMessageTemplates || null;
@@ -5536,160 +5558,6 @@ document.addEventListener('click', (event) => {
                 return '';
             }
         };
-        const formatPipelineFinalText = (result) => {
-            const lines = [];
-            if (result.pipelineName) lines.push(`Pipeline: ${result.pipelineName}`);
-            if (result.prompt) lines.push(`Prompt: ${result.prompt}`);
-            lines.push('');
-            Object.entries(result.finalOutputs || {}).forEach(([name, output]) => {
-                if (isErrorOutput(output)) return;
-                lines.push(`--- ${name} ---`);
-                lines.push(String(output).trim());
-                lines.push('');
-            });
-            return lines.join('\n').trim();
-        };
-
-        const buildPipelineFinalPayload = (result) => ({
-            pipelineName: result.pipelineName,
-            prompt: result.prompt,
-            resolvedPrompt: result.resolvedPrompt,
-            finalOutputs: result.finalOutputs,
-            pipelineConfig: result.pipelineConfig
-        });
-
-        const safePipelineMarkdownToHtml = (text) => {
-            const stripped = String(text || '')
-                .replace(/<script\b[\s\S]*?<\/script>/gi, '')
-                .replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
-                .replace(/\s+srcdoc\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
-                .replace(/javascript\s*:/gi, '')
-                .replace(/data\s*:\s*text\/html/gi, '');
-            const escaped = escapeHtml(stripped);
-            const html = convertMarkdownToHTML(escaped);
-            return sanitizeInlineHtml(html);
-        };
-
-        const buildPipelineFinalHtml = (result) => {
-            const sections = [];
-            Object.entries(result.finalOutputs || {}).forEach(([name, output]) => {
-                if (isErrorOutput(output)) return;
-                const text = String(output).trim();
-                if (!text) return;
-                const htmlContent = safePipelineMarkdownToHtml(text);
-                const metadataLine = buildMetadataLine(name);
-                const metadataHtml = metadataLine ? `<p class="response-meta">${escapeHtml(metadataLine)}</p>` : '';
-                sections.push(`
-                    <section class="pipeline-response">
-                        <h2>${escapeHtml(name)}</h2>
-                        ${metadataHtml}
-                        <div class="response-body">${htmlContent}</div>
-                    </section>
-                `);
-            });
-
-            if (!sections.length) return '';
-
-            const promptText = (result.resolvedPrompt || result.prompt || '').trim();
-            const promptSection = promptText
-                ? `<section class="pipeline-prompt"><h2>Prompt</h2><pre>${escapeHtml(promptText)}</pre></section>`
-                : '';
-            const title = escapeHtml(result.pipelineName || 'Pipeline Run');
-
-            return `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>${title}</title>
-    <style>
-        body { font-family: Arial, sans-serif; background: #ffffff; color: #111; padding: 24px; line-height: 1.5; }
-        h1 { margin: 0 0 16px; font-size: 22px; }
-        h2 { margin: 18px 0 10px; font-size: 18px; }
-        pre { background: #f6f8fa; padding: 12px; border-radius: 8px; white-space: pre-wrap; word-wrap: break-word; }
-        .pipeline-response { margin-bottom: 20px; }
-        .response-meta { margin: 0 0 10px; color: #555; font-size: 13px; }
-        .response-body { background: #f8fafc; padding: 12px; border-radius: 8px; }
-        .response-body pre { background: #eef2f7; }
-    </style>
-</head>
-<body>
-    <h1>${title}</h1>
-    ${promptSection}
-    <h2>Final Outputs</h2>
-    ${sections.join('\n')}
-</body>
-</html>`;
-        };
-
-        const handlePipelineOutputs = async (result, outputSelection = null) => {
-            const selection = outputSelection || getPipelineOutputSelection(result?.pipelineConfig?.outputStack);
-            const hasAny = selection.notes || selection.export || selection.exportHtml;
-            if (!hasAny) return;
-
-            const summaryText = formatPipelineFinalText(result);
-            if (selection.notes) {
-                if (window.PipelineNotes?.savePipelineRun) {
-                    await window.PipelineNotes.savePipelineRun({
-                        title: result.pipelineName || 'Pipeline Run',
-                        text: summaryText,
-                        json: buildPipelineFinalPayload(result)
-                    });
-                } else if (saveSessionBtn) {
-                    saveSessionBtn.click();
-                } else {
-                    showNotification('Notes unavailable', 'warn');
-                }
-            }
-
-            if (selection.export) {
-                const exportPayload = buildPipelineFinalPayload(result);
-                const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: 'application/json' });
-                const url = URL.createObjectURL(blob);
-                const link = document.createElement('a');
-                link.href = url;
-                link.download = `pipeline_run_${formatPipelineTimestamp()}.json`;
-                document.body.appendChild(link);
-                link.click();
-                link.remove();
-                setTimeout(() => URL.revokeObjectURL(url), 0);
-            }
-
-            if (selection.exportHtml) {
-                const ok = pipelineExportDownloadDebateFeedHtml();
-                if (!ok) return;
-            }
-        };
-
-        const handledTerminalOutputRuns = new Set();
-        const buildDebateTerminalResult = (state) => {
-            const finalOutputs = {};
-            const artifacts = Object.values(state?.stateMap?.artifacts || {});
-            const synthesisArtifact = artifacts.slice().reverse().find((artifact) => artifact.type === 'synthesis_conclusion');
-            const synthesis = String(synthesisArtifact?.text || synthesisArtifact?.title || state?.synthesisText || '').trim();
-            if (synthesis) finalOutputs['Final Synthesis'] = synthesis;
-            if (!Object.keys(finalOutputs).length) {
-                artifacts.filter((artifact) => String(artifact?.text || artifact?.title || '').trim()).forEach((artifact, index) => {
-                    finalOutputs[`${artifact.type || 'Artifact'} — ${index + 1}`] = artifact.text || artifact.title;
-                });
-            }
-            return {
-                pipelineName: String(state?.topic || pipelineName?.textContent || 'Debate').trim() || 'Debate',
-                prompt: String(state?.moderatorMessage || state?.topic || '').trim(),
-                resolvedPrompt: String(state?.topic || state?.moderatorMessage || '').trim(),
-                finalOutputs,
-                pipelineConfig: state?.presetConfigSnapshot || window.__activePipelinePresetConfig || null
-            };
-        };
-        const handleDebateTerminalOutputs = async (state) => {
-            const runId = String(state?.runId || activePipelineRunContext?.pipelineRunId || '').trim();
-            if (!runId || handledTerminalOutputRuns.has(runId)) return false;
-            handledTerminalOutputRuns.add(runId);
-            await handlePipelineOutputs(buildDebateTerminalResult(state), getPipelineOutputSelection());
-            return true;
-        };
-        window.__handleDebateTerminalOutputs = handleDebateTerminalOutputs;
-
-
         const startDebateFromPage = async () => {
             if (pipelineRunActive) {
                 showNotification('Pipeline already running', 'warn');
@@ -5738,7 +5606,9 @@ document.addEventListener('click', (event) => {
                 sessionId: debateTabsState?.activeSessionId
                     || document.querySelector('.debate-session-tab.active')?.dataset?.sessionId
                     || '1',
-                startedAt: Date.now()
+                startedAt: Date.now(),
+                forceNewTabs: newPagesCheckbox ? newPagesCheckbox.checked : true,
+                newPagesDispatched: false
             };
             await notifyPipelineControlState('STARTING', {
                 stage: 'dispatch',
@@ -5808,9 +5678,14 @@ document.addEventListener('click', (event) => {
                     taskContract,
                     policies: window.DebatePolicies?.resolve?.({
                         finalization: {
-                            mode: compiledRunPolicy === 'auto' ? 'after_required_goals' : 'manual',
-                            synthesis: synthesizer ? 'optional' : 'none',
-                            audit: presetConfig.synthesisAudit === 'required' ? 'required' : 'optional'
+                            ...(presetConfig.finalization || {}),
+                            mode: compiledRunPolicy === 'auto'
+                                ? (presetConfig.finalization?.mode || 'after_required_goals')
+                                : 'manual',
+                            synthesis: presetConfig.finalization?.synthesis === 'required'
+                                ? 'required'
+                                : (synthesizer ? (presetConfig.finalization?.synthesis || 'optional') : 'none'),
+                            audit: presetConfig.finalization?.audit || 'optional'
                         },
                         budgets: {
                             maxTotalStages: Number(presetConfig.resourceBudget?.limit || presetConfig.turnLimit || presetConfig.waveLimit || 50)
@@ -5827,9 +5702,6 @@ document.addEventListener('click', (event) => {
                     isPaused: () => debatePaused,
                     makeBatchContext
                 });
-                if (started?.lifecycle === 'COMPLETED') {
-                    await handleDebateTerminalOutputs(debateApplication.getOrchestrator()?.getState?.() || {});
-                }
                 if (started === false && !window.DebateRunStore.isTerminal(getDebateAggregateState())) {
                     dispatchDebateRunEvent(window.DebateRunStore.EVENTS.RUN_FAILED, {
                         reason: 'universal_start_rejected'
@@ -5903,6 +5775,8 @@ document.addEventListener('click', (event) => {
         };
         debateApplication = window.DebateApplication?.createApplication?.({
             store: debateAggregateStore,
+            semanticStore: debateCaseStore,
+            enableDurablePersistence: true,
             deps: {
                 startFromPage: startDebateFromPage,
                 createId: makePipelineRunId,
@@ -5910,6 +5784,7 @@ document.addEventListener('click', (event) => {
                 acceptResponse: (text, meta) => window.DebateResponseAcceptance?.evaluate?.({
                     text, meta: {
                         ...(meta || {}), isErrorOutput,
+                        maxWords: Number(meta?.stage?.outputContract?.maxWords || meta?.stage?.maxWords || getDebateMaxWords()),
                         ...(meta?.stage?.purpose === 'audit' ? { kind: 'synthesis_audit', outputKind: 'json' } : {})
                     }
                 }) || { ok: Boolean(String(text || '').trim()), reason: '' },
@@ -5930,7 +5805,7 @@ document.addEventListener('click', (event) => {
                     model: participant.model || participant.participantId,
                     map: context?.stateMap || {}
                 })?.prompt || '',
-                repairPrompt: ({ prompt, reason }) => `${prompt}\n\nИсправь нарушение контракта: ${reason || 'invalid_response'}. Верни полный исправленный ответ.`,
+                repairPrompt: ({ prompt, reason }) => `${ensureDisputResponseLimit(prompt)}\n\nИсправь нарушение контракта: ${reason || 'invalid_response'}. Верни самостоятельный исправленный ответ не более ${getDebateMaxWords()} слов.`,
                 extractArtifacts: (input) => window.DebateArtifactPipeline.extractArtifacts(input),
                 proposeStateDelta: (input) => window.DebateArtifactPipeline.proposeStateDelta(input),
                 commitStateDelta: (input) => window.DebateArtifactPipeline.commitStateDelta(input),
@@ -5971,15 +5846,13 @@ document.addEventListener('click', (event) => {
                 cancelPipelineRun,
                 getModeratorDispatchText,
                 syncModeratorMiniPrompts,
-                getPipelineOutputSelection,
-                buildDebateTerminalResult,
-                handleDebateTerminalOutputs,
                 getDebateAggregateState,
                 buildPipelineRuntimeSnapshot,
                 setR1ModelsFromSelectedLLMs,
                 syncPipelineRoundModelsFromSelectedLLMs,
                 isR1DefaultSelection,
                 syncDebateCardOutputLayout,
+                finalizeDebatePrintingForModel,
                 renderDebateResponseBody,
                 updateModelStatusUI,
                 updateLLMPanelOutput,
@@ -5987,7 +5860,6 @@ document.addEventListener('click', (event) => {
                 setDebateCardWideExpanded,
                 setDebateFeedWideExpanded,
                 updatePipelineLayout,
-                safePipelineMarkdownToHtml,
                 getDebateRunPolicy,
                 getDebateRoundLimit,
                 collectDebateArtifact,
@@ -6046,7 +5918,7 @@ document.addEventListener('click', (event) => {
         const prunePipelineRoundsAfter = (targetRounds = roundCounter) => {
             const maxRound = Math.max(1, Number(targetRounds) || 1);
             pipelinePanel.querySelectorAll('[data-round]').forEach((el) => {
-                if (el.id === 'connectorToSynthesis' || el.id === 'connectorToOutput' || el.id === 'outputColumn') return;
+                if (el.id === 'connectorToSynthesis') return;
                 if (el.dataset.stage === 'synthesis') return;
                 const round = Number(el.dataset.round || 0) || 0;
                 if (round > maxRound) el.remove();
@@ -6184,10 +6056,6 @@ document.addEventListener('click', (event) => {
                 applyModelStackState(stackId, state, sendOverrides);
             });
 
-            if (config.outputStack) {
-                applyOutputStackState('output-stack', config.outputStack);
-            }
-
             pipelineApplyingConfig = false;
             pipelineR1ManualDirty = !!modelStacks['r1-models'];
             debateRunState.maxTurns = getDebateMaxTurns();
@@ -6221,12 +6089,8 @@ document.addEventListener('click', (event) => {
         };
 
         const findPipelineItemByName = (name) => {
-            if ((!pipelineItems && !customerPipelineItems) || !name) return null;
-            const items = [
-                ...Array.from(pipelineItems?.querySelectorAll('.pipeline-item') || []),
-                ...Array.from(customerPipelineItems?.querySelectorAll('.pipeline-item') || [])
-            ];
-            return items
+            if (!pipelineItems || !name) return null;
+            return Array.from(pipelineItems.querySelectorAll('.pipeline-item'))
                 .find((item) => item.dataset.name === name) || null;
         };
 
@@ -6264,7 +6128,7 @@ document.addEventListener('click', (event) => {
                     selectPipeline(nextItem, { applyConfig: !!pipelineStore.pipelines[nextActive], persist: false });
                 }
             } else if (pipelineName) {
-                pipelineName.textContent = '';
+                setPipelineHeaderName('');
             }
         };
 
@@ -6319,15 +6183,6 @@ document.addEventListener('click', (event) => {
                     <pre class="pipeline-info-json">${escapeHtml(synth ? `Selected synthesizer: ${synth}` : 'The planner will assign an available synthesizer at runtime.')}</pre>
                 </section>
             `;
-        };
-
-        const buildPipelineInfoOutputHtml = (config = {}) => {
-            const outputs = config.outputStack?.outputs || {};
-            const rows = Object.entries(outputs);
-            if (!rows.length) return '<li><span>No output settings are stored.</span><strong>-</strong></li>';
-            return rows
-                .map(([key, enabled]) => `<li><span>${escapeHtml(key)}</span><strong>${escapeHtml(formatPipelineBoolean(!!enabled))}</strong></li>`)
-                .join('');
         };
 
         const showPipelineInfoDocument = (name) => {
@@ -6387,10 +6242,6 @@ document.addEventListener('click', (event) => {
                     </section>
                     ${buildPipelineInfoSynthesizerHtml(config)}
                     ${buildPipelineInfoRoundsHtml(config)}
-                    <section class="pipeline-info-section">
-                        <h4>Output</h4>
-                        <ul class="pipeline-info-output">${buildPipelineInfoOutputHtml(config)}</ul>
-                    </section>
                     <section class="pipeline-info-section">
                         <h4>Saved Config</h4>
                         <pre class="pipeline-info-json">${escapeHtml(JSON.stringify(config, null, 2))}</pre>
@@ -6471,14 +6322,11 @@ document.addEventListener('click', (event) => {
         };
 
         const alignPipelineDeleteColumn = () => {
-            [pipelineItems, customerPipelineItems].forEach((container) => {
-                if (!container) return;
-                container.style.removeProperty('--pipeline-item-main-width');
-            });
+            pipelineItems?.style.removeProperty('--pipeline-item-main-width');
         };
 
         const syncPipelineChromeControls = () => {
-            const activeName = String(pipelineStore.active || pipelineName?.textContent || '').trim();
+            const activeName = String(pipelineStore.active || getPipelineHeaderName()).trim();
             const custom = !!activeName && !isDefaultPipelineName(activeName);
             const draft = pipelinePanel?.dataset.pipelineDraft === 'true';
             const config = activeName ? getPipelineConfigByName(activeName) : null;
@@ -6624,22 +6472,19 @@ document.addEventListener('click', (event) => {
         };
 
         const renderPipelineList = (names = [], activeName = '', lastSavedName = '') => {
-            if (!pipelineItems && !customerPipelineItems) return;
+            if (!pipelineItems) return;
             const uniqueNames = normalizePipelineOrder(names);
             const nextHash = computePipelineHash(uniqueNames, activeName, lastSavedName);
-            if (pipelineItems?.dataset.pipelineHash === nextHash && customerPipelineItems?.dataset.pipelineHash === nextHash) {
+            if (pipelineItems.dataset.pipelineHash === nextHash) {
                 alignPipelineDeleteColumn();
-                if (pipelineName) {
-                    pipelineName.textContent = activeName || '';
-                }
+                setPipelineHeaderName(activeName);
                 updateActivePipelineDescription(activeName);
                 syncPipelineChromeControls();
                 return;
             }
 
             const defaultNames = getDefaultPipelinePresetNames();
-            const presetFragment = document.createDocumentFragment();
-            const customFragment = document.createDocumentFragment();
+            const pipelineFragment = document.createDocumentFragment();
             uniqueNames.forEach((name) => {
                 const isPreset = defaultNames.includes(name);
                 const item = buildPipelineItem(name, {
@@ -6647,28 +6492,19 @@ document.addEventListener('click', (event) => {
                     isLast: name === lastSavedName,
                     allowDelete: !isPreset
                 });
-                (isPreset ? presetFragment : customFragment).appendChild(item);
+                pipelineFragment.appendChild(item);
             });
-            if (pipelineItems) {
-                pipelineItems.replaceChildren(presetFragment);
-                pipelineItems.dataset.pipelineHash = nextHash;
-            }
-            if (customerPipelineItems) {
-                customerPipelineItems.replaceChildren(customFragment);
-                customerPipelineItems.dataset.pipelineHash = nextHash;
-            }
+            pipelineItems.replaceChildren(pipelineFragment);
+            pipelineItems.dataset.pipelineHash = nextHash;
             alignPipelineDeleteColumn();
-            if (pipelineName) {
-                pipelineName.textContent = activeName || '';
-            }
+            setPipelineHeaderName(activeName);
             updateActivePipelineDescription(activeName);
             syncPipelineChromeControls();
         };
 
         const getPipelineNamesFromDom = () => {
-            const containers = [pipelineItems, customerPipelineItems].filter(Boolean);
-            if (!containers.length) return [];
-            return containers.flatMap((container) => Array.from(container.querySelectorAll('.pipeline-item')))
+            if (!pipelineItems) return [];
+            return Array.from(pipelineItems.querySelectorAll('.pipeline-item'))
                 .map((item) => item.dataset.name)
                 .filter((name) => typeof name === 'string' && name.trim());
         };
@@ -6698,22 +6534,22 @@ document.addEventListener('click', (event) => {
                 showNotification('Этот pipeline недоступен.', 'warn');
                 return;
             }
-            [pipelineItems, customerPipelineItems].filter(Boolean).forEach((container) => {
-                container.querySelectorAll('.pipeline-item').forEach((el) => el.classList.remove('active'));
-                container.querySelectorAll('.pipeline-radio').forEach((radio) => {
-                    radio.checked = false;
-                });
+            pipelineItems?.querySelectorAll('.pipeline-item').forEach((el) => el.classList.remove('active'));
+            pipelineItems?.querySelectorAll('.pipeline-radio').forEach((radio) => {
+                radio.checked = false;
             });
 
             item.classList.add('active');
             const radio = item.querySelector('.pipeline-radio');
             if (radio) radio.checked = true;
-            if (pipelineName) {
-                pipelineName.textContent = name;
-            }
+            setPipelineHeaderName(name);
             pipelinePanel?.removeAttribute('data-pipeline-draft');
             updateActivePipelineDescription(name);
             pipelineStore.active = name;
+            if (isDefaultPipelineName(name)) {
+                delete pipelineStore.draftPlans[name];
+                delete pipelineSessionDraftPlans[name];
+            }
             if (options.persist !== false) {
                 persistPipelineStore();
             }
@@ -6730,7 +6566,7 @@ document.addEventListener('click', (event) => {
 
         window.addEventListener('disput:profile-apply', (event) => {
             const profile = event.detail?.profile;
-            const activeName = String(pipelineStore.active || pipelineName?.textContent || '').trim();
+            const activeName = String(pipelineStore.active || getPipelineHeaderName()).trim();
             const activeConfig = getPipelineConfigByName(activeName);
             if (!profile || !activeName || !activeConfig?.protocol) return;
             if (profile.architecture && profile.architecture !== 'universal') {
@@ -6738,16 +6574,13 @@ document.addEventListener('click', (event) => {
                 return;
             }
             if (isDefaultPipelineName(activeName)) {
-                if (!pipelineStore.overrides.profiles) pipelineStore.overrides.profiles = {};
-                pipelineStore.overrides.profiles[activeName] = profile.id;
+                delete pipelineStore.overrides?.profiles?.[activeName];
             } else if (pipelineStore.pipelines[activeName]?.protocol) {
                 pipelineStore.pipelines[activeName].protocol.profileId = profile.id;
                 pipelineStore.pipelines[activeName].protocol.profileVersion = profile.version;
             }
             persistPipelineStore();
-            const activeItem = [pipelineItems, customerPipelineItems].filter(Boolean)
-                .map((container) => container.querySelector(`.pipeline-item[data-name="${escapeAttrValue(activeName)}"]`))
-                .find(Boolean);
+            const activeItem = pipelineItems?.querySelector(`.pipeline-item[data-name="${escapeAttrValue(activeName)}"]`);
             if (activeItem) selectPipeline(activeItem, { persist: false, clearDebateFeed: false });
             showNotification(`Профиль «${profile.title}» применён к pipeline «${activeName}».`, 'success');
         });
@@ -6769,14 +6602,15 @@ document.addEventListener('click', (event) => {
         const startEmptyPipelineFlow = () => {
             pipelinePanel?.setAttribute('data-pipeline-draft', 'true');
             pipelineStore.active = '';
-            if (pipelineName) {
-                pipelineName.textContent = 'Unsaved Pipeline';
-            }
-            [pipelineItems, customerPipelineItems].filter(Boolean).forEach((container) => {
-                container.querySelectorAll('.pipeline-item').forEach((el) => el.classList.remove('active'));
-                container.querySelectorAll('.pipeline-radio').forEach((radio) => {
-                    radio.checked = false;
-                });
+            setPipelineHeaderName('Unsaved Pipeline');
+            delete pipelineStore.draftPlans['Unsaved Pipeline'];
+            delete pipelineSessionDraftPlans['Unsaved Pipeline'];
+            window.__pendingPipelineSynthesizer = '';
+            const emptyFlowSelect = getSynthesizerFlowSelect();
+            if (emptyFlowSelect) emptyFlowSelect.value = '';
+            pipelineItems?.querySelectorAll('.pipeline-item').forEach((el) => el.classList.remove('active'));
+            pipelineItems?.querySelectorAll('.pipeline-radio').forEach((radio) => {
+                radio.checked = false;
             });
             window.setDebateSchemeValue?.('universal');
             setHeaderSelectedLLMsFromNames([]);
@@ -6785,6 +6619,7 @@ document.addEventListener('click', (event) => {
                 clearDebateFeed(activeSessionId);
             }
             resetToMinimalTemplate();
+            setDebateRoundLimitValue(DEFAULT_DEBATE_ROUND_LIMIT);
             syncPipelineRoundModelsFromSelectedLLMs({ force: true });
             updateActivePipelineDescription('');
             syncPipelineChromeControls();
@@ -6792,7 +6627,7 @@ document.addEventListener('click', (event) => {
         };
 
         const savePipeline = async () => {
-            const currentName = pipelineName ? pipelineName.textContent : '';
+            const currentName = getPipelineHeaderName();
             const isDraft = pipelinePanel?.dataset.pipelineDraft === 'true' || currentName === 'Unsaved Pipeline';
             const defaultName = isDraft ? '' : currentName;
             const name = await showPrompt('Pipeline name:', defaultName || '');
@@ -6819,102 +6654,8 @@ document.addEventListener('click', (event) => {
             }
         };
 
-        const getPipelineBuilderDefaultModels = () => {
-            const available = (Array.isArray(PIPELINE_MODELS) ? PIPELINE_MODELS : [])
-                .map((model) => model?.name)
-                .filter(Boolean);
-            const selected = getSelectedLLMs().filter((name) => available.includes(name));
-            return [...selected, ...available]
-                .filter((name, index, list) => name && list.indexOf(name) === index);
-        };
-
-        const showPipelineBuilderModal = () => new Promise((resolve) => {
-            let modal = document.getElementById('pipeline-builder-modal');
-            if (!modal) {
-                modal = document.createElement('div');
-                modal.className = 'modal pipeline-builder-modal';
-                modal.id = 'pipeline-builder-modal';
-                modal.setAttribute('aria-hidden', 'true');
-                modal.innerHTML = `
-                    <div class="modal-content">
-                        <h3 class="pipeline-builder-title">New universal pipeline</h3>
-                        <div class="pipeline-builder-grid">
-                            <label><span>Name</span><input type="text" class="modal-text-input" id="pipeline-builder-name" autocomplete="off"></label>
-                            <label><span>Run</span><select class="modal-text-input" id="pipeline-builder-policy"><option value="auto">Auto</option><option value="manual">Manual</option></select></label>
-                            <label><span>Stage limit</span><input type="number" class="modal-text-input" id="pipeline-builder-rounds" min="1" max="50" value="3"></label>
-                            <label><span>Length</span><select class="modal-text-input" id="pipeline-builder-length"><option value="500">500</option><option value="700" selected>700</option><option value="1000">1000</option><option value="inf">inf</option></select></label>
-                            <label class="pipeline-builder-synth-row"><span>Synthesizer</span><select class="modal-text-input" id="pipeline-builder-synth"></select></label>
-                        </div>
-                        <div class="pipeline-builder-section"><div class="pipeline-builder-section-title">Participants</div><div class="pipeline-builder-models" id="pipeline-builder-models"></div></div>
-                        <p class="pipeline-builder-error" id="pipeline-builder-error" role="alert"></p>
-                        <div class="modal-buttons"><button type="button" class="modal-button" id="pipeline-builder-cancel">Cancel</button><button type="button" class="modal-button accent" id="pipeline-builder-save">Create</button></div>
-                    </div>`;
-                document.body.appendChild(modal);
-            }
-            const nameInput = modal.querySelector('#pipeline-builder-name');
-            const policySelect = modal.querySelector('#pipeline-builder-policy');
-            const roundsInput = modal.querySelector('#pipeline-builder-rounds');
-            const lengthSelect = modal.querySelector('#pipeline-builder-length');
-            const synthSelect = modal.querySelector('#pipeline-builder-synth');
-            const modelsHost = modal.querySelector('#pipeline-builder-models');
-            const errorEl = modal.querySelector('#pipeline-builder-error');
-            const cancelBtn = modal.querySelector('#pipeline-builder-cancel');
-            const saveBtn = modal.querySelector('#pipeline-builder-save');
-            const modelNames = getPipelineBuilderDefaultModels();
-            const setError = (message = '') => { if (errorEl) errorEl.textContent = message; };
-            const getSelectedModelNames = () => Array.from(modelsHost?.querySelectorAll('input[type="checkbox"]:checked') || []).map((input) => input.value).filter(Boolean);
-            const renderModels = () => {
-                const selected = new Set(getSelectedLLMs());
-                if (modelsHost) modelsHost.innerHTML = modelNames.map((name) => `<label class="pipeline-builder-model-option"><input type="checkbox" value="${escapeHtml(name)}"${selected.has(name) ? ' checked' : ''}><span>${escapeHtml(name)}</span></label>`).join('');
-                if (synthSelect) synthSelect.innerHTML = ['<option value="">--</option>', ...modelNames.map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`)].join('');
-            };
-            const close = (value) => {
-                modal.style.display = 'none'; modal.classList.remove('is-visible'); modal.setAttribute('aria-hidden', 'true'); document.body.classList.remove('modal-open');
-                cancelBtn?.removeEventListener('click', onCancel); saveBtn?.removeEventListener('click', onSave); modal.removeEventListener('click', onBackdrop); resolve(value);
-            };
-            const onCancel = () => close(null);
-            const onBackdrop = (event) => { if (event.target === modal) close(null); };
-            const onSave = () => {
-                const name = String(nameInput?.value || '').trim();
-                const selectedModels = getSelectedModelNames();
-                if (!name) { setError('Name is required.'); nameInput?.focus(); return; }
-                if (!selectedModels.length) { setError('Select at least one participant.'); return; }
-                const roundLimit = Math.max(1, Math.min(50, Math.round(Number(roundsInput?.value || 3))));
-                close({ name, config: buildPresetPipelineConfig({ runPolicy: policySelect?.value === 'manual' ? 'manual' : 'auto', length: String(lengthSelect?.value || '700'), roundLimit: String(roundLimit), selectedModels, synthesizer: String(synthSelect?.value || '') }) });
-            };
-            if (nameInput) nameInput.value = `Custom Pipeline ${new Date().toISOString().slice(0, 10)}`;
-            if (policySelect) policySelect.value = isDebateAutoPolicy() ? 'auto' : 'manual';
-            if (roundsInput) roundsInput.value = String(getDebateRoundLimit() === 'infinite' ? 3 : getDebateRoundLimit());
-            renderModels();
-            cancelBtn?.addEventListener('click', onCancel); saveBtn?.addEventListener('click', onSave); modal.addEventListener('click', onBackdrop);
-            modal.style.display = 'flex'; modal.classList.add('is-visible'); modal.setAttribute('aria-hidden', 'false'); document.body.classList.add('modal-open');
-            setTimeout(() => { nameInput?.focus(); nameInput?.select(); }, 0);
-        });
-
-        const addNewPipeline = async () => {
-            const result = await showPipelineBuilderModal();
-            if (!result?.name || !result?.config) return;
-            const trimmed = result.name.trim();
-            if (!trimmed) return;
-            if (pipelineStore.order.includes(trimmed)) {
-                const confirmed = await showConfirm(`Pipeline "${trimmed}" already exists. Replace it?`);
-                if (!confirmed) return;
-            }
-            pipelineStore.pipelines[trimmed] = result.config;
-            if (!pipelineStore.order.includes(trimmed)) {
-                pipelineStore.order.push(trimmed);
-            }
-            pipelineStore.lastSaved = trimmed;
-            pipelineStore.active = trimmed;
-            persistPipelineStore();
-            addPipelineToList(trimmed, { makeActive: true, markLast: true });
-            applyPipelineConfig(result.config);
-            const item = findPipelineItemByName(trimmed);
-            if (item) selectPipeline(item, { applyConfig: false, persist: false });
-        };
-
         const deleteActivePipeline = async () => {
-            await deletePipelineByName(pipelineName?.textContent || pipelineStore.active || '');
+            await deletePipelineByName(getPipelineHeaderName() || pipelineStore.active || '');
         };
 
         let pipelineImportInput = null;
@@ -6965,7 +6706,7 @@ document.addEventListener('click', (event) => {
                             });
                         }
                     } else if (pipelineName) {
-                        pipelineName.textContent = '';
+                        setPipelineHeaderName('');
                     }
                 } catch (_) {
                     showNotification('Invalid pipelines JSON.');
@@ -6990,6 +6731,9 @@ document.addEventListener('click', (event) => {
         const initPipelineList = async () => {
             await readPipelineStore();
             ensureDefaultPipelinePresets();
+            // A preset is an explicit execution choice. Starting the Disput page
+            // in manual mode must not silently opt the moderator into Universal.
+            pipelineStore.active = '';
             const domNames = getPipelineNamesFromDom()
                 .filter((name) => !LEGACY_EXAMPLE_PIPELINE_NAMES.includes(name));
             if (!pipelineStore.order.length) {
@@ -7003,9 +6747,8 @@ document.addEventListener('click', (event) => {
             }
             const domActive = findPipelineItemByName(pipelineStore.active)?.dataset.name
                 || pipelineItems?.querySelector('.pipeline-item.active')?.dataset.name
-                || customerPipelineItems?.querySelector('.pipeline-item.active')?.dataset.name
                 || '';
-            const activeName = pipelineStore.active || domActive || pipelineStore.order[0] || '';
+            const activeName = pipelineStore.active || '';
             renderPipelineList(pipelineStore.order, activeName, pipelineStore.lastSaved);
             const activeItem = activeName ? findPipelineItemByName(activeName) : null;
             if (activeItem) {
@@ -7083,7 +6826,7 @@ document.addEventListener('click', (event) => {
             const stageColumn = block.closest('.stage-column');
             const stageLabel = stageColumn?.querySelector('.stage-label')?.textContent?.replace(/\s+/g, ' ').trim() || 'Pipeline block';
             const protocol = getPipelineProtocolConfig();
-            const pipelineTitle = String(pipelineName?.textContent || pipelineStore.active || '').trim();
+            const pipelineTitle = String(pipelineStore.active || getPipelineHeaderName()).trim();
             const roleSelector = block.querySelector('.role-selector');
             const selectedRole = roleSelector?.selectedOptions?.[0]?.textContent?.trim() || roleSelector?.value || 'none';
             const rows = [
@@ -7158,11 +6901,9 @@ document.addEventListener('click', (event) => {
             const labelText = (label.textContent || '').toLowerCase();
             const isModels = labelText.includes('models');
             const isJudge = labelText.includes('judge') || labelText.includes('disput');
-            const isOutput = labelText.includes('output');
-            if (!isModels && !isJudge && !isOutput) return;
+            if (!isModels && !isJudge) return;
 
             let modelStack = null;
-            let outputStack = null;
             let topJudgeSelected = false;
             let topJudgePromptId = null;
             let defaultJudgePromptId = null;
@@ -7177,15 +6918,10 @@ document.addEventListener('click', (event) => {
                     topJudgePromptId = topBlock?.querySelector('.role-selector')?.value || null;
                     defaultJudgePromptId = getCriticalJudgePromptId();
                 }
-            } else if (isOutput) {
-                const stageColumn = label.closest('.stage-column');
-                outputStack = stageColumn ? stageColumn.querySelector('.output-stack') : null;
             }
 
             let shouldCheck = true;
-            if (outputStack) {
-                shouldCheck = !areAllChecked(outputStack, '.output-checkbox');
-            } else if (modelStack) {
+            if (modelStack) {
                 const allInputs = areAllChecked(modelStack, '.model-input-checkbox');
                 const allSends = areAllChecked(modelStack, '.model-send-checkbox');
                 shouldCheck = !(allInputs && allSends);
@@ -7198,10 +6934,6 @@ document.addEventListener('click', (event) => {
                 changed = setCheckboxesState(modelStack, '.model-input-checkbox', shouldCheck) || changed;
                 changed = setCheckboxesState(modelStack, '.model-send-checkbox', shouldCheck) || changed;
             }
-            if (outputStack) {
-                changed = setCheckboxesState(outputStack, '.output-checkbox', shouldCheck) || changed;
-            }
-
             if (changed) {
                 updatePipelineAll();
                 if (isJudge && modelStack && shouldCheck) {
@@ -7247,6 +6979,7 @@ document.addEventListener('click', (event) => {
             }
             resetPipelineStatusIndicators();
             setR1ModelsFromSelectedLLMs({ force: true });
+            window.syncDebateSchemeUi?.();
         });
         syncPipelineRoundModelsFromSelectedLLMs({ force: true });
 
@@ -7256,18 +6989,22 @@ document.addEventListener('click', (event) => {
         pipelineExportBtn?.addEventListener('click', exportPipelines);
         pipelineImportBtn?.addEventListener('click', importPipelines);
         debateRunToggleBtn?.addEventListener('click', (event) => {
-            if (debatePaused) {
+            const controls = getDebateRunControls();
+            if (!controls.enabled || controls.action === 'wait') {
+                event.preventDefault();
+                return;
+            }
+            if (controls.action === 'resume') {
                 event.preventDefault();
                 setDebatePausedState(false, 'resume_button');
                 return;
             }
-            const protocolActive = ['STARTING', 'RUNNING', 'PAUSED', 'QUIESCING'].includes(debateApplication?.getOrchestrator?.()?.getState?.()?.lifecycle);
-            if (!isDebateAutoPolicy() && debateExecutionContext?.hasApprovalWaiter?.()) {
+            if (controls.action === 'approve') {
                 event.preventDefault();
                 resolveDebateApproval();
                 return;
             }
-            if (!isDebateAutoPolicy() && protocolActive) {
+            if (controls.action === 'next') {
                 event.preventDefault();
                 const pendingCards = Array.from(debateModelCards?.querySelectorAll?.('.debate-model-card[data-approval-selectable="true"]') || [])
                     .filter((card) => card.dataset.approved !== 'true');
@@ -7278,9 +7015,14 @@ document.addEventListener('click', (event) => {
                 }
                 return;
             }
-            if (isDebateAutoPolicy() && (pipelineRunActive || protocolActive)) {
+            if (controls.action === 'pause') {
                 event.preventDefault();
                 setDebatePausedState(true, 'pause_button');
+                return;
+            }
+            if (!isDebateAutoPolicy() && !String(pipelineStore.active || '').trim()) {
+                event.preventDefault();
+                void startManualModeratorDispatch();
                 return;
             }
             triggerPipelineRun(event);
@@ -7329,11 +7071,12 @@ document.addEventListener('click', (event) => {
                 if (syncAutoToggleState) syncAutoToggleState();
             }
             syncDebateRoundStepperUi();
+            syncDebateApprovalControls();
             syncPipelineRoundsToDebateLimit();
             updateDebateButtonsUi();
             console.log('[RESULTS] Debate run policy:', debateRunPolicySelect.value);
         });
-        pipelineAddBtn?.addEventListener('click', addNewPipeline);
+        pipelineAddBtn?.addEventListener('click', startEmptyPipelineFlow);
         pipelineRemoveRoundBtn?.addEventListener('click', removeLastRound);
         pipelineCloseBtn?.addEventListener('click', startRightSidebarClose);
 
@@ -7343,12 +7086,6 @@ document.addEventListener('click', (event) => {
             selectPipeline(item, { clearDebateFeed: true });
             if (item.dataset.name === 'Specialized profile') pipelineProfileView?.open?.();
         });
-        customerPipelineItems?.addEventListener('click', (event) => {
-            const item = event.target.closest('.pipeline-item');
-            if (!item || !customerPipelineItems.contains(item)) return;
-            selectPipeline(item, { clearDebateFeed: true });
-        });
-
         await initPipelineList();
         setTimeout(() => syncPipelineRoundsToDebateLimit(), 0);
         updatePipelineAll();
@@ -9570,6 +9307,21 @@ document.addEventListener('click', (event) => {
                     if (Object.prototype.hasOwnProperty.call(result, SESSIONS_STORAGE_KEY)) {
                         raw = Array.isArray(result[SESSIONS_STORAGE_KEY]) ? result[SESSIONS_STORAGE_KEY] : [];
                     }
+                }
+                if (isPageReloadNavigation()) {
+                    await Promise.all(raw
+                        .map((session) => String(session?.id || '').trim())
+                        .filter(Boolean)
+                        .map((sessionId) => deleteSessionSnapshotFromIdb(sessionId)));
+                    await Promise.all([
+                        localArea ? writeStorage(localArea, { [SESSIONS_STORAGE_KEY]: [] }) : Promise.resolve(false),
+                        syncArea ? writeStorage(syncArea, { [SESSIONS_STORAGE_KEY]: [] }) : Promise.resolve(false)
+                    ]);
+                    sessionsState.sessions = [];
+                    sessionsState.selectedId = CURRENT_SESSION_ID;
+                    sessionsState.activeViewId = CURRENT_SESSION_ID;
+                    sessionsState.currentSnapshot = null;
+                    return;
                 }
                 const normalized = raw
                     .map((entry) => normalizeSession(entry))
@@ -13964,6 +13716,14 @@ document.addEventListener('click', (event) => {
             finish(null);
         }
     });
+    const confirmIncompleteRunExport = (runOutcomeSummary) => {
+        if (!runOutcomeSummary?.success || runOutcomeSummary.complete !== false) return true;
+        const pending = (runOutcomeSummary.models || [])
+            .filter((model) => !model.terminal || model.verificationState === 'candidate')
+            .map((model) => `${model.llmName}: ${model.currentStage || model.status || 'pending'} (${model.pendingReason || 'not complete'})`)
+            .join('\n');
+        return window.confirm(`The run is not complete. The export will be marked incomplete.\n\n${pending}\n\nExport anyway?`);
+    };
     const buildAllLogsMarkdown = (telemetryEvents = [], sources = [], logs = {}, runOutcomeSummary = null) => {
         const title = 'All Logs';
         const version = chrome?.runtime?.getManifest?.()?.version || 'unknown';
@@ -13986,7 +13746,7 @@ document.addEventListener('click', (event) => {
             : (runScope.scopeMode === 'cycle'
                 ? 'Run session: n/a (cycle fallback)'
                 : 'Run session: n/a (no active run)');
-        const profileLine = `Generation wait profile: **${lastGenerationWaitProfile === 'long' ? 'LONG' : 'SHORT'}** — ${generationWaitProfileLabel(lastGenerationWaitProfile)}`;
+        const profileLine = `Generation wait profile: **${lastGenerationWaitProfile === 'long' ? 'LONG' : 'STANDARD'}** — ${generationWaitProfileLabel(lastGenerationWaitProfile)}`;
         const markdown = `# ${title}\nVersion: ${version}\nExported: ${exportedAt}\n${runLine}\n${profileLine}\n\n${telemetrySection}${telemetryRoundsSection}${runSummarySection}${diagnosticsSection}`;
         // Defense-in-depth: scrub any provider key/token shape before the
         // "All Logs" markdown leaves the extension (shared/secret-redaction.js).
@@ -14014,6 +13774,9 @@ document.addEventListener('click', (event) => {
     const filterDiagnosticLogsToProblemsWithContext = (logs = {}, contextBefore = 10) => {
         const result = {};
         const isProblem = (entry) => {
+            if (window.ProblemContextFilter?.isProblem) {
+                return window.ProblemContextFilter.isProblem(entry);
+            }
             const label = String(entry?.label || entry?.event || entry?.type || '').toUpperCase();
             const level = String(entry?.level || entry?.severity || '').toLowerCase();
             const details = String(entry?.details || entry?.message || '').toLowerCase();
@@ -14023,6 +13786,14 @@ document.addEventListener('click', (event) => {
         };
         Object.entries(logs || {}).forEach(([model, entries]) => {
             const source = Array.isArray(entries) ? entries : [];
+            if (window.ProblemContextFilter?.filterWithContext) {
+                result[model] = window.ProblemContextFilter.filterWithContext(source, {
+                    contextBefore,
+                    isProblem,
+                    getContextKey: () => model
+                });
+                return;
+            }
             const keep = new Set();
             source.forEach((entry, index) => {
                 if (!isProblem(entry)) return;
@@ -14264,7 +14035,10 @@ document.addEventListener('click', (event) => {
         const safeBase = sanitizeFileSegment(fileBase, 'Diagnostics');
         const fileName = `${safeBase} ${formatDiagnosticsExportStamp()}.json`;
         try {
-            const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+            const safePayload = window.SecretRedaction?.redactDeep
+                ? window.SecretRedaction.redactDeep(payload)
+                : payload;
+            const blob = new Blob([JSON.stringify(safePayload, null, 2)], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
             const anchor = document.createElement('a');
             anchor.href = url;
@@ -14272,13 +14046,55 @@ document.addEventListener('click', (event) => {
             document.body.appendChild(anchor);
             anchor.click();
             document.body.removeChild(anchor);
-            URL.revokeObjectURL(url);
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
             if (button) flashButtonFeedback(button, 'success');
         } catch (err) {
             console.error('[Diagnostics Export] JSON failed', err);
             if (button) flashButtonFeedback(button, 'error');
         }
     };
+
+    const requestB1SkeletonCapture = (timeoutMs = 45000) => new Promise((resolve) => {
+        const runtime = (typeof chrome !== 'undefined' && chrome?.runtime) ? chrome.runtime : null;
+        if (!runtime?.sendMessage) { resolve({ success: false, error: 'runtime_unavailable' }); return; }
+        let settled = false;
+        const finish = (value) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            resolve(value || { success: false, error: 'empty_capture_response' });
+        };
+        const timer = setTimeout(() => finish({ success: false, error: 'b1_capture_timeout' }), timeoutMs);
+        try {
+            runtime.sendMessage({ type: 'CAPTURE_B1_SANITIZED_SKELETONS' }, (response) => {
+                if (runtime.lastError) { finish({ success: false, error: 'b1_capture_runtime_error' }); return; }
+                finish(response);
+            });
+        } catch (_) {
+            finish({ success: false, error: 'b1_capture_runtime_error' });
+        }
+    });
+
+    document.addEventListener('click', async (event) => {
+        const button = event.target.closest('#capture-b1-skeletons-btn');
+        if (!button || button.disabled) return;
+        button.disabled = true;
+        button.setAttribute('aria-busy', 'true');
+        try {
+            const payload = await requestB1SkeletonCapture();
+            if (!payload?.success) {
+                button.title = `B1 capture failed: ${payload?.error || 'unknown error'}`;
+                flashButtonFeedback(button, 'error');
+                return;
+            }
+            downloadDiagnosticsJson('B1 Sanitized Answer Skeletons', payload, null);
+            button.title = `B1: captured ${payload.capturedCount || 0}/${payload.expectedCount || 9}; exact ${payload.exactCount || 0}/${payload.expectedCount || 9}`;
+            flashButtonFeedback(button, payload.complete && payload.exactOnAllPlatforms ? 'success' : 'warn');
+        } finally {
+            button.disabled = false;
+            button.removeAttribute('aria-busy');
+        }
+    });
 
     function applyDiagnosticsExpandState() {
         if (!diagnosticsLogWrapper) return;
@@ -14350,7 +14166,7 @@ document.addEventListener('click', (event) => {
     function renderDiagnostics(llmName) {
         const container = getDiagnosticsContainer(llmName);
         if (!container) {
-            renderDiagnosticsModal();
+            if (isDevtoolsModalVisible()) renderDiagnosticsModal();
             return;
         }
         const logArea = container.querySelector('.diag-log');
@@ -14370,7 +14186,7 @@ document.addEventListener('click', (event) => {
         if (!logArea) return;
         if (!logs.length) {
             replaceChildrenFromHtml(logArea, '<p class="diag-empty">Log is empty</p>');
-            renderDiagnosticsModal();
+            if (isDevtoolsModalVisible()) renderDiagnosticsModal();
             return;
         }
         const entries = logs.map((entry) => ({
@@ -14382,8 +14198,38 @@ document.addEventListener('click', (event) => {
             getHash: ({ entry, metaJson }) => computeDiagEntryHash(entry, metaJson),
             renderItem: ({ entry, metaJson }) => buildDiagEntryElement(entry, metaJson)
         });
-    renderDiagnosticsModal();
     }
+
+    const pendingDiagnosticsModels = new Set();
+    let diagnosticsRenderTimer = null;
+    const isDevtoolsModalVisible = () => {
+        const modal = document.getElementById('api-keys-modal');
+        return Boolean(modal
+            && modal.classList.contains('is-visible')
+            && modal.style.display !== 'none');
+    };
+    const renderPendingDiagnostics = () => {
+        diagnosticsRenderTimer = null;
+        if (document.visibilityState === 'hidden') return;
+        const models = Array.from(pendingDiagnosticsModels);
+        pendingDiagnosticsModels.clear();
+        models.forEach((modelName) => renderDiagnostics(modelName));
+        // diagnosticsLogWrapper belongs to the hidden DevTools modal. Rebuilding
+        // all model sections while that modal is closed caused the results-page
+        // renderer to grow to gigabytes during field runs.
+        if (isDevtoolsModalVisible()) renderDiagnosticsModal();
+    };
+    const scheduleDiagnosticsRender = (llmName) => {
+        if (llmName) pendingDiagnosticsModels.add(llmName);
+        if (document.visibilityState === 'hidden' || diagnosticsRenderTimer) return;
+        diagnosticsRenderTimer = setTimeout(renderPendingDiagnostics, 100);
+    };
+    flushPendingDiagnosticsRenders = () => {
+        if (!pendingDiagnosticsModels.size || document.visibilityState === 'hidden') return;
+        if (diagnosticsRenderTimer) clearTimeout(diagnosticsRenderTimer);
+        diagnosticsRenderTimer = null;
+        renderPendingDiagnostics();
+    };
 
     document.addEventListener('click', async (event) => {
         const disputBtn = event.target.closest('#disput-export-md');
@@ -14479,6 +14325,10 @@ document.addEventListener('click', (event) => {
             return;
         }
         const markdownContent = buildAllLogsMarkdown(telemetryEvents, sources, logsSnapshot, runOutcomeSummary);
+        if (!confirmIncompleteRunExport(runOutcomeSummary)) {
+            flashButtonFeedback(btn, 'warn');
+            return;
+        }
         downloadDiagnosticsMarkdown('All Logs', markdownContent, btn);
     });
 
@@ -14546,7 +14396,7 @@ document.addEventListener('click', (event) => {
         if (state && state.collapsed && !state.userToggled) {
             setDiagnosticsCollapsed(llmName, false);
         }
-        renderDiagnostics(llmName);
+        scheduleDiagnosticsRender(llmName);
     }
 
     function autoCollapseDiagnostics(llmName, answerText) {
@@ -14646,6 +14496,17 @@ document.addEventListener('click', (event) => {
     document.addEventListener('diagnostics-clear-request', () => {
         clearDiagnosticsView();
     });
+    if (isPageReloadNavigation()) {
+        clearTelemetryOnReload()
+            .then((cleared) => {
+                if (cleared) {
+                    document.dispatchEvent(new CustomEvent('diagnostics-clear-request', {
+                        detail: { source: 'page_reload' }
+                    }));
+                }
+            })
+            .catch((err) => console.warn('[RESULTS] telemetry reload clear failed', err));
+    }
 
     const newPagesStorageKey = 'llmComparatorNewPages';
     const storeNewPagesState = (checked) => {
@@ -15111,6 +14972,11 @@ document.addEventListener('click', (event) => {
             modal.style.display = 'none';
             modal.classList.remove('is-visible');
             modal.setAttribute('aria-hidden', 'true');
+            if (modal.id === 'api-keys-modal') {
+                document.dispatchEvent(new CustomEvent('devtools-visibility-change', {
+                    detail: { visible: false }
+                }));
+            }
             if (!isModalVisible()) {
                 document.body.classList.remove('modal-open');
             }
@@ -15191,10 +15057,11 @@ document.addEventListener('click', (event) => {
         'INITIALIZING': 'initializing',
         'INJECTING': 'generating',
         'PROMPT_READY': 'prompt-ready',
-        'READY': 'success',
+        'READY': 'prompt-ready',
         'PROMPT_TO_LLM': 'generating',
         'SENDING': 'sending',
         'RECEIVING': 'receiving',
+        'FINALIZING': 'receiving',
 
         // Terminal / outcome states
         'SUCCESS': 'success',
@@ -15262,6 +15129,7 @@ document.addEventListener('click', (event) => {
         const normalizedName = (llmName || '').trim();
         if (!normalizedName) return;
         delete statusStateByModel[normalizedName];
+        delete deferredSuccessStatusByModel[normalizedName];
         document.querySelectorAll(`.status-indicator[data-llm-name="${normalizedName}"]`).forEach((indicator) => {
             if (isLockedFeedIndicator(indicator)) return;
             delete indicator.dataset.currentStatus;
@@ -15269,6 +15137,21 @@ document.addEventListener('click', (event) => {
             delete indicator.dataset.resultPhase;
             delete indicator.dataset.resultLabel;
         });
+    }
+
+    function livePanelHasAnswer(llmName) {
+        const panelId = String(llmName || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+        const output = document.getElementById(`panel-${panelId}`)?.querySelector('.output');
+        return Boolean(output && String(output.textContent || '').trim());
+    }
+
+    function indicatorHasAppliedAnswer(indicator, llmName) {
+        const debateCard = indicator?.closest?.('.debate-model-card');
+        if (debateCard) {
+            const output = debateCard.querySelector('.debate-model-card-output, .output');
+            return Boolean(output && String(output.textContent || '').trim());
+        }
+        return livePanelHasAnswer(llmName);
     }
 
     function resolveIndicatorTooltip(status, data = {}) {
@@ -15350,7 +15233,18 @@ document.addEventListener('click', (event) => {
 
     function updateModelStatusUI(llmName, status, data = {}) {
         const normalizedName = (llmName || '').trim();
-        const normalizedStatus = normalizeStatusValue(status);
+        const requestedStatus = normalizeStatusValue(status);
+        const successMustWaitForAnswer = ['SUCCESS', 'COPY_SUCCESS', 'DONE', 'COMPLETE'].includes(requestedStatus)
+            && !livePanelHasAnswer(normalizedName);
+        if (successMustWaitForAnswer) {
+            deferredSuccessStatusByModel[normalizedName] = {
+                status: requestedStatus,
+                data: { ...(data || {}) }
+            };
+        } else if (['SUCCESS', 'COPY_SUCCESS', 'DONE', 'COMPLETE'].includes(requestedStatus)) {
+            delete deferredSuccessStatusByModel[normalizedName];
+        }
+        const normalizedStatus = requestedStatus;
         if (!normalizedName || !normalizedStatus) return;
         const indicators = document.querySelectorAll(`.status-indicator[data-llm-name="${normalizedName}"]`);
         if (!indicators.length) return;
@@ -15396,23 +15290,37 @@ document.addEventListener('click', (event) => {
                     return;
                 }
             }
+            const deferOnThisIndicator = successMustWaitForAnswer
+                && !indicatorHasAppliedAnswer(indicator, normalizedName);
+            const renderedStatus = deferOnThisIndicator ? 'RECEIVING' : normalizedStatus;
             indicator.className = 'status-indicator';
-            const mappedClass = statusClassMap[normalizedStatus];
+            const mappedClass = statusClassMap[renderedStatus];
             if (mappedClass) {
                 indicator.classList.add(mappedClass);
             }
             indicator.setAttribute('role', 'button');
             indicator.tabIndex = 0;
-            indicator.dataset.currentStatus = normalizedStatus;
-            indicator.dataset.statusRank = String(incomingRank);
-            const resultMeta = statusStateByModel[normalizedName]?.resultMeta || null;
+            indicator.dataset.currentStatus = renderedStatus;
+            indicator.dataset.statusRank = String(getStatusRank(renderedStatus));
+            const storedResultMeta = statusStateByModel[normalizedName]?.resultMeta || null;
+            const resultMeta = deferOnThisIndicator
+                ? { ...(storedResultMeta || {}), phase: 'verifying', label: 'Verifying answer' }
+                : storedResultMeta;
             if (resultMeta?.phase) {
                 indicator.dataset.resultPhase = resultMeta.phase;
                 indicator.classList.add(`result-phase-${resultMeta.phase}`);
+                if (resultMeta.phase !== 'success') {
+                    indicator.classList.remove('success');
+                }
+                if (resultMeta.phase === 'verifying') {
+                    indicator.classList.add('receiving');
+                }
             } else {
                 delete indicator.dataset.resultPhase;
             }
-            const statusTitle = resolveIndicatorTooltip(normalizedStatus, data);
+            const statusTitle = deferOnThisIndicator
+                ? 'Verified answer waiting to be applied'
+                : resolveIndicatorTooltip(renderedStatus, data);
             const resultLabel = resultMeta?.label ? `Result: ${resultMeta.label}` : null;
             const titleParts = [statusTitle, resultLabel].filter(Boolean);
             const fullTitle = `${titleParts.join(' • ')} • Double-click to fetch this model answer`;
@@ -15422,7 +15330,7 @@ document.addEventListener('click', (event) => {
             indicator.setAttribute('aria-label', `${normalizedName} status: ${titleParts.join(', ')}. Double-click to fetch this model answer.`);
             // Freeze this debate-feed card's indicator once it reaches a settled
             // outcome so later same-model jobs cannot repaint it.
-            if (isSettledStatus(normalizedStatus) && indicator.closest('.debate-model-card')) {
+            if (isSettledStatus(renderedStatus) && resultMeta?.phase !== 'verifying' && indicator.closest('.debate-model-card')) {
                 indicator.dataset.statusFinal = '1';
             }
         });
@@ -15467,6 +15375,23 @@ document.addEventListener('click', (event) => {
     // answer, and the empty card is hydrated from it instead of restoring only
     // a green status indicator over an empty output.
     function hydrateAnswerFromGlobalState(llmName, entry) {
+        const unverifiedArtifact = entry?.unverifiedArtifact && typeof entry.unverifiedArtifact === 'object'
+            ? entry.unverifiedArtifact
+            : null;
+        if (!String(entry?.answer || '').trim() && String(unverifiedArtifact?.text || '').trim()) {
+            updateLLMPanelOutput(llmName, unverifiedArtifact.text, unverifiedArtifact.html || '', {
+                status: 'RECEIVING',
+                terminal: false,
+                answerState: 'candidate',
+                verificationState: 'candidate',
+                attributionState: 'unproven',
+                attributionLabel: 'Attribution unverified',
+                completenessState: unverifiedArtifact.completenessState || 'complete',
+                reason: unverifiedArtifact.reason || 'materialize_recovery_freshness_unproven',
+                source: 'GLOBAL_STATE_UNVERIFIED_ARTIFACT'
+            });
+            return true;
+        }
         const answerText = String(entry?.answer || '').trim();
         const answerHtml = sanitizeInlineHtml(String(entry?.answerHtml || '').trim());
         if (!answerText) return false;
@@ -15493,6 +15418,9 @@ document.addEventListener('click', (event) => {
     function resetLiveStatusIndicators() {
         Object.keys(statusStateByModel).forEach((llmName) => {
             delete statusStateByModel[llmName];
+        });
+        Object.keys(deferredSuccessStatusByModel).forEach((llmName) => {
+            delete deferredSuccessStatusByModel[llmName];
         });
         document.querySelectorAll('.status-indicator').forEach((indicator) => {
             // Historical debate cards are immutable records of completed turns;
@@ -15570,7 +15498,10 @@ document.addEventListener('click', (event) => {
                 finalStatusRecorded: !!entry?.finalStatusRecorded,
                 terminalState: entry?.terminalState || modelRunState?.terminalState || null,
                 executionState: entry?.executionState || modelRunState?.executionState || null,
+                extractionState: entry?.extractionState || modelRunState?.extractionState || null,
+                verificationState: entry?.verificationState || modelRunState?.verificationState || entry?.answerVerification?.state || null,
                 answerState: entry?.answerState || modelRunState?.answerState || null,
+                attributionState: entry?.attributionState || entry?.unverifiedArtifact?.attributionState || null,
                 hasAnswer: !!entry?.hasAnswer,
                 statusDowngradedFromSuccess: successWithoutAnswer || undefined,
                 source: 'GLOBAL_STATE_BROADCAST'
@@ -15649,7 +15580,7 @@ document.addEventListener('click', (event) => {
         if (templateSelect.value !== 'manual') {
             promptManuallyEdited = true;
         }
-        persistCrossViewUiState();
+        scheduleCrossViewUiStatePersist();
     });
 
     // Авто-рост поля ввода запроса: по мере набора текста добавляем строки,
@@ -15707,6 +15638,15 @@ document.addEventListener('click', (event) => {
         syncStatusFromGlobalState(pageWasReloaded ? {} : (response?.state || {}), { replace: true });
         if (response?.runtimeReset === true) {
             applyModelButtonSelection([]);
+            void safeStorageLocalRemove([
+                `llmComparatorSelectedModelsByView.main`,
+                `llmComparatorSelectedModelsByView.pipeline`,
+                crossViewUiStateKey,
+                'llmCodexDebateSelectors.v1',
+                window.DebateEngine?.STORAGE_KEY || 'llmCortexDebateEngineState.v1',
+                'llm_saved_sessions_v1'
+            ]);
+            try { chrome?.storage?.sync?.remove?.('llm_saved_sessions_v1'); } catch (_) {}
             try { resetPipelineStatusIndicators(); } catch (_) {}
             document.dispatchEvent(new CustomEvent('llm-selection-change', { detail: { selected: [] } }));
             document.dispatchEvent(new CustomEvent('extension-runtime-reset', {
@@ -15722,10 +15662,9 @@ document.addEventListener('click', (event) => {
     });
 
     if (autoCheckbox) {
-        autoCheckbox.checked = false;
-        autoCheckbox.defaultChecked = false;
         autoCheckbox.addEventListener('change', () => {
             autoMode = autoCheckbox.checked;
+            persistDebateAutoMode(autoMode);
             if (debateRunPolicySelect) {
                 debateRunPolicySelect.value = autoMode ? 'auto' : 'manual';
             }
@@ -15736,12 +15675,16 @@ document.addEventListener('click', (event) => {
                 }
             }
             syncDebateAutoPauseButton();
-            syncDebateRoundStepperUi();
-            syncPipelineRoundsToDebateLimit();
+            syncDebateApprovalControls();
+            if (typeof syncDebateRoundStepperUi === 'function') syncDebateRoundStepperUi();
+            if (typeof syncPipelineRoundsToDebateLimit === 'function') syncPipelineRoundsToDebateLimit();
             if (syncAutoToggleState) syncAutoToggleState();
             console.log('[RESULTS] Auto mode:', autoMode);
         });
     }
+    debateAutoToggleBtn?.addEventListener('change', () => {
+        persistDebateAutoMode(debateAutoToggleBtn.checked);
+    });
 
     if (getItButton) {
         getItButton.disabled = true;
@@ -15961,7 +15904,10 @@ document.addEventListener('click', (event) => {
                             html: String(message.answerHtml || message.html || '')
                         };
                     })();
-                    updateDebateModelCardOutput(message.llmName, previewPayload.text, previewPayload.html, message.metadata || {});
+                    updateDebateModelCardOutput(message.llmName, previewPayload.text, previewPayload.html, {
+                        ...(message.metadata || {}),
+                        requestId: message.requestId || message.metadata?.requestId || ''
+                    });
                     const revealManualPing = manualPingReveal.has(message.llmName);
                     if (revealManualPing) {
                         const answerText = (() => {
@@ -15978,7 +15924,10 @@ document.addEventListener('click', (event) => {
                         )]);
                     }
                     if (autoMode || revealManualPing) {
-                        updateLLMPanelOutput(message.llmName, message.answer, message.answerHtml || message.html || '', message.metadata || {});
+                        updateLLMPanelOutput(message.llmName, message.answer, message.answerHtml || message.html || '', {
+                            ...(message.metadata || {}),
+                            requestId: message.requestId || message.metadata?.requestId || ''
+                        });
                         if (revealManualPing) {
                             manualPingReveal.delete(message.llmName);
                         }
@@ -16006,6 +15955,16 @@ document.addEventListener('click', (event) => {
                 }
                 case 'LLM_FINAL_RESPONSE':
                 case 'FINAL_LLM_RESPONSE': {
+                    const finalMeta = {
+                        ...(message.metadata || {}),
+                        status: message.metadata?.status || message.status || message.finalStatus || 'SUCCESS',
+                        requestId: message.requestId || message.metadata?.requestId || ''
+                    };
+                    if (message.answer != null || message.answerHtml != null || message.html != null) {
+                        updateLLMPanelOutput(message.llmName, message.answer, message.answerHtml || message.html || '', finalMeta);
+                    } else {
+                        finalizeDebatePrintingForModel(message.llmName, finalMeta.requestId);
+                    }
                     pipelineWaiter.handleFinal(message);
                     break;
                 }
@@ -16044,7 +16003,10 @@ document.addEventListener('click', (event) => {
                     }
                     break;
                 case 'UPDATE_LLM_PANEL_OUTPUT':
-                    updateLLMPanelOutput(message.llmName, message.answer, message.answerHtml || message.html || '', message.metadata || {});
+                    updateLLMPanelOutput(message.llmName, message.answer, message.answerHtml || message.html || '', {
+                        ...(message.metadata || {}),
+                        requestId: message.requestId || message.metadata?.requestId || ''
+                    });
                     break;
                 case 'LLM_DIAGNOSTIC_EVENT':
                     if (Array.isArray(message.logs) && message.logs.length) {
@@ -16092,18 +16054,31 @@ document.addEventListener('click', (event) => {
                 case 'MANUAL_PING_RESULT': {
                     const llmName = message.llmName;
                     if (message.status === 'success') {
-                        setPingButtonState(llmName, 'success', 'Answer updated');
+                        const recoveredText = String(message.answer || '').trim();
+                        if (llmName && recoveredText) {
+                            const recoveryMeta = {
+                                status: message.finalStatus || 'PARTIAL',
+                                source: 'MANUAL_PING_RESULT_RECOVERY',
+                                requestId: message.requestId || ''
+                            };
+                            updateDebateModelCardOutput(llmName, recoveredText, message.answerHtml || '', recoveryMeta);
+                            updateLLMPanelOutput(llmName, recoveredText, message.answerHtml || '', recoveryMeta);
+                            manualPingReveal.delete(llmName);
+                        }
+                        setPingButtonState(llmName, 'success', message.replacedAfterTerminal
+                            ? 'A newer answer was found and replaced the saved revision'
+                            : 'A verified answer was found and applied');
                     } else if (message.status === 'failed') {
-                        setPingButtonState(llmName, 'error', message.error || 'Ping error');
+                        setPingButtonState(llmName, 'error', message.error || 'The model tab could not be read; the saved answer was not changed');
                         if (llmName) manualPingReveal.delete(llmName);
                     } else if (message.status === 'unchanged') {
-                        setPingButtonState(llmName, 'unchanged', 'Answer unchanged');
+                        setPingButtonState(llmName, 'unchanged', 'The tab was read successfully, but no newer valid answer was found');
                         if (llmName) manualPingReveal.delete(llmName);
                     } else if (message.status === 'aborted') {
-                        setPingButtonState(llmName, 'error', 'Ping aborted');
+                        setPingButtonState(llmName, 'error', 'Recovery was cancelled before an answer could be verified');
                         if (llmName) manualPingReveal.delete(llmName);
                     } else if (message.status === 'ignored_terminal') {
-                        setPingButtonState(llmName, 'unchanged', 'Already finalized');
+                        setPingButtonState(llmName, 'unchanged', 'The saved terminal answer is already locked; no safe replacement was found');
                         if (llmName) manualPingReveal.delete(llmName);
                     }
                     break;
@@ -16221,6 +16196,7 @@ document.addEventListener('click', (event) => {
         const resolvedHtml = sanitizedHtml || (looksLikeHtml(normalizedText) ? sanitizeInlineHtml(normalizedText) : '');
         updateDebateModelCardOutput(llmName, normalizedText, resolvedHtml, meta);
         if (panel) {
+            applyAttributionMarker(panel, meta);
             const outputElement = panel.querySelector('.output');
             if (outputElement) {
                 const finalHtml = resolvedHtml || convertMarkdownToHTML(normalizedText);
@@ -16244,19 +16220,12 @@ document.addEventListener('click', (event) => {
                 )]);
                 const hasVisibleAnswer = Boolean(normalizedText.trim().length || String(finalHtml || '').trim().length);
                 if (hasVisibleAnswer && !isErrorOutput(normalizedText)) {
-                    const currentStatus = statusStateByModel[llmName]?.status || '';
-                    const currentStatusNormalized = normalizeStatusValue(currentStatus);
-                    const isCurrentSuccess = window.LLMStatusContract?.isSuccessStatus
-                        ? window.LLMStatusContract.isSuccessStatus(currentStatus)
-                        : ['SUCCESS', 'COMPLETE', 'COPY_SUCCESS', 'DONE', 'PARTIAL', 'STREAM_TIMEOUT_HIDDEN'].includes(currentStatusNormalized);
-                    if (!isCurrentSuccess) {
-                        updateModelStatusUI(llmName, 'SUCCESS', {
-                            source: 'PANEL_OUTPUT_HAS_ANSWER',
-                            hasAnswer: true
-                        });
-                    } else if (currentStatusNormalized === 'PARTIAL' && normalizedText.trim().length >= 120) {
-                        updateModelStatusUI(llmName, 'SUCCESS', {
-                            source: 'PANEL_OUTPUT_HAS_ANSWER_RECOVERED',
+                    const deferred = deferredSuccessStatusByModel[llmName];
+                    if (deferred?.status) {
+                        delete deferredSuccessStatusByModel[llmName];
+                        updateModelStatusUI(llmName, deferred.status, {
+                            ...(deferred.data || {}),
+                            source: deferred.data?.source || 'DEFERRED_SUCCESS_AFTER_PANEL_APPLY',
                             hasAnswer: true,
                             force: true
                         });
@@ -17357,7 +17326,7 @@ document.addEventListener('click', (event) => {
 //-- конец блока --//
 
 document.addEventListener('click', (event) => {
-    const btn = event.target.closest('#clear-prompt-btn');
+    const btn = event.target.closest('#clear-prompt-btn, #debate-composer-clear-btn');
     if (!btn) return;
 
     useInputRichMode = false;
@@ -18086,80 +18055,38 @@ function checkCompareButtonState() {
     function syncStageInsertControls(plan = activeDraftPlanForCanvas()) {
         const lifecycle = String(window.DebateApplication?.getState?.()?.lifecycle || 'IDLE').toUpperCase();
         const editable = !['PLANNING', 'RUNNING', 'CANCELLING'].includes(lifecycle);
-        const enabled = !!window.__getDraftPlanSynthesizer?.(plan) && editable;
+        const synthesizer = window.__getDraftPlanSynthesizer?.(plan);
+        const roundStageIds = (plan.plannedStages || [])
+            .filter((stage) => /^canvas-r\d+$/.test(stage.plannedStageId || ''))
+            .map((stage) => stage.plannedStageId);
+        const workingStages = (plan.plannedStages || [])
+            .filter((stage) => stage.outputIntent === 'working_synthesis');
         pipelinePanel?.querySelectorAll('.pipeline-stage-insert').forEach((button) => {
+            const afterStageId = button.dataset.afterStageId || '';
+            const activeStage = workingStages.find((stage) => stage.upstream?.includes(afterStageId));
+            const isBetweenRounds = roundStageIds.indexOf(afterStageId) >= 0
+                && roundStageIds.indexOf(afterStageId) < roundStageIds.length - 1;
+            const enabled = editable && isBetweenRounds && (!!activeStage || !!synthesizer);
             button.disabled = !enabled;
-            button.title = !editable ? 'Stages can be changed before a run or while it is paused'
-                : enabled ? 'Add synthesis stage' : 'Select a synthesizer to add intermediate stages';
+            button.classList.toggle('has-intermediate-synthesis', !!activeStage);
+            button.setAttribute('aria-pressed', String(!!activeStage));
+            button.title = !editable
+                ? 'Stages can be changed before a run or while it is paused'
+                : !isBetweenRounds
+                    ? 'Intermediate synthesis can be placed only between rounds'
+                    : activeStage
+                        ? 'Double-click to remove intermediate synthesis'
+                        : synthesizer
+                            ? 'Double-click to add intermediate synthesis'
+                            : 'Select the final synthesizer first';
         });
-        pipelinePanel?.querySelectorAll('.pipeline-stage-remove, .pipeline-stage-synthesis-select').forEach((control) => {
-            control.disabled = !editable;
-        });
-    }
-    function stageOptionsHtml(selected = '') {
-        return getAllModelNames().map((model) => `<option value="${escapeHtml(model)}"${model === selected ? ' selected' : ''}>${escapeHtml(model)}</option>`).join('');
     }
     function renderDraftPlanCanvas() {
         if (!pipelinePanel || !window.DebateDraftPlan) return;
         const plan = activeDraftPlanForCanvas();
-        pipelinePanel.querySelectorAll('.pipeline-intermediate-synthesis, .pipeline-intermediate-connector').forEach((element) => element.remove());
-        (plan.plannedStages || []).filter((stage) => stage.outputIntent === 'working_synthesis').forEach((stage) => {
-            const afterId = stage.upstream?.[0];
-            const source = Array.from(pipelinePanel.querySelectorAll('[data-planned-stage-id]'))
-                .find((element) => element.dataset.plannedStageId === afterId);
-            if (!source) return;
-            const participant = stage.participantIds?.[0] || '';
-            source.insertAdjacentHTML('afterend', `
-                <div class="connector-group pipeline-intermediate-connector" aria-hidden="true"><svg class="connector-svg"></svg></div>
-                <div class="stage-column pipeline-intermediate-synthesis" data-planned-stage-id="${escapeHtml(stage.plannedStageId)}">
-                    <div class="stage-header-row"><div class="stage-label"><span class="round-badge">S</span> Synthesis</div><button type="button" class="pipeline-stage-insert" data-after-stage-id="${escapeHtml(stage.plannedStageId)}" aria-label="Add stage after Synthesis" title="Add stage"></button></div>
-                    <div class="model-stack"><div class="model-block active"><div class="model-header"><span class="status-indicator" aria-hidden="true"></span><span class="model-name">${escapeHtml(participant || 'Select model')}</span><button type="button" class="pipeline-stage-remove" data-planned-stage-id="${escapeHtml(stage.plannedStageId)}" aria-label="Remove synthesis stage" title="Remove stage">×</button></div><select class="pipeline-stage-synthesis-select" data-planned-stage-id="${escapeHtml(stage.plannedStageId)}" aria-label="Synthesis model">${stageOptionsHtml(participant)}</select></div></div>
-                </div>
-            `);
-        });
         syncStageInsertControls(plan);
     }
-    function closeStageInsertMenus() {
-        pipelinePanel?.querySelectorAll('.pipeline-stage-insert-menu').forEach((menu) => menu.remove());
-    }
-    function openStageInsertMenu(button) {
-        closeStageInsertMenus();
-        if (!button || button.disabled) return;
-        const menu = document.createElement('div');
-        menu.className = 'pipeline-stage-insert-menu';
-        menu.innerHTML = '<button type="button" data-action="insert-synthesis">Add stage: Synthesis</button>';
-        button.after(menu);
-        menu.querySelector('[data-action="insert-synthesis"]')?.addEventListener('click', async () => {
-            const plan = activeDraftPlanForCanvas();
-            const result = window.DebateDraftPlan.insertSynthesis(plan, {
-                afterPlannedStageId: button.dataset.afterStageId,
-                participantIds: [window.__getDraftPlanSynthesizer?.(plan)]
-            });
-            if (!result.ok) {
-                showNotification(result.reasonCode || 'Cannot insert synthesis stage.', 'warn');
-                return;
-            }
-            if (String(window.DebateApplication?.getState?.()?.lifecycle || '').toUpperCase() === 'PAUSED') {
-                const stage = result.plan.plannedStages.find((item) => item.plannedStageId !== button.dataset.afterStageId
-                    && item.outputIntent === 'working_synthesis'
-                    && !(plan.plannedStages || []).some((previous) => previous.plannedStageId === item.plannedStageId));
-                const revision = await window.DebateApplication.insertStage(stage, { afterPlannedStageId: button.dataset.afterStageId });
-                if (!revision?.ok) { showNotification(revision?.reasonCode || revision?.code || 'Stage revision rejected.', 'warn'); return; }
-            }
-            window.__persistActivePipelineDraftPlan?.(result.plan);
-            closeStageInsertMenus();
-            renderDraftPlanCanvas();
-            updatePipelineAll();
-        });
-    }
-    pipelinePanel?.addEventListener('click', async (event) => {
-        const insert = event.target.closest('.pipeline-stage-insert');
-        if (insert) { event.preventDefault(); openStageInsertMenu(insert); return; }
-        const remove = event.target.closest('.pipeline-stage-remove');
-        if (!remove) return;
-        const plan = activeDraftPlanForCanvas();
-        const target = plan.plannedStages.find((stage) => stage.plannedStageId === remove.dataset.plannedStageId);
-        if (!target || target.outputIntent !== 'working_synthesis') return;
+    async function removeIntermediateSynthesis(plan, target) {
         const next = JSON.parse(JSON.stringify(plan));
         next.plannedStages.forEach((stage) => {
             if ((stage.upstream || []).includes(target.plannedStageId)) {
@@ -18169,29 +18096,57 @@ function checkCompareButtonState() {
         next.plannedStages = next.plannedStages.filter((stage) => stage.plannedStageId !== target.plannedStageId);
         if (String(window.DebateApplication?.getState?.()?.lifecycle || '').toUpperCase() === 'PAUSED') {
             const revision = await window.DebateApplication.removePlannedStage(target.plannedStageId);
-            if (!revision?.ok) { showNotification(revision?.reasonCode || revision?.code || 'Stage revision rejected.', 'warn'); return; }
+            if (!revision?.ok) {
+                showNotification(revision?.reasonCode || revision?.code || 'Stage revision rejected.', 'warn');
+                return false;
+            }
         }
         window.__persistActivePipelineDraftPlan?.(next);
         renderDraftPlanCanvas();
         updatePipelineAll();
-    });
-    pipelinePanel?.addEventListener('change', async (event) => {
-        const select = event.target.closest('.pipeline-stage-synthesis-select');
-        if (!select) return;
+        return true;
+    }
+    async function toggleIntermediateSynthesis(button) {
+        if (!button || button.disabled) return false;
         const plan = activeDraftPlanForCanvas();
-        const result = window.DebateDraftPlan.setStageParticipants(plan, select.dataset.plannedStageId, [select.value]);
-        if (!result.ok) { showNotification(result.reasonCode || 'Cannot update synthesis stage.', 'warn'); return; }
+        const afterPlannedStageId = button.dataset.afterStageId || '';
+        const existing = (plan.plannedStages || []).find((stage) =>
+            stage.outputIntent === 'working_synthesis' && stage.upstream?.includes(afterPlannedStageId));
+        if (existing) return removeIntermediateSynthesis(plan, existing);
+        const synthesizer = window.__getDraftPlanSynthesizer?.(plan);
+        const result = window.DebateDraftPlan.insertSynthesis(plan, {
+            afterPlannedStageId,
+            participantIds: [synthesizer],
+            plannedStageId: `planned-working-synthesis-after-${afterPlannedStageId}`
+        });
+        if (!result.ok) {
+            showNotification(result.reasonCode || 'Cannot insert synthesis stage.', 'warn');
+            return false;
+        }
         if (String(window.DebateApplication?.getState?.()?.lifecycle || '').toUpperCase() === 'PAUSED') {
-            const previous = plan.plannedStages.find((stage) => stage.plannedStageId === select.dataset.plannedStageId)?.participantIds?.[0] || '';
-            const revision = await window.DebateApplication.changeParticipant({
-                stageId: select.dataset.plannedStageId,
-                fromParticipantId: previous,
-                toParticipantId: select.value
-            });
-            if (!revision?.ok) { showNotification(revision?.reasonCode || revision?.code || 'Stage revision rejected.', 'warn'); return; }
+            const stage = result.plan.plannedStages.find((item) => item.plannedStageId === `planned-working-synthesis-after-${afterPlannedStageId}`);
+            const revision = await window.DebateApplication.insertStage(stage, { afterPlannedStageId });
+            if (!revision?.ok) {
+                showNotification(revision?.reasonCode || revision?.code || 'Stage revision rejected.', 'warn');
+                return false;
+            }
         }
         window.__persistActivePipelineDraftPlan?.(result.plan);
         renderDraftPlanCanvas();
+        updatePipelineAll();
+        return true;
+    }
+    pipelinePanel?.addEventListener('click', (event) => {
+        const insert = event.target.closest('.pipeline-stage-insert');
+        if (!insert) return;
+        event.preventDefault();
+    });
+    pipelinePanel?.addEventListener('dblclick', (event) => {
+        const insert = event.target.closest('.pipeline-stage-insert');
+        if (!insert) return;
+        event.preventDefault();
+        event.stopPropagation();
+        void toggleIntermediateSynthesis(insert);
     });
     function syncSynthesizerFlowStage() {
         if (!synthesisStack) return;
@@ -18252,6 +18207,8 @@ function checkCompareButtonState() {
         document.querySelectorAll('.registry-capable').forEach((el) => { el.hidden = false; el.setAttribute('aria-hidden', 'false'); });
         renderSynthesisStage();
         const currentFlowSelect = getSynthesizerFlowSelect();
+        const hasActivePipelineModels = getSelectedLLMs().length > 0;
+        if (currentFlowSelect) currentFlowSelect.disabled = runActive || !shouldRenderSynthesisStage || !hasActivePipelineModels;
         const activeSynthesisValue = String(window.__getDraftPlanSynthesizer?.(
             window.__pipelineDraftPlanForCanvas?.(window.__getActivePipelineDraftPlan?.())
         ) || '').trim();
@@ -18261,8 +18218,6 @@ function checkCompareButtonState() {
     }
     window.syncDebateSchemeUi = syncDebateSchemeUi;
     const setDebateSchemeValue = () => {
-        debateSchemeValue = 'universal';
-        window.__debateSchemeValue = 'universal';
         window.syncPipelineModelsFromSelectedLLMs?.({ force: true });
         syncDebateSchemeUi();
     };
@@ -18679,23 +18634,24 @@ function checkCompareButtonState() {
     }
     function applyDisputOnlyProblemsFilter(payload) {
         if (!payload || typeof payload !== 'object') return payload;
-        const isProblem = (item) => ['warning', 'high', 'critical'].includes(String(item?.severity || '').toLowerCase())
-            || /(ERROR|FAILED|FAILURE|TIMEOUT|REJECTED|EXCEPTION|DIVERGENCE|MISMATCH)/i.test(String(item?.eventType || item?.action || item?.status || ''));
+        const sharedFilter = window.ProblemContextFilter;
+        if (payload?.health && window.DebateTraceProjections?.filterProblems) {
+            return window.DebateTraceProjections.filterProblems(payload, {
+                problemContextFilter: sharedFilter
+            });
+        }
+        const isProblem = (item) => sharedFilter?.isProblem
+            ? sharedFilter.isProblem(item)
+            : ['warning', 'high', 'critical'].includes(String(item?.severity || '').toLowerCase())
+                || /(ERROR|FAILED|FAILURE|TIMEOUT|REJECTED|EXCEPTION|DIVERGENCE|MISMATCH)/i.test(String(item?.eventType || item?.action || item?.status || ''));
         const next = { ...payload };
         const events = Array.isArray(payload.events) ? payload.events : [];
-        const keep = new Set();
-        events.forEach((event, index) => {
-            if (!isProblem(event)) return;
-            keep.add(index);
-            const stageId = event?.correlation?.stageId || event?.stageId || '';
-            for (let cursor = index - 1, added = 0; cursor >= 0 && added < 10; cursor -= 1) {
-                const candidate = events[cursor];
-                const candidateStage = candidate?.correlation?.stageId || candidate?.stageId || '';
-                if (stageId && candidateStage && stageId !== candidateStage) continue;
-                keep.add(cursor); added += 1;
-            }
-        });
-        if (Array.isArray(payload.events)) next.events = events.filter((_, index) => keep.has(index));
+        const contextKey = (item) => item?.correlation?.stageId || item?.stageId || '__unscoped__';
+        if (Array.isArray(payload.events)) {
+            next.events = sharedFilter?.filterWithContext
+                ? sharedFilter.filterWithContext(events, { isProblem, getContextKey: contextKey })
+                : events.filter(isProblem);
+        }
         if (Array.isArray(payload.diagnoses)) next.diagnoses = payload.diagnoses.slice();
         if (Array.isArray(payload.stageExecutions)) {
             const diagnosedStages = new Set((next.diagnoses || []).map((item) => item.affectedStageId).filter(Boolean));
@@ -18712,7 +18668,11 @@ function checkCompareButtonState() {
             next.barriers = payload.barriers.filter((barrier) => ['waiting', 'timeout'].includes(barrier.outcome)
                 || Number(barrier.durationMs) > 0);
         }
-        if (Array.isArray(payload.rows)) next.rows = payload.rows.filter((row, index) => isProblem(row) || keep.has(index));
+        if (Array.isArray(payload.rows)) {
+            next.rows = sharedFilter?.filterWithContext
+                ? sharedFilter.filterWithContext(payload.rows, { isProblem, getContextKey: contextKey })
+                : payload.rows.filter(isProblem);
+        }
         return next;
     }
     function buildDisputTelemetryMarkdown(telemetryEvents = []) {
@@ -18935,7 +18895,7 @@ function checkCompareButtonState() {
             }).join('');
         debateSessionTabs.innerHTML = tabs;
     }
-    function applyDebateSessionFilter() {
+    function applyDebateSessionFilterNow() {
         if (!debateModelCards) return;
         const activeSessionId = debateTabsState.activeSessionId;
         const favoriteOnly = getDebateSessionFavoriteOnly(activeSessionId);
@@ -18960,6 +18920,19 @@ function checkCompareButtonState() {
         syncPromptSandwichLayoutState(activeSessionId);
         debateModelCards.scrollTop = debateModelCards.scrollHeight;
     }
+    // Perf: this runs a full DOM sweep (per-card layout reads + display writes +
+    // a scrollTop=scrollHeight forced reflow) and is called from ~18 sites,
+    // including per-response-update during streaming. Coalesce into one sweep per
+    // animation frame so N updates in a frame collapse to a single reflow instead
+    // of N. Callers needing the synchronous sweep can use ...Now directly.
+    let debateSessionFilterFrame = 0;
+    function applyDebateSessionFilter() {
+        if (debateSessionFilterFrame) return;
+        debateSessionFilterFrame = requestAnimationFrame(() => {
+            debateSessionFilterFrame = 0;
+            applyDebateSessionFilterNow();
+        });
+    }
     function getDebateTargetModels() {
         const selected = getSelectedLLMs();
         const receiver = String(debateReceiverSelect?.value || '').trim();
@@ -18967,10 +18940,34 @@ function checkCompareButtonState() {
         if (receiver) return selected.includes(receiver) ? [receiver] : [];
         return selected;
     }
+    function isDebateApprovalAutoMode() {
+        return String(debateRunPolicySelect?.value || '').trim() === 'auto'
+            || (!debateRunPolicySelect && autoCheckbox?.checked === true);
+    }
     function buildApprovalCheckboxHtml(isSelectable = true) {
-        return isSelectable
+        return isSelectable && !isDebateApprovalAutoMode()
             ? '<input type="checkbox" class="debate-approval-check" title="Approve this answer" aria-label="Approve this answer">'
             : '';
+    }
+    function syncDebateApprovalControls() {
+        if (!debateModelCards) return;
+        const manual = !isDebateApprovalAutoMode();
+        debateModelCards.querySelectorAll('.debate-model-card').forEach((card) => {
+            if (card.dataset.kind === 'moderator' || card.dataset.approved === 'true') {
+                card.querySelector('.debate-approval-check')?.remove();
+                return;
+            }
+            const selectable = manual && card.dataset.live !== 'true';
+            card.dataset.approvalSelectable = String(selectable);
+            const title = card.querySelector('.debate-model-card-title-main');
+            const existing = card.querySelector('.debate-approval-check');
+            if (!selectable) {
+                existing?.remove();
+            } else if (!existing && title) {
+                title.insertAdjacentHTML('beforeend', buildApprovalCheckboxHtml(true));
+                bindApprovalCheckbox(card);
+            }
+        });
     }
     function isFinalResponseMeta(meta = {}) {
         const status = String(meta.status || meta.finalStatus || '').toUpperCase();
@@ -18993,6 +18990,18 @@ function checkCompareButtonState() {
             card.appendChild(printingEl);
         }
         printingEl.textContent = `[${llmName}] printing`;
+    }
+    function finalizeDebatePrintingForModel(llmName, requestId = '') {
+        if (!debateModelCards || !llmName) return;
+        const normalizedRequestId = String(requestId || '').trim();
+        const sessionId = debateTabsState.activeSessionId;
+        debateModelCards.querySelectorAll('.debate-model-card').forEach((card) => {
+            if (card.dataset.sessionId !== sessionId || card.dataset.llmName !== llmName) return;
+            if (card.dataset.live !== 'true' || card.dataset.turnClosed === 'true') return;
+            if (normalizedRequestId && card.dataset.requestId && card.dataset.requestId !== normalizedRequestId) return;
+            setDebatePrintingState(card, llmName, false);
+            card.dataset.turnClosed = 'true';
+        });
     }
     function renderDebateResponseBody(outputEl, text = '', html = '') {
         if (!outputEl) return '';
@@ -19193,7 +19202,7 @@ function checkCompareButtonState() {
         card.dataset.kind = kind === 'moderator' ? 'moderator' : 'answer';
         card.dataset.starred = 'false';
         card.dataset.approved = (status === 'approved' || kind === 'moderator') ? 'true' : 'false';
-        card.dataset.approvalSelectable = status === 'pending' ? 'true' : 'false';
+        card.dataset.approvalSelectable = status === 'pending' && !isDebateApprovalAutoMode() ? 'true' : 'false';
         card.dataset.live = status === 'printing' ? 'true' : 'false';
         const approvalHtml = status === 'pending' && kind !== 'moderator' ? buildApprovalCheckboxHtml(true) : '';
         card.innerHTML = `
@@ -19208,7 +19217,6 @@ function checkCompareButtonState() {
                 </span>
                 <span class="debate-model-card-meta">
                     <span class="debate-model-card-time">${escapeHtml(timeLabel)}</span>
-                    ${kind === 'moderator' ? '' : '<button type="button" class="ib debate-card-branch" title="Branch" aria-label="Branch"><i class="ti ti-git-branch" aria-hidden="true"></i></button>'}
                     <button type="button" class="ib debate-card-copy" title="Copy" aria-label="Copy"><i class="ti ti-copy" aria-hidden="true"></i></button>
                     <button type="button" class="ib debate-card-export" title="Export HTML" aria-label="Export HTML"><i class="ti ti-download" aria-hidden="true"></i></button>
                     <button type="button" class="ib debate-card-delete" title="Delete" aria-label="Delete"><i class="ti ti-trash" aria-hidden="true"></i></button>
@@ -19292,7 +19300,9 @@ function checkCompareButtonState() {
     }
     function loadDebateTranscriptFromStorage() {
         if (!DebateEngineRuntime?.loadStore || !debateTranscriptStore) return Promise.resolve(false);
-        if (isPageReloadNavigation()) return Promise.resolve(false);
+        if (isPageReloadNavigation()) {
+            return safeStorageLocalRemove(DebateEngineRuntime.STORAGE_KEY).then(() => false);
+        }
         return DebateEngineRuntime.loadStore()
             .then((restored) => {
                 const artifact = DebateEngineRuntime.exportArtifact(restored);
@@ -19304,6 +19314,7 @@ function checkCompareButtonState() {
             });
     }
     function approveDebateCard(card) {
+        if (isDebateApprovalAutoMode()) return null;
         if (!card || card.dataset.approved === 'true') return null;
         const outputEl = card.querySelector('.debate-model-card-output');
         const text = String(outputEl?.innerText || outputEl?.textContent || '').trim();
@@ -19353,7 +19364,7 @@ function checkCompareButtonState() {
         if (!debateModelCards) return;
         const selected = Array.isArray(models) ? models.filter(Boolean) : [];
         if (!selected.length) return;
-        const approvalSelectable = options.approvalSelectable !== false;
+        const approvalSelectable = options.approvalSelectable !== false && !isDebateApprovalAutoMode();
         const session = ensureDebateSession(debateTabsState.activeSessionId);
         selected.forEach((name) => {
             const existingPending = resolveSingleDebateAnswerCard(session, name);
@@ -19392,7 +19403,6 @@ function checkCompareButtonState() {
                     </span>
                     <span class="debate-model-card-meta">
                         <span class="debate-model-card-time"></span>
-                        <button type="button" class="ib debate-card-branch" title="Branch" aria-label="Branch"><i class="ti ti-git-branch"></i></button>
                         <button type="button" class="ib debate-card-copy" title="Copy" aria-label="Copy"><i class="ti ti-copy" aria-hidden="true"></i></button>
                         <button type="button" class="ib debate-card-export" title="Export HTML" aria-label="Export HTML"><i class="ti ti-download" aria-hidden="true"></i></button>
                         <button type="button" class="ib debate-card-delete" title="Delete" aria-label="Delete"><i class="ti ti-trash" aria-hidden="true"></i></button>
@@ -19538,21 +19548,44 @@ function checkCompareButtonState() {
             roleEl.textContent = roleValue ? String(roleValue).trim() : '';
         }
     }
+    function applyAttributionMarker(container, meta = {}) {
+        if (!container) return;
+        const unproven = String(meta.attributionState || '').toLowerCase() === 'unproven';
+        container.classList.toggle('has-unproven-attribution', unproven);
+        container.dataset.attributionState = unproven ? 'unproven' : '';
+        let marker = container.querySelector(':scope > .attribution-unproven-banner, .debate-model-card-title-main > .attribution-unproven-banner');
+        if (!unproven) {
+            marker?.remove();
+            return;
+        }
+        if (!marker) {
+            marker = document.createElement('span');
+            marker.className = 'attribution-unproven-banner';
+            const title = container.querySelector('.debate-model-card-title-main');
+            if (title) title.appendChild(marker);
+            else container.insertBefore(marker, container.firstChild);
+        }
+        marker.textContent = meta.attributionLabel || 'Attribution unverified';
+        marker.title = 'The content is complete, but its ownership by the current request is not proven.';
+    }
     // A model has at most ONE open (not-yet-approved) answer card per session.
     // Returns that single card to update in place, collapsing any stray
     // duplicates so the same answer is never shown twice (whole or partial).
     // Approved cards (debate history), moderator cards and starred fragments are
     // left untouched.
-    function resolveSingleDebateAnswerCard(session, llmName) {
+    function resolveSingleDebateAnswerCard(session, llmName, options = {}) {
         if (!debateModelCards || !session || !llmName) return null;
+        const requestId = String(options.requestId || '').trim();
         const matches = Array.from(debateModelCards.querySelectorAll('.debate-model-card'))
             .filter((card) => (
                 card.dataset.sessionId === session.id
                 && card.dataset.llmName === llmName
+                && card.dataset.turnClosed !== 'true'
                 && card.dataset.approved !== 'true'
                 && card.dataset.kind !== 'moderator'
                 && card.dataset.kind !== 'fragment'
                 && card.dataset.starred !== 'true'
+                && (!requestId || card.dataset.requestId === requestId || card.dataset.entryKind === 'placeholder')
             ));
         if (!matches.length) return null;
         const preferred = matches.find((card) => (
@@ -19572,15 +19605,20 @@ function checkCompareButtonState() {
         if (!normalizedText && !normalizedHtml) return;
         const session = ensureDebateSession(debateTabsState.activeSessionId);
         const modelKey = `${session.id}:${toModelKey(llmName)}`;
+        const requestId = String(meta.requestId || '').trim();
         const isFinal = isFinalResponseMeta(meta);
-        const contentHash = `${isFinal ? 'final' : 'printing'}|${normalizedText.length}:${normalizedText.slice(0, 64)}|${normalizedHtml.length}:${normalizedHtml.slice(0, 64)}`;
-        if (debateFeedState.lastCommittedHashByModel[modelKey] === contentHash) return;
-        debateFeedState.lastCommittedHashByModel[modelKey] = contentHash;
-        const liveCard = resolveSingleDebateAnswerCard(session, llmName);
+        const attributionState = String(meta.attributionState || '');
+        const contentHash = `${isFinal ? 'final' : 'printing'}|${attributionState}|${normalizedText.length}:${normalizedText.slice(0, 64)}|${normalizedHtml.length}:${normalizedHtml.slice(0, 64)}`;
+        const contentScopeKey = `${modelKey}:${requestId || 'unscoped'}`;
+        if (debateFeedState.lastCommittedHashByModel[contentScopeKey] === contentHash) return;
+        debateFeedState.lastCommittedHashByModel[contentScopeKey] = contentHash;
+        const liveCard = resolveSingleDebateAnswerCard(session, llmName, { requestId });
         if (liveCard) {
+            if (requestId) liveCard.dataset.requestId = requestId;
             liveCard.dataset.entryKind = 'response';
             liveCard.dataset.kind = meta.kind || 'answer';
             liveCard.dataset.starred = liveCard.dataset.starred || 'false';
+            applyAttributionMarker(liveCard, meta);
             bindApprovalCheckbox(liveCard);
             const now = new Date();
             const hh = String(now.getHours()).padStart(2, '0');
@@ -19595,6 +19633,8 @@ function checkCompareButtonState() {
             }
             syncDebateCardOutputLayout(liveCard);
             setDebatePrintingState(liveCard, llmName, !isFinal);
+            liveCard.dataset.live = isFinal ? 'false' : 'true';
+            liveCard.dataset.turnClosed = isFinal ? 'true' : 'false';
             patchDebateCardMessage(liveCard, {
                 kind: 'model',
                 status: isFinal ? 'pending' : 'printing',
@@ -19629,6 +19669,9 @@ function checkCompareButtonState() {
         card.dataset.kind = meta.kind || 'answer';
         card.dataset.starred = 'false';
         card.dataset.entryId = String(debateFeedState.nextId++);
+        if (requestId) card.dataset.requestId = requestId;
+        card.dataset.live = isFinal ? 'false' : 'true';
+        card.dataset.turnClosed = isFinal ? 'true' : 'false';
         card.innerHTML = `
             <div class="debate-model-card-header">
                 <span class="debate-model-card-title">
@@ -19641,7 +19684,6 @@ function checkCompareButtonState() {
                 </span>
                 <span class="debate-model-card-meta">
                     <span class="debate-model-card-time">${hh}:${mm}</span>
-                    <button type="button" class="ib debate-card-branch" title="Branch" aria-label="Branch"><i class="ti ti-git-branch"></i></button>
                     <button type="button" class="ib debate-card-copy" title="Copy" aria-label="Copy"><i class="ti ti-copy" aria-hidden="true"></i></button>
                     <button type="button" class="ib debate-card-export" title="Export HTML" aria-label="Export HTML"><i class="ti ti-download" aria-hidden="true"></i></button>
                     <button type="button" class="ib debate-card-delete" title="Delete" aria-label="Delete"><i class="ti ti-trash" aria-hidden="true"></i></button>
@@ -19650,6 +19692,7 @@ function checkCompareButtonState() {
             </div>
             <div class="debate-model-card-output"></div>
         `;
+        applyAttributionMarker(card, meta);
         updateCardRole(card, meta.role || '');
         const body = card.querySelector('.debate-model-card-output');
         renderDebateResponseBody(body, normalizedText, normalizedHtml);
@@ -19882,6 +19925,12 @@ function checkCompareButtonState() {
         safeStorageLocalSet({ [DEBATE_SELECTORS_STORAGE_KEY]: state });
     }
     function restoreDebateSelectorState() {
+        if (isPageReloadNavigation()) {
+            return safeStorageLocalRemove(DEBATE_SELECTORS_STORAGE_KEY).then(() => {
+                if (debateSenderSelect) debateSenderSelect.value = 'Moderator';
+                if (debateReceiverSelect) debateReceiverSelect.value = '';
+            });
+        }
         return safeStorageLocalGet(DEBATE_SELECTORS_STORAGE_KEY).then((data) => {
             const state = data?.[DEBATE_SELECTORS_STORAGE_KEY] || {};
             if (state.sender && debateSenderSelect) debateSenderSelect.value = state.sender;
@@ -19918,7 +19967,7 @@ function checkCompareButtonState() {
             const prevValue = debateReceiverSelect.value;
             debateReceiverSelect.innerHTML = receiverOptions;
             const hasPrevValue = Array.from(debateReceiverSelect.options).some((opt) => opt.value === prevValue);
-            debateReceiverSelect.value = preserveRoute && hasPrevValue ? prevValue : '__none__';
+            debateReceiverSelect.value = preserveRoute && hasPrevValue ? prevValue : '';
             saveDebateSelectorState();
         }
     }
@@ -20082,7 +20131,6 @@ function checkCompareButtonState() {
                 </span>
                 <span class="debate-model-card-meta">
                     <span class="debate-model-card-time">${hh}:${mm}</span>
-                    <button type="button" class="ib debate-card-branch" title="Branch" aria-label="Branch"><i class="ti ti-git-branch"></i></button>
                     <button type="button" class="ib debate-card-copy" title="Copy" aria-label="Copy"><i class="ti ti-copy" aria-hidden="true"></i></button>
                     <button type="button" class="ib debate-card-export" title="Export HTML" aria-label="Export HTML"><i class="ti ti-download" aria-hidden="true"></i></button>
                     <button type="button" class="ib debate-card-delete" title="Delete" aria-label="Delete"><i class="ti ti-trash" aria-hidden="true"></i></button>
@@ -20312,7 +20360,7 @@ function checkCompareButtonState() {
             const forceNewTabs = newPagesCheckbox ? newPagesCheckbox.checked : true;
             const useApiFallback = apiModeCheckbox ? apiModeCheckbox.checked : true;
             // Record which Generation Wait Profile this run uses (for the telemetry export).
-            lastGenerationWaitProfile = (longModeCheckbox && longModeCheckbox.checked) ? 'long' : 'short';
+            lastGenerationWaitProfile = (longModeCheckbox && longModeCheckbox.checked) ? 'long' : 'standard';
             const attachmentsPayload = await buildAttachmentPayload();
             if (attachmentsPayload.length) {
                 const unsupported = selectedLLMs.filter((name) => ATTACH_CAPABILITY[name] === false);
@@ -21299,6 +21347,10 @@ function exportSingleTemplate(templateName, sourceData = null) {
     }, 0);
     const hydrateStartupState = async () => {
         try {
+            // Auto is an independent user preference. Restore it before any
+            // optional prompt/modifier hydration so an unrelated load failure
+            // cannot leave the control at the HTML default (off).
+            await restoreDebateAutoMode();
             preserveCrossViewStateOnLoad = await consumeCrossViewNavigationIntentOnLoad();
             suppressCrossViewPersistenceOnLoad = preserveCrossViewStateOnLoad;
             if (!preserveCrossViewStateOnLoad) {
@@ -21527,18 +21579,6 @@ function exportSingleTemplate(templateName, sourceData = null) {
             applyDebateSessionFilter();
             return;
         }
-        if (event.target.closest('.debate-card-branch')) {
-            const modelName = card.dataset.llmName || '';
-            if (debateSenderSelect && modelName) {
-                const hasModel = Array.from(debateSenderSelect.options).some((opt) => opt.value === modelName);
-                if (hasModel) debateSenderSelect.value = modelName;
-            }
-            if (promptInput && isModeratorTextarea) {
-                promptInput.value = text;
-                autoGrowDebateTextarea(promptInput);
-                promptInput.focus();
-            }
-        }
     });
     debateModelCards?.addEventListener('dblclick', (event) => {
         const header = event.target.closest('.debate-model-card-header');
@@ -21546,6 +21586,7 @@ function exportSingleTemplate(templateName, sourceData = null) {
         const card = header.closest('.debate-model-card');
         if (!card || !debateModelCards.contains(card)) return;
         event.preventDefault();
+        event.stopPropagation();
         setDebateCardWideExpanded(card, !card.classList.contains('is-wide-expanded'));
     });
     debateSessionBar?.addEventListener('dblclick', (event) => {
@@ -21571,6 +21612,10 @@ function exportSingleTemplate(templateName, sourceData = null) {
     debateModelCards?.addEventListener('change', (event) => {
         const checkbox = event.target.closest?.('.debate-approval-check');
         if (!checkbox?.checked) return;
+        if (isDebateApprovalAutoMode()) {
+            checkbox.checked = false;
+            return;
+        }
         approveDebateCard(checkbox.closest('.debate-model-card'));
     });
     debateSenderSelect?.addEventListener('change', () => {
@@ -21702,9 +21747,14 @@ function exportSingleTemplate(templateName, sourceData = null) {
     };
     setTimeout(ensureTelemetryDevtoolsLoaded, 0);
     setTimeout(ensureTelemetryDevtoolsLoaded, 1000);
+    let devtoolsResizeFrame = 0;
     window.addEventListener('resize', () => {
-        syncDevtoolsPanelHeight();
-    });
+        if (devtoolsResizeFrame) return;
+        devtoolsResizeFrame = requestAnimationFrame(() => {
+            devtoolsResizeFrame = 0;
+            syncDevtoolsPanelHeight();
+        });
+    }, { passive: true });
 
     if (apiKeysModal && closeApiKeysModal && saveApiKeysBtn) {
         const loadSessionApiKeys = async () => {
@@ -21748,6 +21798,11 @@ function exportSingleTemplate(templateName, sourceData = null) {
             // Загружаем ключи при открытии
             await loadSessionApiKeys();
             modalManager.show(apiKeysModal);
+            flushPendingDiagnosticsRenders();
+            renderDiagnosticsModal();
+            document.dispatchEvent(new CustomEvent('devtools-visibility-change', {
+                detail: { visible: true }
+            }));
             syncDevtoolsPanelHeight();
         };
 
@@ -21794,7 +21849,9 @@ function exportSingleTemplate(templateName, sourceData = null) {
 
             if (closeApiKeysModal && modalManager && typeof modalManager.hide === 'function') {
                 closeApiKeysModal.addEventListener('click', () => {
-                    try { modalManager.hide(apiKeysModal); } catch (err) { console.error('[results] modalManager.hide error', err); }
+                    try {
+                        modalManager.hide(apiKeysModal);
+                    } catch (err) { console.error('[results] modalManager.hide error', err); }
                 });
             }
 

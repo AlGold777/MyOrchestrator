@@ -18,6 +18,7 @@ const VISIT_QUOTA_MAX_MS = 20000;
 const VISIT_QUOTA_COOLDOWN_MS = 15000;
 const HUMAN_VISIT_MIN_USEFUL_MS = 1500;
 const POST_SUCCESS_SCROLL_ATTEMPTS_MS = [0, 1200, 3600];
+const POST_SUCCESS_AUDIT_ALARM_PREFIX = 'post_success_answer_audit::';
 const DEFERRED_VISIT_DELAYS_MS = [15000, 45000, 90000];
 const TAB_LEASE_TTL_MS = HUMAN_VISIT_HARD_CAP_MS;
 const PROGRAMMATIC_FOCUS_GRACE_MS = 1500;
@@ -52,6 +53,32 @@ const isTerminalEntry = (entry) => {
   if (self.ModelRunState?.isTerminalRunState?.(entry)) return true;
   if (self.ModelRunState?.isTerminalStatus?.(entry.status)) return true;
   if (entry.finalStatusRecorded || entry.finalStatus) return true;
+  return false;
+};
+
+const isActiveFocusWindowOpen = (llmName, entry, source = 'focus_check') => {
+  if (!entry) return false;
+  const allowed = typeof self.isActiveFocusAllowedForEntry === 'function'
+    ? self.isActiveFocusAllowedForEntry(entry)
+    : true;
+  if (allowed) return true;
+  entry.skipHumanLoop = true;
+  if (!entry.activeFocusExhaustedAt) {
+    entry.activeFocusExhaustedAt = Date.now();
+    emitTelemetry(llmName, 'ACTIVE_FOCUS_WINDOW_EXHAUSTED', {
+      level: 'info',
+      details: source,
+      meta: {
+        source,
+        startedAt: entry.activeFocusStartedAt || entry?.budgetTimers?.generation?.startedAt || entry.promptSubmittedAt || null,
+        budgetMs: entry.activeFocusBudgetMs || self.getActiveFocusWindowMs?.() || null,
+        deadlineAt: entry.activeFocusDeadlineAt || null,
+        passiveGenerationContinues: true
+      },
+      force: true
+    });
+    saveJobState(jobState);
+  }
   return false;
 };
 
@@ -760,6 +787,7 @@ function startAutomationVisit(tabId, llmName) {
   if (!llmName || !tabId) return false;
   const entry = jobState?.llms?.[llmName];
   if (isTerminalEntry(entry)) return false;
+  if (!isActiveFocusWindowOpen(llmName, entry, 'start_automation_visit')) return false;
   const granted = startTabVisit(tabId, llmName, 'automation_focus');
   if (!granted) return false;
   if (entry) {
@@ -795,6 +823,7 @@ async function runHumanPresenceCycle() {
     .filter(([_, entry]) => (
       entry
       && !isTerminalEntry(entry)
+      && isActiveFocusWindowOpen(_, entry, 'human_presence_cycle')
       && !entry.skipHumanLoop
       && !entry.automationVisitActive
       && !(Number(entry.visitQuotaBackoffUntil || 0) > now)
@@ -847,6 +876,10 @@ function visitTabWithHumanity(llmName, tabId) {
       resolve();
       return;
     }
+    if (!isActiveFocusWindowOpen(llmName, entry, 'human_visit')) {
+      resolve();
+      return;
+    }
     if (!browserHasFocus) {
       resolve();
       return;
@@ -872,7 +905,11 @@ function visitTabWithHumanity(llmName, tabId) {
       let settled = false;
       const sessionStillValid = () =>
         !capturedSessionId || jobState?.session?.startTime === capturedSessionId;
-      const modelStillPending = () => !isTerminalEntry(jobState?.llms?.[llmName]);
+      const modelStillPending = () => {
+        const liveEntry = jobState?.llms?.[llmName];
+        return !isTerminalEntry(liveEntry)
+          && isActiveFocusWindowOpen(llmName, liveEntry, 'human_visit_active');
+      };
       const finalizeVisit = () => {
         if (settled) return;
         settled = true;
@@ -951,8 +988,13 @@ function visitTabWithAutomation(llmName, tabId, options = {}) {
       return;
     }
     const lockKey = `${llmName}:${tabId}`;
-    if (isTerminalEntry(jobState?.llms?.[llmName])) {
+    const initialEntry = jobState?.llms?.[llmName];
+    if (isTerminalEntry(initialEntry)) {
       completeHumanPresenceForModel(llmName, 'terminal_success_automation_skip');
+      resolve(false);
+      return;
+    }
+    if (!isActiveFocusWindowOpen(llmName, initialEntry, 'automation_visit')) {
       resolve(false);
       return;
     }
@@ -1000,7 +1042,11 @@ function visitTabWithAutomation(llmName, tabId, options = {}) {
       let settled = false;
       const sessionStillValid = () =>
         !sessionId || jobState?.session?.startTime === sessionId;
-      const modelStillPending = () => !isTerminalEntry(jobState?.llms?.[llmName]);
+      const modelStillPending = () => {
+        const pendingEntry = jobState?.llms?.[llmName];
+        return !isTerminalEntry(pendingEntry)
+          && isActiveFocusWindowOpen(llmName, pendingEntry, 'automation_visit_active');
+      };
       const finalizeVisit = (previousTab, finalizeReason = reason) => {
         if (settled) return;
         settled = true;
@@ -1136,11 +1182,24 @@ function clearPostSuccessScrollAudit(llmName) {
     timers.forEach((timerId) => clearTimeout(timerId));
   }
   postSuccessScrollTimers.delete(llmName);
+  POST_SUCCESS_SCROLL_ATTEMPTS_MS.forEach((_, index) => {
+    try { chrome.alarms?.clear?.(`${POST_SUCCESS_AUDIT_ALARM_PREFIX}${llmName}::${index}`); } catch (_) {}
+  });
 }
 
 function schedulePostSuccessScrollAudit(llmName, tabId) {
   if (!llmName || !isValidTabId(tabId)) return;
   clearPostSuccessScrollAudit(llmName);
+  const entry = jobState?.llms?.[llmName];
+  if (entry) {
+    entry.postSuccessAudit = {
+      llmName, tabId, runSessionId: jobState?.session?.startTime || null,
+      dispatchId: entry.lastDispatchMeta?.dispatchId || entry.confirmedDispatchId || null,
+      generationEpoch: Number(entry.generationEpoch || 0),
+      turnAnchor: entry.preDispatchAnswerNodeCount ?? entry.anchorAnswerCount ?? entry.baselineAnswerCount ?? null,
+      scheduledAt: Date.now(), lastHash: null, lastLength: 0
+    };
+  }
   const timers = POST_SUCCESS_SCROLL_ATTEMPTS_MS.map((delay, idx) => setTimeout(() => {
     scrollTabToBottom(tabId);
     if (idx === POST_SUCCESS_SCROLL_ATTEMPTS_MS.length - 1) {
@@ -1148,7 +1207,72 @@ function schedulePostSuccessScrollAudit(llmName, tabId) {
     }
   }, delay));
   postSuccessScrollTimers.set(llmName, timers);
+  POST_SUCCESS_SCROLL_ATTEMPTS_MS.forEach((delay, index) => {
+    try {
+      chrome.alarms?.create?.(`${POST_SUCCESS_AUDIT_ALARM_PREFIX}${llmName}::${index}`, {
+        when: Date.now() + Math.max(500, delay)
+      });
+    } catch (_) {}
+  });
+  saveJobState(jobState);
 }
+
+async function runPostSuccessAnswerAudit(llmName, index) {
+  const entry = jobState?.llms?.[llmName];
+  const plan = entry?.postSuccessAudit;
+  if (!entry || !plan || Number(plan.generationEpoch || 0) !== Number(entry.generationEpoch || 0)) return;
+  const tabId = Number(plan.tabId || entry.tabId || 0);
+  if (!isValidTabId(tabId)) return;
+  scrollTabToBottom(tabId);
+  if (typeof self.lateCollectAnswer !== 'function') return;
+  const result = await self.lateCollectAnswer({
+    llmName, tabId, reason: 'post_success_answer_audit',
+    meta: { dispatchId: plan.dispatchId, runSessionId: plan.runSessionId, generationEpoch: plan.generationEpoch }
+  });
+  if (!result?.ok || !result.text) return;
+  const hash = self.AnswerVerification?.hashText?.(result.text) || null;
+  const stable = Boolean(hash && plan.lastHash === hash && Number(plan.lastLength || 0) === String(result.text).trim().length);
+  plan.lastHash = hash;
+  plan.lastLength = String(result.text).trim().length;
+  plan.lastObservedAt = Date.now();
+  self.AnswerVerification?.appendTimeline?.(entry, {
+    stage: 'post_success_audit', state: stable ? 'stable' : 'observed', dispatchId: plan.dispatchId,
+    generationEpoch: plan.generationEpoch, tabId, source: 'chrome_alarm',
+    details: { attempt: index + 1, length: plan.lastLength }
+  });
+  if (stable) {
+    const auditVerification = {
+      state: 'candidate',
+      reasons: ['post_success_audit_not_structurally_verified'],
+      generationActive: null,
+      runSessionId: plan.runSessionId,
+      dispatchId: plan.dispatchId,
+      generationEpoch: plan.generationEpoch,
+      turnAnchor: plan.turnAnchor
+    };
+    self.acceptLateCollectResult?.(llmName, result, {
+      source: 'post_success_answer_audit', dispatchId: plan.dispatchId,
+      runSessionId: plan.runSessionId, generationEpoch: plan.generationEpoch,
+      turnAnchor: plan.turnAnchor,
+      answerVerification: auditVerification,
+      responseMeta: { source: 'post_success_answer_audit',
+        runSessionId: plan.runSessionId, dispatchId: plan.dispatchId,
+        generationEpoch: plan.generationEpoch, turnAnchor: plan.turnAnchor,
+        answerVerification: auditVerification }
+    });
+  }
+  saveJobState(jobState);
+}
+
+try {
+  chrome.alarms?.onAlarm?.addListener?.((alarm) => {
+    if (!alarm?.name?.startsWith(POST_SUCCESS_AUDIT_ALARM_PREFIX)) return;
+    const parts = alarm.name.slice(POST_SUCCESS_AUDIT_ALARM_PREFIX.length).split('::');
+    const index = Number(parts.pop() || 0);
+    const llmName = parts.join('::');
+    void runPostSuccessAnswerAudit(llmName, index);
+  });
+} catch (_) {}
 
 async function simulateHumanActivityInPage(options = {}) {
   if (window.__LLMScrollHardStop || window.__HumanoidSessionState?.state === 'HARD_STOP') {
@@ -1636,6 +1760,7 @@ self.performTabHumanSimulation = performTabHumanSimulation;
 self.scrollTabToBottom = scrollTabToBottom;
 self.clearPostSuccessScrollAudit = clearPostSuccessScrollAudit;
 self.schedulePostSuccessScrollAudit = schedulePostSuccessScrollAudit;
+self.runPostSuccessAnswerAudit = runPostSuccessAnswerAudit;
 self.simulateHumanActivityInPage = simulateHumanActivityInPage;
 self.clearDeferredAnswerTimer = clearDeferredAnswerTimer;
 self.clearAllDeferredAnswerTimers = clearAllDeferredAnswerTimers;

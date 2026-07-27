@@ -32,6 +32,25 @@ describe('DebateRunStore', () => {
     expect([...recovered.protocolState.newPagesOpenedModels]).toEqual(['GPT']);
   });
 
+  test('round-trips Date, Map, Set and explicit undefined values', () => {
+    const createdAt = new Date('2026-07-25T10:00:00.000Z');
+    const state = RunStore.createState({
+      runId: 'typed',
+      config: {
+        createdAt,
+        routing: new Map([['alpha', { attempts: new Set([1, 2]) }]]),
+        optionalValue: undefined
+      }
+    });
+    const recovered = RunStore.hydrate(RunStore.serialize(state));
+    expect(recovered.config.createdAt).toBeInstanceOf(Date);
+    expect(recovered.config.createdAt.toISOString()).toBe(createdAt.toISOString());
+    expect(recovered.config.routing).toBeInstanceOf(Map);
+    expect(recovered.config.routing.get('alpha').attempts).toEqual(new Set([1, 2]));
+    expect(Object.prototype.hasOwnProperty.call(recovered.config, 'optionalValue')).toBe(true);
+    expect(recovered.config.optionalValue).toBeUndefined();
+  });
+
   test('a new start replaces the previous run event stream', () => {
     const store = RunStore.createStore();
     store.dispatch({ type: RunStore.EVENTS.START_REQUESTED, payload: { runId: 'r1' } });
@@ -146,5 +165,108 @@ describe('DebateRunStore', () => {
     expect(state.ruleEvaluations).toHaveLength(1);
     expect(state.progressWindow).toEqual([{ stateChanged: false }]);
     expect(state.modelSignals).toHaveLength(1);
+  });
+
+  test('keeps pause reason separate from terminal failure reason', () => {
+    let state = RunStore.transition(RunStore.createState(), {
+      type: RunStore.EVENTS.START_REQUESTED,
+      payload: { runId: 'pause-reason' }
+    });
+    state = RunStore.transition(state, {
+      type: RunStore.EVENTS.PAUSE_REQUESTED,
+      payload: { reason: 'moderator_review' }
+    });
+    expect(state).toMatchObject({
+      status: 'paused',
+      pauseReason: 'moderator_review',
+      terminalReason: ''
+    });
+    state = RunStore.transition(state, { type: RunStore.EVENTS.RESUME_REQUESTED });
+    expect(state.pauseReason).toBe('');
+  });
+
+  test.each([
+    'BATCH_DISPATCHED',
+    'STAGE_STARTED',
+    'APPROVAL_GRANTED',
+    'RESUME_REQUESTED',
+    'DECISION_RESOLVED',
+    'EXECUTION_STATE_CHANGED'
+  ])('terminal state absorbs late %s', (eventName) => {
+    const terminal = RunStore.createState({
+      runId: 'terminal',
+      status: 'completed',
+      completedAt: 123,
+      execution: { status: 'completed', activeBatch: null }
+    });
+    const next = RunStore.transition(terminal, {
+      type: RunStore.EVENTS[eventName],
+      payload: { requestId: 'late', status: 'running' }
+    });
+    expect(next).toMatchObject({
+      status: 'completed',
+      completedAt: 123,
+      execution: { status: 'completed', activeBatch: null }
+    });
+    expect(next.events.at(-1)).toMatchObject({
+      type: RunStore.EVENTS.TERMINAL_EVENT_REJECTED,
+      payload: { attemptedType: RunStore.EVENTS[eventName], originalStatus: 'completed' }
+    });
+  });
+
+  test('one broken subscriber does not prevent state delivery to other subscribers', () => {
+    const errors = [];
+    const observed = [];
+    const store = RunStore.createStore({}, { onListenerError: (error) => errors.push(error.message) });
+    store.subscribe(() => { throw new Error('render_failed'); });
+    store.subscribe((state, event) => observed.push([state.status, event.type]));
+    expect(() => store.dispatch({
+      type: RunStore.EVENTS.START_REQUESTED,
+      payload: { runId: 'listener-isolation' }
+    })).not.toThrow();
+    expect(errors).toEqual(['render_failed']);
+    expect(observed).toEqual([['running', RunStore.EVENTS.START_REQUESTED]]);
+  });
+
+  test('execution projection accepts only contract fields', () => {
+    let state = RunStore.transition(RunStore.createState(), {
+      type: RunStore.EVENTS.START_REQUESTED,
+      payload: { runId: 'execution-contract' }
+    });
+    state = RunStore.transition(state, {
+      type: RunStore.EVENTS.EXECUTION_STATE_CHANGED,
+      payload: {
+        status: 'collecting',
+        retryCount: 2,
+        activeStageId: 's1',
+        runId: 'overwrite-attempt',
+        arbitraryLargeObject: { secret: 'not-persisted' },
+        degradedMode: { reason: 'limited' }
+      }
+    });
+    expect(state.execution).toMatchObject({ status: 'collecting', retryCount: 2, activeStageId: 's1' });
+    expect(state.execution).not.toHaveProperty('runId');
+    expect(state.execution).not.toHaveProperty('arbitraryLargeObject');
+    expect(state.degradedMode).toEqual({ reason: 'limited' });
+  });
+
+  test('event truncation is explicit and reports the retained sequence window', () => {
+    let state = RunStore.transition(RunStore.createState(), {
+      type: RunStore.EVENTS.START_REQUESTED,
+      payload: { runId: 'long-run' }
+    });
+    for (let index = 0; index < RunStore.MAX_EVENTS + 5; index += 1) {
+      state = RunStore.transition(state, {
+        type: RunStore.EVENTS.RULE_EVALUATED,
+        payload: { ruleId: `rule-${index}` }
+      });
+    }
+    expect(state.events).toHaveLength(RunStore.MAX_EVENTS);
+    expect(state.eventLog).toEqual({
+      truncated: true,
+      droppedCount: 6,
+      firstRetainedSeq: 7
+    });
+    expect(state.events[0].seq).toBe(state.eventLog.firstRetainedSeq);
   });
 });

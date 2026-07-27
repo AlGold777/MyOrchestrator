@@ -2,7 +2,7 @@
 
 **Version:** 1.1  
 **Date:** 2026-07-23  
-**Status:** implemented in 2.81.39; browser recovery proof remains a release-register obligation.
+**Status:** implemented in 2.81.52; browser recovery proof remains a release-register obligation.
 
 ## Decision
 
@@ -74,9 +74,12 @@ legacy value is materialized into DraftPlan and is not written back as a new
 header-state value.
 
 Insertion is available pre-run and when the run is `PAUSED`; it is disabled
-while planning, running or cancelling. Paused insert/remove/participant-change
-operations use `INSERT_STAGE`, `REMOVE_PENDING_STAGE`, and
-`CHANGE_PARTICIPANT` through `DebateApplication` with revision concurrency.
+while planning, running or cancelling. The UI gesture is a double-click on
+`.pipeline-stage-insert`: a single click does not open a menu and does not
+materialize a Canvas block. The inserted `working_synthesis` participant is
+always copied from the final synthesizer; there is no independent intermediate
+model selector. Paused insert/remove operations use `INSERT_STAGE` and
+`REMOVE_PENDING_STAGE` through `DebateApplication` with revision concurrency.
 
 ## Evidence
 

@@ -58,6 +58,12 @@ function createRouterSandbox() {
     stopAllProcesses: jest.fn(),
     writeDiagnosticsEventsToStorage: jest.fn(() => Promise.resolve()),
     handleLLMResponse: jest.fn(),
+    recordPipelineAnswerVerification: jest.fn(),
+    validateMaterializedAnswerEvidence: jest.fn((_llmName, text) => ({
+      valid: String(text || '').trim().length >= 80,
+      rejectReason: String(text || '').trim().length >= 80 ? null : 'too_short',
+      hash: 'lifecycle-hash'
+    })),
     updateModelState: jest.fn(),
     resolvePromptSubmitted: jest.fn(),
     emitTelemetry: jest.fn((llmName, event, payload = {}) => telemetryEvents.push({ llmName, event, payload })),
@@ -253,6 +259,82 @@ describe('lifecycle sender gate', () => {
 
     await sendMessage({ type: 'LLM_RESPONSE_READY', llmName: 'GPT', meta: META }, BOUND_SENDER);
     expect(context.jobState.llms.GPT.lifecycleReadyAt).toBeTruthy();
+  });
+
+  test('LLM_RESPONSE_READY finalizes the exact validated lifecycle snapshot without a second DOM selection', async () => {
+    const { context, telemetryEvents, sendMessage } = createRouterSandbox();
+    const answerText = 'Lifecycle-confirmed answer. '.repeat(20);
+    context.handleLLMResponse.mockImplementation(() => {
+      context.jobState.llms.GPT.finalStatus = 'SUCCESS';
+      context.jobState.llms.GPT.finalStatusRecorded = true;
+    });
+
+    await sendMessage({
+      type: 'LLM_RESPONSE_READY',
+      llmName: 'GPT',
+      answerText,
+      meta: { ...META, textLength: answerText.length, answerHash: 'content-hash', completedAt: 777 }
+    }, BOUND_SENDER);
+
+    expect(context.validateMaterializedAnswerEvidence).toHaveBeenCalledWith(
+      'GPT',
+      answerText.trim(),
+      expect.objectContaining({ source: 'lifecycle_complete_snapshot', dispatchId: META.dispatchId })
+    );
+    expect(context.jobState.llms.GPT.lifecycleAnswerCandidate).toEqual(
+      expect.objectContaining({ text: answerText.trim(), source: 'lifecycle_complete_snapshot' })
+    );
+    expect(context.handleLLMResponse).toHaveBeenCalledWith(
+      'GPT',
+      answerText.trim(),
+      null,
+      expect.objectContaining({
+        lifecycleCompleteSnapshot: true,
+        responseMeta: expect.objectContaining({ source: 'lifecycle_complete_snapshot' })
+      }),
+      ''
+    );
+    expect(telemetryEvents.some((event) => event.event === 'LIFECYCLE_SNAPSHOT_ACCEPTED')).toBe(true);
+    expect(context.updateModelState).not.toHaveBeenCalledWith(
+      'GPT',
+      'RECEIVING',
+      expect.anything()
+    );
+  });
+
+  test('LLM_RESPONSE_READY records incoming structural proof before finalization', async () => {
+    const { context, sendMessage } = createRouterSandbox();
+    const answerText = 'Lifecycle answer with strict structural proof. '.repeat(6);
+    const answerVerification = {
+      verified: true,
+      resolution: 'exact',
+      structuralComplete: true,
+      generationActive: false,
+      runSessionId: 12345,
+      dispatchId: 'GPT:12345:1',
+      generationEpoch: 1,
+      turnAnchor: 2
+    };
+
+    await sendMessage({
+      type: 'LLM_RESPONSE_READY',
+      llmName: 'GPT',
+      answerText,
+      meta: { ...META, answerVerification }
+    }, BOUND_SENDER);
+
+    expect(context.recordPipelineAnswerVerification).toHaveBeenCalledWith(
+      'GPT', answerVerification, BOUND_SENDER
+    );
+    expect(context.handleLLMResponse).toHaveBeenCalledWith(
+      'GPT',
+      answerText.trim(),
+      null,
+      expect.objectContaining({
+        responseMeta: expect.objectContaining({ answerVerification })
+      }),
+      ''
+    );
   });
 
   test('ANSWER_SNAPSHOT from a foreign tab is ignored', async () => {

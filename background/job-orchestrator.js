@@ -13,6 +13,10 @@ const ROUND0_BIND_POLL_MS = 250;
 const ROUND1_BEFORE_SEND_MS = 500;
 //- 1.2. Round 1 sends the command quickly, but confirmation is handled explicitly in Round 2. -//
 const ROUND1_POST_SEND_MS = 500;
+const ROUND1_PRIORITY_MODELS = Object.freeze(['Qwen']);
+const ROUND1_POST_COMMAND_FOCUS_HOLD_MS = Object.freeze({
+  Qwen: 6000
+});
 const ROUND2_VISIT_COUNT = 2;
 const ROUND2_VISIT_MIN_MS = 5000;
 const ROUND2_VISIT_MAX_MS = 8000;
@@ -39,8 +43,8 @@ const ROUND3_PRECOLLECT_VISIT_MIN_MS = 5000;
 const ROUND3_PRECOLLECT_VISIT_MAX_MS = 8000;
 const ROUND4_FOCUS_DELAY_MS = 500;
 // Ladder: round4 gate closes AFTER the script hard stop (hard stop + 20s).
-const ROUND4_PENDING_WAIT_MAX_SHORT_MS = 230000;
-const ROUND4_PENDING_WAIT_MAX_LONG_MS = 500000;
+const ROUND4_PENDING_WAIT_MAX_SHORT_MS = 500000;
+const ROUND4_PENDING_WAIT_MAX_LONG_MS = 950000;
 const getRound4PendingWaitMaxMs = () => (self.isLongGenerationProfile?.()
   ? ROUND4_PENDING_WAIT_MAX_LONG_MS
   : ROUND4_PENDING_WAIT_MAX_SHORT_MS);
@@ -65,8 +69,8 @@ const ADAPTIVE_PROBE_SLOW_INTERVAL_MS = 12000;
 // Ladder: recovery probes must OUTLIVE the hard stop they rescue from
 // (run 1781134505984: probes died window_exhausted in the same second as the
 // 180s hard stop). Window = hard stop + 60s per profile.
-const ADAPTIVE_PROBE_TOTAL_WINDOW_SHORT_MS = 270000;
-const ADAPTIVE_PROBE_TOTAL_WINDOW_LONG_MS = 540000;
+const ADAPTIVE_PROBE_TOTAL_WINDOW_SHORT_MS = 540000;
+const ADAPTIVE_PROBE_TOTAL_WINDOW_LONG_MS = 990000;
 const getAdaptiveProbeTotalWindowMs = () => (self.isLongGenerationProfile?.()
   ? ADAPTIVE_PROBE_TOTAL_WINDOW_LONG_MS
   : ADAPTIVE_PROBE_TOTAL_WINDOW_SHORT_MS);
@@ -122,8 +126,8 @@ const DOM_SNAPSHOT_RECOVERY_COOLDOWN_MS = 5000;
 // Ladder: the stale-baseline guard must survive the whole legal generation
 // window (content hardMax + 60s), otherwise it dies exactly in long runs
 // where the previous-answer protection matters most.
-const BASELINE_GUARD_WINDOW_SHORT_MS = 240000;
-const BASELINE_GUARD_WINDOW_LONG_MS = 510000;
+const BASELINE_GUARD_WINDOW_SHORT_MS = 510000;
+const BASELINE_GUARD_WINDOW_LONG_MS = 960000;
 const getBaselineGuardWindowMs = () => (self.isLongGenerationProfile?.()
   ? BASELINE_GUARD_WINDOW_LONG_MS
   : BASELINE_GUARD_WINDOW_SHORT_MS);
@@ -199,8 +203,8 @@ const SUSPECT_SHORT_DEFER_MODELS = new Set(['Z.ai']);
 const DEFER_STREAM_FINAL_RECHECK_MS = 8000;        // base recheck interval while deferred
 const DEFER_STREAM_FINAL_RECHECK_MAX_MS = 32000;   // cap after backoff on unchanged text
 const DEFER_STREAM_FINAL_RECHECK_BACKOFF = 1.6;    // multiplier per consecutive unchanged defer
-const DEFER_STREAM_FINAL_MAX_SHORT_MS = 180000;
-const DEFER_STREAM_FINAL_MAX_LONG_MS = 460000;
+const DEFER_STREAM_FINAL_MAX_SHORT_MS = 460000;
+const DEFER_STREAM_FINAL_MAX_LONG_MS = 910000;
 const getDeferStreamFinalMaxMs = () => (self.isLongGenerationProfile?.()
   ? DEFER_STREAM_FINAL_MAX_LONG_MS
   : DEFER_STREAM_FINAL_MAX_SHORT_MS);
@@ -233,7 +237,10 @@ const EARLY_TERMINAL_GUARD_STABLE_MS = 2500;
 const EARLY_TERMINAL_GUARD_REPING_MS = 2200;
 //- 1.2. Увеличиваем общий лимит раунда, чтобы он никогда не обрывался на середине списка -//
 const DISPATCH_BUDGET_MS = 120000;
-const GENERATION_BUDGET_MS = 180000;
+// Internal "short" remains the legacy boolean-off branch, but is now the
+// user-facing Standard profile (the former 450s Long behavior).
+const GENERATION_BUDGET_SHORT_MS = 450000;
+const GENERATION_BUDGET_LONG_MS = 900000;
 const COLLECT_BUDGET_MS = 60000;
 
 const resolveBudgetMsForPhase = (phase) => {
@@ -241,7 +248,9 @@ const resolveBudgetMsForPhase = (phase) => {
     case 'dispatch':
       return DISPATCH_BUDGET_MS;
     case 'generation':
-      return GENERATION_BUDGET_MS;
+      return self.isLongGenerationProfile?.()
+        ? GENERATION_BUDGET_LONG_MS
+        : GENERATION_BUDGET_SHORT_MS;
     case 'collect':
       return COLLECT_BUDGET_MS;
     default:
@@ -256,6 +265,7 @@ const ensureBudgetStore = (entry) => {
   }
   return entry.budgetTimers;
 };
+const runtimeBudgetTimerIds = new Set();
 
 const isTerminalEntry = (entry) => {
   if (!entry) return false;
@@ -1122,6 +1132,37 @@ function acceptLateCollectResult(llmName, result, meta = {}) {
     && !isStaleBaselineCandidate(entry, incomingText, replaceGuardDispatchId)
   );
   const manualRecovery = Boolean(meta?.manualRecovery || incomingResponseMeta.manualRecovery || incomingResponseMeta.manualOverride);
+  const automaticLateUpgrade = Boolean(terminalEntry && !manualRecovery && !manualLatestRecoveryRequested);
+  if (automaticLateUpgrade && (improvesTerminalAnswer || replacesTerminalAnswer) && self.AnswerVerification?.canAutoUpgrade) {
+    const upgradeVerification = incomingResponseMeta.answerVerification || meta?.answerVerification || {};
+    const previousTurnAnchor = entry?.preDispatchAnswerNodeCount ?? entry?.anchorAnswerCount ?? entry?.baselineAnswerCount ?? null;
+    const upgradeGate = self.AnswerVerification.canAutoUpgrade(
+      { length: currentText.length, runSessionId: jobState?.session?.startTime || null,
+        dispatchId: entry?.lastDispatchMeta?.dispatchId || null, generationEpoch: entry?.generationEpoch ?? null,
+        turnAnchor: previousTurnAnchor },
+      { length: incomingText.length, verified: upgradeVerification.verified === true,
+        verificationState: upgradeVerification.state, generationActive: upgradeVerification.generationActive,
+        resolution: upgradeVerification.resolution, structuralComplete: upgradeVerification.structuralComplete,
+        runSessionId: meta?.runSessionId ?? meta?.sessionId ?? incomingResponseMeta.runSessionId ?? upgradeVerification.runSessionId ?? null,
+        dispatchId: meta?.dispatchId ?? incomingResponseMeta.dispatchId ?? upgradeVerification.dispatchId ?? null,
+        generationEpoch: meta?.generationEpoch ?? incomingResponseMeta.generationEpoch ?? upgradeVerification.generationEpoch ?? null,
+        turnAnchor: meta?.turnAnchor ?? incomingResponseMeta.turnAnchor ?? upgradeVerification.turnAnchor ?? null },
+      { previousText: currentText, nextText: incomingText }
+    );
+    if (!upgradeGate.ok) {
+      self.AnswerVerification.appendRevision?.(entry, {
+        text: incomingText, channel: sourceHint || 'late_collect', decision: 'upgrade_rejected',
+        reason: upgradeGate.reasons.join(','), dispatchId: meta?.dispatchId || null
+      });
+      emitTelemetry(llmName, 'AUTOMATIC_LATE_UPGRADE_REJECTED', {
+        level: 'warning', details: upgradeGate.reasons.join(','),
+        meta: { previousLength: currentText.length, incomingLength: incomingText.length,
+          dispatchId: meta?.dispatchId || entry?.lastDispatchMeta?.dispatchId || null,
+          generationEpoch: entry?.generationEpoch || null }, force: true
+      });
+      return false;
+    }
+  }
   const preTerminalMaterialize = Boolean(
     meta?.preTerminalMaterialize
     || meta?.preTerminalMaterializeFinal
@@ -1978,6 +2019,7 @@ function shouldAcceptMaterializeRecoveryResult(llmName, entry, result = {}, evid
     return {
       ok: false,
       reason: 'materialize_recovery_freshness_unproven',
+      attributionState: 'unproven',
       length,
       source: source || null,
       dispatchId,
@@ -2000,6 +2042,101 @@ function shouldAcceptMaterializeRecoveryResult(llmName, entry, result = {}, evid
     stableMinChars,
     source: source || null
   };
+}
+
+function getCompleteMaterializeVerification(entry, result = {}, evidenceSummary = {}) {
+  const verification = result?.answerVerification
+    || result?.responseMeta?.answerVerification
+    || evidenceSummary?.answerVerification
+    || entry?.answerVerification
+    || null;
+  if (!verification) return null;
+  const textLength = String(result?.text || evidenceSummary?.text || '').trim().length;
+  const selectedLength = Number(verification.selectedLength || 0);
+  const lengthMatches = selectedLength > 0 && textLength > 0
+    && Math.abs(selectedLength - textLength) <= Math.max(12, Math.floor(textLength * 0.08));
+  return verification.verified === true
+    && verification.resolution === 'exact'
+    && verification.structuralComplete === true
+    && verification.generationActive === false
+    && verification.lengthRegressionActive !== true
+    && lengthMatches
+    ? verification
+    : null;
+}
+
+function preserveUnprovenMaterializeArtifact(llmName, entry, result = {}, evidenceSummary = {}, gate = {}) {
+  const text = String(result?.text || evidenceSummary?.text || '').trim();
+  const verification = getCompleteMaterializeVerification(entry, result, evidenceSummary);
+  if (!entry || !text || gate?.reason !== 'materialize_recovery_freshness_unproven' || !verification) {
+    return false;
+  }
+  const html = String(result?.html || evidenceSummary?.html || '');
+  const dispatchId = evidenceSummary?.dispatchId || result?.dispatchId || entry?.lastDispatchMeta?.dispatchId || null;
+  const artifact = {
+    text,
+    html,
+    capturedAt: Date.now(),
+    source: result?.source || evidenceSummary?.source || 'materialize_recovery',
+    dispatchId,
+    length: text.length,
+    hash: evidenceSummary?.hash || hashEvidenceText(text),
+    completenessState: 'complete',
+    attributionState: 'unproven',
+    reason: 'materialize_recovery_freshness_unproven',
+    answerVerification: verification
+  };
+  entry.pendingFinalAnswer = text;
+  entry.pendingFinalAnswerHtml = html;
+  entry.unverifiedArtifact = artifact;
+  entry.attributionState = 'unproven';
+  entry.answerState = 'candidate';
+  entry.verificationState = 'candidate';
+  entry.status = 'RECEIVING';
+  entry.statusData = {
+    ...(entry.statusData || {}),
+    attributionState: 'unproven',
+    answerState: 'candidate',
+    verificationState: 'candidate',
+    reason: artifact.reason,
+    hasAnswer: true
+  };
+  updateModelState(llmName, 'RECEIVING', entry.statusData);
+  sendMessageToResultsTab({
+    type: 'LLM_PARTIAL_RESPONSE',
+    llmName,
+    answer: text,
+    answerHtml: html,
+    metadata: {
+      status: 'RECEIVING',
+      terminal: false,
+      answerState: 'candidate',
+      verificationState: 'candidate',
+      attributionState: 'unproven',
+      attributionLabel: 'Attribution unverified',
+      completenessState: 'complete',
+      reason: artifact.reason,
+      source: artifact.source,
+      dispatchId
+    }
+  });
+  emitTelemetry(llmName, 'MATERIALIZE_RECOVERY_CONTENT_UNVERIFIED', {
+    level: 'warning',
+    details: `attribution_unproven len=${text.length} source=${artifact.source}`,
+    meta: {
+      dispatchId,
+      length: text.length,
+      hash: artifact.hash,
+      resolution: verification.resolution,
+      structuralComplete: verification.structuralComplete,
+      generationActive: verification.generationActive,
+      attributionState: 'unproven'
+    },
+    force: true
+  });
+  saveJobState(jobState);
+  broadcastGlobalState();
+  return true;
 }
 
 function shouldMaterializeBeforeTerminal(llmName, finalStatus, finalReason, error, metaObj = {}) {
@@ -2130,6 +2267,14 @@ async function runPreTerminalMaterializeRecovery(llmName, tabId, sessionId, reas
     if (evidence?.ok && result?.text) {
       const materializeGate = shouldAcceptMaterializeRecoveryResult(llmName, afterVisit, result, evidence.summary);
       if (!materializeGate.ok) {
+        if (preserveUnprovenMaterializeArtifact(llmName, afterVisit, result, evidence.summary, materializeGate)) {
+          return {
+            ok: true,
+            reason: 'attribution_unproven',
+            outcome: 'content_unverified',
+            result
+          };
+        }
         emitTelemetry(llmName, 'MATERIALIZE_RECOVERY_REJECTED', {
           level: 'warning',
           details: `${materializeGate.reason} len=${materializeGate.length} source=${materializeGate.source || 'unknown'}`,
@@ -3055,6 +3200,10 @@ const buildInitialLlmEntry = (llmName, overrides = {}) => {
     lastEarlyGestureAt: 0,
     hardStopDeferredAt: 0,
     hardStopDeferredDispatchId: null,
+    automationDeadlineAt: null,
+    automationDeadlinePhase: null,
+    automationDeadlineBudgetMs: null,
+    automationDeadlineReached: false,
     lastFinalEmitKey: null,
     lastFinalEmittedAt: 0,
     transientBlocker: null,
@@ -3600,6 +3749,145 @@ const scheduleClaudeHardTimeoutRetry = (llmName, entry, metaObj, sessionId) => {
   return true;
 };
 
+const finalizeAutomationDeadline = (llmName, phase, budgetMs, meta = {}) => {
+  const entry = jobState?.llms?.[llmName];
+  if (!entry || isFinalizedEntry(entry)) return false;
+  const normalizedPhase = String(phase || '').toLowerCase();
+  if (!['generation', 'collect'].includes(normalizedPhase)) return false;
+  const resolvedBudgetMs = Number(budgetMs || resolveBudgetMsForPhase(normalizedPhase)) || 0;
+  if (meta?.contentLifecycleSignal) {
+    const budgetRecord = entry?.budgetTimers?.[normalizedPhase] || null;
+    const fallbackStartedAt = Number(entry.promptSubmittedAt || entry.lastDispatchAt || 0);
+    const authoritativeDeadlineAt = Number(
+      budgetRecord?.deadlineAt
+      || (fallbackStartedAt > 0 && resolvedBudgetMs > 0 ? fallbackStartedAt + resolvedBudgetMs : 0)
+    );
+    if (!authoritativeDeadlineAt || authoritativeDeadlineAt > Date.now()) {
+      emitTelemetry(llmName, 'AUTOMATION_DEADLINE_SIGNAL_DEFERRED', {
+        level: 'info',
+        details: `${normalizedPhase}:authoritative_deadline_not_reached`,
+        meta: {
+          phase: normalizedPhase,
+          reportedBudgetMs: Number(budgetMs || 0),
+          authoritativeBudgetMs: Number(budgetRecord?.budgetMs || resolvedBudgetMs || 0),
+          authoritativeDeadlineAt: authoritativeDeadlineAt || null,
+          remainingMs: authoritativeDeadlineAt ? Math.max(0, authoritativeDeadlineAt - Date.now()) : null
+        }
+      });
+      return false;
+    }
+  }
+
+  const reachedAt = Date.now();
+  const pendingAnswer = String(entry.pendingFinalAnswer || entry.answer || '').trim();
+  const pendingAnswerHtml = pendingAnswer
+    ? String(entry.pendingFinalAnswerHtml || entry.answerHtml || '')
+    : '';
+  entry.automationDeadlineAt = reachedAt;
+  entry.automationDeadlinePhase = normalizedPhase;
+  entry.automationDeadlineBudgetMs = resolvedBudgetMs || null;
+  entry.automationDeadlineReached = true;
+  entry.skipHumanLoop = true;
+  entry.adaptiveCollectActive = false;
+  entry.adaptiveCollectScheduledAt = null;
+
+  closePingWindowForLLM(llmName);
+  clearAdaptiveCollectTimer(llmName);
+  clearClaudeRetryTimers(llmName);
+  if (typeof self.completeHumanPresenceForModel === 'function') {
+    self.completeHumanPresenceForModel(llmName, 'automation_deadline');
+  }
+  if (typeof self.clearScriptRuntimeHardStop === 'function') {
+    self.clearScriptRuntimeHardStop(
+      llmName,
+      entry?.confirmedDispatchId || entry?.lastDispatchMeta?.dispatchId || null
+    );
+  }
+
+  emitTelemetry(llmName, 'AUTOMATION_DEADLINE_REACHED', {
+    level: 'warning',
+    details: `${normalizedPhase}:${resolvedBudgetMs}ms`,
+    meta: {
+      phase: normalizedPhase,
+      budgetMs: resolvedBudgetMs,
+      answerLength: pendingAnswer.length,
+      tabId: entry?.tabId || null,
+      dispatchId: entry?.lastDispatchMeta?.dispatchId || null,
+      providerGenerationLeftRunning: true,
+      manualRecoveryAvailable: true,
+      ...meta
+    },
+    force: true
+  });
+
+  const terminalMeta = {
+    dispatchId: entry?.lastDispatchMeta?.dispatchId || entry?.confirmedDispatchId || null,
+    sessionId: jobState?.session?.startTime || undefined,
+    runSessionId: jobState?.session?.startTime || undefined,
+    automationDeadline: true,
+    preTerminalMaterializeFinal: true,
+    finalizationDeferredCheck: true,
+    responseMeta: {
+      source: 'automation_deadline',
+      completionReason: 'automation_deadline',
+      partial: Boolean(pendingAnswer),
+      lateCollectFinal: true,
+      forceTerminalSuccess: Boolean(pendingAnswer),
+      automationStopped: true,
+      providerGenerationLeftRunning: true,
+      manualRecoveryAvailable: true
+    }
+  };
+
+  if (pendingAnswer) {
+    handleLLMResponse(llmName, pendingAnswer, null, terminalMeta, pendingAnswerHtml);
+  } else {
+    handleLLMResponse(
+      llmName,
+      'Error: automation_deadline',
+      { type: 'automation_deadline', message: `Automation deadline reached after ${resolvedBudgetMs}ms` },
+      terminalMeta,
+      ''
+    );
+  }
+  return true;
+};
+
+const scheduleBudgetTimer = (llmName, normalizedPhase, record, meta = {}) => {
+  if (!record) return null;
+  const deadlineAt = Number(record.deadlineAt || (Number(record.startedAt || Date.now()) + Number(record.budgetMs || 0)));
+  const remainingMs = Math.max(1, deadlineAt - Date.now());
+  let timerId = null;
+  timerId = setTimeout(() => {
+    runtimeBudgetTimerIds.delete(timerId);
+    const liveEntry = jobState?.llms?.[llmName];
+    const liveRecord = liveEntry?.budgetTimers?.[normalizedPhase];
+    if (!liveEntry || !liveRecord || Number(liveRecord.deadlineAt || 0) !== deadlineAt) return;
+    liveRecord.timerId = null;
+    const dispatchId = liveEntry?.lastDispatchMeta?.dispatchId || null;
+    const tabId = liveEntry?.tabId || null;
+    emitTelemetry(llmName, 'BUDGET_EXHAUSTED', {
+      level: 'warning',
+      meta: {
+        phase: normalizedPhase,
+        budgetMs: Number(liveRecord.budgetMs || 0),
+        startedAt: Number(liveRecord.startedAt || 0),
+        deadlineAt,
+        elapsedMs: Math.max(0, Date.now() - Number(liveRecord.startedAt || Date.now())),
+        dispatchId,
+        tabId,
+        ...meta
+      },
+      force: true
+    });
+    finalizeAutomationDeadline(llmName, normalizedPhase, Number(liveRecord.budgetMs || 0), meta);
+  }, remainingMs);
+  runtimeBudgetTimerIds.add(timerId);
+  record.timerId = timerId;
+  record.deadlineAt = deadlineAt;
+  return timerId;
+};
+
 const startBudgetPhase = (llmName, phase, budgetMs, meta = {}) => {
   const entry = jobState?.llms?.[llmName];
   if (!entry || !phase) return;
@@ -3609,29 +3897,47 @@ const startBudgetPhase = (llmName, phase, budgetMs, meta = {}) => {
   const resolvedBudgetMs = Number(budgetMs || resolveBudgetMsForPhase(normalizedPhase)) || 0;
   if (resolvedBudgetMs <= 0) return;
   const existing = store[normalizedPhase];
-  if (existing?.timerId) {
+  if (normalizedPhase === 'generation' && existing) {
+    existing.startedAt = Number(existing.startedAt || entry.promptSubmittedAt || entry.lastDispatchAt || Date.now());
+    existing.budgetMs = Number(existing.budgetMs || resolvedBudgetMs);
+    existing.deadlineAt = Number(existing.deadlineAt || (existing.startedAt + existing.budgetMs));
+    const activeFocusBudgetMs = Number(entry.activeFocusBudgetMs || self.getActiveFocusWindowMs?.() || 60000);
+    entry.activeFocusStartedAt = Number(entry.activeFocusStartedAt || existing.startedAt);
+    entry.activeFocusBudgetMs = activeFocusBudgetMs;
+    entry.activeFocusDeadlineAt = Number(
+      entry.activeFocusDeadlineAt
+      || (entry.activeFocusStartedAt + activeFocusBudgetMs)
+    );
+    if (!existing.timerId || !runtimeBudgetTimerIds.has(existing.timerId)) {
+      existing.timerId = null;
+      scheduleBudgetTimer(llmName, normalizedPhase, existing, {
+        ...meta,
+        resumedExistingDeadline: true
+      });
+    }
+    return;
+  }
+  if (existing?.timerId && runtimeBudgetTimerIds.has(existing.timerId)) {
     clearTimeout(existing.timerId);
+    runtimeBudgetTimerIds.delete(existing.timerId);
   }
   const startedAt = Date.now();
-  const timerId = setTimeout(() => {
-    const liveEntry = jobState?.llms?.[llmName];
-    const dispatchId = liveEntry?.lastDispatchMeta?.dispatchId || null;
-    const tabId = liveEntry?.tabId || null;
-    emitTelemetry(llmName, 'BUDGET_EXHAUSTED', {
-      level: 'warning',
-      meta: {
-        phase: normalizedPhase,
-        budgetMs: resolvedBudgetMs,
-        startedAt,
-        elapsedMs: Math.max(0, Date.now() - startedAt),
-        dispatchId,
-        tabId,
-        ...meta
-      },
-      force: true
-    });
-  }, resolvedBudgetMs);
-  store[normalizedPhase] = { timerId, startedAt, budgetMs: resolvedBudgetMs };
+  const record = {
+    timerId: null,
+    startedAt,
+    deadlineAt: startedAt + resolvedBudgetMs,
+    budgetMs: resolvedBudgetMs
+  };
+  store[normalizedPhase] = record;
+  if (normalizedPhase === 'generation') {
+    const activeFocusBudgetMs = Number(self.getActiveFocusWindowMs?.() || 60000);
+    entry.activeFocusStartedAt = startedAt;
+    entry.activeFocusBudgetMs = activeFocusBudgetMs;
+    entry.activeFocusDeadlineAt = startedAt + activeFocusBudgetMs;
+    entry.activeFocusExhaustedAt = null;
+  }
+  scheduleBudgetTimer(llmName, normalizedPhase, record, meta);
+  saveJobState(jobState);
 };
 
 const endBudgetPhase = (llmName, phase) => {
@@ -3641,8 +3947,9 @@ const endBudgetPhase = (llmName, phase) => {
   if (!store) return;
   const normalizedPhase = String(phase).toLowerCase();
   const existing = store[normalizedPhase];
-  if (existing?.timerId) {
+  if (existing?.timerId && runtimeBudgetTimerIds.has(existing.timerId)) {
     clearTimeout(existing.timerId);
+    runtimeBudgetTimerIds.delete(existing.timerId);
   }
   delete store[normalizedPhase];
 };
@@ -3707,6 +4014,37 @@ const finalizeNoSendModelIfStalled = (llmName, sessionId, reason = 'round4_gate'
   if (dispatchAttempts <= 0) return false;
   const hasPromptConfirmation = !!entry.promptSubmittedAt;
   if (hasPromptConfirmation) return false;
+  // A provider dispatch can remain queued behind the focus/visit lease well past
+  // the ordinary no-send grace window. In that state "not confirmed yet" is not
+  // evidence that the send failed. Let the round4 gate keep waiting; its bounded
+  // timeout remains the final backstop if the dispatch never settles.
+  const dispatchStillPending = Boolean(
+    entry.awaitingSubmitConfirmation === true
+    || entry.dispatchInFlight === true
+    || ['QUEUED', 'ACTIVATING', 'READY', 'TYPING', 'SUBMITTING'].includes(
+      String(entry.dispatchState || '').toUpperCase()
+    )
+  );
+  if (dispatchStillPending) {
+    const pendingKey = entry?.lastDispatchMeta?.dispatchId || `tab_${entry?.tabId || 'unknown'}`;
+    if (entry.round4PendingDispatchDeferredKey !== pendingKey) {
+      entry.round4PendingDispatchDeferredKey = pendingKey;
+      emitTelemetry(llmName, 'ROUND4_NO_SEND_DEFERRED', {
+        level: 'info',
+        details: 'dispatch_still_pending',
+        meta: {
+          reason,
+          dispatchId: entry?.lastDispatchMeta?.dispatchId || null,
+          tabId: entry?.tabId || null,
+          awaitingSubmitConfirmation: entry.awaitingSubmitConfirmation === true,
+          dispatchInFlight: entry.dispatchInFlight === true,
+          dispatchState: entry.dispatchState || null
+        },
+        force: true
+      });
+    }
+    return false;
+  }
   const sessionStart = Number(jobState?.session?.startTime || 0) || Date.now();
   const stallStartedAt = Number(entry.lastDispatchAt || sessionStart || Date.now());
   const elapsedMs = Math.max(0, Date.now() - stallStartedAt);
@@ -4062,6 +4400,24 @@ function rehydrateActiveJobRuntime(source = 'load_job_state') {
       entry.preTerminalMaterializeRecovery = entry.preTerminalMaterializeRecovery && typeof entry.preTerminalMaterializeRecovery === 'object'
         ? { ...entry.preTerminalMaterializeRecovery, inFlight: false, rehydrated: true }
         : entry.preTerminalMaterializeRecovery;
+      const budgetStore = ensureBudgetStore(entry);
+      Object.entries(budgetStore || {}).forEach(([phase, record]) => {
+        const normalizedPhase = String(phase || '').toLowerCase();
+        const budgetMs = Number(record?.budgetMs || resolveBudgetMsForPhase(normalizedPhase)) || 0;
+        const startedAt = Number(record?.startedAt || entry.promptSubmittedAt || Date.now());
+        if (!['generation', 'collect'].includes(normalizedPhase) || budgetMs <= 0) {
+          delete budgetStore[phase];
+          return;
+        }
+        record.timerId = null;
+        record.startedAt = startedAt;
+        record.budgetMs = budgetMs;
+        record.deadlineAt = Number(record?.deadlineAt || (startedAt + budgetMs));
+        scheduleBudgetTimer(llmName, normalizedPhase, record, {
+          rehydrated: true,
+          rehydrationSource: source
+        });
+      });
       const tabId = resolveBoundTabIdForOrchestrator(llmName, entry);
       if (entry.promptSubmittedAt && isValidTabId(tabId)) {
         if (typeof self.armScriptRuntimeHardStopForConfirmedPrompt === 'function') {
@@ -4817,8 +5173,21 @@ async function recoverRound1TabReadiness(llmName, prompt, attachments = [], sess
   }
 }
 
+const orderRound1Models = (selectedLLMs = []) => {
+  const source = Array.isArray(selectedLLMs) ? selectedLLMs.filter(Boolean) : [];
+  const priorityRank = new Map(ROUND1_PRIORITY_MODELS.map((name, index) => [name, index]));
+  return source
+    .map((name, index) => ({ name, index }))
+    .sort((a, b) => {
+      const rankA = priorityRank.has(a.name) ? priorityRank.get(a.name) : Number.MAX_SAFE_INTEGER;
+      const rankB = priorityRank.has(b.name) ? priorityRank.get(b.name) : Number.MAX_SAFE_INTEGER;
+      return rankA === rankB ? a.index - b.index : rankA - rankB;
+    })
+    .map(({ name }) => name);
+};
+
 async function dispatchRound1Sequentially(selectedLLMs, prompt, attachments = [], sessionId) {
-  for (const llmName of selectedLLMs) {
+  for (const llmName of orderRound1Models(selectedLLMs)) {
     if (sessionId && !isSessionActive(sessionId)) return false;
     let entry = jobState?.llms?.[llmName];
     if (!entry) {
@@ -4858,6 +5227,7 @@ async function dispatchRound1Sequentially(selectedLLMs, prompt, attachments = []
       skipFocusRestore: true,
       skipSubmitWait: true,
       deferSendMs: ROUND1_BEFORE_SEND_MS,
+      postCommandFocusHoldMs: Number(ROUND1_POST_COMMAND_FOCUS_HOLD_MS[llmName] || 0),
       skipTypingGuard: true,
       resetStateAfterSend: false
     });
@@ -4888,6 +5258,19 @@ async function dispatchRound1Sequentially(selectedLLMs, prompt, attachments = []
 async function focusTabForVerification(llmName, tabId, durationMs, sessionId) {
   if (!isValidTabId(tabId)) return false;
   if (sessionId && !isSessionActive(sessionId)) return false;
+  const entry = jobState?.llms?.[llmName];
+  if (entry && self.isActiveFocusAllowedForEntry?.(entry) === false) {
+    emitTelemetry(llmName, 'VERIFICATION_FOCUS_SKIPPED', {
+      details: 'active_focus_window_exhausted',
+      meta: { tabId, activeFocusDeadlineAt: entry.activeFocusDeadlineAt || null }
+    });
+    return false;
+  }
+  const remainingFocusMs = entry?.activeFocusDeadlineAt
+    ? Math.max(0, Number(entry.activeFocusDeadlineAt) - Date.now())
+    : Number(durationMs || 0);
+  const boundedDurationMs = Math.min(Number(durationMs || 0), remainingFocusMs);
+  if (boundedDurationMs <= 0) return false;
   const previousTab = await getActiveTabSnapshot();
   let visitStarted = false;
   await withPromptDispatchFocusLock(async () => {
@@ -4896,7 +5279,7 @@ async function focusTabForVerification(llmName, tabId, durationMs, sessionId) {
   if (typeof startTabVisit === 'function') {
     visitStarted = startTabVisit(tabId, llmName, 'verification_focus') === true;
   }
-  await orchestratorSleepMs(durationMs);
+  await orchestratorSleepMs(boundedDurationMs);
   let visitSummary = null;
   if (
     visitStarted
@@ -4925,11 +5308,19 @@ async function runPreCollectScrollNudge(llmName, tabId, sessionId, reason = 'pre
     });
     return false;
   }
+  if (self.isActiveFocusAllowedForEntry?.(initialEntry) === false) {
+    emitTelemetry(llmName, 'PRECOLLECT_NUDGE_SKIP', {
+      details: 'active_focus_window_exhausted',
+      meta: { tabId, reason, activeFocusDeadlineAt: initialEntry.activeFocusDeadlineAt || null }
+    });
+    return false;
+  }
   const getSnapshotFn = (typeof getActiveTabSnapshot === 'function') ? getActiveTabSnapshot : null;
   const previousTab = getSnapshotFn ? await getSnapshotFn() : null;
   try {
     const liveEntry = jobState?.llms?.[llmName];
     if (!liveEntry || isFinalizedEntry(liveEntry)) return false;
+    if (self.isActiveFocusAllowedForEntry?.(liveEntry) === false) return false;
     if (typeof withPromptDispatchFocusLock === 'function') {
       await withPromptDispatchFocusLock(async () => {
         await activateTabForDispatch(tabId);
@@ -5057,6 +5448,13 @@ async function runForcedAutomationVisits(llmName, tabId, sessionId, options = {}
       emitTelemetry(llmName, 'FORCED_VISIT_SKIPPED', {
         details: 'terminal_before_visit',
         meta: { tabId, reason, visitIndex: index + 1, total: visits }
+      });
+      break;
+    }
+    if (self.isActiveFocusAllowedForEntry?.(liveEntry) === false) {
+      emitTelemetry(llmName, 'FORCED_VISIT_SKIPPED', {
+        details: 'active_focus_window_exhausted',
+        meta: { tabId, reason, visitIndex: index + 1, total: visits, activeFocusDeadlineAt: liveEntry.activeFocusDeadlineAt || null }
       });
       break;
     }
@@ -6105,8 +6503,8 @@ function deriveFailureFinalStatus(error = null, sendConfirmed = null, failure = 
   if (failureClass === 'dispatch' && /send|submit|dispatch|no_send/.test(type)) return type === 'no_send' || /send|submit/.test(type) ? 'NO_SEND' : 'ERROR';
   if (['extract_failed', 'empty_answer', 'answer_element_missing', 'answer_prompt_echo', 'answer_ui_noise'].includes(type)) return 'EXTRACT_FAILED';
   if (['extraction', 'semantic'].includes(failureClass) && !/^rate_limit|captcha/.test(type)) return 'EXTRACT_FAILED';
-  if (type === 'stream_start_timeout') return 'STREAM_TIMEOUT';
-  if (failureClass === 'generation' && /stream_start_timeout/.test(type)) return 'STREAM_TIMEOUT';
+  if (type === 'stream_start_timeout' || type === 'automation_deadline') return 'STREAM_TIMEOUT';
+  if (failureClass === 'generation' && /stream_start_timeout|automation_deadline/.test(type)) return 'STREAM_TIMEOUT';
   if (failureClass === 'unknown' || type === 'unknown_state' || type === 'uncertain') return 'UNCERTAIN';
   return 'ERROR';
 }
@@ -6208,6 +6606,21 @@ function evaluateAnswerCandidate(llmName, entry, candidate = {}, context = {}) {
 function submitAnswerCandidate(llmName, entry, candidate = {}, context = {}) {
   const evaluation = evaluateAnswerCandidate(llmName, entry, candidate, context);
   if (entry) {
+    self.AnswerVerification?.appendRevision?.(entry, {
+      text: candidate.text || '', hash: candidate.hash || null, length: candidate.length || 0,
+      channel: candidate.source || context.responseSource || 'background_candidate',
+      decision: evaluation.accepted ? 'accepted' : 'rejected',
+      reason: evaluation.accepted ? null : evaluation.rejectionReasons.join(','),
+      dispatchId: candidate.dispatchId || null, runSessionId: candidate.runSessionId || null,
+      turnAnchor: entry.preDispatchAnswerNodeCount ?? entry.anchorAnswerCount ?? entry.baselineAnswerCount ?? null,
+      verified: evaluation.evidence?.answerVerified === true
+    });
+    self.AnswerVerification?.appendTimeline?.(entry, {
+      stage: 'extraction', state: evaluation.accepted ? 'candidate_accepted' : 'candidate_rejected',
+      dispatchId: candidate.dispatchId || null, source: candidate.source || context.responseSource || 'background_candidate',
+      details: { length: candidate.length || 0, verified: evaluation.evidence?.answerVerified === true,
+        reasons: evaluation.rejectionReasons.join(',') }
+    });
     entry.lastAnswerCandidate = {
       llmName,
       status: candidate.status || null,
@@ -6238,6 +6651,7 @@ function submitAnswerCandidate(llmName, entry, candidate = {}, context = {}) {
       tabId: candidate.tabId || null,
       runSessionId: candidate.runSessionId || jobState?.session?.startTime || null,
       manualRecovery: !!candidate.manualRecovery,
+      verified: evaluation.evidence?.answerVerified === true,
       allowTerminalUpgrade: !!context.allowTerminalUpgrade,
       source: candidate.source || context.responseSource || 'submitAnswerCandidate'
     };
@@ -6249,6 +6663,131 @@ function submitAnswerCandidate(llmName, entry, candidate = {}, context = {}) {
   }
   return evaluation;
 }
+
+function recordPipelineAnswerVerification(llmName, verification = {}, sender = {}) {
+  const entry = jobState?.llms?.[llmName];
+  if (!entry || !verification || typeof verification !== 'object') return false;
+  const dispatchId = entry.confirmedDispatchId || entry.lastDispatchMeta?.dispatchId || null;
+  const incomingIdentity = {
+    runSessionId: verification.runSessionId ?? null,
+    dispatchId: verification.dispatchId ?? null,
+    generationEpoch: verification.generationEpoch ?? null,
+    turnAnchor: verification.turnAnchor ?? null
+  };
+  const currentIdentity = {
+    runSessionId: jobState?.session?.startTime || null,
+    dispatchId,
+    generationEpoch: Number(entry.generationEpoch || 0) || null,
+    turnAnchor: entry.preDispatchAnswerNodeCount ?? entry.anchorAnswerCount ?? entry.baselineAnswerCount ?? null
+  };
+  const identityCheck = self.AnswerVerification?.compareIdentity?.(currentIdentity, incomingIdentity, { strict: true })
+    || { ok: false, missing: ['identity_contract_unavailable'], mismatched: [] };
+  const senderMatches = !sender?.tab?.id || !entry.tabId || Number(sender.tab.id) === Number(entry.tabId);
+  const verified = verification.verified === true && identityCheck.ok && senderMatches;
+  const identityReasons = [
+    ...(identityCheck.missing || []).map((key) => `identity_missing:${key}`),
+    ...(identityCheck.mismatched || []).map((key) => `identity_mismatch:${key}`),
+    ...(senderMatches ? [] : ['identity_mismatch:tabId'])
+  ];
+  const result = {
+    verified,
+    state: verified ? 'verified' : (verification.state || 'candidate'),
+    reasons: Array.from(new Set([
+      ...(Array.isArray(verification.reasons) ? verification.reasons : []),
+      ...identityReasons
+    ])).slice(0, 12),
+    selectedHash: verification.selectedHash || null,
+    selectedLength: Number(verification.selectedLength || 0),
+    candidateSetHash: verification.candidateSetHash || null,
+    messageRootHash: verification.messageRootHash || null,
+    resolution: verification.resolution || 'unknown',
+    structuralComplete: verification.structuralComplete === true,
+    structuralIssues: Array.isArray(verification.structuralIssues) ? verification.structuralIssues.slice(0, 20) : [],
+    generationActive: typeof verification.generationActive === 'boolean' ? verification.generationActive : null,
+    generationSignalKind: verification.generationSignalKind || null,
+    generationSignalSelector: verification.generationSignalSelector || null,
+    generationSignalChecks: Array.isArray(verification.generationSignalChecks) ? verification.generationSignalChecks.slice(0, 40) : [],
+    selectedNodeKey: verification.selectedNodeKey || null,
+    selectedCandidateIndex: Number.isFinite(Number(verification.selectedCandidateIndex)) ? Number(verification.selectedCandidateIndex) : null,
+    candidateOrdinalAfterAnchor: Number.isFinite(Number(verification.candidateOrdinalAfterAnchor)) ? Number(verification.candidateOrdinalAfterAnchor) : null,
+    candidateFirstSeenAt: Number(verification.candidateFirstSeenAt || 0) || null,
+    firstMutationAfterDispatchAt: Number(verification.firstMutationAfterDispatchAt || 0) || null,
+    baselineEquivalent: verification.baselineEquivalent ?? null,
+    maxObservedTextLength: Number(verification.maxObservedTextLength || verification.selectedLength || 0),
+    lengthDecreaseCount: Number(verification.lengthDecreaseCount || 0),
+    lastLengthDecrease: verification.lastLengthDecrease || null,
+    lengthRegressionActive: verification.lengthRegressionActive === true,
+    lengthRegressionFloor: Number(verification.lengthRegressionFloor || 0),
+    recentLengths: Array.isArray(verification.recentLengths) ? verification.recentLengths.slice(-12) : [],
+    messageRootLength: Number(verification.messageRootLength || 0),
+    snapshotsCompared: Number(verification.snapshotsCompared || 0),
+    nodes: Array.isArray(verification.nodes) ? verification.nodes.slice(0, 12) : [],
+    effectiveConfig: verification.effectiveConfig || null,
+    ...incomingIdentity,
+    tabId: sender?.tab?.id || entry.tabId || null,
+    observedAt: Date.now(),
+    method: 'dom_structural_stability'
+  };
+  entry.answerVerification = result;
+  emitTelemetry(llmName, 'ANSWER_VERIFICATION_RECORDED', {
+    level: result.verified ? 'success' : 'warning',
+    details: result.verified ? 'verified' : (result.reasons.join(',') || 'candidate'),
+    meta: {
+      verified: result.verified,
+      state: result.state,
+      reasons: result.reasons,
+      resolution: result.resolution,
+      structuralComplete: result.structuralComplete,
+      structuralIssues: result.structuralIssues,
+      generationActive: result.generationActive,
+      generationSignalKind: result.generationSignalKind,
+      generationSignalSelector: result.generationSignalSelector,
+      generationSignalChecks: result.generationSignalChecks,
+      selectedNodeKey: result.selectedNodeKey,
+      selectedCandidateIndex: result.selectedCandidateIndex,
+      candidateOrdinalAfterAnchor: result.candidateOrdinalAfterAnchor,
+      candidateFirstSeenAt: result.candidateFirstSeenAt,
+      firstMutationAfterDispatchAt: result.firstMutationAfterDispatchAt,
+      baselineEquivalent: result.baselineEquivalent,
+      maxObservedTextLength: result.maxObservedTextLength,
+      lengthDecreaseCount: result.lengthDecreaseCount,
+      lengthRegressionActive: result.lengthRegressionActive,
+      lengthRegressionFloor: result.lengthRegressionFloor,
+      lastLengthDecrease: result.lastLengthDecrease,
+      recentLengths: result.recentLengths,
+      messageRootLength: result.messageRootLength,
+      selectedLength: result.selectedLength,
+      snapshotsCompared: result.snapshotsCompared,
+      identityCheck,
+      incomingIdentity,
+      currentIdentity,
+      senderMatches
+    },
+    force: true
+  });
+  self.AnswerVerification?.appendTimeline?.(entry, {
+    stage: 'verification', state: result.state, dispatchId, tabId: result.tabId,
+    source: result.method, details: { reasons: result.reasons.join(','), selectedLength: result.selectedLength,
+      snapshotsCompared: result.snapshotsCompared }
+  });
+  const transition = result.verified ? 'ANSWER_VERIFIED' : 'ANSWER_CANDIDATE_OBSERVED';
+  const payload = { status: 'FINALIZING', dispatchId, tabId: result.tabId, verifiedAt: result.observedAt, method: result.method };
+  if (self.commitModelRunTransition) self.commitModelRunTransition(llmName, entry, transition, payload);
+  else self.ModelRunState?.applyModelRunTransition?.(entry, transition, payload);
+  saveJobState(jobState);
+  return true;
+}
+self.recordPipelineAnswerVerification = recordPipelineAnswerVerification;
+
+function extractCalibrationEndMarker(promptText = '') {
+  const lines = String(promptText || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const match = lines[index].match(/\b(B2-[A-Z0-9-]*END-[A-Z0-9]+)\b/i);
+    if (match) return match[1];
+  }
+  return null;
+}
+self.extractCalibrationEndMarker = extractCalibrationEndMarker;
 
 function buildFinalizationEvidence(llmName, entry, context = {}) {
   const answerText = String(context.trimmedAnswer || '').trim();
@@ -6301,6 +6840,85 @@ function buildFinalizationEvidence(llmName, entry, context = {}) {
     || Number(entry?.answerCompleteTextLength || 0) >= DOM_SNAPSHOT_RECOVERY_MIN_CHARS;
   const preFinalRecovery = Boolean(context.metaObj?.preTerminalMaterializeFinal || context.metaObj?.preTerminalMaterialize || responseMeta?.preTerminalMaterialize);
   const manualRecovery = Boolean(context.metaObj?.manualRecovery || responseMeta?.manualRecovery || responseMeta?.manualOverride);
+  const verification = responseMeta.answerVerification || context.metaObj?.answerVerification || entry?.answerVerification || null;
+  const currentIdentity = {
+    runSessionId: jobState?.session?.startTime || null,
+    dispatchId,
+    generationEpoch: Number(entry?.generationEpoch || 0) || null,
+    turnAnchor: entry?.preDispatchAnswerNodeCount ?? entry?.anchorAnswerCount ?? entry?.baselineAnswerCount ?? verification?.turnAnchor ?? null
+  };
+  const evidenceIdentity = {
+    runSessionId: verification?.runSessionId ?? responseMeta.runSessionId ?? context.metaObj?.runSessionId ?? context.metaObj?.sessionId ?? null,
+    dispatchId: verification?.dispatchId ?? responseMeta.dispatchId ?? context.metaObj?.dispatchId ?? context.dispatchId ?? null,
+    generationEpoch: verification?.generationEpoch ?? responseMeta.generationEpoch ?? context.metaObj?.generationEpoch ?? null,
+    turnAnchor: verification?.turnAnchor ?? responseMeta.turnAnchor ?? context.metaObj?.turnAnchor ?? null
+  };
+  const verificationIdentity = self.AnswerVerification?.compareIdentity
+    ? self.AnswerVerification.compareIdentity(currentIdentity, evidenceIdentity, { strict: true })
+    : { ok: false, missing: ['identity_contract_unavailable'], mismatched: [] };
+  // Content and background use intentionally independent hash functions. Bind the
+  // proof by dispatch/epoch and compare the observed length instead of pretending
+  // the hashes are interoperable.
+  const verificationLengthMatches = !verification?.selectedLength || !answerText
+    || Math.abs(Number(verification.selectedLength) - answerText.length) <= Math.max(12, Math.floor(answerText.length * 0.08));
+  const strictAutomaticVerification = verification?.verified === true
+    && verification?.resolution === 'exact'
+    && verification?.structuralComplete === true
+    && verification?.generationActive === false
+    && verification?.lengthRegressionActive !== true
+    && verificationLengthMatches;
+  const confirmedDispatchId = entry?.confirmedDispatchId || null;
+  const automaticSubmissionConfirmed = Boolean(
+    dispatchId
+    && promptSubmittedAt
+    && confirmedDispatchId
+    && String(confirmedDispatchId) === String(dispatchId)
+    && entry?.submitSource !== 'inferred_answer_evidence'
+  );
+  const answerVerified = Boolean(manualRecovery
+    || (automaticSubmissionConfirmed && verificationIdentity.ok && strictAutomaticVerification));
+  const calibrationEndMarker = extractCalibrationEndMarker(
+    resolvePromptForDispatch(llmName, jobState?.prompt || '')
+  );
+  const calibrationEndMarkerPresent = calibrationEndMarker
+    ? answerText.includes(calibrationEndMarker)
+    : null;
+  // This is a copied, decision-time diagnostic record. It deliberately contains
+  // no answer text or HTML and is not recomputed from a later DOM capture.
+  const decisionSnapshot = Object.freeze({
+    capturedAt: Date.now(),
+    verificationObservedAt: Number(verification?.observedAt || 0) || null,
+    answerLength,
+    selectedLength: Number(verification?.selectedLength || 0),
+    messageRootLength: Number(verification?.messageRootLength || 0),
+    resolution: verification?.resolution || 'unknown',
+    structuralComplete: verification?.structuralComplete === true,
+    structuralIssues: Array.isArray(verification?.structuralIssues) ? verification.structuralIssues.slice(0, 20) : [],
+    generationActive: typeof verification?.generationActive === 'boolean' ? verification.generationActive : null,
+    generationSignalKind: verification?.generationSignalKind || null,
+    generationSignalSelector: verification?.generationSignalSelector || null,
+    snapshotsCompared: Number(verification?.snapshotsCompared || 0),
+    sendCommandAt: lastDispatchAt,
+    submissionConfirmedAt: promptSubmittedAt,
+    submissionConfirmedForDispatch: automaticSubmissionConfirmed,
+    confirmedDispatchId,
+    baselineHash: entry?.preDispatchAnswerHash || entry?.baselineAnswerHash || null,
+    baselineEquivalent: verification?.baselineEquivalent ?? null,
+    selectedNodeKey: verification?.selectedNodeKey || null,
+    selectedCandidateIndex: Number.isFinite(Number(verification?.selectedCandidateIndex)) ? Number(verification.selectedCandidateIndex) : null,
+    candidateOrdinalAfterAnchor: Number.isFinite(Number(verification?.candidateOrdinalAfterAnchor)) ? Number(verification.candidateOrdinalAfterAnchor) : null,
+    candidateFirstSeenAt: Number(verification?.candidateFirstSeenAt || entry?.answerStartedAt || 0) || null,
+    firstMutationAfterDispatchAt: Number(verification?.firstMutationAfterDispatchAt || 0) || null,
+    maxObservedTextLength: Number(verification?.maxObservedTextLength || verification?.selectedLength || 0),
+    lengthDecreaseCount: Number(verification?.lengthDecreaseCount || 0),
+    lastLengthDecrease: verification?.lastLengthDecrease || null,
+    lengthRegressionActive: verification?.lengthRegressionActive === true,
+    lengthRegressionFloor: Number(verification?.lengthRegressionFloor || 0),
+    recentLengths: Array.isArray(verification?.recentLengths) ? verification.recentLengths.slice(-12) : [],
+    generationSignalChecks: Array.isArray(verification?.generationSignalChecks) ? verification.generationSignalChecks.slice(0, 40) : [],
+    calibrationEndMarker,
+    calibrationEndMarkerPresent
+  });
   const terminalFailure = FAILURE_STATUSES.includes(finalStatus);
   const success = SUCCESS_STATUSES.includes(finalStatus);
   const contradictions = [];
@@ -6308,6 +6926,12 @@ function buildFinalizationEvidence(llmName, entry, context = {}) {
   if (staleBaseline && !manualRecovery) contradictions.push('stale_baseline_candidate');
   if (preFinalRecovery && success && !manualRecovery && !freshness?.fresh && !explicitCandidateFresh) {
     contradictions.push('prefinal_recovery_freshness_unproven');
+  }
+  // The verifier being unavailable is not evidence. Automatic success must
+  // fail closed instead of silently reverting to the legacy heuristic path.
+  if (success && !answerVerified) contradictions.push('answer_not_verified');
+  if (success && !manualRecovery && !automaticSubmissionConfirmed) {
+    contradictions.push('automatic_finalization_before_submit_confirmation');
   }
   if (terminalFailure && hasAnswerEvidence && !manualRecovery) {
     contradictions.push(preFinalRecovery
@@ -6353,11 +6977,47 @@ function buildFinalizationEvidence(llmName, entry, context = {}) {
     terminalRequiresEvidenceMiss: failureClassification?.terminalRequiresEvidenceMiss ?? null,
     preFinalRecovery,
     manualRecovery,
+    automaticSubmissionConfirmed,
+    confirmedDispatchId,
+    answerVerified,
+    verificationState: answerVerified ? 'verified' : (verification?.state || 'candidate'),
+    verificationMethod: manualRecovery ? 'manual_recovery' : verification?.method || null,
+    verificationIdentity,
+    verification,
+    decisionSnapshot,
+    calibrationEndMarker,
+    calibrationEndMarkerPresent,
     terminalFailure,
     success,
     contradictions,
     accepted: contradictions.length === 0 || manualRecovery
   };
+}
+
+function summarizeFinalizationEvidenceForTelemetry(evidence = null) {
+  if (!evidence || typeof evidence !== 'object') return null;
+  const summary = { ...evidence };
+  const answerEvidence = evidence.answerEvidence && typeof evidence.answerEvidence === 'object'
+    ? evidence.answerEvidence
+    : null;
+  if (answerEvidence) {
+    const text = String(answerEvidence.text || '');
+    const html = String(answerEvidence.html || '');
+    summary.answerEvidence = {
+      source: answerEvidence.source || null,
+      method: answerEvidence.method || null,
+      length: Number(answerEvidence.length || answerEvidence.textLength || text.trim().length || 0),
+      hash: answerEvidence.hash || answerEvidence.answerHash || null,
+      htmlLength: Number(answerEvidence.htmlLength || html.length || 0),
+      dispatchId: answerEvidence.dispatchId || null,
+      tabId: answerEvidence.tabId || null,
+      promptConfirmed: answerEvidence.promptConfirmed ?? null,
+      freshTurnEvidence: answerEvidence.freshTurnEvidence ?? null,
+      terminalEligible: answerEvidence.terminalEligible ?? null,
+      reason: answerEvidence.reason || null
+    };
+  }
+  return summary;
 }
 
 function shouldInferSubmitFromAnswerEvidence(llmName, entry, context = {}) {
@@ -6374,11 +7034,21 @@ function shouldInferSubmitFromAnswerEvidence(llmName, entry, context = {}) {
   const status = String(entry.status || entry.finalStatus || '').toUpperCase();
   const dispatchId = metaObj.dispatchId || entry?.lastDispatchMeta?.dispatchId || entry?.confirmedDispatchId || null;
   if (isStaleBaselineCandidate(entry, answerText, dispatchId)) return false;
+  const liveDispatchId = entry?.lastDispatchMeta?.dispatchId || entry?.awaitingSubmitConfirmationDispatchId || null;
+  const previousPendingAnswer = String(entry?.pendingFinalAnswer || '').trim();
+  const observedGrowthAfterDispatch = Boolean(
+    entry.awaitingSubmitConfirmation === true
+    && Number(entry.lastDispatchAt || 0) > 0
+    && (!dispatchId || !liveDispatchId || String(dispatchId) === String(liveDispatchId))
+    && answerText.length >= DOM_SNAPSHOT_RECOVERY_MIN_CHARS
+    && answerText.length > previousPendingAnswer.length + 24
+  );
   const freshTurnProven = Boolean(
     responseMeta.freshTurnEvidence
     || responseMeta.anchorApplied
     || metaObj.freshTurnEvidence
     || metaObj.anchorApplied
+    || observedGrowthAfterDispatch
     || self.RecoveryIntent?.hasMatchingLifecycleEvidence?.(entry, dispatchId)
   );
   if (!freshTurnProven) return false;
@@ -6393,6 +7063,7 @@ function shouldInferSubmitFromAnswerEvidence(llmName, entry, context = {}) {
     || source.includes('materialize')
     || source.includes('snapshot')
     || source.includes('inline_executescript')
+    || observedGrowthAfterDispatch
     || status === 'NO_SEND'
     || status === 'RECOVERABLE_ERROR'
   );
@@ -6452,8 +7123,10 @@ function inferPromptSubmittedFromAnswerEvidence(llmName, entry, context = {}) {
 function recordModelRunState(llmName, entry, evidence = {}) {
   if (!entry) return;
   const status = String(evidence.finalStatus || entry.status || '').toUpperCase();
+  const acceptedSuccess = Boolean(evidence.accepted && evidence.success);
+  const acceptedFailure = Boolean(evidence.accepted && evidence.terminalFailure);
   const legacyState = {
-    executionStatus: evidence.success ? 'finalized_success' : (evidence.terminalFailure ? 'finalized_failure' : 'running'),
+    executionStatus: acceptedSuccess ? 'finalized_success' : (acceptedFailure ? 'finalized_failure' : 'running'),
     generationStatus: evidence.lifecycleReadyAt ? 'complete' : (evidence.completionReason || 'unknown'),
     answerStatus: evidence.promptEcho ? 'rejected_prompt_echo' : (evidence.hasAcceptedAnswer ? 'accepted' : (evidence.hasAnswerEvidence ? 'candidate' : 'none')),
     uiStatus: status || null,
@@ -6473,6 +7146,7 @@ function recordModelRunState(llmName, entry, evidence = {}) {
       tabId: evidence.tabId || null,
       runSessionId: jobState?.session?.startTime || null,
       manualRecovery: !!evidence.manualRecovery,
+      verified: evidence.answerVerified === true,
       source: 'recordModelRunState'
     };
     if (self.commitModelRunTransition) {
@@ -6486,8 +7160,8 @@ function recordModelRunState(llmName, entry, evidence = {}) {
       executionState: entry.modelRunState?.executionState || legacyState.executionStatus,
       generationState: entry.modelRunState?.generationState || legacyState.generationStatus,
       answerState: entry.modelRunState?.answerState || legacyState.answerStatus,
-      terminalStatus: entry.modelRunState?.terminalStatus || (evidence.success || evidence.terminalFailure ? status : null),
-      terminalState: entry.modelRunState?.terminalState || (evidence.success ? 'success' : (evidence.terminalFailure ? 'failure' : 'open'))
+      terminalStatus: entry.modelRunState?.terminalStatus || (acceptedSuccess || acceptedFailure ? status : null),
+      terminalState: entry.modelRunState?.terminalState || (acceptedSuccess ? 'success' : (acceptedFailure ? 'failure' : 'open'))
     };
     return;
   }
@@ -6521,6 +7195,9 @@ function emitFinalizationDecision(llmName, evidence = {}) {
       errorType: evidence.errorType || null,
       preFinalRecovery: !!evidence.preFinalRecovery,
       manualRecovery: !!evidence.manualRecovery,
+      decisionSnapshot: evidence.decisionSnapshot || null,
+      calibrationEndMarker: evidence.calibrationEndMarker || null,
+      calibrationEndMarkerPresent: evidence.calibrationEndMarkerPresent ?? null,
       contradictions: evidence.contradictions || [],
       accepted: !!evidence.accepted
     },
@@ -7461,6 +8138,39 @@ function handleLLMResponse(llmName, answer, error = null, meta = null, answerHtm
     });
   }
 
+  if (finalStatus === 'SUCCESS' && finalizationEvidence.success && !finalizationEvidence.accepted) {
+    entry.pendingFinalAnswer = normalizedAnswer;
+    entry.pendingFinalAnswerHtml = normalizedHtml;
+    emitTelemetry(llmName, 'TERMINAL_SUCCESS_BLOCKED_BY_ANSWER_EVIDENCE', {
+      level: 'warning',
+      details: `${finalStatus}:${finalizationEvidence.contradictions.join(',') || 'insufficient_answer_evidence'}`,
+      meta: {
+        finalStatus,
+        finalReason,
+        dispatchId: incomingDispatchId,
+        answerLength: trimmedAnswer.length,
+        contradictions: finalizationEvidence.contradictions
+      },
+      force: true
+    });
+    updateModelState(llmName, 'RECEIVING', {
+      message: 'awaiting_stronger_answer_evidence',
+      completionReason,
+      responseSource
+    });
+    const retryTabId = resolveBoundTabIdForOrchestrator(llmName, entry);
+    if (isValidTabId(retryTabId)) {
+      triggerResponseCollectionPing(llmName, retryTabId, 'terminal_success_evidence_blocked', {
+        allowRecovery: true,
+        maxAttempts: 3,
+        baseDelay: 700
+      });
+    }
+    saveJobState(jobState);
+    broadcastGlobalState();
+    return;
+  }
+
   if (finalizationEvidence.terminalFailure && !finalizationEvidence.accepted) {
     const preservedAnswer = finalStatus === 'NO_SEND'
       ? ''
@@ -7576,6 +8286,8 @@ function handleLLMResponse(llmName, answer, error = null, meta = null, answerHtm
   if (entry && isSuccess) {
     entry.answer = normalizedAnswer;
     entry.answerHtml = normalizedHtml;
+    delete entry.unverifiedArtifact;
+    entry.attributionState = finalizationEvidence?.answerVerified === true ? 'proven' : null;
   }
   updateModelState(llmName, finalStatus, {
     message: finalReason || '',
@@ -7655,7 +8367,7 @@ function handleLLMResponse(llmName, answer, error = null, meta = null, answerHtm
         finalReason,
         dispatchId,
         tabId,
-        finalizationEvidence
+        finalizationEvidence: summarizeFinalizationEvidenceForTelemetry(finalizationEvidence)
       },
       force: true
     });
@@ -7734,6 +8446,7 @@ function handleLLMResponse(llmName, answer, error = null, meta = null, answerHtm
         tabId,
         runSessionId: jobState?.session?.startTime || null,
         manualRecovery: allowManualTerminalOverride,
+        verified: finalizationEvidence?.answerVerified === true,
         allowTerminalUpgrade,
         failureClass: isSuccess ? null : failureClassification?.class || 'unknown',
         failureType: isSuccess ? null : failureClassification?.type || error?.type || null,
@@ -7755,9 +8468,18 @@ function handleLLMResponse(llmName, answer, error = null, meta = null, answerHtm
         ? self.LLMStatusContract.deriveStatusContract(entry)
         : null;
     }
+    self.AnswerVerification?.markLatestRevisionApplied?.(entry, {
+      dispatchId, appliedTimestamp: Date.now(), verified: finalizationEvidence?.answerVerified === true,
+      decision: isSuccess ? 'applied' : 'failure_applied'
+    });
+    self.AnswerVerification?.appendTimeline?.(entry, {
+      stage: 'applied', state: finalStatus.toLowerCase(), dispatchId, tabId,
+      source: responseSource || 'handleLLMResponse',
+      details: { answerLength: trimmedAnswer.length, verified: finalizationEvidence?.answerVerified === true }
+    });
   }
 
-  if (!isSuccess) {
+  if (!isSuccess && !metaObj?.automationDeadline) {
     scheduleTerminalExtractionRecovery(llmName, finalReason);
   }
 
@@ -7835,6 +8557,9 @@ function handleLLMResponse(llmName, answer, error = null, meta = null, answerHtm
   if (finalStatus === 'SUCCESS' || finalStatus === 'PARTIAL' || finalStatus === 'STREAM_TIMEOUT_HIDDEN') {
     if (typeof self.completeHumanPresenceForModel === 'function') {
       self.completeHumanPresenceForModel(llmName, 'terminal_success');
+    }
+    if (typeof self.schedulePostSuccessScrollAudit === 'function' && isValidTabId(tabId)) {
+      self.schedulePostSuccessScrollAudit(llmName, tabId);
     }
     if (typeof self.downgradePipelineHardTimeoutLogs === 'function') {
       self.downgradePipelineHardTimeoutLogs(llmName);
@@ -8267,6 +8992,10 @@ async function handleManualResponsePing(llmName, options = {}) {
             llmName,
             status: 'success',
             source: result.source || 'late_collect',
+            answer: String(updatedEntry?.answer || result.text || ''),
+            answerHtml: String(updatedEntry?.answerHtml || result.html || ''),
+            requestId: updatedEntry?.requestId || null,
+            finalStatus: updatedEntry?.finalStatus || updatedEntry?.status || null,
             strategyId: candidate?.strategyId || result.strategyId || strategy?.id || null,
             selectorUsed: candidate?.selectorDescriptor || result.selectorDescriptor || result.selectorUsed || null,
             attempt: Number(recovery?.attempt || 0)
@@ -8392,6 +9121,7 @@ function sendCleanupCommand(llmName) {
   self.startBudgetPhase = startBudgetPhase;
   self.endBudgetPhase = endBudgetPhase;
   self.clearBudgetPhases = clearBudgetPhases;
+  self.finalizeAutomationDeadline = finalizeAutomationDeadline;
   self.initRequestMetadata = initRequestMetadata;
   self.persistRequestMetadata = persistRequestMetadata;
   self.handleManualResponsePing = handleManualResponsePing;
@@ -8416,6 +9146,8 @@ function sendCleanupCommand(llmName) {
   self.waitForRound4Gate = waitForRound4Gate;
   self.classifyMaterializeRecoveryFinality = classifyMaterializeRecoveryFinality;
   self.shouldAcceptMaterializeRecoveryResult = shouldAcceptMaterializeRecoveryResult;
+  self.getCompleteMaterializeVerification = getCompleteMaterializeVerification;
+  self.preserveUnprovenMaterializeArtifact = preserveUnprovenMaterializeArtifact;
   self.normalizeEvidenceText = normalizeEvidenceText;
   self.buildEvidenceDedupeKey = buildEvidenceDedupeKey;
   self.buildRecoveryBudgetKey = buildRecoveryBudgetKey;
@@ -8431,9 +9163,11 @@ function sendCleanupCommand(llmName) {
   self.evaluateAnswerCandidate = evaluateAnswerCandidate;
   self.submitAnswerCandidate = submitAnswerCandidate;
   self.buildFinalizationEvidence = buildFinalizationEvidence;
+  self.summarizeFinalizationEvidenceForTelemetry = summarizeFinalizationEvidenceForTelemetry;
   self.hasRound2SubmitOrAnswerEvidence = hasRound2SubmitOrAnswerEvidence;
   self.getRound2SubmitConfirmationState = getRound2SubmitConfirmationState;
   self.waitForRound2SubmitConfirmation = waitForRound2SubmitConfirmation;
+  self.orderRound1Models = orderRound1Models;
   self.isRound2DelayedConfirmationState = isRound2DelayedConfirmationState;
   self.shouldInferSubmitFromAnswerEvidence = shouldInferSubmitFromAnswerEvidence;
   self.inferPromptSubmittedFromAnswerEvidence = inferPromptSubmittedFromAnswerEvidence;

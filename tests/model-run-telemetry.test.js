@@ -165,4 +165,31 @@ describe('model run telemetry', () => {
       })
     );
   });
+
+  test('state projection telemetry records answer sizes without full content', () => {
+    const context = createSandbox();
+    const answer = 'Private generated answer. '.repeat(100);
+    const html = `<p>${answer}</p>`;
+    const entry = {
+      llmName: 'GPT',
+      status: 'GENERATING',
+      modelRunState: context.ModelRunState.deriveModelRunState({ status: 'GENERATING' })
+    };
+
+    context.projectModelRunStateToLegacy('GPT', entry, {
+      answer,
+      answerHtml: html,
+      pendingFinalAnswer: answer
+    }, 'test_answer_projection');
+
+    const projectionCall = context.emitTelemetry.mock.calls.find(([, label]) => label === 'STATE_PROJECTION_COMMITTED');
+    expect(projectionCall).toBeTruthy();
+    const projection = projectionCall[2].meta.projection;
+    expect(projection.answer).toBeUndefined();
+    expect(projection.answerHtml).toBeUndefined();
+    expect(projection.pendingFinalAnswer).toBeUndefined();
+    expect(projection.answerLength).toBe(answer.trim().length);
+    expect(projection.answerHtmlLength).toBe(html.trim().length);
+    expect(projection.pendingFinalAnswerLength).toBe(answer.trim().length);
+  });
 });

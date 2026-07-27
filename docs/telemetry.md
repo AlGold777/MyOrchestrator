@@ -1,5 +1,46 @@
 # Telemetry - tab/session diagnostics
 
+## Update v2.81.74 - 2026-07-25
+
+Purpose: keep Disput telemetry diagnostic rather than turning it into a second
+copy of prompts, model answers and semantic state.
+
+- Disput trace redacts full content fields at ingress, including generic `text`,
+  camelCase prompt/answer/HTML names, nested answer evidence, StateMap/context
+  snapshots and attachment bodies. Length/hash/IDs remain available.
+- Restored trace storage is re-sanitized and immediately rewritten, covering
+  events written by older extension versions and removing their raw persisted
+  copies (`TraceSchema.VERSION=5`).
+- Diagnostic Telemetry-to-Disput bridging uses a safe evidence whitelist and
+  drops uninformative legacy info events.
+- Derived JSON sections contain event references and compact artifact metadata,
+  never embedded copies of canonical events.
+- `Only problems` applies to `events`, dispatches, recoveries, divergences,
+  participants and barriers through the same visible evidence IDs.
+- JSON download has a final deep secret-redaction pass.
+
+## Update v2.81.73 - 2026-07-25
+
+Purpose: make partial generation, tab closure and reasoning/final-answer
+confusion visible without exporting provider response content.
+
+- `MODEL_OUTCOME.meta.observedState` distinguishes
+  `generating_partial_answer`, `generating`,
+  `answer_observed_without_terminal`, `tab_closed_during_generation` and
+  terminal state. It also contains latest/max observed text length.
+- `TAB_CLOSED.meta` includes `closureState`, terminal/generation flags, last
+  answer length and `mappingSource`. `closeOrigin=user_or_external` reflects the
+  Chrome API limitation: a removed tab alone does not prove a user click.
+- Qwen lifecycle events include `responsePhase` and length/boolean-only
+  `phaseEvidence`. `LIFECYCLE_COMPLETION_PHASE_SUSPECT` is a warning when a
+  generic completion decision was made on a reasoning-only DOM snapshot.
+- `MODEL_FINAL` and `STATE_PROJECTION_COMMITTED` redact full answer text/HTML
+  and retain evidence length/hash/source only.
+- `MODEL_OUTCOME.meta.consistencyIssues` reports contradictory terminal
+  metadata such as `SUCCESS` paired with `doneReason=error`.
+- A failed fallback selector is downgraded to informational when another
+  selector for the same model/target succeeded in that aggregation window.
+
 ## 2026-02-16 12:26 (v2.72.77)
 - `SCRIPT_RUNTIME_HARD_STOP_GRACE` added: hard-stop now supports bounded grace extensions when recent runtime activity is present, reducing false timeout terminalization near response completion.
 - Runtime activity signals are tracked via diagnostics, prompt submit confirmation, and incoming responses (`lastRuntimeActivityAt/Source`), and used by hard-stop arbitration.

@@ -305,7 +305,10 @@ Planner получает:
   caseVersion,
   activePlanRevisionId,
   activePlanRevision,
-  stateMapVersion,
+  stateMap: {
+    sourceCaseVersion,
+    projectorVersion
+  },
   openGoals,
   activeStages,
   stageHistory,
@@ -313,7 +316,8 @@ Planner получает:
   policies,
   budgets
 }
-Если любой version изменился между началом и commit PlanningDecision:
+Если `caseVersion`, `sourceCaseVersion`, `projectorVersion` или active revision
+изменились между началом и commit PlanningDecision:
 PLANNING_DECISION_STALE
 Решение не применяется.
 9.3. One tick at a time
@@ -418,6 +422,32 @@ Stage может быть:
     • marked ineffective;
     • returned to Planner.
 Поведение определяется stage policy.
+12.3. Commit report
+Результат semantic commit должен различать:
+    • accepted — delta прошла предварительный фильтр;
+    • committed — commit port подтвердил транзакцию;
+    • changed — каноническое состояние фактически изменилось;
+    • recoveryReplay — операции уже были применены с теми же correlation IDs;
+    • semanticNoOp — принятый результат не создал изменения.
+Отчёт содержит receipt на каждую операцию: kind, deltaId, artifactId,
+targetId, связанные goalIds и флаги duplicate/changed.
+Версия case, сброс стагнации и STATE_DELTA_APPLIED зависят от changed,
+а не только от успешного ответа commit port.
+Recovery replay не считается новым semantic progress и не штрафуется как
+повторное содержательное действие.
+12.4. Goal evaluation migration
+До переключения статусов новая поцелевая оценка работает в shadow mode:
+SATISFIED | PROGRESSED | NOT_SATISFIED | NOT_EVALUABLE.
+Для чистых производных целей проверяется существующее условие deriveGoals
+на StateMap после commit. Для непроизводных или неоднозначных целей без
+явного evaluator результат обязан быть NOT_EVALUABLE.
+GOAL_EVALUATED_SHADOW и GOAL_STATUS_SHADOW_MISMATCH не меняют authoritative
+status цели.
+12.5. Missing commit port
+Отсутствующий legacy commit port является fail-closed:
+{ applied: false, reason: "commit_port_missing" }.
+При первом входе в этот режим Orchestrator публикует
+SEMANTIC_COMMIT_DEGRADED. Молчаливое подтверждение commit запрещено.
 
 13. Pause Contract
 13.1. Pause request
@@ -493,7 +523,10 @@ interface RunSnapshot {
   activeStages: StageInstance[];
   openGoals: Goal[];
   runLifecycle: RunLifecycle;
-  stateMapVersion: number;
+  stateMap: StateMap & {
+    sourceCaseVersion: number;
+    projectorVersion: number;
+  };
 
   createdAt: string;
 }

@@ -52,10 +52,10 @@ const FOCUS_RESTORE_MAX_MS = TimingConfig.getTiming('focusRestoreMaxMs', 8000);
 //-- 1.1. Минимальное удержание фокуса для retry - от CLAUDE --//
 const RETRY_FOCUS_HOLD_MS = TimingConfig.getTiming('retryFocusHoldMs', 3000);
 // Timeout ladder (timing review 2026-07-02): the hard stop must sit ABOVE the
-// content pipeline hardMax (180s short / 450s long) with a margin, and must
+// content pipeline hardMax (450s Standard / 900s Long) with a margin, and must
 // follow the generation wait profile — a fixed 180s killed long generations.
-const SCRIPT_RUNTIME_HARD_STOP_SHORT_MS = 210000;
-const SCRIPT_RUNTIME_HARD_STOP_LONG_MS = 480000;
+const SCRIPT_RUNTIME_HARD_STOP_SHORT_MS = 480000;
+const SCRIPT_RUNTIME_HARD_STOP_LONG_MS = 930000;
 const getScriptRuntimeHardStopMs = () => (self.isLongGenerationProfile?.()
   ? SCRIPT_RUNTIME_HARD_STOP_LONG_MS
   : SCRIPT_RUNTIME_HARD_STOP_SHORT_MS);
@@ -318,6 +318,9 @@ function restoreFocusIfStillOnDispatchTab(dispatchTabId, previousTab) {
     if (!activeTab || activeTab.id !== dispatchTabId) return;
     const winId = previousTab.windowId || activeTab.windowId;
     chrome.windows.update(winId, { focused: true }, () => {
+      if (typeof self.markProgrammaticTabFocus === 'function') {
+        self.markProgrammaticTabFocus(previousTab.id, 'restore_dispatch_focus');
+      }
       chrome.tabs.update(previousTab.id, { active: true }, () => chrome.runtime.lastError);
     });
   });
@@ -987,6 +990,15 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
     const machine = resolveDispatchFlags(llmName, entry).machine;
   entry.lastDispatchAt = Date.now();
   entry.lastDispatchMeta = { dispatchReason: reason, sessionId, dispatchId };
+  entry.generationEpoch = Number(entry.generationEpoch || 0) + 1;
+  entry.answerVerification = null;
+  if (self.AnswerVerification?.appendTimeline) {
+    self.AnswerVerification.appendTimeline(entry, {
+      stage: 'command', state: 'dispatch_created', runSessionId: sessionId, dispatchId,
+      generationEpoch: entry.generationEpoch, tabId, source: reason,
+      details: { attempt: entry.dispatchAttempts || 0 }
+    });
+  }
   if (self.RunIdentity?.build) {
     entry.runIdentity = self.RunIdentity.build({
       runSessionId: sessionId,
@@ -1201,6 +1213,7 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
             sessionId,
             pipelineRunId,
             dispatchId,
+            generationEpoch: entry.generationEpoch,
             tabSessionId: readyInfo?.tabSessionId || null
           }
         }, NO_FOCUS_TIMEOUT_MS);
@@ -1331,6 +1344,7 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
           sessionId,
           pipelineRunId,
           dispatchId,
+          generationEpoch: entry.generationEpoch,
           tabSessionId: readyInfo?.tabSessionId || null
         }
       };
@@ -1368,6 +1382,27 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
             await dispatchSleepMs(options.deferSendMs);
           }
           commandDeliveryResult = await deliverAnswerCommand();
+          const postCommandFocusHoldMs = Math.max(0, Number(options.postCommandFocusHoldMs || 0));
+          if (postCommandFocusHoldMs > 0) {
+            const holdStartedAt = Date.now();
+            const confirmedDuringHold = await Promise.race([
+              Promise.resolve(waiter)
+                .then((payload) => payload === true || payload?.ok === true)
+                .catch(() => false),
+              dispatchSleepMs(postCommandFocusHoldMs).then(() => false)
+            ]);
+            emitTelemetry(llmName, 'DISPATCH_POST_COMMAND_FOCUS_HOLD', {
+              details: confirmedDuringHold ? 'submit_confirmed' : 'hold_elapsed',
+              meta: {
+                tabId,
+                dispatchId,
+                dispatchReason: reason,
+                configuredHoldMs: postCommandFocusHoldMs,
+                heldMs: Math.max(0, Date.now() - holdStartedAt),
+                confirmedDuringHold
+              }
+            });
+          }
         });
         //-- 3.1. Учитываем minFocusHoldMs для retry --//
         const effectiveFocusHoldMs = options.minFocusHoldMs || FOCUS_RESTORE_DELAY_MS;

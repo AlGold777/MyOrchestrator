@@ -18,15 +18,30 @@
     const send = createChromeSender(runtime);
     const storageKey = root.DebateRunStore?.STORAGE_KEY || 'llmCodexDebateRun.v1';
     let persistChain = Promise.resolve();
+    let pendingState = null;
+    let drainScheduled = false;
 
     const persist = (state = runStore?.getState?.()) => {
       if (!storage?.set || !state || !root.DebateRunStore?.serialize) return Promise.resolve(false);
-      const serialized = root.DebateRunStore.serialize(state);
-      persistChain = persistChain
-        .catch(() => {})
-        .then(() => storage.set({ [storageKey]: serialized }))
-        .then(() => true)
-        .catch(() => false);
+      pendingState = state;
+      if (drainScheduled) return persistChain;
+      drainScheduled = true;
+      persistChain = persistChain.catch(() => {}).then(async () => {
+        let persisted = false;
+        while (pendingState) {
+          const latest = pendingState;
+          pendingState = null;
+          const serialized = root.DebateRunStore.serialize(latest);
+          try {
+            await storage.set({ [storageKey]: serialized });
+            persisted = true;
+          } catch (_) {
+            persisted = false;
+          }
+        }
+        drainScheduled = false;
+        return persisted;
+      });
       return persistChain;
     };
 

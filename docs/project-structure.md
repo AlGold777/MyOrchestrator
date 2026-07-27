@@ -54,11 +54,12 @@
 ├── scripts/
 │   └── build-bundles.js
 ├── docs/
-│   ├── disput-docs/
-│   │   ├── D0_documentation-map.md … D11_debate-round-plans.md
-│   │   ├── D21_disput-implementation-reference.md
-│   │   ├── reports/D12_*.md … D19_*.md
-│   │   └── archive/disput/D90_historical-requirements-index.md … D99_*.html
+│   ├── documentation-map.md       # единственная карта документации
+│   ├── disput/
+│   │   ├── README-disput.md       # точка входа актуальной документации Disput
+│   │   ├── PLAN-*.md / ADR-*.md / TZ-*.md
+│   │   └── EVIDENCE-MATRIX-*.md / OPEN-ITEMS-*.md
+│   ├── disput-old/                # архив Disput, не нормативный источник
 │   ├── CHANGELOG.md                 # общий журнал всего проекта
 │   ├── model-tabs-architecture.md
 │   ├── tech-stack-overview.md

@@ -34,6 +34,52 @@ describe('TelemetryExport run summary', () => {
     expect(outcome.level).toBe('warning');
   });
 
+  test('reports an in-progress partial answer explicitly', () => {
+    const outcome = TelemetryExport.buildModelOutcome('GPT', [
+      evt('GPT', 'ANSWER_START_DETECTED', '', { ts: 1000, meta: { state: 'ANSWER_STARTED', textLength: 24 } }),
+      evt('GPT', 'ANSWER_GENERATING', '', { ts: 2000, meta: { state: 'GENERATING', textLength: 13647 } })
+    ]);
+
+    expect(outcome.meta.terminal).toBe(false);
+    expect(outcome.meta.observedState).toBe('generating_partial_answer');
+    expect(outcome.meta.generationActive).toBe(true);
+    expect(outcome.meta.latestObservedTextLength).toBe(13647);
+    expect(outcome.meta.maxObservedTextLength).toBe(13647);
+  });
+
+  test('reports a tab closed while generation was active', () => {
+    const outcome = TelemetryExport.buildModelOutcome('Z.ai', [
+      evt('Z.ai', 'ANSWER_GENERATING', '', { ts: 1000, meta: { state: 'GENERATING', textLength: 80 } }),
+      evt('Z.ai', 'TAB_CLOSED', 'tab_closed_during_generation', {
+        ts: 2000,
+        level: 'warning',
+        meta: {
+          closureState: 'tab_closed_during_generation',
+          generationActive: true,
+          answerLength: 80
+        }
+      })
+    ]);
+
+    expect(outcome.meta.observedState).toBe('tab_closed_during_generation');
+    expect(outcome.meta.tabClosed).toEqual(expect.objectContaining({
+      closureState: 'tab_closed_during_generation',
+      generationActive: true
+    }));
+  });
+
+  test('flags contradictory success with doneReason=error', () => {
+    const outcome = TelemetryExport.buildModelOutcome('Qwen', [
+      evt('Qwen', 'MODEL_FINAL', 'SUCCESS', {
+        ts: 1000,
+        meta: { finalStatus: 'SUCCESS', doneReason: 'error', answerLen: 15654 }
+      })
+    ]);
+
+    expect(outcome.meta.terminal).toBe(true);
+    expect(outcome.meta.consistencyIssues).toContain('success_with_error_done_reason');
+  });
+
   test('RECOVERABLE_ERROR status alone is not treated as terminal', () => {
     const outcome = TelemetryExport.buildModelOutcome('DeepSeek', [
       evt('DeepSeek', 'Status: RECOVERABLE_ERROR', 'script_runtime_hard_stop_180000ms')

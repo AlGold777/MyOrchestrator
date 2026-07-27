@@ -42,33 +42,25 @@ describe('prompt-echo / suspect is not a green answer (preservation path)', () =
     expect(ORCH_SRC).toContain("type: `answer_${rejectedClass}`");
   });
 
-  test('Grok uses trusted CDP paste, not content-script execCommand/synthetic paste', () => {
+  test('Grok ordinary prompt input does not attach the Chrome debugger', () => {
     expect(GROK_SRC).toContain('async function grokClipboardPaste');
-    expect(GROK_SRC).toContain('await navigator.clipboard.writeText(payload)');
-    expect(GROK_SRC).toContain("requestTrustedGrokInput('paste')");
+    expect(GROK_SRC).toContain('await forceComposerValue(input, payload)');
+    expect(GROK_SRC).not.toContain("type: 'GROK_TRUSTED_INPUT_REQUEST'");
     expect(GROK_SRC).not.toContain("new ClipboardEvent('paste'");
     expect(GROK_SRC).not.toContain("execCommand?.('paste'");
-    expect(MANIFEST.permissions).toEqual(expect.arrayContaining(['clipboardRead', 'clipboardWrite', 'debugger']));
+    expect(MANIFEST.permissions).toEqual(expect.arrayContaining(['clipboardRead', 'clipboardWrite']));
+    expect(MANIFEST.permissions).not.toContain('debugger');
   });
 
   test('Grok requires the entire normalized prompt before send', () => {
     expect(GROK_SRC).toContain('normalizedValue === normalizedPrompt');
     expect(GROK_SRC).toContain('normalizedValue !== normalizedPrompt');
-    expect(GROK_SRC).toContain('Grok rejected clipboard paste and browser insertText.');
+    expect(GROK_SRC).toContain('Grok rejected both page input transactions.');
     expect(GROK_SRC).not.toContain('await humanoid.typeText(composer, prompt');
   });
 
-  test('trusted input channel is restricted to Grok and two fixed modes', () => {
-    expect(ROUTER_SRC).toContain("case 'GROK_TRUSTED_INPUT_REQUEST'");
-    expect(ROUTER_SRC).toContain("['paste', 'insertText'].includes(mode)");
-    expect(ROUTER_SRC).toContain('(?:grok\\.com|x\\.ai)');
-    expect(ROUTER_SRC).toContain("commands: ['Paste']");
-  });
-
-  test('trusted fallback uses CDP Input.insertText and always detaches', () => {
-    expect(ROUTER_SRC).toContain("'Input.insertText', { text }");
-    expect(ROUTER_SRC).toContain("await callChromeDebugger('detach', target)");
-    expect(ROUTER_SRC).toContain("text.length > 250000");
+  test('the packaged extension cannot invoke chrome.debugger', () => {
+    expect(MANIFEST.permissions).not.toContain('debugger');
   });
 
   test('Grok waits through a five-second full-prompt commit window before send', () => {

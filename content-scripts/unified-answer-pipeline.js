@@ -115,12 +115,21 @@
     } catch (_) {}
   };
 
+  const answerNodeIds = new WeakMap();
+  let nextAnswerNodeId = 1;
+  const answerNodeKey = (node) => {
+    if (!node || (typeof node !== 'object' && typeof node !== 'function')) return null;
+    if (!answerNodeIds.has(node)) answerNodeIds.set(node, `answer-node-${nextAnswerNodeId++}`);
+    return answerNodeIds.get(node);
+  };
+
   class UnifiedAnswerPipeline {
     constructor(platform, overrides = {}) {
       const normalizedPlatform = typeof platform === 'string' ? platform.toLowerCase() : platform;
       this.platform = normalizedPlatform || detectPlatform?.() || 'generic';
+      this.configOverrides = clone(overrides);
       const baseConfig = clone(Config);
-      this.config = deepMerge(baseConfig, overrides);
+      this.config = deepMerge(baseConfig, clone(this.configOverrides));
       if (window.__PRAGMATIST_SPEED_MODE) {
         this.config.streaming = this.config.streaming || {};
         this.config.streaming.continuousActivity = Object.assign({}, this.config.streaming.continuousActivity, { enabled: false });
@@ -154,10 +163,22 @@
       // after it (see getAnswerElement). Exposed on window so the dispatch
       // baseline report can carry it to the background for the inline scans.
       this.anchorAnswerCount = 0;
-      try {
-        this.anchorAnswerCount = this.collectSortedAnswerCandidates().sorted.length;
-      } catch (_) {
-        this.anchorAnswerCount = 0;
+      const pipelineLlmName = resolveLlmName(this.config?.llmName || this.platform || window.__PragmatistAdapter?.adapter?.name);
+      const preDispatchAnchor = window.__LLMPreDispatchTurnAnchor;
+      const canonicalAnchorUsable = preDispatchAnchor
+        && preDispatchAnchor.llmName === pipelineLlmName
+        && preDispatchAnchor.anchorAnswerCount !== null
+        && preDispatchAnchor.anchorAnswerCount !== undefined
+        && Number.isFinite(Number(preDispatchAnchor.anchorAnswerCount))
+        && Date.now() - Number(preDispatchAnchor.capturedAt || 0) < 120000;
+      if (canonicalAnchorUsable) {
+        this.anchorAnswerCount = Math.max(0, Number(preDispatchAnchor.anchorAnswerCount));
+      } else {
+        try {
+          this.anchorAnswerCount = this.collectSortedAnswerCandidates().sorted.length;
+        } catch (_) {
+          this.anchorAnswerCount = 0;
+        }
       }
       try {
         window.__UnifiedPipelineTurnAnchor = {
@@ -198,6 +219,38 @@
       this.lifecycle = window.HumanoidEvents || null;
       this.lifecycleTraceId = null;
       this.hardStopTriggered = false;
+      this.effectiveTimingSnapshot = null;
+    }
+
+    async lockEffectiveTimingConfig() {
+      const readiness = await (window.AnswerPipelineTiming?.whenProfileReady?.()
+        || Promise.resolve(window.AnswerPipelineTiming?.getEffectiveSnapshot?.() || null));
+      this.config = deepMerge(clone(Config), clone(this.configOverrides));
+      if (window.__PRAGMATIST_SPEED_MODE) {
+        this.config.streaming = this.config.streaming || {};
+        this.config.streaming.continuousActivity = Object.assign({}, this.config.streaming.continuousActivity, { enabled: false });
+        this.config.streaming.initialScrollKick = Object.assign({}, this.config.streaming.initialScrollKick, { enabled: false });
+      }
+      this.adaptiveTimeout = new AdaptiveTimeoutManager(this.config.streaming?.adaptiveTimeout);
+      this.retryManager = new IntelligentRetryManager(this.config.streaming?.intelligentRetry);
+      this.humanActivity = new ContinuousHumanActivity(this.config.streaming?.continuousActivity);
+      this._initHumanSession();
+      this.maintenanceScroll = new MaintenanceScroll(this.config.streaming?.maintenanceScroll, this.humanSession);
+      this.sanityCheck = new SanityCheckClass(this.config.finalization?.sanityCheck);
+      const criteria = this.config.streaming?.completionCriteria || {};
+      this.effectiveTimingSnapshot = {
+        profile: readiness?.profile || window.AnswerPipelineTiming?.getTimingProfile?.() || 'standard',
+        profileLoaded: readiness?.profileLoaded === true,
+        stabilityChecks: Number(this.config.finalization?.stabilityChecks || 0),
+        stabilityRetryBudget: Number(this.config.finalization?.stabilityRetryBudget || 0),
+        stabilityInterval: Number(this.config.finalization?.stabilityInterval || 0),
+        mutationIdle: Number(criteria.mutationIdle || 0),
+        contentStable: Number(criteria.contentStable || 0),
+        contentStableChecks: Number(criteria.contentStableChecks || 0),
+        streamingHardMax: Number(this.config.streaming?.adaptiveTimeout?.hardMax || 0)
+      };
+      this.emitPipelineTelemetry('PIPELINE_EFFECTIVE_CONFIG', { meta: this.effectiveTimingSnapshot });
+      return this.effectiveTimingSnapshot;
     }
 
     emitPipelineTelemetry(event, { details = '', meta = {}, level = 'info' } = {}) {
@@ -284,6 +337,8 @@
         sendTabState({ status: 'error', phase: 'preparation', error, platform: this.platform, sessionId: this.sessionId });
         return this.handleError('preparation', error);
       }
+
+      await this.lockEffectiveTimingConfig();
       
       console.log(`[UnifiedAnswerPipeline] Starting pipeline execution for ${this.platform}`);
       this.transitionState('DISPATCHING', { phase: 'preparation' });
@@ -469,22 +524,10 @@
           const latest = candidates[candidates.length - 1] || null;
           const latestSignature = latest ? this.normalizeAnswerSignature(this.extractText(latest)) : '';
           if (latestSignature && latestSignature !== this.baselineAnswerSignature) return true;
-          const asSelectorList = (value) => Array.isArray(value) ? value : (value ? [value] : []);
-          const generationSelectors = [
-            ...asSelectorList(this.selectors.generatingIndicators),
-            ...asSelectorList(this.selectors.streaming),
-            ...(Array.isArray(this.selectors.stopButton) ? this.selectors.stopButton : (this.selectors.stopButton ? [this.selectors.stopButton] : []))
-          ];
-          return generationSelectors.some((selector) => {
-            const nodes = this.querySelectorAllSafe(selector);
-            return nodes.some((node) => {
-              try {
-                const rect = node.getBoundingClientRect();
-                const style = getComputedStyle(node);
-                return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
-              } catch (_) { return false; }
-            });
-          });
+          return window.GenerationSignal?.inspect?.({
+            selectors: this.selectors,
+            queryAll: (selector) => this.querySelectorAllSafe(selector)
+          }).active === true;
         };
         if (hasFreshStart()) {
           resolve(true);
@@ -568,25 +611,18 @@
       this.streamingTimedOut = false;
       //-- 1.1. Адаптивный timeout: учитываем скорость модели --//
 const baseTimeouts = this.adaptiveTimeout.calculateTimeout(this.config.seedContent || '');
-const modelSpeedMultiplier = (() => {
-  const platformLower = this.platform.toLowerCase();
-  const fastModels = ['chatgpt', 'gpt', 'perplexity'];
-  if (fastModels.some(m => platformLower.includes(m))) {
-    return 0.5; // Быстрые модели: 50% от базового timeout
-  }
-  if (platformLower.includes('claude')) {
-    return 1.6; // Более медленная генерация: даем больше времени
-  }
-  return 1;
-})();
 const timeouts = {
-  soft: baseTimeouts.soft * modelSpeedMultiplier,
-  hard: baseTimeouts.hard * modelSpeedMultiplier
+  soft: baseTimeouts.soft,
+  hard: baseTimeouts.hard
 };
 console.log(`[Pipeline] Timeouts for ${this.platform}: soft=${timeouts.soft}ms, hard=${timeouts.hard}ms`);
-const watchdog = setTimeout(() => {
-  this.streamingTimedOut = true;
-}, timeouts.hard);
+let watchdog = null;
+const hardTimeoutPromise = new Promise((_, reject) => {
+  watchdog = setTimeout(() => {
+    this.streamingTimedOut = true;
+    reject(new Error('hard_timeout'));
+  }, timeouts.hard);
+});
 
       this.humanActivity.startDuringWait();
       let guardInterval = null;
@@ -644,7 +680,10 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
         let answerResult;
 
           if (configuredMode.waitFor === 'both') {
-            [scrollResult, answerResult] = await Promise.all([scrollPromise, answerPromise]);
+            [scrollResult, answerResult] = await Promise.race([
+              Promise.all([scrollPromise, answerPromise]),
+              hardTimeoutPromise
+            ]);
           } else {
             const first = await Promise.race([
               scrollPromise.then((res) => {
@@ -655,6 +694,7 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
                 clearGuardInterval();
                 return { type: 'answer', res };
               }),
+              hardTimeoutPromise,
               new Promise((_, reject) => {
                 guardInterval = setInterval(() => {
                   if (this.hardStopTriggered) {
@@ -825,6 +865,7 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
         verboseCriteria: this.config.streaming?.verboseCriteria === true ? true : undefined,
         baselineAnswerSignature: this.baselineAnswerSignature,
         anchorAnswerCount: this.anchorAnswerCount
+        , answerSelectors: this.config.answerSelectors
       });
       const result = await watcher.waitForCompletion({ container: containerInfo });
       // v2.54.24 (2025-12-22 23:14 UTC): Stop-disappeared signal (Purpose: detect completion when stop hides).
@@ -913,11 +954,13 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
       const selectorTier = this.lastAnswerSelectorTier || 'unknown';
       this.state.finalizationResult = {
         success: true, duration, answer, answerHtml, sanityCheck, stable,
-        selectorTier, selectorUsed: this.lastAnswerSelector || null
+        selectorTier, selectorUsed: this.lastAnswerSelector || null,
+        answerVerification: this.lastAnswerVerification || null
       };
       this.telemetry.logPhase('finalization_done', { duration, sanityCheck, selectorTier });
       this.emitPipelineStep('finalization_done', {
-        meta: { duration, answerLength: answer?.length || 0, sanityConfidence: sanityCheck?.overallConfidence ?? null, selectorTier }
+        meta: { duration, answerLength: answer?.length || 0, sanityConfidence: sanityCheck?.overallConfidence ?? null, selectorTier,
+          verificationState: this.lastAnswerVerification?.state || 'unknown' }
       });
       // Observability for selector drift (review P1.1 + health->extraction follow-up):
       // a final answer coming from a generic/last-resort selector means the specific
@@ -940,88 +983,226 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
       }
     }
 
+    describeAnswerNode(element) {
+      if (!element || element.nodeType !== 1) return null;
+      const text = this.extractText(element);
+      const classes = typeof element.className === 'string'
+        ? element.className.split(/\s+/).filter(Boolean).slice(0, 4).join('.')
+        : '';
+      return {
+        tag: String(element.tagName || '').toLowerCase(),
+        role: element.getAttribute?.('role') || null,
+        id: String(element.id || '').slice(0, 80) || null,
+        classes: classes.slice(0, 160) || null,
+        length: text.length,
+        hash: this.hashString(text)
+      };
+    }
+
+    captureAnswerStructureSnapshot() {
+      const turn = this.resolveCurrentTurn();
+      const selected = turn.answerNode;
+      if (!selected) return null;
+      const selectedText = this.extractText(selected);
+      const candidates = turn.candidates;
+      const descriptors = candidates.slice(-12).map((node) => this.describeAnswerNode(node)).filter(Boolean);
+      const messageRoot = turn.messageRoot;
+      const rootText = this.extractText(messageRoot);
+      const structure = window.AnswerStructure?.inspect
+        ? window.AnswerStructure.inspect(messageRoot, selected)
+        : { complete: false, issues: ['structural_inspector_unavailable'], omittedBlockCount: 0, omittedBlocks: [] };
+      const generationSignal = window.GenerationSignal?.inspect?.({
+        selectors: this.selectors,
+        queryAll: (selector) => this.querySelectorAllSafe(selector)
+      }) || { active: true, kind: 'detector_unavailable', selector: null };
+      const storedIdentity = window.ContentUtils?.ensureDispatchMeta?.({}, this.llmName) || {};
+      const identity = this.runIdentity || this.config.runIdentity || storedIdentity;
+      const selectedCandidateIndex = candidates.indexOf(selected);
+      return {
+        observedAt: Date.now(),
+        runSessionId: identity.runSessionId || storedIdentity.runSessionId || this.config.runSessionId || null,
+        dispatchId: identity.dispatchId || storedIdentity.dispatchId || this.config.dispatchId || null,
+        generationEpoch: identity.generationEpoch ?? storedIdentity.generationEpoch ?? this.config.generationEpoch ?? null,
+        turnAnchor: this.anchorAnswerCount ?? null,
+        selectedHash: this.hashString(selectedText),
+        selectedLength: selectedText.length,
+        selectedNodeKey: answerNodeKey(selected),
+        selectedCandidateIndex,
+        candidateOrdinalAfterAnchor: selectedCandidateIndex >= 0
+          ? selectedCandidateIndex - Number(this.anchorAnswerCount || 0) + 1
+          : null,
+        messageRootHash: this.hashString(rootText),
+        messageRootLength: rootText.length,
+        candidateSetHash: this.hashString(JSON.stringify(descriptors.map(({ hash, length, tag, role }) => ({ hash, length, tag, role })))),
+        candidateCount: descriptors.length,
+        nodes: descriptors,
+        selectorTier: this.lastAnswerSelectorTier || null,
+        selectorUsed: this.lastAnswerSelector || null,
+        uncoveredBlockCount: structure.omittedBlockCount,
+        uncoveredBlocks: structure.omittedBlocks,
+        resolution: turn.resolution,
+        resolutionReason: turn.reason,
+        messageRootSelector: turn.messageRootSelector || null,
+        structuralComplete: Boolean(turn.resolution === 'exact' && structure.complete),
+        structuralIssues: structure.issues,
+        generationActive: generationSignal.active,
+        generationSignalKind: generationSignal.kind,
+        generationSignalSelector: generationSignal.selector,
+        generationSignalChecks: Array.isArray(generationSignal.checks) ? generationSignal.checks : []
+      };
+    }
+
     async runFinalStabilityChecks() {
       const checks = this.config.finalization?.stabilityChecks || 3;
+      const retryBudget = Math.max(0, Number(this.config.finalization?.stabilityRetryBudget || 0));
+      const maxSnapshots = checks + retryBudget;
       const interval = this.config.finalization?.stabilityInterval || 800;
-      let lastHash = '';
-      let stableCount = 0;
-      for (let i = 0; i < checks; i += 1) {
-        const element = this.getAnswerElement();
-        if (!element) return false;
-        const hash = this.hashString(element.textContent || '');
-        if (hash === lastHash) {
-          stableCount += 1;
-          if (stableCount >= checks - 1) return true;
-        } else {
-          stableCount = 0;
+      let previous = null;
+      let verifiedCount = 0;
+      let lastResult = null;
+      let snapshotsCompared = 0;
+      let maxObservedTextLength = 0;
+      let lengthDecreaseCount = 0;
+      let lastLengthDecrease = null;
+      let lengthRegressionActive = false;
+      let lengthRegressionFloor = 0;
+      const recentLengths = [];
+      for (let i = 0; i < maxSnapshots; i += 1) {
+        const snapshot = this.captureAnswerStructureSnapshot();
+        if (!snapshot) return false;
+        snapshotsCompared = i + 1;
+        const selectedLength = Number(snapshot.selectedLength || 0);
+        const maximumBeforeSnapshot = maxObservedTextLength;
+        maxObservedTextLength = Math.max(maxObservedTextLength, selectedLength);
+        recentLengths.push({ observedAt: snapshot.observedAt, length: snapshot.selectedLength, nodeKey: snapshot.selectedNodeKey });
+        if (recentLengths.length > 12) recentLengths.shift();
+        if (previous) {
+          if (selectedLength < Number(previous.selectedLength || 0)) {
+            lengthDecreaseCount += 1;
+            lengthRegressionActive = true;
+            lengthRegressionFloor = Math.max(lengthRegressionFloor, maximumBeforeSnapshot, Number(previous.selectedLength || 0));
+            lastLengthDecrease = {
+              observedAt: snapshot.observedAt,
+              from: Number(previous.selectedLength || 0),
+              to: selectedLength,
+              delta: selectedLength - Number(previous.selectedLength || 0),
+              recoveryFloor: lengthRegressionFloor
+            };
+            this.emitPipelineTelemetry('ANSWER_LENGTH_DECREASED', { level: 'warning', meta: lastLengthDecrease });
+          }
+          if (lengthRegressionActive && selectedLength >= lengthRegressionFloor) {
+            lengthRegressionActive = false;
+            verifiedCount = 0;
+            this.emitPipelineTelemetry('ANSWER_LENGTH_REGRESSION_RECOVERED', { level: 'info', meta: {
+              observedAt: snapshot.observedAt, selectedLength, recoveryFloor: lengthRegressionFloor
+            } });
+          }
+          if (previous.selectedNodeKey && snapshot.selectedNodeKey && previous.selectedNodeKey !== snapshot.selectedNodeKey) {
+            this.emitPipelineTelemetry('ANSWER_NODE_REPLACED', { level: 'warning', meta: {
+              observedAt: snapshot.observedAt, previousNodeKey: previous.selectedNodeKey, selectedNodeKey: snapshot.selectedNodeKey
+            } });
+          }
+          lastResult = window.AnswerVerification?.verifySnapshotPair
+            ? window.AnswerVerification.verifySnapshotPair(previous, snapshot, { minimumLength: 1 })
+            : { verified: previous.selectedHash === snapshot.selectedHash, reasons: [] };
+          if (lengthRegressionActive) verifiedCount = 0;
+          else if (lastResult.verified) verifiedCount += 1;
+          else verifiedCount = 0;
+          if (verifiedCount >= checks - 1) {
+            this.lastAnswerVerification = { ...lastResult, snapshotsCompared, requiredSnapshots: checks,
+              retryBudget, retriesUsed: Math.max(0, snapshotsCompared - checks), nodes: snapshot.nodes,
+              maxObservedTextLength, lengthDecreaseCount, lastLengthDecrease, recentLengths,
+              lengthRegressionActive, lengthRegressionFloor,
+              effectiveConfig: this.effectiveTimingSnapshot || window.AnswerPipelineTiming?.getEffectiveSnapshot?.() || null };
+            this.emitPipelineTelemetry('ANSWER_VERIFICATION_RESULT', { level: 'success', meta: this.lastAnswerVerification });
+            return true;
+          }
         }
-        lastHash = hash;
+        previous = snapshot;
         // eslint-disable-next-line no-await-in-loop
         await this.sleep(interval);
       }
+      this.lastAnswerVerification = {
+        ...(lastResult || { verified: false, state: 'candidate', reasons: ['insufficient_stable_observations'] }),
+        snapshotsCompared,
+        requiredSnapshots: checks,
+        retryBudget,
+        retriesUsed: Math.max(0, snapshotsCompared - checks),
+        maxObservedTextLength,
+        lengthDecreaseCount,
+        lastLengthDecrease,
+        lengthRegressionActive,
+        lengthRegressionFloor,
+        recentLengths,
+        nodes: previous?.nodes || [],
+        effectiveConfig: this.effectiveTimingSnapshot || window.AnswerPipelineTiming?.getEffectiveSnapshot?.() || null
+      };
+      if (lengthRegressionActive) {
+        this.lastAnswerVerification.verified = false;
+        this.lastAnswerVerification.state = 'candidate';
+        this.lastAnswerVerification.reasons = Array.from(new Set([
+          ...(Array.isArray(this.lastAnswerVerification.reasons) ? this.lastAnswerVerification.reasons : []),
+          'answer_length_regression_unrecovered'
+        ]));
+      }
+      this.emitPipelineTelemetry('ANSWER_VERIFICATION_RESULT', { level: 'warning', meta: this.lastAnswerVerification });
       return false;
     }
 
     // Collect all answer candidates in document order. Shared by getAnswerElement
     // and the turn-anchor capture so both see the same candidate space.
     collectSortedAnswerCandidates() {
-      const circuit = (typeof window !== 'undefined' && window.SelectorCircuit) || null;
-      const allSelectors = [];
-      if (this.selectors.lastMessage) {
-        if (Array.isArray(this.selectors.lastMessage)) allSelectors.push(...this.selectors.lastMessage);
-        else allSelectors.push(this.selectors.lastMessage);
-      }
-      if (this.config.answerSelectors) allSelectors.push(...this.config.answerSelectors);
-      // P1.1: respect the selector circuit — skip selectors a prior run disabled after
-      // repeated misses (selector-health -> extraction). Safe no-op when the circuit is
-      // empty. Keep the original index for tier classification.
-      const selectors = allSelectors
-        .map((selector, index) => ({ selector, index }))
-        .filter(({ selector }) => !circuit || circuit.shouldUse(selector, this.platform, 'answer') !== false);
-      const candidates = [];
-      const seen = new Set();
-      const matchedIndices = new Set();
-
-      // Track which selector first matched each candidate so we can tag the chosen
-      // answer's selector tier (review P1.1). Earlier selectors in the ordered list are
-      // more specific (primary) -> later ones are generic/last-resort.
-      const selectorByElement = new Map();
-      const pushUnique = (el, selector, index) => {
-        if (!el || el.nodeType !== 1) return;
-        if (seen.has(el)) return;
-        seen.add(el);
-        if (!selectorByElement.has(el)) selectorByElement.set(el, { selector, index });
-        candidates.push(el);
+      const turn = this.resolveCurrentTurn();
+      return {
+        ...turn,
+        sorted: turn.candidates,
+        selectorByElement: turn.metadataByElement,
+        selectors: turn.candidateSelectors,
+        totalSelectors: turn.candidateSelectors.length
       };
+    }
 
-      const totalSelectors = allSelectors.length;
-      for (const { selector, index } of selectors) {
-        const nodes = this.querySelectorAllSafe(selector);
-        if (nodes && nodes.length) {
-          matchedIndices.add(index);
-          nodes.forEach((el) => pushUnique(el, selector, index));
-          continue;
-        }
-        const single = this.querySelectorSafe(selector);
-        if (single) matchedIndices.add(index);
-        pushUnique(single, selector, index);
+    resolveCurrentTurn() {
+      const circuit = (typeof window !== 'undefined' && window.SelectorCircuit) || null;
+      const deepQuery = window.TurnResolver?.createDeepQuery?.(document);
+      const turn = window.TurnResolver?.resolveTurn?.({
+        platform: this.platform,
+        selectors: this.selectors,
+        answerSelectors: this.config.answerSelectors,
+        selectorAllowed: (selector) => !circuit || circuit.shouldUse(selector, this.platform, 'answer') !== false,
+        anchorAnswerCount: this.anchorAnswerCount,
+        minimumTextLength: 5,
+        queryAll: (selector) => deepQuery?.all?.(selector) || this.querySelectorAllSafe(selector),
+        queryOne: (selector) => deepQuery?.one?.(selector) || this.querySelectorSafe(selector)
+      }) || {
+        platform: this.platform, resolution: 'unresolved', reason: 'turn_resolver_unavailable',
+        answerNode: null, messageRoot: null, candidates: [], candidatePool: [], metadataByElement: new Map(),
+        matchedIndices: new Set(), candidateSelectors: []
+      };
+      this.lastTurnResolution = turn;
+      const key = `${turn.resolution}:${turn.reason}:${turn.selectorUsed || ''}:${turn.messageRootSelector || ''}`;
+      if (this.lastTurnResolutionTelemetryKey !== key) {
+        this.lastTurnResolutionTelemetryKey = key;
+        this.emitPipelineTelemetry('TURN_RESOLUTION', {
+          level: turn.resolution === 'exact' ? 'info' : 'warning',
+          details: `${turn.resolution}:${turn.reason}`,
+          meta: {
+            resolution: turn.resolution,
+            reason: turn.reason,
+            selectorUsed: turn.selectorUsed || null,
+            selectorTier: turn.selectorTier || null,
+            messageRootSelector: turn.messageRootSelector || null,
+            candidateCount: turn.candidates.length
+          }
+        });
       }
-      const sorted = candidates.slice().sort((a, b) => {
-        if (a === b) return 0;
-        try {
-          const pos = a.compareDocumentPosition(b);
-          if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
-          if (pos & Node.DOCUMENT_POSITION_PRECEDING) return 1;
-        } catch (_) {}
-        return 0;
-      });
-      return { sorted, selectorByElement, matchedIndices, selectors, totalSelectors };
+      return turn;
     }
 
     getAnswerElement(opts = {}) {
       const reportHealth = opts.reportHealth === true;
       const circuit = (typeof window !== 'undefined' && window.SelectorCircuit) || null;
-      const { sorted, selectorByElement, matchedIndices, selectors, totalSelectors } = this.collectSortedAnswerCandidates();
+      const { sorted, selectorByElement, matchedIndices, selectors, totalSelectors, answerNode, positionalFiltered } = this.collectSortedAnswerCandidates();
       const candidates = sorted;
 
       // At finalize (answer is present), feed the circuit: success for the selector that
@@ -1048,34 +1229,9 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
         this.lastAnswerSelectorTier = null;
         return null;
       }
-      const normalizeText = (node) => String(node?.innerText || node?.textContent || '').trim();
-
-      // F6.2: positional turn anchor. anchorAnswerCount is the number of answer
-      // candidates that already existed on the page when this dispatch started;
-      // those nodes are previous conversation turns by definition. When new
-      // nodes appeared, restrict the pick to them — this rejects not only the
-      // immediately-previous answer (the signature baseline covers that) but
-      // ANY older turn (run 1782945983672: a 13037-char answer several turns up
-      // was re-picked as the current run's answer). When no new node exists yet
-      // (provider streams into the pre-existing node, or the answer has not
-      // rendered), keep the legacy last-node behaviour — the signature baseline
-      // still guards that path.
-      const anchorCount = Number(this.anchorAnswerCount || 0);
-      let pool = sorted;
-      this.lastAnswerPositionalFiltered = false;
-      if (anchorCount > 0 && sorted.length > anchorCount) {
-        pool = sorted.slice(anchorCount);
-        this.lastAnswerPositionalFiltered = true;
-      }
-
-      for (let i = pool.length - 1; i >= 0; i -= 1) {
-        const el = pool[i];
-        const text = normalizeText(el);
-        if (text && text.length >= 5) { recordTier(el); return el; }
-      }
-      const fallbackEl = pool[pool.length - 1] || null;
-      if (fallbackEl) recordTier(fallbackEl);
-      return fallbackEl;
+      this.lastAnswerPositionalFiltered = positionalFiltered === true;
+      if (answerNode) recordTier(answerNode);
+      return answerNode || null;
     }
 
     // Classify the selector that produced the answer into a trust tier (review P1.1).
@@ -1096,8 +1252,8 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
       const element = this.getAnswerElement();
       if (!element) throw new Error('answer_element_missing');
       if (this.perplexityHelper) {
-        const stable = await this.perplexityHelper.waitForStabilization(element);
-        return stable.text.trim();
+        await this.perplexityHelper.waitForStabilization(element);
+        return this.extractText(element);
       }
       return this.extractText(element);
     }
@@ -1109,8 +1265,8 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
       if (!element) throw new Error('answer_element_missing');
       let text = '';
       if (this.perplexityHelper) {
-        const stable = await this.perplexityHelper.waitForStabilization(element);
-        text = stable.text.trim();
+        await this.perplexityHelper.waitForStabilization(element);
+        text = this.extractText(element);
       } else {
         text = this.extractText(element);
       }
@@ -1149,87 +1305,7 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
 
     extractText(element) {
       if (!element) return '';
-      const normalize = (text) => String(text || '').replace(/\s+/g, ' ').trim();
-      try {
-        const cloneEl = element.cloneNode(true);
-        cloneEl.querySelectorAll('[style*="display: none"], [style*="visibility: hidden"]').forEach((el) => el.remove());
-        cloneEl.querySelectorAll('button, [role="button"], .toolbar, .actions, script, style, svg, canvas, noscript').forEach((el) => el.remove());
-        const shallow = normalize(cloneEl.textContent || '');
-        if (shallow) return shallow;
-      } catch (_) {
-        // ignore and fall back to deep extraction
-      }
-
-      const direct = normalize(element?.innerText || element?.textContent || '');
-      if (direct) return direct;
-
-      const shouldSkip = (el) => {
-        if (!el || el.nodeType !== 1) return false;
-        const tag = (el.tagName || '').toUpperCase();
-        if (!tag) return false;
-        if ([
-          'SCRIPT', 'STYLE', 'NOSCRIPT', 'SVG', 'CANVAS',
-          'BUTTON', 'INPUT', 'TEXTAREA', 'SELECT', 'OPTION',
-          'HEADER', 'FOOTER', 'NAV', 'ASIDE', 'FORM'
-        ].includes(tag)) return true;
-        const cls = typeof el.className === 'string' ? el.className.toLowerCase() : '';
-        if (cls && (cls.includes('toolbar') || cls.includes('actions') || cls.includes('controls'))) return true;
-        return false;
-      };
-
-      const collectFromRoot = (root, maxChars = 200000) => {
-        if (!root) return '';
-        let out = '';
-        try {
-          const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-            acceptNode: (node) => {
-              const value = node?.nodeValue;
-              if (!value || !value.trim()) return NodeFilter.FILTER_REJECT;
-              const parent = node.parentElement;
-              if (!parent) return NodeFilter.FILTER_REJECT;
-              if (shouldSkip(parent)) return NodeFilter.FILTER_REJECT;
-              const style = window.getComputedStyle?.(parent);
-              if (style && (style.display === 'none' || style.visibility === 'hidden')) return NodeFilter.FILTER_REJECT;
-              return NodeFilter.FILTER_ACCEPT;
-            }
-          });
-
-          while (walker.nextNode()) {
-            out += `${walker.currentNode.nodeValue} `;
-            if (out.length >= maxChars) break;
-          }
-        } catch (_) {}
-        return normalize(out);
-      };
-
-      let combined = '';
-      const append = (chunk) => {
-        const next = normalize(chunk);
-        if (!next) return;
-        combined = normalize(`${combined} ${next}`);
-      };
-
-      try {
-        if (element?.shadowRoot) {
-          append(collectFromRoot(element.shadowRoot));
-        }
-      } catch (_) {}
-      if (combined) return combined;
-
-      try {
-        const nodes = Array.from(element.querySelectorAll?.('*') || []);
-        let inspected = 0;
-        for (const node of nodes) {
-          if (inspected >= 60) break;
-          if (!node || !node.shadowRoot) continue;
-          inspected += 1;
-          append(collectFromRoot(node.shadowRoot, 80000));
-          if (combined.length > 800) break;
-        }
-      } catch (_) {}
-
-      if (combined) return combined;
-      return collectFromRoot(element);
+      return window.AnswerStructure?.linearizeText?.(element) || '';
     }
 
     hashString(str) {

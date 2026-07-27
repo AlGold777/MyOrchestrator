@@ -110,6 +110,17 @@ const forceFinalEvents = (telemetryEvents, details) => telemetryEvents.filter((e
 
 const isEntryFinalized = (entry) => Boolean(entry?.finalStatusRecorded || entry?.finalStatus);
 
+describe('round1 dispatch ordering', () => {
+  test('moves Qwen to the front while preserving the relative order of other models', () => {
+    const { context } = createSandbox({ llms: {} });
+    expect(Array.from(context.orderRound1Models([
+      'GPT', 'Gemini', 'Claude', 'Grok', 'Z.ai', 'Qwen', 'DeepSeek', 'Le Chat', 'Perplexity'
+    ]))).toEqual([
+      'Qwen', 'GPT', 'Gemini', 'Claude', 'Grok', 'Z.ai', 'DeepSeek', 'Le Chat', 'Perplexity'
+    ]);
+  });
+});
+
 describe('round4 gate force-final idempotency', () => {
   test('no_send stall force-final fires once per dispatch while recovery is deferred', async () => {
     const { context, telemetryEvents } = createSandbox({
@@ -179,6 +190,30 @@ describe('round4 gate force-final idempotency', () => {
     expect(forceFinalEvents(telemetryEvents)).toHaveLength(0);
     expect(isEntryFinalized(context.jobState.llms.Grok)).toBe(false);
   });
+
+  test('pending provider dispatch is not finalized as no_send before the bounded gate timeout', () => {
+    const { context, telemetryEvents } = createSandbox({
+      llms: {
+        Perplexity: {
+          tabId: 505,
+          dispatchAttempts: 1,
+          lastDispatchAt: Date.now() - 120000,
+          lastDispatchMeta: { dispatchId: 'Perplexity:1781134505984:1' },
+          awaitingSubmitConfirmation: true,
+          dispatchInFlight: true,
+          dispatchState: 'SUBMITTING'
+        }
+      }
+    });
+
+    for (let i = 0; i < 5; i += 1) {
+      expect(context.finalizeNoSendModelIfStalled('Perplexity', RUN_SESSION_ID)).toBe(false);
+    }
+
+    expect(isEntryFinalized(context.jobState.llms.Perplexity)).toBe(false);
+    expect(forceFinalEvents(telemetryEvents, 'no_send_stall')).toHaveLength(0);
+    expect(telemetryEvents.filter((evt) => evt.event === 'ROUND4_NO_SEND_DEFERRED')).toHaveLength(1);
+  });
 });
 
 describe('round4 gate timeout', () => {
@@ -203,7 +238,7 @@ describe('round4 gate timeout', () => {
     });
 
     const gatePromise = context.waitForRound4Gate(['Grok'], RUN_SESSION_ID);
-    await jest.advanceTimersByTimeAsync(235000);
+    await jest.advanceTimersByTimeAsync(505000);
     const result = await gatePromise;
 
     expect(result.timedOut).toBe(true);
@@ -236,11 +271,11 @@ describe('round4 gate timeout', () => {
     });
 
     const firstGate = context.waitForRound4Gate(['Grok'], RUN_SESSION_ID);
-    await jest.advanceTimersByTimeAsync(235000);
+    await jest.advanceTimersByTimeAsync(505000);
     await firstGate;
 
     const secondGate = context.waitForRound4Gate(['Grok'], RUN_SESSION_ID);
-    await jest.advanceTimersByTimeAsync(235000);
+    await jest.advanceTimersByTimeAsync(505000);
     await secondGate;
 
     expect(forceFinalEvents(telemetryEvents, 'gate_timeout')).toHaveLength(1);
