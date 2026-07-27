@@ -1244,6 +1244,19 @@
             const exportEvents = mergeRoundTelemetry(sourceEvents, getRoundTelemetryEvents(sourceEvents));
             if (!exportEvents.length) return;
             let grouped = groupTelemetryByPlatform(exportEvents);
+            // Each event's `meta` repeats the same ~15-20 mostly-constant fields
+            // (extVersion, runSessionId, pipeline ids, ...) on every entry. Delta
+            // -compact per platform so the downloaded file only carries what
+            // actually changed between consecutive events (see
+            // shared/telemetry-meta-delta.js; metaEncodingNote below explains the
+            // marker to anyone reading the exported file directly).
+            let metaEncoded = false;
+            if (window.TelemetryMetaDelta?.compactTelemetryEvents) {
+                Object.keys(grouped).forEach((tag) => {
+                    grouped[tag] = window.TelemetryMetaDelta.compactTelemetryEvents(grouped[tag]);
+                });
+                metaEncoded = true;
+            }
             if (window.TelemetryExport?.appendRunSummary) {
                 grouped = window.TelemetryExport.appendRunSummary(grouped, {
                     runSessionId: resolveCurrentRunSessionId(sourceEvents),
@@ -1254,6 +1267,9 @@
                 generationWaitProfile: window.ResultsShared?.getGenerationWaitProfile?.() || 'unknown',
                 generationWaitProfileLabel: window.ResultsShared?.getGenerationWaitProfileLabel?.() || '',
                 runOutcomeSummary: runOutcomeSummary || null,
+                ...(metaEncoded ? {
+                    metaEncodingNote: 'Per-event "meta" only lists fields that changed vs. the previous event for the same model; {"__telemetryMetaDelta":true} alone means meta is unchanged from the previous event.'
+                } : {})
             };
             // Defense-in-depth: scrub provider keys/tokens before the export
             // leaves the extension (see shared/secret-redaction.js). Falls back

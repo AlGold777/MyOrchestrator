@@ -17,6 +17,12 @@ const DIAGNOSTICS_EVENTS_MAX_BYTES = 1500000;
 const TELEMETRY_SAMPLE_RATE = 0.05;
 const TELEMETRY_SCHEMA_VERSION = 2;
 const TELEMETRY_TAXONOMY_SCHEMA_VERSION = 1;
+// v2.81.118 (2026-07-27): DIAG_KEY storage delta-compacts event.meta on write and
+// expands it back on read (shared/telemetry-meta-delta.js) to stop persisting/
+// exporting the same ~15-20 mostly-constant meta fields on every single event.
+// Backward compatible: legacy full-meta entries with no __telemetryMetaDelta
+// marker expand as a no-op, so no migration is needed for already-stored data.
+const DIAGNOSTICS_STORAGE_ENCODING_VERSION = 2;
 const telemetrySampleCache = new TTLMap({ ttlMs: 10 * 60 * 1000, maxSize: 50 });
 const pipelineCompleteCache = new TTLMap({ ttlMs: 10 * 60 * 1000, maxSize: 200 });
 const POST_TERMINAL_NOISE_LABELS = new Set([
@@ -51,17 +57,30 @@ const POST_TERMINAL_NOISE_LABELS = new Set([
   'AUTOMATION_VISIT_HARD_CAP'
 ]);
 
+// Every event.meta carries ~15-20 mostly-constant fields (extVersion,
+// runSessionId, llmName, tabId, pipelineRunId, ...) rebuilt fresh on every
+// call (see appendLogEntry/ensureTelemetryMeta below). Left as-is, that
+// duplication is what was persisted to storage and re-serialized on every
+// export. Delta-compact on write, expand on read, so every consumer of
+// these functions keeps seeing full per-event meta exactly as before.
+const expandStoredDiagnostics = (arr) => (
+  self.TelemetryMetaDelta?.expandTelemetryEvents ? self.TelemetryMetaDelta.expandTelemetryEvents(arr) : arr
+);
+const compactDiagnosticsForStorage = (arr) => (
+  self.TelemetryMetaDelta?.compactTelemetryEvents ? self.TelemetryMetaDelta.compactTelemetryEvents(arr) : arr
+);
+
 async function readDiagnosticsEvents() {
   if (self.CompressedStorage?.get) {
     const stored = await self.CompressedStorage.get(DIAG_KEY);
-    return Array.isArray(stored) ? stored : [];
+    return expandStoredDiagnostics(Array.isArray(stored) ? stored : []);
   }
   const res = await chrome.storage.local.get([DIAG_KEY]);
-  return Array.isArray(res?.[DIAG_KEY]) ? res[DIAG_KEY] : [];
+  return expandStoredDiagnostics(Array.isArray(res?.[DIAG_KEY]) ? res[DIAG_KEY] : []);
 }
 
 async function writeDiagnosticsEvents(entries = []) {
-  const payload = Array.isArray(entries) ? entries : [];
+  const payload = compactDiagnosticsForStorage(Array.isArray(entries) ? entries : []);
   if (self.CompressedStorage?.set) {
     await self.CompressedStorage.set(DIAG_KEY, payload);
     return;

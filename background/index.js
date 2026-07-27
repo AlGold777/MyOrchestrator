@@ -192,6 +192,7 @@ importScripts(
   '../shared/judge-prompt-builder.js',
   '../shared/visit-policy.js',
   '../shared/pipeline-fsm.js',
+  '../shared/telemetry-meta-delta.js',
   // disput/* модули загружаются только страницами UI (result_new.html,
   // pipeline_panel.html): фоновый слой не знает про Speaker/роли/очерёдность,
   // и это инвариант транспорта (см. docs/graph-mode/AUDIT_REPORT.md).
