@@ -164,6 +164,14 @@ function commitModelRunTransition(llmName, entry, transition, payload = {}) {
     return !isRepeat;
   })();
   if (shouldEmitTransitionTelemetry) {
+    const emittedPreviousState = summarizeModelRunStateForTelemetry(result?.previousState) || previousState;
+    // These four fields are four views of one state, and the "after" views are
+    // usually byte-identical to the "before" ones (legacyAfter matched
+    // legacyBefore in 47/47 transitions on a real run). Emitting an identical
+    // twin adds no diagnostic signal, so omit it: a missing twin reads as
+    // "unchanged from its counterpart".
+    const legacyChanged = JSON.stringify(legacyBefore) !== JSON.stringify(legacyAfter);
+    const runStateChanged = JSON.stringify(emittedPreviousState) !== JSON.stringify(nextState);
     emitStateMachineTelemetry(llmName, 'MODEL_RUN_TRANSITION', {
       level: result?.applied === false ? 'warning' : 'info',
       details: `${normalizedTransition}:${result?.reason || 'accepted'}`,
@@ -172,10 +180,10 @@ function commitModelRunTransition(llmName, entry, transition, payload = {}) {
         applied: result?.applied !== false,
         reason: result?.reason || null,
         source,
-        previousState: summarizeModelRunStateForTelemetry(result?.previousState) || previousState,
+        ...(runStateChanged ? { previousState: emittedPreviousState } : {}),
         nextState,
         legacyBefore,
-        legacyAfter,
+        ...(legacyChanged ? { legacyAfter } : {}),
         payload: {
           status: payload?.status || null,
           reason: payload?.reason || null,

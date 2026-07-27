@@ -174,6 +174,38 @@ describe('telemetry meta delta compaction', () => {
     expect(expandTelemetryEvents(compacted)).toEqual(events);
   });
 
+  test('baseline is per (platform, label), so interleaved event types do not churn', () => {
+    // Real runs interleave structurally unrelated events for one model. Diffing
+    // a SELECTOR_STATS against a MODEL_RUN_TRANSITION produced huge deltas plus
+    // removed-key lists; keying by label makes each type diff against its own kind.
+    const stats = (ts, misses) => ({
+      ts, platform: 'GPT', label: 'SELECTOR_STATS', level: 'info',
+      meta: { llmName: 'GPT', hitCount: 10, missCount: misses, selectorPack: 'v3' }
+    });
+    const transition = (ts, at) => ({
+      ts, platform: 'GPT', label: 'MODEL_RUN_TRANSITION', level: 'info',
+      meta: { llmName: 'GPT', transition: 'STATUS_UPDATE', nextState: { uiStatus: 'RECEIVING', lastTransitionAt: at } }
+    });
+    const events = [stats(1, 0), transition(2, 100), stats(3, 1), transition(4, 200), stats(5, 1)];
+    const compacted = compactTelemetryEvents(events);
+    // stats(3) diffs against stats(1), not against the transition in between.
+    expect(compacted[2].meta).toEqual({ __telemetryMetaDelta: 3, missCount: 1 });
+    // stats(5) is identical to stats(3): marker only, no removed-key bookkeeping.
+    expect(compacted[4].meta).toEqual({ __telemetryMetaDelta: 3 });
+    expect(compacted[2].meta.__telemetryMetaRemovedKeys).toBeUndefined();
+    expect(expandTelemetryEvents(compacted)).toEqual(events);
+  });
+
+  test('legacy format-2 deltas (platform-keyed) still expand correctly', () => {
+    const legacy = [
+      { ts: 1, platform: 'GPT', label: 'A', meta: { a: 1, nested: { x: 1, y: 2 } } },
+      { ts: 2, platform: 'GPT', label: 'B', meta: { __telemetryMetaDelta: 2, nested: { y: 9 } } }
+    ];
+    const expanded = expandTelemetryEvents(legacy);
+    // Format 2 merges nested and uses the platform baseline, ignoring the label.
+    expect(expanded[1].meta).toEqual({ a: 1, nested: { x: 1, y: 9 } });
+  });
+
   test('legacy format-1 deltas (marker === true) still expand with replace semantics', () => {
     // Written by the previous build: a nested object in the delta meant "replace
     // this key wholesale", not "merge". Such entries can still be in DIAG_KEY
@@ -194,10 +226,10 @@ describe('telemetry meta delta compaction', () => {
     expect(expanded[1].meta.keep).toBe('yes');
   });
 
-  test('new compaction marks the nested format version', () => {
+  test('new compaction marks the label-keyed nested format version', () => {
     const events = [makeEvent('GPT', 1), makeEvent('GPT', 2, { dispatchId: 'd-2' })];
     const compacted = compactTelemetryEvents(events);
-    expect(compacted[1].meta.__telemetryMetaDelta).toBe(2);
+    expect(compacted[1].meta.__telemetryMetaDelta).toBe(3);
   });
 
   test('empty and non-array input is handled safely', () => {

@@ -24,15 +24,30 @@
 (function initTelemetryMetaDelta(root) {
   const DELTA_MARKER = '__telemetryMetaDelta';
   const REMOVED_KEYS = '__telemetryMetaRemovedKeys';
-  // Format 1 (marker === true) diffed only top-level keys: a nested object in the
-  // delta meant "replace this key wholesale". Format 2 diffs recursively, where a
-  // nested object means "merge into the previous value". The two are ambiguous
-  // without this marker, so expand() must dispatch on it -- data written by an
-  // earlier build can still be sitting in DIAG_KEY storage.
+  // Format 1 (marker === true) diffed only top-level keys against the previous
+  // event of the same platform: a nested object in the delta meant "replace this
+  // key wholesale". Format 2 diffs recursively, where a nested object means
+  // "merge into the previous value". Format 3 additionally picks the baseline
+  // per (platform, label) rather than per platform.
+  //
+  // The baseline choice matters more than the diff algorithm: meta shape follows
+  // the event label, not the model. On a real run 407 of 466 consecutive
+  // same-platform pairs had different labels, so format 2 was diffing structurally
+  // unrelated events and spending its savings on __telemetryMetaRemovedKeys lists
+  // (present in 322 of 474 events; 7 after switching baseline).
+  //
+  // All three formats are ambiguous without the marker, so expand() dispatches on
+  // each event's own marker -- data written by an earlier build can still be in
+  // DIAG_KEY storage, and a stream may even mix formats.
   const DELTA_FORMAT_NESTED = 2;
+  const DELTA_FORMAT_LABELED = 3;
 
-  function groupKeyOf(event) {
+  function platformKeyOf(event) {
     return String(event?.platform || event?.meta?.llmName || event?.llmName || 'unknown');
+  }
+
+  function labelKeyOf(event) {
+    return `${platformKeyOf(event)}|${String(event?.label || event?.meta?.event || '')}`;
   }
 
   // Arrays are diffed atomically (replaced whole): element-wise diffing would
@@ -117,16 +132,16 @@
       if (!event || typeof event !== 'object') return event;
       const meta = event.meta;
       if (!isPlainObject(meta) || hasReservedKey(meta)) return event;
-      const key = groupKeyOf(event);
+      const key = labelKeyOf(event);
       const prev = lastFullMeta.get(key);
       lastFullMeta.set(key, meta);
       if (!prev) return event;
 
       const { changed, delta } = diffObject(prev, meta);
       if (!changed) {
-        return { ...event, meta: { [DELTA_MARKER]: DELTA_FORMAT_NESTED } };
+        return { ...event, meta: { [DELTA_MARKER]: DELTA_FORMAT_LABELED } };
       }
-      const compactedMeta = { [DELTA_MARKER]: DELTA_FORMAT_NESTED, ...delta };
+      const compactedMeta = { [DELTA_MARKER]: DELTA_FORMAT_LABELED, ...delta };
       // Only keep the compacted form when it is actually smaller; a delta that
       // touches nearly everything can serialize larger than the original once
       // the marker and removed-key bookkeeping are added. Storing the full meta
@@ -143,18 +158,28 @@
 
   function expandTelemetryEvents(events) {
     if (!Array.isArray(events)) return [];
-    const lastFullMeta = new Map();
+    // Both baselines are tracked so a stream may mix formats: each event resolves
+    // its baseline from its own marker, and every resolved meta updates both maps.
+    const lastByPlatform = new Map();
+    const lastByLabel = new Map();
+    const remember = (event, meta) => {
+      lastByPlatform.set(platformKeyOf(event), meta);
+      lastByLabel.set(labelKeyOf(event), meta);
+    };
     return events.map((event) => {
       if (!event || typeof event !== 'object') return event;
       const meta = event.meta;
-      const key = groupKeyOf(event);
       if (!isPlainObject(meta) || !meta[DELTA_MARKER]) {
-        if (isPlainObject(meta)) lastFullMeta.set(key, meta);
+        if (isPlainObject(meta)) remember(event, meta);
         return event;
       }
-      const prev = lastFullMeta.get(key) || {};
-      const merged = mergeDelta(prev, meta, meta[DELTA_MARKER] === DELTA_FORMAT_NESTED);
-      lastFullMeta.set(key, merged);
+      const format = meta[DELTA_MARKER];
+      const prev = (format === DELTA_FORMAT_LABELED
+        ? lastByLabel.get(labelKeyOf(event))
+        : lastByPlatform.get(platformKeyOf(event))) || {};
+      const nested = format === DELTA_FORMAT_NESTED || format === DELTA_FORMAT_LABELED;
+      const merged = mergeDelta(prev, meta, nested);
+      remember(event, merged);
       return { ...event, meta: merged };
     });
   }

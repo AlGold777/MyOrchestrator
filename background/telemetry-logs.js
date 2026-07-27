@@ -17,14 +17,17 @@ const DIAGNOSTICS_EVENTS_MAX_BYTES = 1500000;
 const TELEMETRY_SAMPLE_RATE = 0.05;
 const TELEMETRY_SCHEMA_VERSION = 2;
 const TELEMETRY_TAXONOMY_SCHEMA_VERSION = 1;
-// v2.81.119 (2026-07-27): DIAG_KEY storage delta-compacts event.meta on write and
+// v2.81.122 (2026-07-28): DIAG_KEY storage delta-compacts event.meta on write and
 // expands it back on read (shared/telemetry-meta-delta.js) to stop persisting/
-// exporting the same mostly-constant meta fields on every single event. Encoding 3
-// diffs recursively into nested state snapshots (previousState/nextState/payload/
-// ...); encoding 2 diffed only top-level keys, which barely helped because those
-// snapshots dominate the payload. Backward compatible in both directions: legacy
-// full-meta entries expand as a no-op, and format-1 deltas keep replace semantics.
-const DIAGNOSTICS_STORAGE_ENCODING_VERSION = 3;
+// exporting the same mostly-constant meta fields on every single event.
+// This counter tracks storage generations, not the delta marker written into the
+// data (that is TelemetryMetaDelta's own format number, currently 3): gen 2 wrote
+// top-level diffs, gen 3 added nested diffs, gen 4 moved the diff baseline from
+// "previous event of this model" to "previous event of this model AND label",
+// which is what actually removed the per-event removed-key bookkeeping.
+// Every generation stays readable: expand() dispatches on each event's marker,
+// and legacy full-meta entries expand as a no-op.
+const DIAGNOSTICS_STORAGE_ENCODING_VERSION = 4;
 const telemetrySampleCache = new TTLMap({ ttlMs: 10 * 60 * 1000, maxSize: 50 });
 const pipelineCompleteCache = new TTLMap({ ttlMs: 10 * 60 * 1000, maxSize: 200 });
 const POST_TERMINAL_NOISE_LABELS = new Set([

@@ -1268,16 +1268,20 @@
                 generationWaitProfileLabel: window.ResultsShared?.getGenerationWaitProfileLabel?.() || '',
                 runOutcomeSummary: runOutcomeSummary || null,
                 ...(metaEncoded ? {
-                    metaEncodingNote: 'Per-event "meta" only lists fields that changed vs. the previous event for the same model; {"__telemetryMetaDelta":true} alone means meta is unchanged from the previous event.'
+                    metaEncodingNote: 'Per-event "meta" only lists fields that changed vs. the previous event with the same model AND label; {"__telemetryMetaDelta":3} alone means meta is unchanged from that event.'
                 } : {})
             };
             // Defense-in-depth: scrub provider keys/tokens before the export
             // leaves the extension (see shared/secret-redaction.js). Falls back
             // to plain stringify only if the module failed to load.
             const payload = { ...exportMeta, ...grouped };
+            // Written without indentation on purpose: this export is read by
+            // analysis tooling, not by eye, and pretty-printing a few hundred
+            // deeply nested events cost 183KB (33%) of a real 551KB export.
+            // Any JSON viewer or `jq .` re-formats it on demand.
             const json = window.SecretRedaction?.stringifySafe
-                ? window.SecretRedaction.stringifySafe(payload, 2)
-                : JSON.stringify(payload, null, 2);
+                ? window.SecretRedaction.stringifySafe(payload)
+                : JSON.stringify(payload);
             if (!json || json === '{}') return;
             const blob = new Blob([json], { type: 'application/json' });
             const url = URL.createObjectURL(blob);

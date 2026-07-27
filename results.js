@@ -14038,7 +14038,10 @@ document.addEventListener('click', (event) => {
             const safePayload = window.SecretRedaction?.redactDeep
                 ? window.SecretRedaction.redactDeep(payload)
                 : payload;
-            const blob = new Blob([JSON.stringify(safePayload, null, 2)], { type: 'application/json' });
+            // Unindented for the same reason as the telemetry export: these files
+            // are fed to analysis tooling, and pretty-printing cost a third of a
+            // real export's size. Any JSON viewer re-formats on demand.
+            const blob = new Blob([JSON.stringify(safePayload)], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
             const anchor = document.createElement('a');
             anchor.href = url;
