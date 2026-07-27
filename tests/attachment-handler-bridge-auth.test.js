@@ -83,7 +83,9 @@ describe('attachment bridge authentication', () => {
       HANDLER_SRC.indexOf('Gemini: {'),
       HANDLER_SRC.indexOf('Perplexity: {')
     );
-    expect(geminiConfig).toContain("strategies: ['cdp-file-input']");
+    // CDP first, but never CDP-only: see the note in attachment-handler.js (2.81.116).
+    expect(geminiConfig).toMatch(/strategies: \['cdp-file-input',/);
+    expect(geminiConfig).toContain("'input'");
     expect(geminiConfig).toContain('timeoutMs: 12000');
     expect(geminiConfig).toContain("confirmationMode: 'batch'");
     expect(geminiConfig).toContain('inputFileCountIsEvidence: true');
@@ -384,7 +386,7 @@ describe('attachment bridge authentication', () => {
 
     expect(cdpRequest).toContain('new Promise((resolve) =>');
     expect(cdpRequest).toContain('resolve(response ||');
-    expect(tryVia).toContain('const dispatchResult = await dispatchFn()');
+    expect(tryVia).toContain('dispatchResult = await dispatchFn()');
     expect(tryVia).toMatch(/if \(!ok\) \{[\s\S]*?ATTACHMENT_DISPATCH_FAILED[\s\S]*?return false;/);
   });
 
@@ -409,7 +411,7 @@ describe('attachment bridge authentication', () => {
 
   test('captures the attachment baseline before paste and blocks an unconfirmed send', () => {
     const baselineAt = HANDLER_SRC.indexOf('const baselineState = captureUploadBaseline(config)');
-    const dispatchAt = HANDLER_SRC.indexOf('const dispatchResult = await dispatchFn()', baselineAt);
+    const dispatchAt = HANDLER_SRC.indexOf('dispatchResult = await dispatchFn()', baselineAt);
     expect(baselineAt).toBeGreaterThan(-1);
     expect(dispatchAt).toBeGreaterThan(baselineAt);
     expect(GEMINI_SRC).toContain("type: 'attachment_failed'");

@@ -1,5 +1,15 @@
 # Codex phase change log
 
+## 2.81.116 — Attachment strategy fallback restores prompt dispatch
+
+- Field report: six of nine providers were unusable. Gemini, Perplexity, Qwen and Z.ai did not insert the prompt at all; Le Chat and Claude inserted but did not submit.
+- Root cause for the four that did not insert: 2.81.112 removed the `debugger` permission, but those four still declared a CDP-only attachment strategy list. `chrome.debugger` was undefined, so the CDP request failed with `Cannot read properties of undefined (reading 'attach')`, and with no other strategy the dispatch ended as `USER_ACTION_REQUIRED:attachment_failed` **before the prompt was ever inserted**. The 2.81.112 note claiming these strategies "fall through to their existing page bridge, input, drop or paste alternatives" was not true — the lists contained a single entry.
+- The symmetry confirms the diagnosis: the three providers that kept working (ChatGPT, DeepSeek, Grok) are exactly those whose strategy list was already `['drop', 'input']`, with no CDP entry.
+- Fallbacks added, CDP kept first so it remains correct if the permission ever returns: Gemini `['cdp-file-input', 'input', 'drop']`, Perplexity `['provider-cdp-file-input', 'input']`, Qwen `['qwen-cdp-file-input', 'input']`, Z.ai `['provider-cdp-file-input', 'paste', 'input']`. Qwen had no selectors at all, so its stable native contract `input#filesUpload` was added explicitly.
+- `tryVia` now wraps the strategy dispatch in try/catch. A missing browser API surfaces as a thrown `TypeError`, and letting it propagate aborted the whole attachment chain; it is now recorded as `dispatch_threw:<message>` and the next strategy runs.
+- Added `tests/attachment-strategy-fallback.test.js`: no provider may declare CDP-only, every CDP entry must be followed by a non-CDP fallback, and the dispatch call must stay guarded. Verified to fail when a CDP-only list is reintroduced.
+- Three existing tests asserted the CDP-only configuration as literal source text and therefore passed while the product was broken. They now assert the correct invariant (CDP first, fallback mandatory) instead of the exact string.
+
 ## 2.81.115 — Atomic run tab acquisition
 
 - Made model tab acquisition an awaited transaction. Round 0 cannot advance on a stale persisted binding while global reuse probing or fresh-tab creation is still running.

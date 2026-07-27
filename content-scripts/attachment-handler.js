@@ -145,7 +145,12 @@
       // API (Finder/Explorer uses native file-reference clipboard formats). Ask
       // the background worker to materialize the bytes and use CDP's trusted
       // DOM.setFileInputFiles path instead.
-      strategies: ['cdp-file-input'],
+      // 2.81.116: CDP is unavailable since the `debugger` permission was removed
+      // in 2.81.112. A CDP-only list left no fallback, so an attachment failure
+      // aborted the whole dispatch and the prompt was never inserted. Keep the CDP
+      // entry first (harmless no-op without the permission, and correct if it ever
+      // returns) and fall through to the native input/drop vectors.
+      strategies: ['cdp-file-input', 'input', 'drop'],
       timeoutMs: 12000,
       scaleTimeoutByFileCount: false,
       confirmationMode: 'batch',
@@ -198,7 +203,8 @@
       ]
     },
     Perplexity: {
-      strategies: ['provider-cdp-file-input'],
+      // 2.81.116: fallback added, see the Gemini note above.
+      strategies: ['provider-cdp-file-input', 'input'],
       settleMs: 1200,
       // Perplexity's paid-plan modal can briefly render generic upload classes.
       // Those transient nodes are not attachment evidence: a file chip,
@@ -234,7 +240,16 @@
       // Current Qwen UI exposes one stable native contract:
       // <input id="filesUpload" multiple type="file">. Assign files to that
       // exact input through trusted CDP instead of synthetic drop/paste/menu UI.
-      strategies: ['qwen-cdp-file-input'],
+      // 2.81.116: fallback added, see the Gemini note above. The same stable
+      // native contract named in the comment is used directly by the `input`
+      // strategy, which needs no debugger permission.
+      strategies: ['qwen-cdp-file-input', 'input'],
+      inputSelectors: [
+        'input#filesUpload[type="file"]',
+        'input[id="filesUpload"]',
+        'input[type="file"][multiple]',
+        'input[type="file"]'
+      ],
       timeoutMs: 45000,
       scaleTimeoutByFileCount: false,
       inputFileCountIsEvidence: true,
@@ -336,7 +351,10 @@
       // interaction the user verified with copy + Ctrl+V). Do not fall back to
       // unrelated upload controls: prompt dispatch stays blocked until a new
       // attachment chip, filename or preview is observable.
-      strategies: ['provider-cdp-file-input'],
+      // 2.81.116: fallback added, see the Gemini note above. Paste is listed first
+      // among the fallbacks because it is the native interaction this config was
+      // originally written around.
+      strategies: ['provider-cdp-file-input', 'paste', 'input'],
       dispatchIsEvidence: true,
       dispatchEvidenceSettleMs: 1200,
       pasteSelectors: [
@@ -915,7 +933,22 @@
         expectedCount,
         baselineState
       });
-      const dispatchResult = await dispatchFn();
+      // A strategy that throws must not abort the remaining strategies: a missing
+      // API (for example chrome.debugger after the permission was removed) surfaces
+      // as a thrown TypeError, and letting it propagate would kill the whole
+      // attachment chain and with it the prompt dispatch.
+      let dispatchResult;
+      try {
+        dispatchResult = await dispatchFn();
+      } catch (error) {
+        emitAttachmentTelemetry(model, 'ATTACHMENT_DISPATCH_FAILED', strategy, 'warning', {
+          strategy,
+          expectedCount,
+          reason: `dispatch_threw:${error?.message || 'unknown'}`,
+          dispatchElapsedMs: Date.now() - startedAt
+        });
+        return false;
+      }
       const ok = dispatchResult === true || dispatchResult?.ok === true;
       if (!ok) {
         emitAttachmentTelemetry(model, 'ATTACHMENT_DISPATCH_FAILED', strategy, 'warning', {

@@ -33,7 +33,11 @@ describe('attachment request regression 2026-07-10', () => {
 
   test('Qwen uses its exact native file input through trusted CDP', () => {
     const qwenConfig = handler.slice(handler.indexOf('Qwen: {'), handler.indexOf('DeepSeek: {'));
-    expect(qwenConfig).toContain("strategies: ['qwen-cdp-file-input']");
+    // The CDP vector stays first, but a CDP-only list is forbidden: the `debugger`
+    // permission was removed in 2.81.112, so without a fallback an attachment
+    // failure aborted the entire dispatch and the prompt was never inserted.
+    expect(qwenConfig).toMatch(/strategies: \['qwen-cdp-file-input',/);
+    expect(qwenConfig).toContain("'input'");
     expect(qwenConfig).not.toContain('dispatchIsEvidence: true');
     expect(qwenConfig).toContain('inputFileCountIsEvidence: true');
     expect(qwenConfig).toContain('inputEvidenceSettleMs: 10000');
