@@ -1,5 +1,14 @@
 # Codex phase change log
 
+## 2.81.121 — Deliver blocked answers as labelled candidates
+
+- Light field test: every answer arrived complete and carried its end marker, yet nothing appeared in the cards until `Get It`, and Claude and Z.ai needed a double-click on top of that.
+- Telemetry showed the answers were already collected and stored: GPT ended at `FINALIZATION_DECISION SUCCESS:blocked` → `TERMINAL_SUCCESS_BLOCKED_BY_ANSWER_EVIDENCE answer_not_verified`, DeepSeek at `FINALIZE_BLOCKED_SUBMIT_PENDING deferred_finalization len=2304`. Submission confirmation never landed (`PROMPT_SUBMITTED_PENDING skip_submit_wait`), so `confirmedDispatchId` stayed unset and the strict gate from 2.81.109 could never verify.
+- Both paths stored the text in `pendingFinalAnswer`, set the card to `RECEIVING` and scheduled a retry — but never sent the text to the results page. The card went orange and empty while a complete answer sat in background state.
+- This is the strictness/availability tension the architecture review recorded: absence of proof was being treated as a statement about the content. Principle 5 already says otherwise, and 2.81.113 had implemented the correct shape for one recovery path only.
+- Blocked terminal success now delivers the answer as a non-terminal candidate labelled `Verification pending`. The deferred submit-unconfirmed path does the same under `Submission unconfirmed`, but only for text that is provably **not** the pre-dispatch baseline — submission was never confirmed there, so stale page content is a real possibility and `isStaleBaselineCandidate` gates the delivery.
+- Neither path can produce a terminal or green result. The gate is unchanged; only the visibility of an unproven candidate is.
+
 ## 2.81.120 — Perplexity Send control scope and background-tab draft read
 
 - Perplexity still failed with `PERPLEXITY_DRAFT_REJECTED prompt_not_present` → `prompt_injection_failed` while the prompt was visibly present in the composer.

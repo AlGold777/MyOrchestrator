@@ -2663,6 +2663,33 @@ function maybeDeferStreamingFinalization(llmName, answer, metaObj, answerHtml, n
         completionReason: 'awaiting_submit_confirmation',
         responseSource: responseMeta?.source || null
       });
+      // 2.81.121 (principle 5). Deliver the pending text as a labelled candidate
+      // instead of leaving an orange card empty. Unlike the blocked-success path,
+      // submission was never confirmed here, so the content really could be
+      // pre-dispatch page material — deliver only what is provably NOT the
+      // pre-dispatch baseline, and never as a terminal result.
+      const deferredText = String(liveEntry.pendingFinalAnswer || normalizedAnswer || answer || '').trim();
+      const deferredDispatchId = metaObj?.dispatchId || liveEntry?.lastDispatchMeta?.dispatchId || null;
+      if (deferredText && !isStaleBaselineCandidate(liveEntry, deferredText, deferredDispatchId)) {
+        sendMessageToResultsTab({
+          type: 'LLM_PARTIAL_RESPONSE',
+          llmName,
+          answer: deferredText,
+          answerHtml: String(liveEntry.pendingFinalAnswerHtml || normalizedHtml || ''),
+          requestId: liveEntry?.requestId || null,
+          metadata: {
+            status: 'RECEIVING',
+            terminal: false,
+            answerState: 'candidate',
+            verificationState: 'candidate',
+            attributionState: 'unproven',
+            attributionLabel: 'Submission unconfirmed',
+            reason: 'awaiting_submit_confirmation',
+            source: responseMeta?.source || null,
+            dispatchId: deferredDispatchId
+          }
+        });
+      }
       const recheckDelay = nextDeferRecheckDelay(jobState?.llms?.[llmName], pendingAnswerLength);
       registerSessionTimer(setTimeout(() => {
         const recheckEntry = jobState?.llms?.[llmName];
@@ -8132,6 +8159,34 @@ function handleLLMResponse(llmName, answer, error = null, meta = null, answerHtm
       completionReason,
       responseSource
     });
+    // 2.81.121 (principle 5). The answer is complete and already stored in
+    // pendingFinalAnswer, but this path used to keep it invisible: the card went
+    // orange with no text and the user had to press Get It or double-click to see
+    // anything. Absence of proof is a statement about the proof, not about the
+    // content — deliver it as a non-terminal labelled candidate instead of hiding
+    // it. Field evidence: a full run where every answer was complete and carried
+    // its end marker, yet nothing appeared until manual collection.
+    if (trimmedAnswer) {
+      sendMessageToResultsTab({
+        type: 'LLM_PARTIAL_RESPONSE',
+        llmName,
+        answer: normalizedAnswer,
+        answerHtml: normalizedHtml,
+        requestId: entry?.requestId || null,
+        metadata: {
+          status: 'RECEIVING',
+          terminal: false,
+          answerState: 'candidate',
+          verificationState: 'candidate',
+          attributionState: 'unproven',
+          attributionLabel: 'Verification pending',
+          completenessState: 'complete',
+          reason: finalizationEvidence.contradictions.join(',') || 'insufficient_answer_evidence',
+          source: responseSource || null,
+          dispatchId: incomingDispatchId
+        }
+      });
+    }
     const retryTabId = resolveBoundTabIdForOrchestrator(llmName, entry);
     if (isValidTabId(retryTabId)) {
       triggerResponseCollectionPing(llmName, retryTabId, 'terminal_success_evidence_blocked', {
