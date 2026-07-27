@@ -17,6 +17,7 @@
 | Общая telemetry главной страницы: схема, экспорт и диагностика | [telemetry.md](telemetry.md) | архитектура, changelog |
 | Полнота извлечения ответа: принципы, состояние фаз и журнал отвергнутых решений | [answer-completeness-handoff.md](answer-completeness-handoff.md) | changelog, telemetry, live-answer-skeletons |
 | Каталог внешних идей по доказательству состояния на чужой странице | [review->LLM-pages.md](<review->LLM-pages.md>) | answer-completeness-handoff |
+| Отложенные альтернативы определению окончания генерации | [answers-detection-alternativa.md](answers-detection-alternativa.md) | review->LLM-pages, answer-completeness-handoff |
 | Актуальная нормативная документация Disput | [disput/README-disput.md](disput/README-disput.md) | старый архив |
 | Universal pipeline и lifecycle owner Disput | [disput/orchestrator-contract-v1.0.md](disput/orchestrator-contract-v1.0.md), [disput/PLAN-universal-pipeline-v3.0.md](disput/PLAN-universal-pipeline-v3.0.md) | README, telemetry history |
 | Disput UI/runtime corrections и synthesis insertion | [disput/TZ-runtime-ui-corrections-v1.0.md](disput/TZ-runtime-ui-corrections-v1.0.md), [disput/TZ-synthesis-insertion-v1.1.md](disput/TZ-synthesis-insertion-v1.1.md) | model-tabs-architecture |
