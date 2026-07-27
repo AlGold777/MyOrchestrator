@@ -1,5 +1,14 @@
 # Codex phase change log
 
+## 2.81.117 — Submission proof for Gemini and Claude
+
+- After 2.81.116 restored insertion, five of nine providers worked. Gemini, Claude and Perplexity inserted the prompt but the turn was never committed, while the run still reported `PROMPT_SUBMITTED_ACCEPTED`.
+- Field evidence for Gemini: `Gemini send strategy ctrl_enter` carried `composerLength=190`, `Gemini send confirmed` carried `composerLength=0`, and the next event was `TURN_RESOLUTION unresolved:answer_node_unresolved`. The prompt went in, the composer cleared, no turn appeared, and the clearing alone was accepted as proof.
+- Gemini and Claude each carried a private submit oracle whose every branch is satisfied by "nothing happened": an empty composer, a *disabled* Send button (disabled precisely because the composer is empty) and any page-wide spinner or Stop button left over from an earlier turn. Le Chat and Perplexity had already been moved onto the strict shared oracle in 2.81.111; these two were never migrated.
+- Both now use `ProviderSubmitConfirmation`, which confirms only on evidence that is new relative to a pre-send baseline: a new user turn, a new response node, or a generation element that did not exist before the attempt. Composer clearing and shrinking remain recorded but never confirm. Each keeps a fail-closed local fallback that also requires new current-turn evidence.
+- `shared/provider-submit-confirmation.js` moved into the shared content-script block. It was previously loaded only on Perplexity and Le Chat, so Grok referenced the oracle in code while it was undefined at runtime and silently fell back to its local logic.
+- Added `tests/provider-submit-proof-contract.test.js`: the oracle must reject composer clearing, must ignore a pre-existing generation element, every provider page must load it, and no adapter may treat an empty composer or a disabled Send button as proof. Verified to fail when the empty-composer shortcut is reintroduced.
+
 ## 2.81.116 — Attachment strategy fallback restores prompt dispatch
 
 - Field report: six of nine providers were unusable. Gemini, Perplexity, Qwen and Z.ai did not insert the prompt at all; Le Chat and Claude inserted but did not submit.
