@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Disput — Карта состояния, светлая тема</title>
+  <style>
+    :root{
+      color-scheme:light;
+      --bg:#f4f6f9;
+      --surface:#ffffff;
+      --surface-2:#f8fafc;
+      --surface-3:#eef2f7;
+      --line:#dce3ec;
+      --line-strong:#c7d1df;
+      --text:#172033;
+      --muted:#657186;
+      --faint:#8d98aa;
+      --accent:#4f6bed;
+      --accent-soft:#eef1ff;
+      --green:#1f9568;
+      --green-soft:#e8f7f1;
+      --amber:#ad7415;
+      --amber-soft:#fff5df;
+      --red:#c94852;
+      --red-soft:#fff0f1;
+      --violet:#8354c7;
+      --violet-soft:#f4edff;
+      --blue:#3274b8;
+      --blue-soft:#eaf4ff;
+      --shadow:0 18px 55px rgba(31,47,77,.14);
+      --radius:12px;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;
+      overflow:auto;
+      background:var(--bg);
+      color:var(--text);
+      font:13px/1.45 Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    }
+    button,input,select{font:inherit;color:inherit}
+    button{cursor:pointer}
+    button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+    .app{min-height:100vh;display:grid;grid-template-columns:1fr;min-width:1000px}
+    .caption{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;color:var(--muted);font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+    .pipeline-list{display:grid;gap:5px}
+    .pipeline-item{width:100%;display:flex;align-items:center;gap:9px;padding:9px 10px;border:1px solid transparent;border-radius:9px;background:transparent;text-align:left;color:#4d596d}
+    .pipeline-item:hover{background:var(--surface-2)}
+    .pipeline-item.active{background:var(--accent-soft);border-color:#d7defe;color:#213375}
+    .pipeline-dot{width:7px;height:7px;border-radius:50%;background:#a4afbf}
+    .pipeline-item.active .pipeline-dot{background:var(--accent)}
+
+    .state-card{margin-top:12px;border:1px solid var(--line);border-radius:12px;background:linear-gradient(145deg,#fff,#f7f9ff);overflow:hidden;box-shadow:0 8px 24px rgba(31,47,77,.07)}
+    .state-card-head{width:100%;display:flex;align-items:center;gap:9px;padding:11px;border:0;background:transparent;text-align:left}
+    .state-card-head:hover{background:#f8faff}
+    .state-icon{width:30px;height:30px;display:grid;place-items:center;border-radius:8px;background:var(--accent-soft);color:var(--accent);font-weight:800}
+    .state-title{min-width:0;flex:1}
+    .state-title strong{display:flex;align-items:center;gap:7px}
+    .state-title small{display:block;margin-top:1px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .live-dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 4px var(--green-soft)}
+    .live-dot.archive{background:#9aa5b5;box-shadow:none}
+    .chevron{color:var(--muted);transition:.18s}
+    .state-card.collapsed .chevron{transform:rotate(-90deg)}
+    .state-card.collapsed .state-card-body{display:none}
+    .state-card-body{padding:0 10px 10px}
+    .state-pill{padding:3px 7px;border-radius:999px;background:var(--green-soft);color:var(--green);font-size:9px;font-weight:700}
+    .compact-facts{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin-top:7px}
+    .compact-fact{padding:7px 3px;border:1px solid var(--line);border-radius:7px;background:white;text-align:center}
+    .compact-fact b{display:block;font-size:14px;line-height:1.05}
+    .compact-fact span{color:var(--muted);font-size:8px}
+    .mini-timeline{display:flex;align-items:center;margin:10px 3px 8px}
+    .mini-step{width:20px;height:20px;display:grid;place-items:center;border:1px solid var(--line-strong);border-radius:50%;background:white;color:var(--muted);font-size:7px;z-index:1}
+    .mini-step.done{border-color:#8fc7b2;background:var(--green-soft);color:var(--green)}
+    .mini-step.active{border-color:var(--accent);background:var(--accent);color:white;box-shadow:0 0 0 4px var(--accent-soft)}
+    .mini-link{height:1px;flex:1;background:var(--line-strong)}
+    .mini-link.done{background:#8fc7b2}
+
+    .primary,.ghost,.icon,.filter,.mode-btn{border-radius:8px;transition:.15s}
+    .primary{min-height:34px;padding:7px 11px;border:1px solid var(--accent);background:var(--accent);color:white;font-weight:750}
+    .primary:hover{background:#415bd8}
+    .ghost{min-height:32px;padding:6px 10px;border:1px solid var(--line);background:white;color:#48556a}
+    .ghost:hover,.icon:hover,.filter:hover{border-color:#b9c5d5;background:#f7f9fc}
+    .icon{width:34px;height:34px;display:grid;place-items:center;border:1px solid var(--line);background:white;color:#536077}
+
+    .main{min-width:0;min-height:100vh;display:flex;flex-direction:column;background:var(--bg)}
+    .topbar{height:58px;display:flex;align-items:center;justify-content:space-between;padding:0 17px;border-bottom:1px solid var(--line);background:rgba(255,255,255,.9);backdrop-filter:blur(10px)}
+    .topbar-title-wrap{position:relative;display:inline-flex;align-items:center}
+    .topbar-title-wrap::after{content:"";position:absolute;right:2px;top:50%;margin-top:-2px;width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid var(--muted);pointer-events:none}
+    .topbar-title{min-width:0;padding:0 16px 0 0;border:0;background:transparent;appearance:none;font-weight:800;cursor:pointer}
+    .topbar-subtitle{color:var(--muted);font-size:10px}
+    .canvas{flex:1;min-height:0;overflow:auto;padding:28px}
+    .canvas-inner{min-height:100%;padding:34px;border:1px solid var(--line);border-radius:14px;background-color:#fafbfd;background-image:linear-gradient(#edf1f6 1px,transparent 1px),linear-gradient(90deg,#edf1f6 1px,transparent 1px);background-size:24px 24px}
+    .flow-label{color:var(--muted);font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+    .flow{display:grid;grid-template-columns:1fr 72px 1fr 72px 1fr;align-items:center;margin-top:18px}
+    .flow-card{min-height:145px;padding:15px;border:1px solid var(--line);border-radius:12px;background:white;box-shadow:0 5px 18px rgba(31,47,77,.04)}
+    .flow-card h3{margin:0;font-size:13px}.flow-card p{color:var(--muted);font-size:11px}.flow-arrow{text-align:center;color:#9aa6b8;font-size:24px}
+
+    .overlay{position:fixed;inset:0;display:none;background:rgba(36,45,64,.22);backdrop-filter:blur(5px);z-index:100}
+    .overlay.open{display:block}
+    .workspace{position:absolute;inset:16px;display:grid;grid-template-rows:58px 1fr;border:1px solid var(--line-strong);border-radius:16px;background:var(--surface);overflow:hidden;box-shadow:var(--shadow)}
+    .workspace-header{display:flex;align-items:center;gap:10px;padding:0 13px;border-bottom:1px solid var(--line);background:white}
+    .workspace-brand{display:flex;align-items:center;gap:9px;min-width:205px;font-weight:800}
+    .search{height:33px;border:1px solid var(--line);border-radius:8px;background:white}
+    .session-status{display:flex;align-items:center;gap:7px;padding:5px 8px; border-radius:999px;color:var(--muted);font-size:10px}
+    .spacer{flex:1}
+    .mode-switch{display:flex;gap:3px;padding:3px;border:1px solid var(--line);border-radius:9px;background:var(--surface-2)}
+    .mode-btn{border:0;padding:6px 11px;background:transparent;color:var(--muted);font-size:10px}
+    .mode-btn.active{background:white;color:var(--text);box-shadow:0 1px 4px rgba(31,47,77,.12)}
+
+    .workspace-body{min-height:0;display:grid;grid-template-rows:1fr 84px}
+    .workspace-main{min-height:0;position:relative;display:block;overflow:visible}
+    .content{min-height:100%;display:block}
+    .history-banner{display:flex;align-items:center;gap:14px;padding:10px 14px;border-bottom:1px solid var(--line);background:linear-gradient(145deg,#fff,#f7f9ff);font-size:10px}
+    .history-banner .state-card-body{display:flex;align-items:center;gap:14px;flex:1;min-width:0;padding:0}
+    .history-banner .mini-timeline{flex:1;min-width:180px;margin:0 3px}
+    .history-banner .compact-facts{width:270px;margin-top:0}
+    .history-current{display:flex;flex-direction:column;align-items:flex-end;justify-content:center;gap:4px;min-width:260px;color:var(--muted)}
+    .snapshot-bar{min-height:58px;display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line)}
+    .snapshot-copy strong{display:block;font-size:14px}.snapshot-copy span{color:var(--muted);font-size:10px}
+    .snapshot-summary{margin-left:auto;display:flex;gap:6px}
+    .summary-chip{display:flex;align-items:center;gap:5px;padding:5px 8px;border:1px solid var(--line);border-radius:7px;background:var(--surface-2);color:var(--muted);font-size:9px}
+    .summary-chip b{color:var(--text);font-size:11px}
+    .toolbar{min-height:47px;display:flex;align-items:center;gap:7px;padding:7px 14px;border-bottom:1px solid var(--line)}
+    .filter{border:1px solid var(--line);border-radius:999px;padding:5px 9px;background:white;color:var(--muted);font-size:9px}
+    .filter.active{border-color:#b8c3ff;background:var(--accent-soft);color:#3148b0}
+    .compare-button.active{border-color:#b8c3ff;background:var(--accent-soft);color:#3148b0}
+    .search{width:210px;padding:0 10px;margin-left:auto}
+    .stage{min-height:0;overflow:visible;padding:16px;background:#f8fafc}
+
+    .diff-panel{display:none;margin-bottom:12px;border:1px solid #d8dffc;border-radius:11px;background:#f8f9ff;overflow:hidden}
+    .diff-panel.visible{display:block}
+    .diff-title{padding:9px 11px;border-bottom:1px solid #e2e6fb;font-size:10px;font-weight:750}
+    .diff-columns{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:#e2e6fb}
+    .diff-column{padding:9px;background:white}
+    .diff-column strong{display:block;font-size:10px}.diff-column span{display:block;margin-top:3px;color:var(--muted);font-size:9px}
+
+    .map-shell{position:relative;min-width:940px;min-height:555px;border:1px solid var(--line);border-radius:12px;background:white;overflow:hidden}
+    .map-grid{position:absolute;inset:0;background-image:linear-gradient(#f0f3f7 1px,transparent 1px),linear-gradient(90deg,#f0f3f7 1px,transparent 1px);background-size:28px 28px}
+    .column-title{position:absolute;top:14px;color:var(--faint);font-size:9px;font-weight:800;letter-spacing:.07em;text-transform:uppercase}
+    .column-title.positions{left:42px}.column-title.issues{left:365px}.column-title.evidence{left:690px}
+    .edges{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+    .edge{fill:none;stroke:#aab5c4;stroke-width:2}.edge.blocking{stroke:#dc8b91;stroke-width:3}.edge.support{stroke:#78b49c}
+    .node{position:absolute;width:220px;min-height:76px;padding:10px;border:1px solid var(--line-strong);border-radius:10px;background:white;text-align:left;box-shadow:0 6px 18px rgba(31,47,77,.07);transition:.15s}
+    .node:hover{border-color:#9aabc2;transform:translateY(-1px)}
+    .node.claim{border-left:4px solid var(--blue)}.node.objection{border-left:4px solid var(--amber)}.node.evidence{border-left:4px solid var(--green)}.node.blocking{border-left-color:var(--red)}.node.dissent{border-left-color:var(--violet)}
+    .node.focused{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft),0 8px 24px rgba(31,47,77,.1)}
+    .node.dimmed{opacity:.18}
+    .node-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}.node-id{color:var(--faint);font-size:8px;font-weight:800}.node-title{margin-top:4px;font-size:10px;font-weight:750;line-height:1.35}.node-meta{display:flex;gap:4px;flex-wrap:wrap;margin-top:7px}
+    .badge{padding:2px 6px;border:1px solid var(--line-strong);border-radius:999px;color:#667288;font-size:8px}.badge.ok{border-color:#9ed2bd;background:var(--green-soft);color:var(--green)}.badge.warn{border-color:#e9c98d;background:var(--amber-soft);color:var(--amber)}.badge.bad{border-color:#e5a1a6;background:var(--red-soft);color:var(--red)}.badge.violet{border-color:#cbb1eb;background:var(--violet-soft);color:var(--violet)}.badge.blue{border-color:#acd0ef;background:var(--blue-soft);color:var(--blue)}
+    .focus-clear{display:none;position:absolute;right:12px;top:12px}.focus-clear.visible{display:block}
+    .map-hint{position:absolute;left:12px;bottom:12px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:rgba(255,255,255,.92);color:var(--muted);font-size:8px;box-shadow:0 4px 12px rgba(31,47,77,.06)}
+
+    .structure-layout{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:12px}
+    .panel{border:1px solid var(--line);border-radius:11px;background:white;overflow:hidden}
+    .panel-head{min-height:40px;display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-bottom:1px solid var(--line)}
+    .panel-head strong{font-size:11px}.panel-head span{color:var(--muted);font-size:9px}
+    .panel-body{padding:9px}.item-list{display:grid;gap:7px}
+    .item{width:100%;padding:9px;border:1px solid var(--line);border-radius:9px;background:white;text-align:left}.item:hover{border-color:#abb8ca;background:#fafbfd}.item-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}.item-title{font-size:10px;font-weight:750}.item-desc{margin-top:4px;color:var(--muted);font-size:9px}.item-meta{display:flex;gap:4px;flex-wrap:wrap;margin-top:7px}
+    .axis-list{display:grid;gap:7px}.axis-row{display:grid;grid-template-columns:105px 1fr;gap:8px;align-items:center;padding:7px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);font-size:9px}.axis-name{font-weight:700}.axis-state{display:flex;justify-content:flex-end;gap:4px;flex-wrap:wrap}
+    .risk-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.risk-summary div{padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2)}.risk-summary b{display:block;font-size:13px}.risk-summary span{color:var(--muted);font-size:8px}
+
+    .drawer{position:absolute;top:0;right:0;bottom:0;width:336px;transform:translateX(100%);transition:.2s;border-left:1px solid var(--line);background:white;z-index:20;display:flex;flex-direction:column;box-shadow:-14px 0 40px rgba(31,47,77,.12)}
+    .drawer.open{transform:translateX(0)}
+    .drawer-head{min-height:50px;display:flex;align-items:center;justify-content:space-between;padding:9px 11px;border-bottom:1px solid var(--line)}
+    .drawer-body{min-height:0;overflow:auto;padding:12px}.detail-label{color:var(--muted);font-size:8px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}.detail-title{margin:6px 0 7px;font-size:14px;line-height:1.35}.detail-copy{color:#4e5b70;font-size:10px}.detail-block{margin-top:12px;padding-top:10px;border-top:1px solid var(--line)}.kv{display:grid;grid-template-columns:82px 1fr;gap:8px;margin:5px 0;font-size:9px}.kv span:first-child{color:var(--muted)}
+    .trace{position:relative;display:grid;gap:8px;padding-left:15px}.trace:before{content:"";position:absolute;left:4px;top:5px;bottom:5px;width:1px;background:var(--line-strong)}.trace-item{position:relative;font-size:9px}.trace-item:before{content:"";position:absolute;left:-14px;top:4px;width:7px;height:7px;border-radius:50%;background:var(--accent)}.trace-item span{display:block;color:var(--muted);font-size:8px}
+
+    .timeline{display:grid;grid-template-columns:170px 1fr 140px;align-items:center;gap:12px;padding:11px 14px;border-top:1px solid var(--line);background:white}
+    .timeline-title strong{display:block;font-size:10px}.timeline-title span{color:var(--muted);font-size:8px}
+    .timeline-track{position:relative;display:flex;align-items:stretch;gap:6px;min-width:0}
+    .timeline-step{position:relative;flex:1;min-width:104px;padding:7px 8px;border:1px solid var(--line);border-radius:9px;background:var(--surface-2);text-align:left}
+    .timeline-step:hover{border-color:#b3bfd0;background:white}.timeline-step.active{border-color:#aab8ff;background:var(--accent-soft)}.timeline-step.compare-a{box-shadow:inset 0 0 0 2px #8fbce4}.timeline-step.compare-b{box-shadow:inset 0 0 0 2px #c29ce9}
+    .timeline-step strong{display:block;font-size:9px}.timeline-step span{display:block;margin-top:2px;color:var(--muted);font-size:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.timeline-markers{display:flex;gap:3px;margin-top:5px}.timeline-markers i{width:6px;height:6px;border-radius:50%;background:var(--amber)}.timeline-markers i.blocker{background:var(--red)}.timeline-markers i.dissent{background:var(--violet)}.timeline-markers i.closed{background:var(--green)}
+    .timeline-actions{display:flex;justify-content:flex-end}
+
+
+    .topbar{gap:10px}
+    .topbar-left{display:flex;align-items:center;gap:14px;min-width:0}
+    .topbar-left>div{min-width:190px}
+    .main .workspace-body{flex:1;min-height:calc(100vh - 58px)}
+    .state-card-body{padding:10px}
+    .flow-overview{min-height:0;padding:16px 16px 0;background:var(--bg)}
+    .flow-overview .canvas-inner{padding:22px 28px;min-height:0}
+    .flow-card{position:relative}
+    .flow-card::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none}
+    .flow-card.current{border-color:#aab8ff;box-shadow:0 0 0 3px var(--accent-soft),0 5px 18px rgba(31,47,77,.05)}
+    .flow-card.complete{border-color:#b7d9ca;background:#fbfffd}
+    .flow-status{display:inline-flex;margin-top:12px;padding:3px 7px;border-radius:999px;background:var(--surface-3);color:var(--muted);font-size:8px;font-weight:700}
+    .flow-card.current .flow-status{background:var(--accent-soft);color:#3148b0}
+    .flow-card.complete .flow-status{background:var(--green-soft);color:var(--green)}
+
+    .toast{position:fixed;left:50%;bottom:22px;transform:translate(-50%,16px);opacity:0;pointer-events:none;transition:.2s;z-index:300;padding:8px 12px;border:1px solid var(--line-strong);border-radius:8px;background:#172033;color:white;box-shadow:0 10px 30px rgba(31,47,77,.22)}.toast.visible{opacity:1;transform:translate(-50%,0)}
+  </style>
+</head>
+<body>
+<div class="app">
+  <main class="main">
+    <header class="topbar">
+      <div class="topbar-left">
+        <div><div class="topbar-title-wrap"><select class="topbar-title" id="sessionSelect" aria-label="Выбрать сессию"></select></div><div class="topbar-subtitle" id="topbarSubtitle">Triad · Auto · Registry enabled</div></div>
+      </div>
+      <div class="spacer"></div>
+      <div class="session-status"><span class="live-dot" id="headerLive"></span><span id="sessionStatusText"></span></div>
+      <div class="mode-switch" aria-label="Режим отображения">
+        <button class="mode-btn" data-mode="map">Graf</button>
+        <button class="mode-btn active" data-mode="structure">Структура</button>
+      </div>
+    </header>
+
+    <div class="workspace-body" id="workspaceBody">
+      <div class="workspace-main">
+        <section class="content">
+          <div class="history-banner" id="historyBanner">
+            <div class="state-card-body">
+              <div class="mini-timeline" id="miniTimeline" aria-label="Снимки состояния"></div>
+              <div class="compact-facts">
+                <div class="compact-fact"><b id="sidebarOpen"></b><span>unresolved</span></div>
+                <div class="compact-fact"><b id="sidebarDissent"></b><span>dissent</span></div>
+                <div class="compact-fact"><b id="sidebarGaps"></b><span>evidence gaps</span></div>
+              </div>
+            </div>
+            <div class="history-current"><button class="ghost" id="returnLive">К текущему состоянию</button></div>
+          </div>
+
+          <div class="flow-overview" id="flowStage"></div>
+
+          <div id="mapControls">
+            <div class="snapshot-bar">
+              <div class="snapshot-copy"><strong id="snapshotTitle"></strong><span id="snapshotSubtitle"></span></div>
+              <div class="snapshot-summary" id="snapshotSummary"></div>
+            </div>
+            <div class="toolbar">
+              <button class="filter" data-filter="unresolved">Unresolved</button>
+              <button class="filter" data-filter="blocking">Blocking</button>
+              <button class="filter" data-filter="dissent">Dissent</button>
+              <button class="ghost compare-button" id="compareButton">Сравнить A–B</button>
+              <input class="search" id="search" type="search" placeholder="Поиск по карте…">
+            </div>
+          </div>
+
+          <div class="stage" id="stage"></div>
+        </section>
+
+        <aside class="drawer" id="drawer">
+          <div class="drawer-head"><strong>Детали элемента</strong><button class="icon" id="closeDrawer" style="width:28px;height:28px">×</button></div>
+          <div class="drawer-body" id="drawerBody"></div>
+        </aside>
+      </div>
+
+      <div class="timeline" id="timelineSection">
+        <div class="timeline-title"><strong>История состояния</strong><span id="timelineHint">Выберите этап</span></div>
+        <div class="timeline-track" id="timelineTrack"></div>
+        <div class="timeline-actions"><button class="ghost" id="liveButton">Текущее</button></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const sessions={
+  active:{
+    id:"active",title:"Remote work research",live:true,
+    snapshots:[
+      {
+        id:"s0",short:"P",stage:"Позиции",title:"Стартовые позиции",subtitle:"Три независимые позиции зафиксированы",delta:"8 claims",markers:[],
+        stats:{open:0,dissent:0,gaps:3},
+        axes:[
+          {name:"Методология",state:"not_checked"},{name:"Измерения",state:"not_checked"},{name:"Причинность",state:"not_checked"},{name:"Обобщение",state:"not_checked"}
+        ],
+        nodes:[
+          {id:"C1",type:"claim",title:"Remote повышает индивидуальную продуктивность",status:"contested",owner:"GPT",x:42,y:90,desc:"Широкий стартовый тезис о положительном эффекте удалённой работы."},
+          {id:"C2",type:"claim",title:"Командная инновационность может снижаться",status:"contested",owner:"Gemini",x:42,y:220,desc:"Позиция о возможной потере неформальных взаимодействий."},
+          {id:"C3",type:"claim",title:"Эффект зависит от типа работы",status:"supported",owner:"Claude",x:42,y:350,desc:"Контекстный тезис о неоднородности эффекта."}
+        ]
+      },
+      {
+        id:"s1",short:"C",stage:"Критика",title:"Раунд 1 · Критика",subtitle:"Добавлены методологические возражения",delta:"4 objections · 1 dissent",markers:["blocker","dissent"],
+        stats:{open:4,dissent:1,gaps:3},
+        axes:[
+          {name:"Методология",state:"issue",count:"2 open"},{name:"Измерения",state:"issue",count:"1 blocker"},{name:"Причинность",state:"issue",count:"1 blocker"},{name:"Обобщение",state:"not_checked"}
+        ],
+        nodes:[
+          {id:"C1",type:"claim",title:"Remote повышает индивидуальную продуктивность",status:"contested",owner:"GPT",x:42,y:90,desc:"Вектор ослаблен: причинность и измерение эффекта не подтверждены."},
+          {id:"C2",type:"claim",title:"Командная инновационность может снижаться",status:"changed",owner:"Gemini",x:42,y:220,desc:"Аргумент усилен через weak ties, но evidence остаётся косвенным."},
+          {id:"C3",type:"claim",title:"Эффект зависит от типа работы",status:"supported",owner:"Claude",x:42,y:350,desc:"Становится центральным объяснением расхождений."},
+          {id:"O1",type:"objection",title:"Метрики продуктивности несопоставимы",status:"open",severity:"blocking",target:"C1",x:365,y:80,desc:"Исследования измеряют разные outcomes."},
+          {id:"O2",type:"objection",title:"Корреляция представлена как причинность",status:"open",severity:"blocking",target:"C1",x:365,y:200,desc:"Большинство данных наблюдательные."},
+          {id:"D1",type:"objection",title:"Особое мнение: риск для инновационности значим",status:"dissent",severity:"high",target:"C2",x:365,y:340,desc:"Критик считает evidence достаточным для осторожного негативного вывода."},
+          {id:"E1",type:"evidence",title:"Field experiment in a call center",status:"verified",tier:"source_verified",target:"O1",x:690,y:95,desc:"Поддерживает узкий измеримый output."}
+        ]
+      },
+      {
+        id:"s2",short:"R",stage:"Ответ",title:"Раунд 2 · Ответ",subtitle:"Claims сужены, добавлены evidence",delta:"2 revisions · 2 evidence",markers:["closed"],
+        stats:{open:3,dissent:1,gaps:2},
+        axes:[
+          {name:"Методология",state:"covered",count:"1 limitation"},{name:"Измерения",state:"issue",count:"1 open"},{name:"Причинность",state:"issue",count:"1 blocker"},{name:"Обобщение",state:"issue",count:"1 limitation"}
+        ],
+        nodes:[
+          {id:"C1",type:"claim",title:"Remote повышает output в индивидуальных измеримых задачах",status:"changed",owner:"GPT",x:42,y:90,desc:"Исходный широкий тезис сужен до конкретного класса задач."},
+          {id:"C2",type:"claim",title:"Инновационность может снижаться без компенсирующих практик",status:"changed",owner:"Gemini",x:42,y:220,desc:"Добавлена зависимость от дизайна коммуникаций."},
+          {id:"C3",type:"claim",title:"Тип задачи и зрелость процессов — ключевые moderators",status:"supported",owner:"Claude",x:42,y:350,desc:"Самый устойчивый общий вектор."},
+          {id:"O1",type:"objection",title:"Метрики продуктивности несопоставимы",status:"open",severity:"high",target:"C1",x:365,y:80,desc:"Частично отвечено через сегментацию outcomes."},
+          {id:"O2",type:"objection",title:"Широкая причинность не доказана",status:"open",severity:"blocking",target:"C1",x:365,y:200,desc:"Широкий causal claim снят, но остаются сильные формулировки."},
+          {id:"D1",type:"objection",title:"Особое мнение: риск для инновационности значим",status:"dissent",severity:"high",target:"C2",x:365,y:340,desc:"Особое мнение сохранено."},
+          {id:"E1",type:"evidence",title:"Field experiment in a call center",status:"verified",tier:"source_verified",target:"O1",x:690,y:95,desc:"Сильное evidence для узкого класса задач."},
+          {id:"E2",type:"evidence",title:"Communication-network study",status:"qualified",tier:"source_verified",target:"D1",x:690,y:330,desc:"Поддерживает weak ties, но не конечную инновационность."}
+        ]
+      },
+      {
+        id:"s3",short:"V",stage:"Проверка",title:"Раунд 3 · Проверка",subtitle:"Evidence проверено, одно возражение закрыто",delta:"1 closed · 1 limitation",markers:["closed"],
+        stats:{open:2,dissent:1,gaps:1},
+        axes:[
+          {name:"Методология",state:"covered",count:"no blocking"},{name:"Измерения",state:"limitation",count:"accepted"},{name:"Причинность",state:"issue",count:"1 blocker"},{name:"Обобщение",state:"covered",count:"bounded"}
+        ],
+        nodes:[
+          {id:"C1",type:"claim",title:"Remote повышает output в узком классе задач",status:"supported",owner:"GPT",x:42,y:90,desc:"Поддержанный, но ограниченный вывод."},
+          {id:"C2",type:"claim",title:"Влияние на инновационность остаётся неопределённым",status:"contested",owner:"Gemini",x:42,y:220,desc:"Сильный вывод в любую сторону не подтверждён."},
+          {id:"C3",type:"claim",title:"Организационный дизайн важнее бинарного remote/office",status:"supported",owner:"Claude",x:42,y:350,desc:"Устойчивый общий вектор."},
+          {id:"O2",type:"objection",title:"Причинность для всей knowledge work",status:"open",severity:"blocking",target:"C1",x:365,y:150,desc:"Evidence подтверждает только узкий сегмент."},
+          {id:"D1",type:"objection",title:"Особое мнение: precautionary interpretation",status:"dissent",severity:"high",target:"C2",x:365,y:330,desc:"Одна сторона считает риск практически значимым."},
+          {id:"E1",type:"evidence",title:"Field experiment in a call center",status:"verified",tier:"source_verified",target:"O2",x:690,y:145,desc:"Проверен и связан с узким claim."},
+          {id:"E3",type:"evidence",title:"Systematic review of collaboration outcomes",status:"verified",tier:"source_verified",target:"D1",x:690,y:330,desc:"Не показывает устойчивого эффекта на инновационность."}
+        ]
+      },
+      {
+        id:"s4",short:"Now",stage:"Перед синтезом",title:"Текущее состояние",subtitle:"Последний принятый commit",delta:"1 blocker · ready for synthesis",markers:["blocker","dissent"],
+        stats:{open:1,dissent:1,gaps:1},
+        axes:[
+          {name:"Методология",state:"covered",count:"no issue"},{name:"Измерения",state:"limitation",count:"accepted"},{name:"Причинность",state:"issue",count:"1 blocker"},{name:"Обобщение",state:"covered",count:"bounded"}
+        ],
+        nodes:[
+          {id:"C1",type:"claim",title:"Remote полезен для части индивидуальных измеримых задач",status:"supported",owner:"GPT + Arbiter",x:42,y:90,desc:"Поддержанный, но ограниченный вывод."},
+          {id:"C2",type:"claim",title:"Эффект на инновационность не установлен",status:"contested",owner:"Gemini ↔ Claude",x:42,y:220,desc:"Сохранено аргументированное расхождение."},
+          {id:"C3",type:"claim",title:"Организационный дизайн — основной moderator",status:"supported",owner:"All",x:42,y:350,desc:"Наиболее устойчивый общий вектор."},
+          {id:"O2",type:"objection",title:"Причинность для всей knowledge work",status:"open",severity:"blocking",target:"C1",x:365,y:150,desc:"Широкий вывод остаётся неподтверждённым."},
+          {id:"D1",type:"objection",title:"Особое мнение: риск для инновационности",status:"dissent",severity:"high",target:"C2",x:365,y:330,desc:"Особое мнение должно сохраниться в итоговой карте."},
+          {id:"E1",type:"evidence",title:"Field experiment in a call center",status:"verified",tier:"source_verified",target:"O2",x:690,y:145,desc:"Сильное evidence для узкого типа задач."},
+          {id:"E3",type:"evidence",title:"Systematic review of collaboration outcomes",status:"verified",tier:"source_verified",target:"D1",x:690,y:330,desc:"Результаты неоднородны; общий вывод невозможен."}
+        ]
+      }
+    ]
+  },
+  archive:{
+    id:"archive",title:"Microplastics and health risk",live:false,
+    snapshots:[
+      {id:"a0",short:"P",stage:"Позиции",title:"Стартовые позиции",subtitle:"Архивный снимок",delta:"6 claims",markers:[],stats:{open:0,dissent:0,gaps:4},axes:[{name:"Методология",state:"not_checked"},{name:"Измерения",state:"not_checked"},{name:"Причинность",state:"not_checked"},{name:"Обобщение",state:"not_checked"}],nodes:[{id:"AC1",type:"claim",title:"Экспозиция микропластика подтверждена",status:"supported",owner:"All",x:42,y:120,desc:"Наличие частиц подтверждено, клиническая значимость нет."}]},
+      {id:"a1",short:"C",stage:"Критика",title:"Методологическая критика",subtitle:"Архивный снимок",delta:"4 objections",markers:["blocker"],stats:{open:4,dissent:1,gaps:3},axes:[{name:"Методология",state:"issue",count:"2 open"},{name:"Измерения",state:"issue",count:"1 blocker"},{name:"Причинность",state:"issue",count:"1 blocker"},{name:"Обобщение",state:"not_checked"}],nodes:[{id:"AC1",type:"claim",title:"Экспозиция подтверждена, доза неопределённа",status:"changed",owner:"All",x:42,y:120,desc:"Фокус сместился к измеримости дозы."},{id:"AO1",type:"objection",title:"Причинный вред не установлен",status:"open",severity:"blocking",target:"AC1",x:365,y:120,desc:"Блокирует сильные клинические выводы."},{id:"AE1",type:"evidence",title:"In-vitro inflammatory response",status:"qualified",tier:"source_verified",target:"AO1",x:690,y:120,desc:"Показывает механизм, не клиническую величину риска."}]},
+      {id:"a2",short:"S",stage:"Финал",title:"Финальная карта",subtitle:"Сессия завершена · partial",delta:"1 limitation · 2 gaps",markers:["dissent"],stats:{open:0,dissent:1,gaps:2},axes:[{name:"Методология",state:"covered",count:"no issue"},{name:"Измерения",state:"limitation",count:"accepted"},{name:"Причинность",state:"limitation",count:"accepted"},{name:"Обобщение",state:"covered",count:"bounded"}],nodes:[{id:"AC1",type:"claim",title:"Экспозиция реальна, клинический риск неизвестен",status:"supported",owner:"Synthesis",x:42,y:120,desc:"Финальный ограниченный вывод."},{id:"AO2",type:"objection",title:"Клиническая значимость",status:"limitation",severity:"blocking",target:"AC1",x:365,y:120,desc:"Принято как неустранимое ограничение."},{id:"AE2",type:"evidence",title:"Systematic evidence review",status:"verified",tier:"source_verified",target:"AO2",x:690,y:120,desc:"Подтверждает недостаточность causal human evidence."}]}
+    ]
+  }
+};
+
+const state={sessionId:"active",snapshotId:null,mode:"structure",filters:new Set(),focusId:null,compare:false,compareA:null,compareB:null};
+const $=id=>document.getElementById(id);
+const currentSession=()=>sessions[state.sessionId];
+const currentSnapshot=()=>currentSession().snapshots.find(s=>s.id===state.snapshotId)||currentSession().snapshots.at(-1);
+const currentIndex=()=>currentSession().snapshots.findIndex(s=>s.id===currentSnapshot().id);
+
+function persist(){
+  localStorage.setItem("disput-light-session",state.sessionId);
+  localStorage.setItem("disput-light-snapshot",currentSnapshot().id);
+  localStorage.setItem("disput-light-flow-mode",state.mode);
+  history.replaceState(null,"",`#map=${state.sessionId}:${currentSnapshot().id}&mode=${state.mode}${state.focusId?`&node=${state.focusId}`:""}`);
+}
+function loadState(){
+  state.sessionId=localStorage.getItem("disput-light-session")||"active";
+  state.snapshotId=localStorage.getItem("disput-light-snapshot");
+  const savedMode=localStorage.getItem("disput-light-flow-mode");
+  state.mode=["map","structure"].includes(savedMode)?savedMode:"structure";
+  const hash=location.hash.match(/map=([^:]+):([^&]+)/);
+  const mode=location.hash.match(/mode=([^&]+)/);
+  const node=location.hash.match(/node=([^&]+)/);
+  if(hash&&sessions[hash[1]]&&sessions[hash[1]].snapshots.some(s=>s.id===hash[2])){state.sessionId=hash[1];state.snapshotId=hash[2]}
+  if(mode)state.mode=mode[1]==="map"?"map":"structure";
+  if(node)state.focusId=node[1];
+  if(!sessions[state.sessionId])state.sessionId="active";
+  if(!state.snapshotId||!currentSession().snapshots.some(s=>s.id===state.snapshotId))state.snapshotId=currentSession().snapshots.at(-1).id;
+}
+function toast(text){$("toast").textContent=text;$("toast").classList.add("visible");clearTimeout(toast.t);toast.t=setTimeout(()=>$("toast").classList.remove("visible"),1700)}
+function statusBadge(node){
+  const map={supported:["ok","supported"],verified:["ok","verified"],contested:["warn","contested"],qualified:["warn","qualified"],changed:["blue","revised"],open:["bad","open"],dissent:["violet","dissent"],limitation:["warn","limitation"]};
+  const [cls,label]=map[node.status]||["",node.status];
+  return `<span class="badge ${cls}">${label}</span>`;
+}
+function axisBadge(axis){
+  const map={covered:["ok",axis.count||"covered"],issue:["bad",axis.count||"issue"],limitation:["warn",axis.count||"limitation"],not_checked:["", "not checked"]};
+  const [cls,label]=map[axis.state];
+  return `<span class="badge ${cls}">${label}</span>`;
+}
+function nodeVisible(node){
+  const q=$("search").value.trim().toLowerCase();
+  if(q&&!JSON.stringify(node).toLowerCase().includes(q))return false;
+  if(state.filters.has("unresolved")&&!(["open","contested","dissent"].includes(node.status)))return false;
+  if(state.filters.has("blocking")&&node.severity!=="blocking")return false;
+  if(state.filters.has("dissent")&&node.status!=="dissent")return false;
+  return true;
+}
+function connectedIds(id){
+  const nodes=currentSnapshot().nodes,ids=new Set([id]);
+  nodes.forEach(n=>{if(n.target===id)ids.add(n.id);if(n.id===id&&n.target)ids.add(n.target)});
+  nodes.forEach(n=>{if(ids.has(n.target))ids.add(n.id);if(ids.has(n.id)&&n.target)ids.add(n.target)});
+  return ids;
+}
+function renderSidebar(){
+  const s=currentSession(),snap=currentSnapshot(),idx=currentIndex();
+  $("sidebarOpen").textContent=snap.stats.open;
+  $("sidebarDissent").textContent=snap.stats.dissent;
+  $("sidebarGaps").textContent=snap.stats.gaps;
+  $("miniTimeline").innerHTML=s.snapshots.map((x,i)=>`${i?`<span class="mini-link ${i<=idx?"done":""}"></span>`:""}<button class="mini-step ${i===idx?"active":i<idx?"done":""}" data-mini="${x.id}" title="${x.title}">${x.short}</button>`).join("");
+}
+function renderHeader(){
+  const s=currentSession(),snap=currentSnapshot();
+  $("sessionSelect").innerHTML=Object.values(sessions).map(x=>`<option value="${x.id}">${x.live?"●":"◷"} ${x.title}</option>`).join("");
+  $("sessionSelect").value=s.id;
+  $("topbarSubtitle").textContent=`${snap.title} · ${snap.subtitle}`;
+  $("headerLive").classList.toggle("archive",!s.live);
+  $("sessionStatusText").textContent=s.live?"Активная сессия":"Завершена · архив";
+  $("snapshotTitle").textContent=snap.title;
+  $("snapshotSubtitle").textContent=snap.subtitle;
+  $("snapshotSummary").innerHTML=[
+    ["Unresolved",snap.stats.open],
+    ["Dissent",snap.stats.dissent],
+    ["Evidence gaps",snap.stats.gaps]
+  ].map(([label,value])=>`<div class="summary-chip"><b>${value}</b>${label}</div>`).join("");
+  $("mapControls").style.display="block";
+  $("timelineSection").style.display="grid";
+  $("workspaceBody").style.gridTemplateRows="1fr 84px";
+  document.querySelectorAll(".mode-btn").forEach(b=>b.classList.toggle("active",b.dataset.mode===state.mode));
+  $("compareButton").classList.toggle("active",state.compare);
+}
+function renderTimeline(){
+  const s=currentSession();
+  $("timelineTrack").innerHTML=s.snapshots.map((x,i)=>{
+    const classes=["timeline-step",x.id===currentSnapshot().id?"active":"",x.id===state.compareA?"compare-a":"",x.id===state.compareB?"compare-b":""].join(" ");
+    return `<button class="${classes}" data-snapshot="${x.id}" title="${x.delta}"><strong>${x.stage}</strong><span>${x.delta}</span><div class="timeline-markers">${x.markers.map(m=>`<i class="${m}"></i>`).join("")}</div></button>`;
+  }).join("");
+  $("timelineHint").textContent=state.compare?(state.compareB?"Сравнение построено":"Выберите точку B"):"Выберите этап";
+}
+function renderDiff(){
+  if(!state.compareA||!state.compareB)return "";
+  const a=currentSession().snapshots.find(s=>s.id===state.compareA),b=currentSession().snapshots.find(s=>s.id===state.compareB);
+  const aBy=Object.fromEntries(a.nodes.map(n=>[n.id,n])),bBy=Object.fromEntries(b.nodes.map(n=>[n.id,n]));
+  const changed=b.nodes.filter(n=>aBy[n.id]&&(aBy[n.id].title!==n.title||aBy[n.id].status!==n.status));
+  const added=b.nodes.filter(n=>!aBy[n.id]);
+  const resolved=a.nodes.filter(n=>["open","contested"].includes(n.status)&&(!bBy[n.id]||!["open","contested"].includes(bBy[n.id].status)));
+  const describe=list=>list.length?list.slice(0,3).map(n=>`[${n.id}] ${n.title}`).join(" · "):"Нет изменений";
+  return `<section class="diff-panel visible"><div class="diff-title">${a.title} → ${b.title}</div><div class="diff-columns"><div class="diff-column"><strong>Изменено</strong><span>${describe(changed)}</span></div><div class="diff-column"><strong>Добавлено</strong><span>${describe(added)}</span></div><div class="diff-column"><strong>Закрыто или снято</strong><span>${describe(resolved)}</span></div></div></section>`;
+}
+function renderMap(){
+  const snap=currentSnapshot(),by=Object.fromEntries(snap.nodes.map(n=>[n.id,n])),focus=state.focusId?connectedIds(state.focusId):null;
+  const edges=snap.nodes.filter(n=>n.target&&by[n.target]).map(n=>{const target=by[n.target],cls=n.severity==="blocking"?"blocking":n.type==="evidence"?"support":"";return `<path class="edge ${cls}" d="M ${n.x} ${n.y+38} C ${n.x-55} ${n.y+38}, ${target.x+275} ${target.y+38}, ${target.x+220} ${target.y+38}"/>`}).join("");
+  const nodes=snap.nodes.filter(nodeVisible).map(n=>`<button class="node ${n.type} ${n.severity==="blocking"?"blocking":""} ${n.status==="dissent"?"dissent":""} ${focus&&!focus.has(n.id)?"dimmed":""} ${state.focusId===n.id?"focused":""}" style="left:${n.x}px;top:${n.y}px" data-node="${n.id}"><div class="node-top"><span class="node-id">[${n.id}]</span>${statusBadge(n)}</div><div class="node-title">${n.title}</div><div class="node-meta">${n.owner?`<span class="badge">${n.owner}</span>`:""}${n.severity?`<span class="badge ${n.severity==="blocking"?"bad":""}">${n.severity}</span>`:""}${n.tier?`<span class="badge">${n.tier}</span>`:""}</div></button>`).join("");
+  return `${renderDiff()}<div class="map-shell"><div class="map-grid"></div><div class="column-title positions">Ключевые позиции</div><div class="column-title issues">Открытые проблемы</div><div class="column-title evidence">Поддерживающее evidence</div><svg class="edges" viewBox="0 0 940 555" preserveAspectRatio="none">${edges}</svg>${nodes}<button class="ghost focus-clear ${state.focusId?"visible":""}" id="clearFocus">Сбросить фокус</button><div class="map-hint">Показаны только ключевые claims, unresolved issues, dissent и связанное evidence</div></div>`;
+}
+function renderStructure(){
+  const snap=currentSnapshot();
+  const item=node=>`<button class="item" data-node="${node.id}"><div class="item-top"><div class="item-title">[${node.id}] ${node.title}</div>${statusBadge(node)}</div><div class="item-desc">${node.desc}</div><div class="item-meta">${node.owner?`<span class="badge">${node.owner}</span>`:""}${node.severity?`<span class="badge ${node.severity==="blocking"?"bad":""}">${node.severity}</span>`:""}${node.tier?`<span class="badge">${node.tier}</span>`:""}</div></button>`;
+  const claims=snap.nodes.filter(n=>n.type==="claim"&&nodeVisible(n));
+  const issues=snap.nodes.filter(n=>n.type==="objection"&&nodeVisible(n));
+  const evidence=snap.nodes.filter(n=>n.type==="evidence"&&nodeVisible(n));
+  return `${renderDiff()}<div class="structure-layout"><section class="panel"><div class="panel-head"><strong>Текущая карта позиций</strong><span>${claims.length}</span></div><div class="panel-body item-list">${claims.map(item).join("")||"<div class='item-desc'>Ничего не найдено</div>"}</div></section><div style="display:grid;gap:12px;align-content:start"><section class="panel"><div class="panel-head"><strong>Статус осей проверки</strong><span>без условных процентов</span></div><div class="panel-body axis-list">${snap.axes.map(a=>`<div class="axis-row"><span class="axis-name">${a.name}</span><span class="axis-state">${axisBadge(a)}</span></div>`).join("")}</div></section><section class="panel"><div class="panel-head"><strong>Риски состояния</strong><span>текущий снимок</span></div><div class="panel-body"><div class="risk-summary"><div><b>${snap.stats.open}</b><span>unresolved</span></div><div><b>${snap.stats.dissent}</b><span>dissent</span></div><div><b>${snap.stats.gaps}</b><span>evidence gaps</span></div></div></div></section><section class="panel"><div class="panel-head"><strong>Проблемы и ограничения</strong><span>${issues.length}</span></div><div class="panel-body item-list">${issues.map(item).join("")||"<div class='item-desc'>Нет открытых элементов</div>"}</div></section><section class="panel"><div class="panel-head"><strong>Evidence</strong><span>${evidence.length}</span></div><div class="panel-body item-list">${evidence.map(item).join("")||"<div class='item-desc'>Нет связанных evidence</div>"}</div></section></div></div>`;
+}
+function renderFlow(){
+  const idx=currentIndex();
+  const statusFor=target=>idx>target?"complete":idx===target?"current":"";
+  const labelFor=target=>idx>target?"Завершено":idx===target?"Текущий этап":"Ожидает";
+  return `<div class="canvas-inner">
+    <div class="flow-label">Pipeline flow</div>
+    <div class="flow">
+      <section class="flow-card ${statusFor(0)}"><h3>Independent positions</h3><p>Слепые стартовые позиции участников формируются независимо.</p><span class="flow-status">${labelFor(0)}</span></section>
+      <div class="flow-arrow">→</div>
+      <section class="flow-card ${statusFor(1)}"><h3>Critique / Response</h3><p>Возражения, ответы, revisions и обновление канонического состояния.</p><span class="flow-status">${labelFor(1)}</span></section>
+      <div class="flow-arrow">→</div>
+      <section class="flow-card ${statusFor(currentSession().snapshots.length-1)}"><h3>Synthesis + Audit</h3><p>Синтез выводов, сохранение dissent и независимая проверка.</p><span class="flow-status">${labelFor(currentSession().snapshots.length-1)}</span></section>
+    </div>
+  </div>`;
+}
+function renderStage(){
+  $("flowStage").innerHTML=renderFlow();
+  $("stage").innerHTML=state.mode==="map"?renderMap():renderStructure();
+}
+function historyFor(id){return currentSession().snapshots.flatMap(s=>{const n=s.nodes.find(x=>x.id===id);return n?[{stage:s.title,status:n.status,desc:n.desc}]:[]})}
+function openDrawer(id){
+  const node=currentSnapshot().nodes.find(n=>n.id===id);if(!node)return;
+  state.focusId=id;persist();renderStage();
+  const related=currentSnapshot().nodes.filter(n=>n.target===id||node.target===n.id||n.id===node.target);
+  $("drawerBody").innerHTML=`<div class="detail-label">${node.type}</div><h2 class="detail-title">[${node.id}] ${node.title}</h2><div class="detail-copy">${node.desc}</div><div class="detail-block"><div class="detail-label">Текущее состояние</div><div class="kv"><span>Статус</span><strong>${node.status}</strong></div><div class="kv"><span>Автор</span><strong>${node.owner||"Registry / Critic"}</strong></div><div class="kv"><span>Снимок</span><strong>${currentSnapshot().title}</strong></div><div class="kv"><span>Влияние</span><strong>${node.severity==="blocking"?"Блокирует resolved":"Локальное"}</strong></div></div><div class="detail-block"><div class="detail-label">Связанные элементы</div><div class="item-list">${related.map(n=>`<button class="item" data-related="${n.id}"><div class="item-title">[${n.id}] ${n.title}</div></button>`).join("")||"<div class='item-desc'>Нет связей</div>"}</div></div><div class="detail-block"><div class="detail-label">История изменений</div><div class="trace">${historyFor(id).map(h=>`<div class="trace-item"><strong>${h.stage}</strong><span>${h.status} · ${h.desc}</span></div>`).join("")}</div></div><div class="detail-block" style="display:grid;gap:6px"><button class="ghost" id="showSource">Показать исходный ответ модели</button><button class="ghost" id="copyNode">Скопировать ссылку на элемент</button></div>`;
+  $("drawer").classList.add("open");
+}
+function closeDrawer(){state.focusId=null;$("drawer").classList.remove("open");persist();renderStage()}
+function setSnapshot(id,fromCompare=false){
+  if(!currentSession().snapshots.some(s=>s.id===id))return;
+  if(state.compare&&fromCompare){if(!state.compareA)state.compareA=currentSnapshot().id;if(id!==state.compareA)state.compareB=id;}
+  state.snapshotId=id;state.focusId=null;$("drawer").classList.remove("open");persist();renderAll();
+}
+function setSession(id){state.sessionId=id;state.snapshotId=sessions[id].snapshots.at(-1).id;state.compare=false;state.compareA=null;state.compareB=null;state.focusId=null;$("drawer").classList.remove("open");persist();renderAll()}
+function toggleCompare(){
+  state.compare=!state.compare;
+  if(state.compare){state.compareA=currentSnapshot().id;state.compareB=null;toast("Точка A выбрана. Выберите другой этап.")}
+  else{state.compareA=null;state.compareB=null;}
+  renderAll();
+}
+function renderAll(){renderSidebar();renderHeader();renderTimeline();renderStage()}
+
+$("sessionSelect").onchange=e=>setSession(e.target.value);
+$("miniTimeline").onclick=e=>{const b=e.target.closest("[data-mini]");if(b){state.mode="map";setSnapshot(b.dataset.mini)}};
+document.querySelectorAll(".mode-btn").forEach(b=>b.onclick=()=>{
+  state.mode=b.dataset.mode;
+  if(state.mode==="structure"){$("drawer").classList.remove("open");state.focusId=null;}
+  persist();renderAll();
+});
+document.querySelectorAll(".filter").forEach(b=>b.onclick=()=>{const f=b.dataset.filter;state.filters.has(f)?state.filters.delete(f):state.filters.add(f);b.classList.toggle("active",state.filters.has(f));renderStage()});
+$("compareButton").onclick=toggleCompare;
+$("search").oninput=renderStage;
+$("timelineTrack").onclick=e=>{const b=e.target.closest("[data-snapshot]");if(b)setSnapshot(b.dataset.snapshot,true)};
+$("liveButton").onclick=$("returnLive").onclick=()=>setSnapshot(currentSession().snapshots.at(-1).id);
+$("stage").onclick=e=>{const n=e.target.closest("[data-node]");if(n)return openDrawer(n.dataset.node);if(e.target.id==="clearFocus")closeDrawer()};
+$("drawerBody").onclick=async e=>{const related=e.target.closest("[data-related]");if(related)return openDrawer(related.dataset.related);if(e.target.id==="showSource")toast("Переход к исходному сообщению модели");if(e.target.id==="copyNode"){const url=`${location.href.split("#")[0]}#map=${state.sessionId}:${currentSnapshot().id}&mode=${state.mode}&node=${state.focusId}`;try{await navigator.clipboard.writeText(url);toast("Ссылка на элемент скопирована")}catch{toast("Ссылка подготовлена")}}};
+$("closeDrawer").onclick=closeDrawer;
+document.onkeydown=e=>{if(e.key==="Escape"&&$("drawer").classList.contains("open"))closeDrawer()};
+
+loadState();renderAll();if(state.focusId&&currentSnapshot().nodes.some(n=>n.id===state.focusId))setTimeout(()=>openDrawer(state.focusId),0);
+</script>
+</body>
+</html>

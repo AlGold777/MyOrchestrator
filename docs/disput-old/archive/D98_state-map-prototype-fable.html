@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<!-- D98: historical Disput state-map prototype; non-normative. -->
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Disput — Карта состояния</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#F7F6F3; --panel:#FFFFFF; --raised:#F0EEE9; --raised-2:#E7E4DD;
+  --line:#DAD6CC; --line-soft:#E5E2DA;
+  --ink:#1E2126; --dim:#5B6270; --faint:#8B92A0;
+  --ok:#3E8267; --ok-dim:rgba(62,130,103,.12);
+  --warn:#A56A1E; --warn-dim:rgba(165,106,30,.12);
+  --bad:#A03F35; --bad-dim:rgba(160,63,53,.12);
+  --dis:#6E5FA6; --dis-dim:rgba(110,95,166,.12);
+  --ev:#3A6EA5; --ev-dim:rgba(58,110,165,.12);
+  --mono:'IBM Plex Mono',monospace; --body:'Inter',sans-serif;
+  --r:10px;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:13.5px/1.45 var(--body);padding:28px 18px 90px}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--warn);outline-offset:2px}
+input,select{font:inherit}
+.page{max-width:1120px;margin:0 auto}
+
+/* контекст: pipeline-list заглушка */
+.pipeline-mock{border:1px solid var(--line-soft);border-radius:var(--r);padding:12px 16px;margin-bottom:20px;color:var(--faint);font-family:var(--mono);font-size:11px;letter-spacing:.05em;display:flex;justify-content:space-between}
+
+/* ===== блок ===== */
+.sm{border:1px solid var(--line);border-radius:14px;background:var(--panel);overflow:hidden}
+
+/* header */
+.sm-head{display:flex;align-items:center;gap:14px;padding:14px 18px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.sm-title{font-weight:700;font-size:16px;letter-spacing:.01em;white-space:nowrap}
+.sm-case{color:var(--dim);font-size:12px;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.badge{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;padding:4px 10px;border-radius:999px;white-space:nowrap}
+.badge.live{color:var(--warn);background:var(--warn-dim)}
+.badge.live::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--warn);animation:pulse 1.6s infinite}
+.badge.hist{color:var(--ev);background:var(--ev-dim)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+@media (prefers-reduced-motion:reduce){.badge.live::before{animation:none}}
+.btn-live{font-size:12px;color:var(--dim);border:1px solid var(--line);border-radius:7px;padding:4px 10px}
+.btn-live:hover{color:var(--ink);border-color:var(--faint)}
+.head-gap{flex:1}
+
+/* полоска статистики — видима всегда */
+.stats{display:flex;gap:4px}
+.stat{display:flex;align-items:baseline;gap:6px;padding:5px 10px;border:1px solid var(--line-soft);border-radius:8px;background:var(--bg)}
+.stat b{font-family:var(--mono);font-size:14px;font-weight:600}
+.stat span{color:var(--faint);font-size:10px;text-transform:uppercase;letter-spacing:.05em}
+.stat.warn b{color:var(--warn)} .stat.bad b{color:var(--bad)} .stat.dis b{color:var(--dis)}
+
+/* toolbar */
+.sm-tools{display:flex;align-items:center;gap:10px;padding:10px 18px;border-bottom:1px solid var(--line);background:var(--bg);flex-wrap:wrap}
+.seg{display:flex;gap:2px;padding:3px;border:1px solid var(--line);border-radius:9px}
+.seg button{padding:5px 12px;border-radius:6px;color:var(--dim);font-size:12.5px;font-weight:500}
+.seg button:hover{color:var(--ink)}
+.seg button.on{background:var(--raised-2);color:var(--ink)}
+.seg.presets button.on{color:var(--warn)}
+.tool-gap{flex:1}
+.search{width:180px;height:30px;padding:0 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);font-size:12.5px}
+.search::placeholder{color:var(--faint)}
+.toggle{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--dim);border:1px solid var(--line);border-radius:8px;padding:5px 11px}
+.toggle.on{color:var(--ink);border-color:var(--dis);background:var(--dis-dim)}
+
+/* diff bar */
+.diffbar{display:none;align-items:center;gap:12px;padding:9px 18px;border-bottom:1px solid var(--line);background:linear-gradient(90deg,var(--ev-dim),var(--dis-dim));flex-wrap:wrap}
+.diffbar.on{display:flex}
+.diffbar label{font-family:var(--mono);font-size:11px;color:var(--dim)}
+.diffbar select{background:var(--panel);border:1px solid var(--line);border-radius:6px;color:var(--ink);font-family:var(--mono);font-size:11.5px;padding:4px 8px}
+.diff-sum{display:flex;gap:14px;margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--dim)}
+.diff-sum b{color:var(--ink)}
+.diff-sum .a{color:var(--ok)} .diff-sum .c{color:var(--warn)} .diff-sum .z{color:var(--dis)}
+
+/* ===== timeline scrubber ===== */
+.tl{position:relative;padding:26px 26px 14px;border-bottom:1px solid var(--line);background:var(--bg)}
+.tl-track{position:relative;height:44px}
+.tl-line{position:absolute;top:20px;left:10px;right:10px;height:2px;background:var(--line)}
+.tl-fill{position:absolute;top:20px;left:10px;height:2px;background:var(--warn);transition:width .2s;max-width:calc(100% - 20px)}
+.tl-ticks{position:absolute;inset:0;display:flex;justify-content:space-between}
+.tick{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;cursor:pointer}
+.tick .dot{width:13px;height:13px;border-radius:50%;background:var(--raised);border:2px solid var(--line);margin-top:8px;transition:transform .12s;position:relative;z-index:2}
+.tick:hover .dot{border-color:var(--dim)}
+.tick.past .dot{border-color:var(--faint);background:var(--raised-2)}
+.tick.cur .dot{background:var(--warn);border-color:var(--warn);transform:scale(1.3);box-shadow:0 0 0 4px var(--warn-dim)}
+.tick.mark-a .dot{box-shadow:0 0 0 3px var(--ev)}
+.tick.mark-b .dot{box-shadow:0 0 0 3px var(--dis)}
+.tick .flags{position:absolute;top:-6px;display:flex;gap:3px;z-index:3}
+.tick .flags i{width:7px;height:7px;border:1px solid var(--bg);display:block}
+.tick .flags .f-bad{background:var(--bad);border-radius:1px;transform:rotate(45deg)}
+.tick .flags .f-dis{background:var(--dis);border-radius:50%}
+.tick .flags .f-ok{background:var(--ok);border-radius:1px}
+.tick .lab{margin-top:6px;font-family:var(--mono);font-size:10px;color:var(--faint);text-align:center;line-height:1.3;white-space:nowrap}
+.tick .lab b{display:block;color:var(--dim);font-family:var(--body);font-weight:600;font-size:11px}
+.tick.cur .lab, .tick.cur .lab b{color:var(--ink)}
+.tick .tip{position:absolute;bottom:52px;left:50%;transform:translateX(-50%);background:var(--raised-2);border:1px solid var(--line);border-radius:7px;padding:7px 10px;font-size:11px;color:var(--dim);white-space:nowrap;opacity:0;pointer-events:none;transition:opacity .12s;z-index:9}
+.tick:hover .tip{opacity:1}
+.tl-hint{margin-top:8px;font-family:var(--mono);font-size:10px;color:var(--faint);text-align:right}
+
+/* ===== body ===== */
+.sm-body{min-height:360px;padding:18px}
+
+/* обзор — экран-ответ */
+.ov-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:820px){.ov-grid{grid-template-columns:1fr}}
+.sec{border:1px solid var(--line-soft);border-radius:var(--r);background:var(--bg);overflow:hidden}
+.sec-h{display:flex;align-items:center;justify-content:space-between;padding:9px 13px;border-bottom:1px solid var(--line-soft)}
+.sec-h b{font-size:12px;font-weight:600}
+.sec-h span{font-family:var(--mono);font-size:10.5px;color:var(--faint)}
+.sec-b{padding:10px}
+.empty{padding:22px 10px;text-align:center;color:var(--faint);font-size:12.5px}
+.empty.ok{color:var(--ok)}
+
+/* карточки */
+.card{display:flex;gap:10px;align-items:flex-start;width:100%;text-align:left;padding:10px 11px;border:1px solid var(--line-soft);border-radius:9px;margin-bottom:7px;background:var(--panel);transition:border-color .12s}
+.card:hover{border-color:var(--faint)}
+.card:last-child{margin-bottom:0}
+.card .sd{width:9px;height:9px;border-radius:50%;flex-shrink:0;margin-top:4px}
+.sd.confirmed{background:var(--ok)} .sd.contested,.sd.open,.sd.заявлено{background:var(--warn)}
+.sd.refuted{background:var(--bad)} .sd.dissent,.sd.limitation{background:var(--dis)}
+.sd.closed{background:var(--faint)} .sd.evidence{background:var(--ev)}
+.card .cm{flex:1;min-width:0}
+.card .ct{font-size:13px;line-height:1.4}
+.card .cx{display:flex;flex-wrap:wrap;gap:9px;margin-top:4px;font-family:var(--mono);font-size:10px;color:var(--faint)}
+.chip{padding:1px 7px;border-radius:999px;font-family:var(--mono);font-size:9.5px;text-transform:uppercase;letter-spacing:.04em}
+.chip.bad{background:var(--bad-dim);color:var(--bad)}
+.chip.dis{background:var(--dis-dim);color:var(--dis)}
+.chip.warn{background:var(--warn-dim);color:var(--warn)}
+.chip.ok{background:var(--ok-dim);color:var(--ok)}
+.chip.ev{background:var(--ev-dim);color:var(--ev)}
+.card.d-add{border-left:3px solid var(--ok)}
+.card.d-chg{border-left:3px solid var(--warn)}
+.card.d-cls{border-left:3px solid var(--dis);opacity:.75}
+
+/* дельта-лента */
+.delta-row{display:flex;gap:10px;padding:8px 4px;border-bottom:1px solid var(--line-soft);font-size:12.5px;color:var(--dim)}
+.delta-row:last-child{border-bottom:none}
+.delta-row .dk{font-family:var(--mono);font-size:10px;color:var(--faint);white-space:nowrap;margin-top:2px;width:86px;flex-shrink:0}
+.delta-row .dv b{color:var(--ink);font-weight:500}
+
+/* структура */
+.st-grid{display:grid;grid-template-columns:210px 1fr;gap:16px}
+@media (max-width:820px){.st-grid{grid-template-columns:1fr}}
+.st-nav{display:flex;flex-direction:column;gap:2px}
+.st-nav button{display:flex;justify-content:space-between;padding:8px 10px;border-radius:7px;color:var(--dim);font-size:12.5px;text-align:left}
+.st-nav button:hover{background:var(--raised);color:var(--ink)}
+.st-nav button.on{background:var(--raised-2);color:var(--ink)}
+.st-nav button i{font-family:var(--mono);font-style:normal;font-size:11px;color:var(--faint)}
+.st-nav button.on i{color:var(--warn)}
+.mfilter{display:none;margin-bottom:10px;align-items:center;gap:8px;font-family:var(--mono);font-size:11px;color:var(--dim)}
+.mfilter.on{display:flex}
+.mfilter b{color:var(--ink)}
+.mfilter button{color:var(--faint);border:1px solid var(--line);border-radius:6px;padding:1px 8px;font-size:10.5px}
+
+/* матрица */
+.mx{width:100%;border-collapse:separate;border-spacing:4px}
+.mx th{font-family:var(--mono);font-size:10.5px;color:var(--faint);font-weight:500;text-transform:uppercase;letter-spacing:.05em;padding:6px;text-align:left}
+.mx td{padding:0}
+.mx .cell{width:100%;padding:12px 10px;border:1px solid var(--line-soft);border-radius:8px;background:var(--panel);text-align:left;min-height:56px}
+.mx .cell:hover{border-color:var(--faint)}
+.mx .cell.none{color:var(--faint);font-size:11px;cursor:default;background:transparent}
+.mx .cell .nums{display:flex;gap:10px;font-family:var(--mono);font-size:12px}
+.mx .cell .nums .o{color:var(--warn)} .mx .cell .nums .c{color:var(--faint)}
+.mx .cell .axl{font-size:10px;color:var(--faint);margin-top:3px}
+.mx-note{margin-top:10px;font-size:11.5px;color:var(--faint)}
+
+/* сворачиваемая матрица */
+.mx-collapse{margin-top:20px;border:1px solid var(--line-soft);border-radius:var(--r);overflow:hidden}
+.mx-collapse summary{display:flex;align-items:center;gap:10px;padding:9px 13px;cursor:pointer;font-size:12px;font-weight:600;list-style:none;user-select:none;background:var(--bg)}
+.mx-collapse summary::-webkit-details-marker{display:none}
+.mx-collapse summary:hover{background:var(--raised)}
+.mx-collapse summary::after{content:'›';font-family:var(--mono);font-size:16px;color:var(--faint);margin-left:auto;transition:transform .15s}
+.mx-collapse[open] summary::after{transform:rotate(90deg)}
+.mx-collapse .mx-inner{padding:10px}
+
+/* граф */
+.gr-wrap{border:1px solid var(--line-soft);border-radius:var(--r);background:var(--bg);overflow:auto;position:relative}
+.gr-legend{display:flex;gap:16px;align-items:center;padding:8px 14px;border-top:1px solid var(--line-soft);font-family:var(--mono);font-size:10px;color:var(--faint);flex-wrap:wrap}
+.gr-legend .li{display:flex;align-items:center;gap:6px}
+.gr-legend svg{display:block}
+svg .node{cursor:pointer}
+svg text{font-family:var(--body);fill:var(--ink);font-size:11px;pointer-events:none}
+svg text.nid{font-family:var(--mono);font-size:9px;fill:var(--faint)}
+svg .ghost{opacity:.12}
+svg .edge{stroke:var(--faint);stroke-width:1.4;fill:none;opacity:.7}
+svg .edge.support{stroke:var(--ok);stroke-dasharray:4 4}
+svg .edge.attack{stroke:var(--bad)}
+svg .edge.blocking{stroke-width:2.6}
+.gr-tools{display:flex;gap:10px;padding:8px 14px;border-bottom:1px solid var(--line-soft);font-size:12px;color:var(--dim);flex-wrap:wrap}
+.gr-tools label{display:flex;gap:6px;align-items:center;cursor:pointer}
+
+/* drawer */
+.scrim{position:fixed;inset:0;background:rgba(8,10,14,.5);opacity:0;pointer-events:none;transition:opacity .18s;z-index:40}
+.scrim.on{opacity:1;pointer-events:auto}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:400px;max-width:94vw;background:var(--panel);border-left:1px solid var(--line);transform:translateX(102%);transition:transform .22s;z-index:41;overflow-y:auto;padding:18px 20px}
+.drawer.on{transform:none}
+.crumbs{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:12px;font-family:var(--mono);font-size:10.5px;color:var(--faint)}
+.crumbs button{color:var(--ev);padding:0}
+.crumbs button:hover{text-decoration:underline}
+.dr-close{position:absolute;top:12px;right:14px;color:var(--faint);font-size:18px;line-height:1}
+.dr-kind{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--faint);margin-bottom:5px}
+.dr-title{font-size:15px;font-weight:600;line-height:1.35;margin:0 0 12px}
+.kv{display:grid;grid-template-columns:92px 1fr;gap:5px 10px;font-size:12px;margin-bottom:14px}
+.kv span{color:var(--faint)}
+.dr-sec{border-top:1px solid var(--line);padding-top:12px;margin-top:12px}
+.dr-lab{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--faint);margin-bottom:8px}
+.rev{border:1px solid var(--line-soft);border-radius:8px;padding:10px;font-size:12.5px}
+.rev .old{color:var(--faint);text-decoration:line-through;text-decoration-color:var(--bad)}
+.rev .new{margin-top:6px}
+.rev .why{margin-top:8px;font-size:11.5px}
+.rev .why button{color:var(--ev);padding:0}
+.rev .why button:hover{text-decoration:underline}
+.hist{position:relative;padding-left:16px}
+.hist::before{content:'';position:absolute;left:4px;top:6px;bottom:6px;width:1px;background:var(--line)}
+.h-item{position:relative;padding-bottom:12px;font-size:12px}
+.h-item::before{content:'';position:absolute;left:-15px;top:4px;width:7px;height:7px;border-radius:50%;background:var(--warn)}
+.h-item .hr{font-family:var(--mono);font-size:10px;color:var(--faint)}
+.rel button{display:block;width:100%;text-align:left;padding:7px 9px;border:1px solid var(--line-soft);border-radius:7px;margin-bottom:6px;font-size:12px;color:var(--dim)}
+.rel button:hover{color:var(--ink);border-color:var(--faint)}
+.rel button i{font-family:var(--mono);font-style:normal;color:var(--faint);margin-right:6px;font-size:10.5px}
+.dr-actions{display:flex;gap:8px;margin-top:14px}
+.dr-actions button{flex:1;border:1px solid var(--line);border-radius:8px;padding:7px;font-size:12px;color:var(--dim)}
+.dr-actions button:hover{color:var(--ink);border-color:var(--faint)}
+
+/* toast */
+.toast{position:fixed;left:50%;bottom:26px;transform:translate(-50%,14px);background:var(--raised-2);border:1px solid var(--line);border-radius:8px;padding:8px 14px;font-size:12.5px;opacity:0;pointer-events:none;transition:.2s;z-index:90}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+</style>
+</head>
+<body>
+<div class="page">
+
+<div class="pipeline-mock"><span>.pipeline-list · Position → Critique → Revision → Critique 2 → Verification → Synthesis</span><span>SESSION #A-17</span></div>
+
+<div class="sm">
+  <!-- header: статистика видна всегда -->
+  <div class="sm-head">
+    <div>
+      <div class="sm-title">Карта состояния</div>
+      <div class="sm-case">Тезис: удалённая работа снижает продуктивность распределённых команд</div>
+    </div>
+    <span class="badge live" id="liveBadge">live · синтез</span>
+    <button class="btn-live" id="btnLive" hidden>К текущему состоянию</button>
+    <div class="head-gap"></div>
+    <div class="seg" id="modes">
+      <button data-m="structure" class="on">Структура</button>
+      <button data-m="graph">Граф</button>
+    </div>
+  </div>
+
+  <!-- toolbar -->
+  <div class="sm-tools">
+    <div class="stats" id="stats"></div>
+    <div class="seg presets" id="presets">
+      <button data-p="all" class="on">Всё</button>
+      <button data-p="open">Открытое</button>
+      <button data-p="dissent">Dissent</button>
+    </div>
+    <div class="tool-gap"></div>
+    <input class="search" id="search" type="search" placeholder="Поиск: текст, автор, ID…" hidden>
+    <button class="toggle" id="diffToggle">Сравнение A→B</button>
+  </div>
+
+  <!-- diff bar -->
+  <div class="diffbar" id="diffbar">
+    <label>A</label><select id="selA"></select>
+    <span style="color:var(--faint)">→</span>
+    <label>B</label><select id="selB"></select>
+    <div class="diff-sum" id="diffSum"></div>
+  </div>
+
+  <!-- timeline -->
+  <div class="tl">
+    <div class="tl-track">
+      <div class="tl-line"></div>
+      <div class="tl-fill" id="tlFill"></div>
+      <div class="tl-ticks" id="tlTicks"></div>
+    </div>
+    <div class="tl-hint">← / → — по раундам · Shift+клик — точки A и B для сравнения</div>
+  </div>
+
+  <div class="sm-body" id="body"></div>
+</div>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-label="Детали элемента"></aside>
+<div class="toast" id="toast"></div>
+
+<script>
+'use strict';
+/* ============================================================
+   EVENT LOG — единственный источник истины.
+   Всё остальное — чистые проекции stateAtRound(n).
+============================================================ */
+const ROUNDS=[
+ {n:0,stage:'Position',date:'01.07'},
+ {n:1,stage:'Critique',date:'03.07'},
+ {n:2,stage:'Revision',date:'05.07'},
+ {n:3,stage:'Critique 2',date:'08.07'},
+ {n:4,stage:'Verification',date:'10.07'},
+ {n:5,stage:'Synthesis',date:'12.07'},
+];
+const EVENTS=[
+ {r:0,t:'claim',id:'C1',by:'Pro',text:'Гибкий график повышает индивидуальную продуктивность',kind:'claim'},
+ {r:0,t:'claim',id:'C2',by:'Contra',text:'Удалённая работа снижает синхронную координацию команды',kind:'claim'},
+ {r:0,t:'claim',id:'C3',by:'Pro',text:'Эффект зависит от типа задач: creative vs coordination-heavy',kind:'assumption'},
+ {r:0,t:'claim',id:'C4',by:'Contra',text:'Данные о продуктивности искажены self-selection bias',kind:'claim'},
+
+ {r:1,t:'obj',id:'O1',target:'C1',axis:'измерения',by:'Критик-B',blocking:true,text:'Метрики продуктивности несопоставимы: output, hours и self-report смешаны'},
+ {r:1,t:'obj',id:'O2',target:'C2',axis:'методология',by:'Критик-A',blocking:false,text:'Метрика координации не отделяет синхронные потери от асинхронных выигрышей'},
+ {r:1,t:'gap',id:'G1',target:'C4',text:'Нет доказательства минимального ранга о масштабе self-selection bias'},
+ {r:1,t:'status',id:'C1',to:'contested'},
+ {r:1,t:'status',id:'C2',to:'contested'},
+
+ {r:2,t:'revise',id:'C1',cause:'O1',from:'Гибкий график повышает индивидуальную продуктивность',to:'Гибкий график повышает измеримый output в индивидуальных задачах'},
+ {r:2,t:'ev',id:'E1',supports:'C1',rank:'A',by:'Pro',text:'Мета-анализ 14 peer-reviewed исследований гибкого графика'},
+ {r:2,t:'close',id:'O1',via:'E1',by:'Арбитр',text:'Возражение снято: тезис сужен, источник ранга A'},
+ {r:2,t:'status',id:'C1',to:'confirmed'},
+
+ {r:3,t:'obj',id:'O3',target:'C3',axis:'логика',by:'Критик-A',blocking:true,text:'Разбивка по типу задач введена post-hoc и не подкреплена данными'},
+ {r:3,t:'status',id:'C3',to:'contested'},
+ {r:3,t:'ev',id:'E2',supports:'C2',rank:'B',by:'Contra',text:'Логи календаря: рост асинхронных согласований на 40%'},
+ {r:3,t:'close',id:'O2',via:'E2',by:'Критик-A',text:'Возражение снято данными ранга B'},
+ {r:3,t:'status',id:'C2',to:'confirmed'},
+
+ {r:4,t:'ev',id:'E3',supports:'C3',rank:'C',by:'Pro',text:'Пилотный протокол разбивки задач — предложение, не данные'},
+ {r:4,t:'dissent',id:'D1',target:'C3',text:'Критик-A: assumption переопределяет конфликт, не разрешая его. Критик-B: сужение корректно. Арбитр фиксирует расхождение.'},
+
+ {r:5,t:'limit',id:'L1',target:'C3',reason:'Недостаточно данных для разбивки эффекта по типам задач',impact:'Вывод верен в среднем по команде, не по функциям'},
+ {r:5,t:'close',id:'O3',via:'L1',by:'Арбитр',text:'Закрыто как принятое ограничение'},
+ {r:5,t:'status',id:'C3',to:'limitation'},
+];
+const LAST=ROUNDS.length-1;
+
+function stateAtRound(n){
+  const claims={},objs={},evs={},dissent=[],limits=[],gaps=[];
+  for(const e of EVENTS){ if(e.r>n) continue;
+    if(e.t==='claim') claims[e.id]={...e,status:'заявлено',revised:null};
+    else if(e.t==='status'){ if(claims[e.id]) claims[e.id].status=e.to; }
+    else if(e.t==='revise'){ if(claims[e.id]){claims[e.id].text=e.to; claims[e.id].revised=e;} }
+    else if(e.t==='obj') objs[e.id]={...e,status:'open'};
+    else if(e.t==='close'){ if(objs[e.id]) Object.assign(objs[e.id],{status:'closed',via:e.via,decidedBy:e.by,closeText:e.text}); }
+    else if(e.t==='ev') evs[e.id]=e;
+    else if(e.t==='dissent') dissent.push(e);
+    else if(e.t==='limit') limits.push(e);
+    else if(e.t==='gap') gaps.push(e);
+  }
+  return {claims:Object.values(claims),objs:Object.values(objs),evs:Object.values(evs),dissent,limits,gaps};
+}
+const openObjs=s=>s.objs.filter(o=>o.status==='open');
+const blocking=s=>openObjs(s).filter(o=>o.blocking);
+
+/* ============ APP STATE ============ */
+const S={r:LAST,mode:'structure',preset:'all',diff:false,a:LAST-1,b:LAST,node:null,crumbs:[],q:'',mx:null,showSupports:false,hideResolved:true};
+const $=id=>document.getElementById(id);
+
+/* ============ HELPERS ============ */
+const STATUS_RU={confirmed:'подтверждено',contested:'оспорено',refuted:'опровергнуто',limitation:'ограничение',open:'открыто',closed:'закрыто','заявлено':'заявлено'};
+function findEntity(id,st){
+  return st.claims.find(x=>x.id===id)||st.objs.find(x=>x.id===id)||st.evs.find(x=>x.id===id)
+      ||st.dissent.find(x=>x.id===id)||st.limits.find(x=>x.id===id)||st.gaps.find(x=>x.id===id)||null;
+}
+function entityKind(x){return x.t==='claim'?(x.kind==='assumption'?'Assumption':'Claim'):x.t==='obj'?'Возражение':x.t==='ev'?'Evidence':x.t==='dissent'?'Dissent':x.t==='limit'?'Ограничение':'Дефицит evidence';}
+function matchesPreset(x){
+  if(S.preset==='all') return true;
+  if(S.preset==='open') return (x.t==='obj'&&x.status==='open')||x.t==='gap'||(x.t==='claim'&&x.status==='contested');
+  if(S.preset==='dissent') return x.t==='dissent'||x.t==='limit'||(x.t==='claim'&&(x.status==='limitation'));
+  return true;
+}
+function matchesQ(x){ if(!S.q) return true; const q=S.q.toLowerCase();
+  return (x.text||x.reason||'').toLowerCase().includes(q)||(x.by||'').toLowerCase().includes(q)||x.id.toLowerCase().includes(q);}
+function roundDelta(n){ return EVENTS.filter(e=>e.r===n && e.t!=='status'); }
+function deltaLabel(e){
+  switch(e.t){
+    case 'claim':return `новый ${e.kind==='assumption'?'assumption':'claim'} <b>${e.id}</b>: ${e.text}`;
+    case 'obj':return `${e.blocking?'<b>блокирующее</b> ':''}возражение <b>${e.id}</b> → ${e.target} (${e.axis}): ${e.text}`;
+    case 'close':return `закрыто <b>${e.id}</b> через ${e.via} — ${e.text}`;
+    case 'ev':return `evidence <b>${e.id}</b> [ранг ${e.rank}] → ${e.supports}: ${e.text}`;
+    case 'revise':return `ревизия <b>${e.id}</b>: тезис сужен (причина — ${e.cause})`;
+    case 'dissent':return `<b>dissent ${e.id}</b> по ${e.target}`;
+    case 'limit':return `принято ограничение <b>${e.id}</b> по ${e.target}: ${e.reason}`;
+    case 'gap':return `дефицит evidence <b>${e.id}</b> по ${e.target}: ${e.text}`;
+    default:return e.id;
+  }
+}
+/* diff между раундами a<b */
+function computeDiff(a,b){
+  const sa=stateAtRound(a),sb=stateAtRound(b);
+  const added=[],changed=[],closed=[];
+  const all=(s)=>[...s.claims,...s.objs,...s.evs,...s.dissent,...s.limits,...s.gaps];
+  const mapA=new Map(all(sa).map(x=>[x.id,x]));
+  for(const x of all(sb)){
+    const prev=mapA.get(x.id);
+    if(!prev){ added.push(x.id); continue; }
+    const stNow=x.status||'', stPrev=prev.status||'';
+    const txtChanged=x.t==='claim'&&x.text!==prev.text;
+    if(stNow!==stPrev||txtChanged){
+      if(stNow==='closed') closed.push(x.id); else changed.push({id:x.id,from:stPrev,to:stNow,txt:txtChanged});
+    }
+  }
+  return {added,changed,closed,changedIds:new Set(changed.map(c=>c.id)),addedIds:new Set(added),closedIds:new Set(closed)};
+}
+function diffClass(id){
+  if(!S.diff) return '';
+  const d=computeDiff(Math.min(S.a,S.b),Math.max(S.a,S.b));
+  if(d.addedIds.has(id)) return 'd-add';
+  if(d.changedIds.has(id)) return 'd-chg';
+  if(d.closedIds.has(id)) return 'd-cls';
+  return '';
+}
+
+/* ============ RENDER: header stats ============ */
+function renderStats(){
+  const s=stateAtRound(S.r);
+  const open=openObjs(s).length, block=blocking(s).length;
+  $('stats').innerHTML=[
+    ['тезисы',s.claims.length,''],
+    ['открыто',open,open?'warn':''],
+    ['blocking',block,block?'bad':''],
+    ['dissent',s.dissent.length,s.dissent.length?'dis':''],
+    ['gaps',s.gaps.length,s.gaps.length?'warn':''],
+  ].map(([l,v,c])=>`<div class="stat ${c}"><b>${v}</b><span>${l}</span></div>`).join('');
+  const live=S.r===LAST;
+  $('liveBadge').className='badge '+(live?'live':'hist');
+  $('liveBadge').textContent=live?'live · синтез':`просмотр R${S.r} из R${LAST}`;
+  $('btnLive').hidden=live;
+}
+
+/* ============ RENDER: timeline ============ */
+function tickFlags(n){
+  const ev=EVENTS.filter(e=>e.r===n);
+  return {bad:ev.some(e=>e.t==='obj'&&e.blocking)||ev.some(e=>e.t==='gap'),
+          dis:ev.some(e=>e.t==='dissent'||e.t==='limit'),
+          ok:ev.some(e=>e.t==='close')};
+}
+function renderTimeline(){
+  $('tlTicks').innerHTML=ROUNDS.map(r=>{
+    const f=tickFlags(r.n), d=roundDelta(r.n);
+    const cls=['tick',r.n<S.r?'past':'',r.n===S.r?'cur':'',S.diff&&r.n===S.a?'mark-a':'',S.diff&&r.n===S.b?'mark-b':''].join(' ');
+    return `<div class="${cls}" data-r="${r.n}" role="button" tabindex="0" aria-label="Раунд ${r.n} ${r.stage}">
+      <div class="flags">${f.bad?'<i class="f-bad"></i>':''}${f.dis?'<i class="f-dis"></i>':''}${f.ok?'<i class="f-ok"></i>':''}</div>
+      <div class="dot"></div>
+      <div class="lab">R${r.n} · ${r.date}<b>${r.stage}</b></div>
+      <div class="tip">${d.length} событ.${f.bad?' · blocking':''}${f.dis?' · dissent/limit':''}${f.ok?' · закрытия':''}</div>
+    </div>`;
+  }).join('');
+  $('tlFill').style.width=`calc((100% - 20px) * ${S.r/LAST})`;
+}
+
+/* ============ RENDER: card ============ */
+function cardHTML(x){
+  const dot=x.t==='ev'?'evidence':x.t==='dissent'?'dissent':x.t==='limit'?'limitation':x.t==='gap'?'open':(x.status||'заявлено');
+  const chips=[];
+  if(x.t==='obj'&&x.blocking&&x.status==='open') chips.push('<span class="chip bad">блокирует</span>');
+  if(x.t==='obj'&&x.status==='closed') chips.push('<span class="chip ok">закрыто</span>');
+  if(x.t==='claim') chips.push(`<span class="chip ${x.status==='confirmed'?'ok':x.status==='limitation'?'dis':'warn'}">${STATUS_RU[x.status]||x.status}</span>`);
+  if(x.t==='claim'&&x.kind==='assumption') chips.push('<span class="chip dis">assumption</span>');
+  if(x.t==='ev') chips.push(`<span class="chip ev">ранг ${x.rank}</span>`);
+  if(x.t==='dissent') chips.push('<span class="chip dis">dissent</span>');
+  if(x.t==='limit') chips.push('<span class="chip dis">ограничение</span>');
+  if(x.t==='gap') chips.push('<span class="chip warn">дефицит</span>');
+  const meta=[x.id, x.by?x.by:'', x.target?('→ '+x.target):'', x.supports?('→ '+x.supports):'', x.axis?('ось: '+x.axis):''].filter(Boolean).map(m=>`<span>${m}</span>`).join('');
+  return `<button class="card ${diffClass(x.id)}" data-id="${x.id}">
+    <span class="sd ${dot}"></span>
+    <span class="cm"><span class="ct">${x.text||x.reason}</span>
+    <span class="cx">${meta}${chips.join('')}</span></span>
+  </button>`;
+}
+
+/* ============ VIEW: обзор (экран-ответ) ============ */
+function renderOverview(st){
+  const stuck=[...blocking(st),...st.gaps,...st.dissent].filter(matchesQ);
+  const delta=roundDelta(S.r);
+  const lim=st.limits.filter(matchesQ);
+  return `<div class="ov-grid">
+    <div class="sec">
+      <div class="sec-h"><b>Где спор застрял</b><span>${stuck.length}</span></div>
+      <div class="sec-b">${stuck.length?stuck.map(cardHTML).join(''):'<div class="empty ok">Блокирующих препятствий нет — путь к синтезу открыт.</div>'}
+      ${lim.length?`<div class="dr-lab" style="margin:12px 0 6px">Принятые ограничения</div>${lim.map(cardHTML).join('')}`:''}</div>
+    </div>
+    <div class="sec">
+      <div class="sec-h"><b>Изменения за раунд</b><span>R${S.r} · ${ROUNDS[S.r].stage}</span></div>
+      <div class="sec-b">${delta.length?delta.map(e=>`<div class="delta-row"><span class="dk">${e.t}</span><span class="dv">${deltaLabel(e)}</span></div>`).join(''):'<div class="empty">Событий в этом раунде нет.</div>'}</div>
+    </div>
+  </div>`;
+}
+
+/* ============ VIEW: структура ============ */
+const SECTIONS=[
+ {k:'claims',l:'Тезисы',get:s=>s.claims},
+ {k:'objOpen',l:'Возражения · открытые',get:s=>openObjs(s)},
+ {k:'objClosed',l:'Возражения · закрытые',get:s=>s.objs.filter(o=>o.status==='closed')},
+ {k:'evs',l:'Evidence',get:s=>s.evs},
+ {k:'dissent',l:'Dissent',get:s=>s.dissent},
+ {k:'limits',l:'Ограничения',get:s=>s.limits},
+ {k:'gaps',l:'Дефицит evidence',get:s=>s.gaps},
+];
+let activeSection='claims';
+function renderStructure(st){
+  let nav=SECTIONS.map(sec=>{
+    const items=sec.get(st).filter(matchesPreset).filter(matchesQ);
+    return `<button class="${sec.k===activeSection?'on':''}" data-sec="${sec.k}"><span>${sec.l}</span><i>${items.length}</i></button>`;
+  }).join('');
+  const sec=SECTIONS.find(s=>s.k===activeSection);
+  let items=sec.get(st).filter(matchesPreset).filter(matchesQ);
+  if(S.mx) items=items.filter(x=>x.t==='obj'&&x.axis===S.mx.axis&&x.by===S.mx.by);
+  const openFirst=(a,b)=>((b.status==='open')-(a.status==='open'))||((b.blocking===true)-(a.blocking===true));
+  if(activeSection.startsWith('obj')) items=[...items].sort(openFirst);
+  return `<div class="mfilter ${S.mx?'on':''}">фильтр из матрицы: <b>${S.mx?S.mx.axis+' · '+S.mx.by:''}</b><button data-act="clearmx">сбросить</button></div>
+  <div class="st-grid"><div class="st-nav">${nav}</div>
+  <div>${items.length?items.map(cardHTML).join(''):'<div class="empty">Пусто на R'+S.r+' с текущим фильтром.</div>'}</div></div>
+  <details class="mx-collapse">
+    <summary>Матрица осей × критиков <span style="font-family:var(--mono);font-size:10.5px;color:var(--faint)">${st.objs.length} возражений</span></summary>
+    <div class="mx-inner">${renderMatrix(st)}</div>
+  </details>`;
+}
+
+/* ============ VIEW: матрица осей ============ */
+function renderMatrix(st){
+  const axes=[...new Set(st.objs.map(o=>o.axis))];
+  const critics=[...new Set(st.objs.map(o=>o.by))];
+  if(!axes.length) return '<div class="empty">Возражений ещё нет — матрица пуста.</div>';
+  let html='<table class="mx"><tr><th></th>'+critics.map(c=>`<th>${c}</th>`).join('')+'</tr>';
+  for(const ax of axes){
+    html+=`<tr><th>${ax}</th>`+critics.map(c=>{
+      const cell=st.objs.filter(o=>o.axis===ax&&o.by===c);
+      if(!cell.length) return `<td><div class="cell none">—</div></td>`;
+      const o=cell.filter(x=>x.status==='open').length, z=cell.length-o;
+      const bl=cell.some(x=>x.blocking&&x.status==='open');
+      return `<td><button class="cell" data-mx-axis="${ax}" data-mx-by="${c}">
+        <span class="nums"><span class="o">${o} откр.${bl?' · blocking':''}</span><span class="c">${z} закр.</span></span>
+        <span class="axl">${cell.map(x=>x.id).join(', ')}</span></button></td>`;
+    }).join('')+'</tr>';
+  }
+  html+='</table><div class="mx-note">Клик по ячейке открывает Структуру с фильтром «ось × критик». Пустая ячейка — критик не проверял эту ось: дыра в покрытии.</div>';
+  return html;
+}
+
+/* ============ VIEW: граф (слоистый DAG, фиксированные позиции) ============ */
+function graphLayout(st){
+  const lanes={claim:64,obj:210,other:356};
+  const nodes=[];
+  const put=(arr,lane)=>arr.forEach(x=>{
+    const order=EVENTS.findIndex(e=>e.id===x.id); // позиция = момент создания, стабильна между раундами
+    nodes.push({...x,x:0,y:lane,order});
+  });
+  put(st.claims,'claim'); put(st.objs,'obj');
+  put([...st.evs,...st.dissent,...st.limits,...st.gaps],'other');
+  for(const lane of ['claim','obj','other']){
+    const row=nodes.filter(n=>n.y===lane).sort((a,b)=>a.order-b.order);
+    row.forEach((n,i)=>{n.x=110+i*205; n.y=lanes[lane];});
+  }
+  return nodes;
+}
+function nodeVisible(n){
+  if(S.hideResolved&&n.t==='obj'&&n.status==='closed') return false;
+  return true;
+}
+function edgeList(st){
+  const E=[];
+  st.objs.forEach(o=>E.push({from:o.id,to:o.target,cls:'attack'+(o.blocking?' blocking':''),hide:S.hideResolved&&o.status==='closed'}));
+  st.evs.forEach(e=>E.push({from:e.id,to:e.supports,cls:'support',hide:!S.showSupports}));
+  st.dissent.forEach(d=>E.push({from:d.id,to:d.target,cls:'attack'}));
+  st.limits.forEach(l=>E.push({from:l.id,to:l.target,cls:'support',hide:!S.showSupports}));
+  return E;
+}
+function focusSet(st,id){
+  if(!id) return null;
+  const set=new Set([id]);
+  edgeList(st).forEach(e=>{ if(e.from===id) set.add(e.to); if(e.to===id) set.add(e.from); });
+  return set;
+}
+function nodeShape(n,color){
+  const w=180,h=52;
+  if(n.t==='claim') return `<rect x="${-w/2}" y="${-h/2}" rx="26" width="${w}" height="${h}" fill="${color}22" stroke="${color}" stroke-width="2"/>`;
+  if(n.t==='obj')  return `<polygon points="0,${-h/2} ${w/2},0 0,${h/2} ${-w/2},0" fill="${color}22" stroke="${color}" stroke-width="2"/>`;
+  return `<rect x="${-w/2}" y="${-h/2}" width="${w}" height="${h}" fill="${color}22" stroke="${color}" stroke-width="2" ${n.t==='limit'?'stroke-dasharray="5 4"':''}/>`;
+}
+function nodeColor(n){
+  const v=getComputedStyle(document.documentElement);
+  const c=x=>v.getPropertyValue(x).trim();
+  if(n.t==='ev') return c('--ev');
+  if(n.t==='dissent'||n.t==='limit') return c('--dis');
+  if(n.t==='gap') return c('--warn');
+  const st=n.status;
+  if(st==='confirmed') return c('--ok');
+  if(st==='refuted') return c('--bad');
+  if(st==='limitation') return c('--dis');
+  return c('--warn');
+}
+function wrapText(t,max){
+  const words=t.split(' ');let lines=[''],i=0;
+  for(const w of words){ if((lines[i]+' '+w).trim().length>max){lines.push(w);i++;} else lines[i]=(lines[i]+' '+w).trim(); }
+  return lines.slice(0,2).map((l,j)=>j===1&&lines.length>2?l.slice(0,max-1)+'…':l);
+}
+function renderGraph(st){
+  const nodes=graphLayout(st).filter(nodeVisible).filter(n=>matchesQ(n));
+  const byId=Object.fromEntries(nodes.map(n=>[n.id,n]));
+  const focus=focusSet(st,S.node);
+  const ghostByPreset=n=>!matchesPreset(n)&&S.preset!=='all';
+  const W=Math.max(720,...nodes.map(n=>n.x+130)),H=430;
+  const edges=edgeList(st).filter(e=>!e.hide&&byId[e.from]&&byId[e.to]).map(e=>{
+    const a=byId[e.from],b=byId[e.to];
+    const ghost=(focus&&!(focus.has(e.from)&&focus.has(e.to)))||ghostByPreset(a)||ghostByPreset(b);
+    const dy=a.y<b.y?26:-26;
+    return `<path class="edge ${e.cls} ${ghost?'ghost':''}" marker-end="url(#arr)" d="M${a.x},${a.y-dy} C${a.x},${(a.y+b.y)/2} ${b.x},${(a.y+b.y)/2} ${b.x},${b.y+dy}"/>`;
+  }).join('');
+  const nodeEls=nodes.map(n=>{
+    const ghost=(focus&&!focus.has(n.id))||ghostByPreset(n);
+    const color=nodeColor(n);
+    const lines=wrapText(n.text||n.reason||'',30);
+    const closedCnt=n.t==='claim'&&S.hideResolved?st.objs.filter(o=>o.target===n.id&&o.status==='closed').length:0;
+    return `<g class="node ${ghost?'ghost':''}" data-id="${n.id}" transform="translate(${n.x},${n.y})">
+      ${nodeShape(n,color)}
+      ${lines.map((l,i)=>`<text text-anchor="middle" y="${(i-(lines.length-1)/2)*13+4}">${l}</text>`).join('')}
+      <text class="nid" text-anchor="middle" y="${38}">${n.id}${closedCnt?` · ${closedCnt} закрыт${closedCnt===1?'о':'ых'}`:''}</text>
+    </g>`;
+  }).join('');
+  return `<div class="gr-wrap">
+    <div class="gr-tools">
+      <label><input type="checkbox" id="cbSupports" ${S.showSupports?'checked':''}> связи support (по умолчанию скрыты — виден только конфликт)</label>
+      <label><input type="checkbox" id="cbResolved" ${S.hideResolved?'checked':''}> сворачивать закрытые возражения</label>
+      ${S.node?'<label style="color:var(--warn)">фокус: '+S.node+' — клик по фону снимает</label>':''}
+    </div>
+    <svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" id="svg">
+      <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--faint)"/></marker></defs>
+      ${edges}${nodeEls}
+    </svg>
+    <div class="gr-legend">
+      <span class="li"><svg width="26" height="12"><rect x="1" y="1" rx="5" width="24" height="10" fill="none" stroke="var(--dim)"/></svg>claim</span>
+      <span class="li"><svg width="16" height="14"><polygon points="8,1 15,7 8,13 1,7" fill="none" stroke="var(--dim)"/></svg>возражение</span>
+      <span class="li"><svg width="14" height="12"><rect x="1" y="1" width="12" height="10" fill="none" stroke="var(--dim)"/></svg>evidence / прочее</span>
+      <span class="li">цвет = статус:</span>
+      <span class="li"><i style="width:8px;height:8px;border-radius:50%;background:var(--ok)"></i>подтверждено</span>
+      <span class="li"><i style="width:8px;height:8px;border-radius:50%;background:var(--warn)"></i>оспорено/открыто</span>
+      <span class="li"><i style="width:8px;height:8px;border-radius:50%;background:var(--bad)"></i>опровергнуто</span>
+      <span class="li"><i style="width:8px;height:8px;border-radius:50%;background:var(--dis)"></i>dissent/ограничение</span>
+    </div>
+  </div>`;
+}
+
+/* ============ DIFF BAR ============ */
+function renderDiffBar(){
+  $('diffbar').classList.toggle('on',S.diff);
+  $('diffToggle').classList.toggle('on',S.diff);
+  if(!S.diff) return;
+  const opts=ROUNDS.map(r=>`<option value="${r.n}">R${r.n} · ${r.stage}</option>`).join('');
+  $('selA').innerHTML=opts; $('selB').innerHTML=opts;
+  $('selA').value=S.a; $('selB').value=S.b;
+  const d=computeDiff(Math.min(S.a,S.b),Math.max(S.a,S.b));
+  $('diffSum').innerHTML=`<span class="a">+${d.added.length} <b>появилось</b></span><span class="c">${d.changed.length} <b>сменило статус</b></span><span class="z">${d.closed.length} <b>закрыто</b></span>`;
+}
+
+/* ============ DRAWER ============ */
+function openDrawer(id,push=true){
+  const st=stateAtRound(S.r);
+  const x=findEntity(id,st);
+  if(!x) return;
+  if(push){ if(S.node&&S.node!==id) S.crumbs.push(S.node); }
+  S.node=id; updateHash();
+  const relObjs=st.objs.filter(o=>o.target===id);
+  const relEvs=st.evs.filter(e=>e.supports===id);
+  const relDis=st.dissent.filter(d=>d.target===id);
+  const hist=EVENTS.filter(e=>e.r<=S.r&&(e.id===id||e.target===id||e.supports===id||e.cause===id||e.via===id));
+  const crumbs=S.crumbs.length?`<div class="crumbs">${S.crumbs.map(c=>`<button data-crumb="${c}">${c}</button><span>›</span>`).join('')}<span>${id}</span></div>`:'';
+  const rev=x.t==='claim'&&x.revised?`<div class="dr-sec"><div class="dr-lab">Ревизия</div><div class="rev">
+      <div class="old">${x.revised.from}</div><div class="new">${x.revised.to}</div>
+      <div class="why">причина: <button data-open="${x.revised.cause}">${x.revised.cause}</button></div></div></div>`:'';
+  const depends=x.t==='claim'?`<div class="kv"><span>Связано</span><div>${relObjs.length} возражений · ${relEvs.length} evidence${relDis.length?' · dissent':''}</div></div>`:'';
+  $('drawer').innerHTML=`
+    <button class="dr-close" data-act="close" aria-label="Закрыть">×</button>
+    ${crumbs}
+    <div class="dr-kind">${entityKind(x)} · ${id}</div>
+    <h3 class="dr-title">${x.text||x.reason}</h3>
+    <div class="kv">
+      ${x.status?`<span>Статус</span><div>${STATUS_RU[x.status]||x.status}</div>`:''}
+      ${x.by?`<span>Автор</span><div>${x.by}</div>`:''}
+      <span>Создан</span><div>R${x.r} · ${ROUNDS[x.r].stage}</div>
+      ${x.axis?`<span>Ось</span><div>${x.axis}</div>`:''}
+      ${x.rank?`<span>Ранг</span><div>${x.rank}</div>`:''}
+      ${x.impact?`<span>Влияние</span><div>${x.impact}</div>`:''}
+      ${x.decidedBy?`<span>Решение</span><div>${x.decidedBy} через ${x.via}</div>`:''}
+    </div>
+    ${depends}${rev}
+    ${(relObjs.length+relEvs.length+relDis.length)?`<div class="dr-sec"><div class="dr-lab">Связанные</div><div class="rel">
+      ${[...relObjs,...relEvs,...relDis].map(rl=>`<button data-open="${rl.id}"><i>${rl.id}</i>${(rl.text||'').slice(0,64)}</button>`).join('')}
+    </div></div>`:''}
+    <div class="dr-sec"><div class="dr-lab">История (из event log)</div><div class="hist">
+      ${hist.map(e=>`<div class="h-item"><div class="hr">R${e.r} · ${ROUNDS[e.r].stage} · ${e.t}</div>${e.text||e.reason||(e.to?('→ '+ (STATUS_RU[e.to]||e.to)):'')||(e.from?('«'+e.from.slice(0,40)+'…» → сужен'):'')}</div>`).join('')}
+    </div></div>
+    <div class="dr-actions">
+      <button data-act="link">Скопировать ссылку</button>
+      <button data-act="close">Закрыть</button>
+    </div>`;
+  $('drawer').classList.add('on'); $('scrim').classList.add('on');
+  if(S.mode==='graph') renderBody();
+}
+function closeDrawer(){
+  S.node=null; S.crumbs=[]; updateHash();
+  $('drawer').classList.remove('on'); $('scrim').classList.remove('on');
+  if(S.mode==='graph') renderBody();
+}
+
+/* ============ HASH / DEEP LINK ============ */
+function updateHash(){
+  const p=new URLSearchParams({r:S.r,m:S.mode});
+  if(S.node) p.set('n',S.node);
+  if(S.diff){p.set('a',S.a);p.set('b',S.b);}
+  history.replaceState(null,'','#'+p.toString());
+}
+function parseHash(){
+  const p=new URLSearchParams(location.hash.slice(1));
+  if(p.has('r')) S.r=Math.min(+p.get('r')||0,LAST);
+  if(p.has('m')) S.mode=p.get('m');
+  if(p.has('a')&&p.has('b')){S.diff=true;S.a=+p.get('a');S.b=+p.get('b');}
+  if(p.has('n')) S.node=p.get('n');
+}
+
+/* ============ MASTER RENDER ============ */
+function renderBody(){
+  const st=stateAtRound(S.r);
+  $('search').hidden=!(S.mode==='structure'||S.mode==='graph');
+  let html='';
+  if(S.mode==='structure') html=renderOverview(st)+'<div style="border-top:1px solid var(--line);margin:20px 0 16px"></div>'+renderStructure(st);
+  else html=renderGraph(st);
+  $('body').innerHTML=html;
+  document.querySelectorAll('#modes button').forEach(b=>b.classList.toggle('on',b.dataset.m===S.mode));
+  document.querySelectorAll('#presets button').forEach(b=>b.classList.toggle('on',b.dataset.p===S.preset));
+}
+function renderAll(){renderStats();renderTimeline();renderDiffBar();renderBody();updateHash();}
+
+/* ============ EVENTS ============ */
+$('modes').addEventListener('click',e=>{const b=e.target.closest('[data-m]');if(!b)return;S.mode=b.dataset.m;S.mx=null;renderAll();});
+$('presets').addEventListener('click',e=>{const b=e.target.closest('[data-p]');if(!b)return;S.preset=b.dataset.p;renderBody();});
+$('search').addEventListener('input',e=>{S.q=e.target.value;renderBody();});
+$('diffToggle').addEventListener('click',()=>{S.diff=!S.diff;if(S.diff&&S.a===S.b)S.a=Math.max(0,S.b-1);renderAll();});
+$('selA').addEventListener('change',e=>{S.a=+e.target.value;renderAll();});
+$('selB').addEventListener('change',e=>{S.b=+e.target.value;renderAll();});
+$('btnLive').addEventListener('click',()=>{S.r=LAST;renderAll();toast('Показано текущее состояние');});
+
+$('tlTicks').addEventListener('click',e=>{
+  const t=e.target.closest('[data-r]');if(!t)return;
+  const n=+t.dataset.r;
+  if(e.shiftKey){ // Shift+клик: A, затем B
+    if(!S.diff||S._shiftStage!=='a'){S.diff=true;S.a=n;S.b=n;S._shiftStage='a';toast('Точка A: R'+n+' — Shift+клик по второй точке');}
+    else {S.b=n;S._shiftStage=null;toast('Сравнение R'+S.a+' → R'+n);}
+    renderAll();return;
+  }
+  S.r=n;renderAll();
+});
+$('tlTicks').addEventListener('keydown',e=>{
+  if(e.key!=='Enter'&&e.key!==' ')return;
+  const t=e.target.closest('[data-r]');if(!t)return;e.preventDefault();S.r=+t.dataset.r;renderAll();
+});
+
+$('body').addEventListener('click',e=>{
+  const card=e.target.closest('[data-id]');
+  if(card&&!e.target.closest('svg')){openDrawer(card.dataset.id);return;}
+  const g=e.target.closest('g.node');
+  if(g){openDrawer(g.dataset.id);return;}
+  if(e.target.closest('#svg')){S.node=null;S.crumbs=[];renderBody();return;}
+  const sec=e.target.closest('[data-sec]');
+  if(sec){activeSection=sec.dataset.sec;renderBody();return;}
+  const mx=e.target.closest('[data-mx-axis]');
+  if(mx){S.mx={axis:mx.dataset.mxAxis,by:mx.dataset.mxBy};S.mode='structure';activeSection='objOpen';renderAll();return;}
+  if(e.target.closest('[data-act="clearmx"]')){S.mx=null;renderBody();return;}
+});
+$('body').addEventListener('change',e=>{
+  if(e.target.id==='cbSupports'){S.showSupports=e.target.checked;renderBody();}
+  if(e.target.id==='cbResolved'){S.hideResolved=e.target.checked;renderBody();}
+});
+
+$('drawer').addEventListener('click',async e=>{
+  const open=e.target.closest('[data-open]');
+  if(open){openDrawer(open.dataset.open);return;}
+  const crumb=e.target.closest('[data-crumb]');
+  if(crumb){const id=crumb.dataset.crumb;S.crumbs=S.crumbs.slice(0,S.crumbs.indexOf(id));openDrawer(id,false);return;}
+  if(e.target.closest('[data-act="close"]')){closeDrawer();return;}
+  if(e.target.closest('[data-act="link"]')){
+    try{await navigator.clipboard.writeText(location.href);toast('Ссылка на элемент скопирована');}
+    catch{toast('Ссылка в адресной строке');}
+  }
+});
+$('scrim').addEventListener('click',closeDrawer);
+
+document.addEventListener('keydown',e=>{
+  if(e.target.matches('input,select'))return;
+  if(e.key==='Escape'&&S.node){closeDrawer();return;}
+  if(e.key==='ArrowLeft'&&S.r>0){S.r--;renderAll();}
+  if(e.key==='ArrowRight'&&S.r<LAST){S.r++;renderAll();}
+});
+
+let toastTimer;
+function toast(t){clearTimeout(toastTimer);$('toast').textContent=t;$('toast').classList.add('on');toastTimer=setTimeout(()=>$('toast').classList.remove('on'),1900);}
+
+/* ============ INIT ============ */
+parseHash();
+renderAll();
+if(S.node) openDrawer(S.node,false);
+</script>
+</body>
+</html>

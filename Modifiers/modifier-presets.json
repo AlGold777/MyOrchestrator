@@ -1,0 +1,99 @@
+[
+  {
+    "id": "base",
+    "label": "Базовый набор",
+    "file": "modifiers-basic.json",
+    "prefixLabel": "Что делать",
+    "suffixLabel": "Как делать"
+  },
+ 
+  {
+    "id": "research.json",
+    "label": "Исследования",
+    "file": "modifiers-research.json",
+    "prefixLabel": "Вектор поиска",
+    "suffixLabel": "Формат выдачи"
+  },
+  {
+    "id": "research-quick",
+    "label": "исследования -quick",
+    "file": "modifiers-research-quick.json",
+    "prefixLabel": "Вектор поиска",
+    "suffixLabel": "Формат выдачи"
+  },
+  
+
+  {
+    "id": "research.json",
+    "label": "Исследования-old",
+    "file": "modifiers-research_old.json",
+    "prefixLabel": "Вектор поиска",
+    "suffixLabel": "Формат выдачи"
+  },
+
+
+
+    {
+    "id": "product",
+    "label": "Поиск товара",
+    "file": "modifiers_product.json",
+    "prefixLabel": "Как подобрать",
+    "suffixLabel": "Что сообщить клиенту"
+  },
+  {
+    "id": "project-manager",
+    "label": "Project Manager",
+    "file": "modifiers_project-manager.json",
+    "prefixLabel": "Задачи менеджера",
+    "suffixLabel": "Критерии контроля"
+  },
+  {
+    "id": "product-manager",
+    "label": "Product Manager",
+    "file": "modifiers_product-manager.json",
+    "prefixLabel": "Фокус продукта",
+    "suffixLabel": "Метрики успеха"
+  },
+   {
+    "id": "financial-manager",
+    "label": "Financial Manager",
+    "file": "modifiers-financial-manager.json",
+    "prefixLabel": "Финансовые шаги",
+    "suffixLabel": "Отчетность и выводы"
+  },
+  {
+    "id": "sales-manager",
+    "label": "Sales Manager",
+    "file": "modifiers_sales-manager.json",
+    "prefixLabel": "Стратегия продаж",
+    "suffixLabel": "Аргументы и офферы"
+  },
+  {
+    "id": "sales-manager_gemini",
+    "label": "Sales Manager Gemini",
+    "file": "modifiers_sales-manager_gemini.json",
+    "prefixLabel": "Стратегия продаж",
+    "suffixLabel": "Аргументы и офферы"
+  },
+  {
+    "id": "sales-manager-claude",
+    "label": "Sales manager Claude",
+    "file": "modifiers_sales-manager-claude.json",
+    "prefixLabel": "Стратегия продаж",
+    "suffixLabel": "Аргументы и офферы"
+  },
+  {
+    "id": "marketing",
+    "label": "Маркетинг",
+    "file": "modifiers_marketing.json",
+    "prefixLabel": "Маркетинговый фрейм",
+    "suffixLabel": "Тон коммуникации"
+  },
+  {
+    "id": "photo-enhance",
+    "label": "Photo Enhance",
+    "file": "modifiers_photo_enhance.json",
+    "prefixLabel": "Этапы обработки",
+    "suffixLabel": "Финальные параметры"
+  }
+]

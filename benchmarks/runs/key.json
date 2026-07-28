@@ -1,0 +1,17 @@
+{
+  "analysis-01": {
+    "blind-1": "C",
+    "blind-2": "B",
+    "blind-3": "A"
+  },
+  "facts-01": {
+    "blind-1": "A",
+    "blind-2": "B",
+    "blind-3": "C"
+  },
+  "red-01": {
+    "blind-1": "C",
+    "blind-2": "B",
+    "blind-3": "A"
+  }
+}

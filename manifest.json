@@ -1,0 +1,321 @@
+{
+  "manifest_version": 3,
+  "name": "A_Fable",
+  "version": "2.81.123",
+  "description": "Compares LLMs with stable Debate pipelines, structured state maps, and optional synthesis.",
+  "permissions": [
+    "storage",
+    "tabs",
+    "scripting",
+    "activeTab",
+    "alarms",
+    "clipboardRead",
+    "clipboardWrite",
+    "downloads",
+    "downloads.ui"
+  ],
+  "host_permissions": [
+    "*://chat.openai.com/*",
+    "*://chatgpt.com/*",
+    "*://gemini.google.com/*",
+    "*://bard.google.com/*",
+    "*://claude.ai/*",
+    "*://grok.com/*",
+    "*://grok.x.ai/*",
+    "*://x.com/*",
+    "*://x.ai/*",
+    "*://chat.qwen.ai/*",
+    "*://chat.mistral.ai/*",
+    "*://chat.deepseek.com/*",
+    "*://perplexity.ai/*",
+    "*://www.perplexity.ai/*",
+    "*://chat.z.ai/*",
+    "https://api.openai.com/*",
+    "https://api.anthropic.com/*",
+    "https://generativelanguage.googleapis.com/*",
+    "https://api.x.ai/*",
+    "https://api.mistral.ai/*",
+    "https://dashscope.aliyuncs.com/*",
+    "https://api.deepseek.com/*",
+    "https://api.perplexity.ai/*"
+  ],
+  "background": {
+    "service_worker": "background/index.js",
+    "type": "classic"
+  },
+  "action": {
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://chat.openai.com/*",
+        "*://chatgpt.com/*",
+        "*://gemini.google.com/*",
+        "*://bard.google.com/*",
+        "*://claude.ai/*",
+        "*://grok.com/*",
+        "*://grok.x.ai/*",
+        "*://x.com/*",
+        "*://x.ai/*",
+        "*://chat.qwen.ai/*",
+        "*://chat.mistral.ai/*",
+        "*://chat.deepseek.com/*",
+        "*://www.perplexity.ai/*",
+        "*://perplexity.ai/*",
+        "*://chat.z.ai/*"
+      ],
+      "js": [
+        "lib/purify.min.js",
+        "config/timing.js",
+        "utils/sanitize.js",
+        "shared/selector-profile-lifecycle.js",
+        "shared/answer-content-classifier.js",
+        "shared/provider-submit-confirmation.js",
+        "content-utils/selector-resolver-v2.js",
+        "content-utils/response-lifecycle-detector.js",
+        "content-scripts/content-bootstrap.js",
+        "content-scripts/fetch-monitor.js",
+        "content-scripts/content-utils.js",
+        "content-scripts/perplexity-composer-transaction.js",
+        "content-scripts/attachment-handler.js",
+        "content-scripts/base-adapter.js",
+        "scroll-toolkit.js",
+        "humanoid.js",
+        "selector-manager-strategies.js",
+        "content-scripts/semantic-finder.js",
+        "selector-manager.js",
+        "content-scripts/pipeline-config.js",
+        "shared/answer-verification.js",
+        "shared/secret-redaction.js",
+        "content-scripts/answer-pipeline-selectors.js",
+        "content-scripts/turn-resolver.js",
+        "content-scripts/answer-structure.js",
+        "content-scripts/generation-signal.js",
+        "content-scripts/dom-skeleton-capture.js",
+        "content-scripts/model-selection-toolbar.js",
+        "content-scripts/selectors-finder-lite.js",
+        "content-scripts/selectors-metrics.js",
+        "content-scripts/selectors-circuit.js",
+        "content-scripts/pragmatist-core.js",
+        "content-scripts/pipeline-modules.js",
+        "content-scripts/sanity-check.js",
+        "content-scripts/unified-answer-watcher.js",
+        "content-scripts/unified-answer-pipeline.js",
+        "content-scripts/pragmatist-runner.js",
+        "selectors/config-bundle.js",
+        "selectors/zai.config.js",
+        "selectors-config.js",
+        "content-scripts/element-picker.js",
+        "content-scripts/notes-sidebar-inject.js"
+      ],
+      "run_at": "document_end"
+    },
+    {
+      "matches": [
+        "*://chat.openai.com/*",
+        "*://chatgpt.com/*"
+      ],
+      "js": [
+        "shared/selector-profile-lifecycle.js",
+        "content-utils/selector-resolver-v2.js",
+        "content-utils/response-lifecycle-detector.js",
+        "content-scripts/content-chatgpt.js"
+      ],
+      "run_at": "document_end"
+    },
+    {
+      "matches": [
+        "*://www.perplexity.ai/*",
+        "*://perplexity.ai/*"
+      ],
+      "js": [
+        "shared/selector-profile-lifecycle.js",
+        "shared/provider-submit-confirmation.js",
+        "content-utils/selector-resolver-v2.js",
+        "content-utils/response-lifecycle-detector.js",
+        "content-scripts/content-perplexity.js"
+      ],
+      "run_at": "document_end"
+    },
+    {
+      "matches": [
+        "*://gemini.google.com/*",
+        "*://bard.google.com/*"
+      ],
+      "js": [
+        "shared/selector-profile-lifecycle.js",
+        "content-utils/selector-resolver-v2.js",
+        "content-utils/response-lifecycle-detector.js",
+        "content-scripts/content-gemini.js"
+      ],
+      "run_at": "document_end"
+    },
+    {
+      "matches": [
+        "*://claude.ai/*"
+      ],
+      "js": [
+        "shared/selector-profile-lifecycle.js",
+        "content-utils/selector-resolver-v2.js",
+        "content-utils/response-lifecycle-detector.js",
+        "content-scripts/content-claude.js"
+      ],
+      "run_at": "document_end"
+    },
+    {
+      "matches": [
+        "*://grok.com/*",
+        "*://grok.x.ai/*",
+        "*://x.com/*",
+        "*://x.ai/*"
+      ],
+      "js": [
+        "shared/selector-profile-lifecycle.js",
+        "content-utils/selector-resolver-v2.js",
+        "content-utils/response-lifecycle-detector.js",
+        "content-scripts/content-grok.js"
+      ],
+      "run_at": "document_end"
+    },
+    {
+      "matches": [
+        "*://chat.qwen.ai/*"
+      ],
+      "js": [
+        "shared/selector-profile-lifecycle.js",
+        "content-utils/selector-resolver-v2.js",
+        "content-utils/response-lifecycle-detector.js",
+        "content-scripts/content-qwen.js"
+      ],
+      "run_at": "document_end"
+    },
+    {
+      "matches": [
+        "*://chat.mistral.ai/*"
+      ],
+      "js": [
+        "shared/selector-profile-lifecycle.js",
+        "shared/provider-submit-confirmation.js",
+        "content-utils/selector-resolver-v2.js",
+        "content-utils/response-lifecycle-detector.js",
+        "content-scripts/content-lechat.js"
+      ],
+      "run_at": "document_end"
+    },
+    {
+      "matches": [
+        "*://chat.deepseek.com/*"
+      ],
+      "js": [
+        "shared/selector-profile-lifecycle.js",
+        "content-utils/selector-resolver-v2.js",
+        "content-utils/response-lifecycle-detector.js",
+        "content-scripts/content-deepseek.js"
+      ],
+      "run_at": "document_end"
+    },
+    {
+      "matches": [
+        "*://chat.z.ai/*"
+      ],
+      "js": [
+        "shared/selector-profile-lifecycle.js",
+        "content-utils/selector-resolver-v2.js",
+        "content-utils/response-lifecycle-detector.js",
+        "content-scripts/content-zai.js"
+      ],
+      "run_at": "document_end"
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "result_new.html",
+        "styles.css",
+        "styles/*.css",
+        "results.js",
+        "results/debate-ui.js",
+        "results/debate-transport.js",
+        "results/debate-controller.js",
+        "results/debate-renderer.js",
+        "results/debate-sessions-store.js",
+        "results/debate-export.js",
+        "results/debate-plan-view-model.js",
+        "results/debate-telemetry-view.js",
+        "disput/pipeline-presets.js",
+        "disput/debate-protocols.js",
+        "disput/debate-version-manifest.js",
+        "disput/debate-run-store.js",
+        "disput/debate-protocol-transition-service.js",
+        "disput/debate-decision-request.js",
+        "disput/debate-rule-engine.js",
+        "disput/debate-rule-history.js",
+        "disput/debate-model-signal.js",
+        "disput/debate-trace-schema.js",
+        "disput/debate-trace-store.js",
+        "disput/debate-trace-projections.js",
+        "disput/debate-execution-context.js",
+        "disput/debate-stage-types.js",
+        "disput/debate-policies.js",
+        "disput/debate-draft-plan.js",
+        "disput/debate-plan-revision.js",
+        "disput/debate-planner.js",
+        "disput/debate-stage-executor.js",
+        "disput/debate-orchestrator.js",
+        "disput/debate-orchestrator-persistence.js",
+        "disput/debate-application.js",
+        "disput/debate-participant-registry.js",
+        "disput/debate-artifact-pipeline.js",
+        "disput/debate-projections.js",
+        "disput/debate-artifact-definitions.js",
+        "disput/debate-response-acceptance.js",
+        "disput/debate-context-budget.js",
+        "disput/debate-problem-spec.js",
+        "disput/debate-epistemic-outcome.js",
+        "disput/debate-service-roles.js",
+        "disput/debate-stagnation-warning.js",
+        "disput/debate-anonymization.js",
+        "disput/debate-process-audit.js",
+        "disput/debate-correlation-guard.js",
+        "disput/debate-convergence.js",
+        "disput/debate-prompt-catalog.js",
+        "pipeline/pipeline-runtime.js",
+        "content-scripts/content-bridge.js",
+        "content-scripts/fetch-monitor-bridge.js",
+        "scroll-toolkit.js",
+        "humanoid.js",
+        "Modifiers/modifier-presets.json",
+        "Modifiers/modifiers-basic.json",
+        "disput/pipeline-actions.json",
+        "system_templates/*",
+        "system_templates/index.json"
+      ],
+      "matches": [
+        "*://chat.openai.com/*",
+        "*://chatgpt.com/*",
+        "*://gemini.google.com/*",
+        "*://bard.google.com/*",
+        "*://claude.ai/*",
+        "*://grok.com/*",
+        "*://grok.x.ai/*",
+        "*://x.com/*",
+        "*://x.ai/*",
+        "*://chat.qwen.ai/*",
+        "*://chat.mistral.ai/*",
+        "*://chat.deepseek.com/*",
+        "*://perplexity.ai/*",
+        "*://www.perplexity.ai/*"
+      ]
+    }
+  ]
+}

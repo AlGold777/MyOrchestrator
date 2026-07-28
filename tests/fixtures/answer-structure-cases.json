@@ -1,0 +1,26 @@
+[
+  {
+    "name": "single complete markdown answer",
+    "first": { "resolution": "exact", "selectedHash": "a", "selectedLength": 420, "candidateSetHash": "set1", "messageRootHash": "root1", "structuralComplete": true, "generationActive": false, "runSessionId": "r1", "dispatchId": "d1", "generationEpoch": 1, "turnAnchor": 2 },
+    "second": { "resolution": "exact", "selectedHash": "a", "selectedLength": 420, "candidateSetHash": "set1", "messageRootHash": "root1", "structuralComplete": true, "generationActive": false, "runSessionId": "r1", "dispatchId": "d1", "generationEpoch": 1, "turnAnchor": 2 },
+    "verified": true
+  },
+  {
+    "name": "text stable but sibling code block appeared",
+    "first": { "selectedHash": "a", "selectedLength": 120, "candidateSetHash": "set1", "messageRootHash": "root1", "structuralComplete": true, "generationActive": false, "runSessionId": "r1", "dispatchId": "d1", "generationEpoch": 1, "turnAnchor": 2 },
+    "second": { "selectedHash": "a", "selectedLength": 120, "candidateSetHash": "set2", "messageRootHash": "root2", "structuralComplete": false, "structuralIssues": ["uncovered_message_blocks"], "generationActive": false, "runSessionId": "r1", "dispatchId": "d1", "generationEpoch": 1, "turnAnchor": 2 },
+    "verified": false
+  },
+  {
+    "name": "same text from previous dispatch",
+    "first": { "selectedHash": "a", "selectedLength": 250, "candidateSetHash": "set1", "messageRootHash": "root1", "structuralComplete": true, "generationActive": false, "runSessionId": "r1", "dispatchId": "old", "generationEpoch": 1, "turnAnchor": 2 },
+    "second": { "selectedHash": "a", "selectedLength": 250, "candidateSetHash": "set1", "messageRootHash": "root1", "structuralComplete": true, "generationActive": false, "runSessionId": "r1", "dispatchId": "new", "generationEpoch": 2, "turnAnchor": 2 },
+    "verified": false
+  },
+  {
+    "name": "generation indicator remains active",
+    "first": { "selectedHash": "a", "selectedLength": 80, "candidateSetHash": "set1", "messageRootHash": "root1", "structuralComplete": true, "generationActive": true, "runSessionId": "r1", "dispatchId": "d1", "generationEpoch": 1, "turnAnchor": 2 },
+    "second": { "selectedHash": "a", "selectedLength": 80, "candidateSetHash": "set1", "messageRootHash": "root1", "structuralComplete": true, "generationActive": true, "runSessionId": "r1", "dispatchId": "d1", "generationEpoch": 1, "turnAnchor": 2 },
+    "verified": false
+  }
+]
