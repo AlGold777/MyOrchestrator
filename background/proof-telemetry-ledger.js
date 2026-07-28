@@ -1,30 +1,87 @@
 // background/proof-telemetry-ledger.js
-// Persistent append-only schema 5 ledger for the active runtime run.
+// Sole-writer, append-only schema 6 proof telemetry runtime.
 
 'use strict';
 
 (function initProofTelemetryLedger(root) {
-  const STORAGE_KEY = '__proof_telemetry_ledger_v5__';
+  const STORAGE_KEY = '__proof_telemetry_ledger_v6__';
+  const LEGACY_STORAGE_KEY = '__proof_telemetry_ledger_v5__';
   const MAX_EVENTS = 10000;
   const MAX_QUARANTINE_EVENTS = 200;
   const MAX_PENDING_EVENTS = 200;
-  const PRODUCER_VERSION = 'proof-runtime-ledger@1.0.0';
+  let idCounter = 0;
+  const HEARTBEAT_EVERY_NOOPS = 120;
+  const PRODUCER_VERSION = 'proof-runtime-ledger@2.0.0';
+  const WORKER_EPOCH_ID = makeId('sw');
+  const WORKER_STARTED_MONO_MS = monotonicNow();
   let mutationChain = Promise.resolve();
 
   const proof = () => root.ProofOrientedTelemetry;
+  const contracts = () => root.ProofTelemetryContracts;
 
-  async function readStored() {
-    const stored = await chrome.storage.local.get([STORAGE_KEY]);
-    const value = stored?.[STORAGE_KEY];
-    if (!value || typeof value !== 'object') return { runSessionId: null, firstWallTs: null, events: [], pending: {}, quarantine: [], stagingLosses: [] };
+  function monotonicNow() {
+    return typeof performance !== 'undefined' && Number.isFinite(performance.now()) ? performance.now() : 0;
+  }
+
+  function makeId(prefix) {
+    const uuid = root.crypto?.randomUUID?.();
+    if (uuid) return `${prefix}-${uuid}`;
+    idCounter += 1;
+    const random = root.crypto?.getRandomValues ? Array.from(root.crypto.getRandomValues(new Uint32Array(2))).join('-') : `${Math.random()}-${idCounter}`;
+    return `${prefix}-${String(random).replace(/[^a-zA-Z0-9-]/g, '').padEnd(16, '0')}`;
+  }
+
+  function emptyState() {
     return {
-      runSessionId: value.runSessionId ?? null,
-      firstWallTs: Number(value.firstWallTs || 0) || null,
-      events: Array.isArray(value.events) ? value.events : [],
+      runSessionId: null,
+      runGeneration: null,
+      status: 'closed',
+      firstWallTs: null,
+      nextRunGeneration: 1,
+      nextIngestSeq: 1,
+      events: [],
+      lifecycle: [],
+      pending: {},
+      quarantine: [],
+      unattributed: [],
+      stagingLosses: [],
+      signalStates: {},
+      noopCounts: {},
+      openObservationIntervals: {},
+      producerEpochs: {},
+      producerSequences: {}
+    };
+  }
+
+  function normalizeState(value) {
+    const base = emptyState();
+    if (!value || typeof value !== 'object') return base;
+    const lifecycle = Array.isArray(value.lifecycle) ? value.lifecycle : [];
+    const events = Array.isArray(value.events) ? value.events : [];
+    const maxGeneration = [...lifecycle, ...events].reduce((max, event) => Math.max(max, Number(event.runGeneration || 0)), 0);
+    const maxIngest = [...lifecycle, ...events].reduce((max, event) => Math.max(max, Number(event.ingestSeq || 0)), 0);
+    return {
+      ...base,
+      ...value,
+      events,
+      lifecycle,
       pending: value.pending && typeof value.pending === 'object' ? value.pending : {},
       quarantine: Array.isArray(value.quarantine) ? value.quarantine : [],
-      stagingLosses: Array.isArray(value.stagingLosses) ? value.stagingLosses : []
+      unattributed: Array.isArray(value.unattributed) ? value.unattributed : [],
+      stagingLosses: Array.isArray(value.stagingLosses) ? value.stagingLosses : [],
+      signalStates: value.signalStates && typeof value.signalStates === 'object' ? value.signalStates : {},
+      noopCounts: value.noopCounts && typeof value.noopCounts === 'object' ? value.noopCounts : {},
+      openObservationIntervals: value.openObservationIntervals && typeof value.openObservationIntervals === 'object' ? value.openObservationIntervals : {},
+      producerEpochs: value.producerEpochs && typeof value.producerEpochs === 'object' ? value.producerEpochs : {},
+      producerSequences: value.producerSequences && typeof value.producerSequences === 'object' ? value.producerSequences : {},
+      nextRunGeneration: Math.max(Number(value.nextRunGeneration || 1), maxGeneration + 1),
+      nextIngestSeq: Math.max(Number(value.nextIngestSeq || 1), maxIngest + 1)
     };
+  }
+
+  async function readStored() {
+    const stored = await chrome.storage.local.get([STORAGE_KEY, LEGACY_STORAGE_KEY]);
+    return normalizeState(stored?.[STORAGE_KEY]);
   }
 
   async function writeStored(value) {
@@ -49,16 +106,23 @@
   function boundedPush(items, value, limit, lossDescriptor) {
     const next = [...(Array.isArray(items) ? items : []), value];
     if (next.length <= limit) return { items: next, loss: null };
-    const dropped = next.length - limit;
-    return {
-      items: next.slice(-limit),
-      loss: { ...lossDescriptor, droppedCount: dropped, detectedAtIngest: true }
-    };
+    return { items: next.slice(-limit), loss: { ...lossDescriptor, droppedCount: next.length - limit, detectedAtIngest: true } };
   }
 
-  function safeStagingRecord(entry, llmName, requestedRunId, activeRunId, reason) {
+  function stripEnvelopeMetadata(metadata) {
+    const duplicateKeys = new Set([
+      'runSessionId', 'llmName', 'platform', 'dispatchId', 'requestId', 'generationEpoch',
+      'tabId', 'documentInstanceId', 'navigationEpoch', 'conversationId', 'turnId',
+      'candidateId', 'captureId', 'causationId', 'correlationId', 'producerComponent',
+      'producerVersion', 'proofEventType', 'proofLayer', 'clock'
+    ]);
+    return Object.fromEntries(Object.entries(metadata || {}).filter(([key]) => !duplicateKeys.has(key)));
+  }
+
+  function safeStagingRecord(entry, llmName, requestedRunId, activeRunId, reason, ingestSeq) {
     return {
-      stagingId: `stg-${proof().eventFingerprint(`${requestedRunId}|${llmName}|${entry?.label || entry?.event || ''}|${entry?.ts || ''}|${reason}`)}`,
+      stagingId: makeId('stg'),
+      ingestSeq,
       requestedRunSessionId: requestedRunId === null ? null : String(requestedRunId),
       activeRunSessionId: activeRunId === null ? null : String(activeRunId),
       modelId: String(llmName || entry?.platform || entry?.llmName || 'SYSTEM'),
@@ -68,304 +132,454 @@
     };
   }
 
+  function clockFor(entry, state, producerComponent) {
+    const supplied = entry?.clock || entry?.meta?.clock || {};
+    const ingestMonoMs = Math.max(0, monotonicNow() - WORKER_STARTED_MONO_MS);
+    const producerEpochId = supplied.producerEpochId || entry?.meta?.producerEpochId || `${producerComponent}:clockless`;
+    return {
+      contractVersion: contracts()?.CLOCK_CONTRACT_VERSION || '1.0',
+      producerEpochId: String(producerEpochId),
+      producerSequence: Number.isInteger(Number(supplied.producerSequence)) ? Number(supplied.producerSequence) : null,
+      observedAtLocalMonoMs: Number.isFinite(Number(supplied.observedAtLocalMonoMs)) ? Number(supplied.observedAtLocalMonoMs) : null,
+      sentAtLocalMonoMs: Number.isFinite(Number(supplied.sentAtLocalMonoMs)) ? Number(supplied.sentAtLocalMonoMs) : null,
+      originKind: ['document', 'worker', 'system'].includes(supplied.originKind) ? supplied.originKind : 'unknown',
+      ingestEpochId: WORKER_EPOCH_ID,
+      ingestMonoMs
+    };
+  }
+
+  function nextEnvelope(state, fields) {
+    const ingestSeq = state.nextIngestSeq;
+    state.nextIngestSeq += 1;
+    return {
+      schemaVersion: contracts()?.EVENT_SCHEMA_VERSION || 6,
+      eventId: makeId('event'),
+      seq: state.events.length + 1,
+      ingestSeq,
+      runGeneration: Number(fields.runGeneration || state.runGeneration || 1),
+      wallTs: Number(fields.wallTs || Date.now()),
+      runSessionId: String(fields.runSessionId || state.runSessionId),
+      ...fields
+    };
+  }
+
+  function appendLifecycle(state, eventType, payload, identity = {}) {
+    const event = nextEnvelope(state, {
+      eventType,
+      layer: 'system',
+      wallTs: Number(identity.wallTs || Date.now()),
+      runSessionId: String(identity.runSessionId || state.runSessionId || 'unattributed'),
+      runGeneration: Number(identity.runGeneration || state.runGeneration || state.nextRunGeneration),
+      modelId: 'SYSTEM',
+      producer: { component: 'proof-run-lifecycle', version: PRODUCER_VERSION },
+      clock: clockFor({ clock: { producerEpochId: WORKER_EPOCH_ID, originKind: 'worker', observedAtLocalMonoMs: monotonicNow() } }, state, 'proof-run-lifecycle'),
+      payload: { typed: { kind: 'run_lifecycle', state: eventType }, ...payload }
+    });
+    event.seq = state.lifecycle.length + 1;
+    state.lifecycle.push(event);
+    return event;
+  }
+
+  function createRunConfig(state, options = {}) {
+    return nextEnvelope(state, {
+      eventType: 'RUN_CONFIG_RECORDED',
+      layer: 'system',
+      wallTs: Number(options.wallTs || Date.now()),
+      modelId: 'SYSTEM',
+      producer: { component: 'proof-runtime-ledger', version: PRODUCER_VERSION },
+      clock: clockFor({ clock: { producerEpochId: WORKER_EPOCH_ID, originKind: 'worker', observedAtLocalMonoMs: monotonicNow() } }, state, 'proof-runtime-ledger'),
+      payload: {
+        typed: { kind: 'run_configuration', state: 'recorded' },
+        schemaVersion: '6.0',
+        policyId: 'proof-default-v2',
+        automaticMinimumEvidenceTier: 3,
+        privacyMode: 'metadata-only',
+        initialProducer: options.producerComponent || 'runtime-telemetry'
+      }
+    });
+  }
+
+  function closeIntervalsInState(state, reason) {
+    Object.entries(state.openObservationIntervals || {}).forEach(([key, interval]) => {
+      const event = nextEnvelope(state, {
+        eventType: 'OBSERVATION_INTERVAL_CLOSED',
+        layer: 'fact',
+        wallTs: Date.now(),
+        modelId: interval.modelId,
+        ...(interval.dispatchId ? { dispatchId: interval.dispatchId } : {}),
+        ...(interval.generationEpoch !== undefined ? { generationEpoch: interval.generationEpoch } : {}),
+        producer: { component: 'proof-observation-runtime', version: PRODUCER_VERSION },
+        clock: clockFor({ clock: { producerEpochId: WORKER_EPOCH_ID, originKind: 'worker', observedAtLocalMonoMs: monotonicNow() } }, state, 'proof-observation-runtime'),
+        payload: {
+          typed: { kind: 'observation_interval', state: 'closed' },
+          reason,
+          coverage: 'degraded',
+          sampleCount: interval.sampleCount || 1,
+          firstEventId: interval.firstEventId,
+          lastEventId: interval.lastEventId
+        },
+        evidenceRefs: [interval.firstEventId, interval.lastEventId].filter(Boolean)
+      });
+      state.events.push(event);
+      delete state.openObservationIntervals[key];
+    });
+  }
+
   function beginRun(runSessionId, options = {}) {
     const requested = runSessionId === null || runSessionId === undefined ? null : String(runSessionId);
     if (!requested) return Promise.reject(new Error('proof telemetry beginRun requires runSessionId'));
-    return enqueue((state) => {
-      if (String(state.runSessionId || '') === requested) return state;
-      const promoted = Array.isArray(state.pending?.[requested]) ? state.pending[requested] : [];
-      const pending = { ...(state.pending || {}) };
-      delete pending[requested];
-      const opened = {
-        runSessionId: requested,
-        firstWallTs: Number(options.wallTs || Date.now()),
-        events: [],
-        pending,
-        quarantine: state.quarantine || [],
-        stagingLosses: state.stagingLosses || []
-      };
-      if (promoted.length) {
-        const seed = { ts: opened.firstWallTs, meta: { runSessionId: requested } };
-        opened.events.push(createRunConfig(seed, 'SYSTEM', opened, { runSessionId: requested }));
-        promoted.forEach((record) => {
-          const event = createEvent({
-            ts: opened.firstWallTs,
-            label: record.sourceEventType,
-            level: 'info',
-            meta: { ...(record.metadata || {}), runSessionId: requested, promotedFromPending: true }
-          }, record.modelId, opened, { runSessionId: requested, producerComponent: 'pending-promotion' });
-          if (event) opened.events.push(event);
-        });
+    return enqueue((current) => {
+      const state = normalizeState(current);
+      if (state.runSessionId === requested && state.status === 'active') return state;
+      if (state.status === 'active') {
+        closeIntervalsInState(state, 'run_superseded');
+        appendLifecycle(state, 'RUN_SUPERSESSION_REQUESTED', { successorRunSessionId: requested }, { wallTs: options.wallTs });
+        appendLifecycle(state, 'RUN_CLOSE_INTENT', { reason: 'superseded' }, { wallTs: options.wallTs });
+        appendLifecycle(state, 'RUN_CLOSED', { reason: 'superseded', completenessKnown: false }, { wallTs: options.wallTs });
       }
-      return opened;
+      const generation = state.nextRunGeneration;
+      state.nextRunGeneration += 1;
+      const intentId = makeId('run-intent');
+      appendLifecycle(state, 'RUN_OPEN_INTENT', { intentId, predecessorRunId: state.runSessionId }, {
+        runSessionId: requested, runGeneration: generation, wallTs: options.wallTs
+      });
+      state.runSessionId = requested;
+      state.runGeneration = generation;
+      state.status = 'opening';
+      state.firstWallTs = Number(options.wallTs || Date.now());
+      state.events = [];
+      state.signalStates = {};
+      state.noopCounts = {};
+      state.openObservationIntervals = {};
+      state.producerEpochs = {};
+      state.producerSequences = {};
+      appendLifecycle(state, 'RUN_OPENED', { intentId }, { runSessionId: requested, runGeneration: generation, wallTs: options.wallTs });
+      state.status = 'active';
+      const config = createRunConfig(state, options);
+      state.events.push(config);
+      const epochStarted = nextEnvelope(state, {
+        eventType: 'CLOCK_EPOCH_STARTED',
+        layer: 'system',
+        wallTs: Number(options.wallTs || Date.now()),
+        modelId: 'SYSTEM',
+        producer: { component: 'proof-clock-runtime', version: PRODUCER_VERSION },
+        clock: clockFor({ clock: { producerEpochId: WORKER_EPOCH_ID, originKind: 'worker', observedAtLocalMonoMs: monotonicNow() } }, state, 'proof-clock-runtime'),
+        payload: { typed: { kind: 'clock_epoch', state: 'started' }, epochId: WORKER_EPOCH_ID, originKind: 'worker' }
+      });
+      state.events.push(epochStarted);
+      state.producerEpochs[WORKER_EPOCH_ID] = epochStarted.eventId;
+      const promoted = [...(state.pending?.[requested] || [])].sort((a, b) => a.ingestSeq - b.ingestSeq);
+      delete state.pending[requested];
+      promoted.forEach((record) => appendRecordToState(state, {
+        ts: state.firstWallTs,
+        label: record.sourceEventType,
+        meta: { ...(record.metadata || {}), runSessionId: requested, promotedFromPending: true }
+      }, record.modelId, { producerComponent: 'pending-promotion' }));
+      return state;
+    });
+  }
+
+  function closeRun(reason = 'normal', options = {}) {
+    return enqueue((current) => {
+      const state = normalizeState(current);
+      if (state.status !== 'active') return state;
+      closeIntervalsInState(state, options.observationReason || 'run_closed');
+      appendLifecycle(state, 'RUN_CLOSE_INTENT', { reason }, { wallTs: options.wallTs });
+      state.status = 'closing';
+      appendLifecycle(state, 'RUN_CLOSED', { reason, completenessKnown: options.completenessKnown === true }, { wallTs: options.wallTs });
+      state.status = 'closed';
+      return state;
     });
   }
 
   function stagePending(entry = {}, llmName, runSessionId) {
     const requested = runSessionId === null || runSessionId === undefined ? null : String(runSessionId);
     if (!requested) return Promise.reject(new Error('proof telemetry pending evidence requires runSessionId'));
-    return enqueue((state) => {
-      const pending = { ...(state.pending || {}) };
-      const staged = safeStagingRecord(entry, llmName, requested, state.runSessionId, 'run_not_open');
-      const result = boundedPush(pending[requested], staged, MAX_PENDING_EVENTS, {
-        eventType: 'PENDING_EVIDENCE_DROPPED',
-        buffer: 'pending',
-        runSessionId: requested
-      });
-      pending[requested] = result.items;
-      return {
-        ...state,
-        pending,
-        stagingLosses: result.loss ? [...(state.stagingLosses || []), result.loss].slice(-MAX_PENDING_EVENTS) : (state.stagingLosses || [])
-      };
+    return enqueue((current) => {
+      const state = normalizeState(current);
+      const ingestSeq = state.nextIngestSeq++;
+      const staged = safeStagingRecord(entry, llmName, requested, state.runSessionId, 'run_not_open', ingestSeq);
+      const result = boundedPush(state.pending[requested], staged, MAX_PENDING_EVENTS, { eventType: 'PENDING_EVIDENCE_DROPPED', buffer: 'pending', runSessionId: requested });
+      state.pending[requested] = result.items;
+      if (result.loss) state.stagingLosses = [...state.stagingLosses, result.loss].slice(-MAX_PENDING_EVENTS);
+      return state;
     });
   }
 
-  function createEvent(entry = {}, llmName, state, options = {}) {
+  function createEvent(entry, llmName, state, options = {}) {
     const api = proof();
-    if (!api) return null;
-    const wallTs = Number(entry?.ts || Date.now());
-    const seq = state.events.length + 1;
-    const runSessionId = resolveRunSessionId(entry, options.runSessionId || state.runSessionId || `runtime-${wallTs}`);
-    const modelId = String(llmName || entry?.platform || entry?.llmName || entry?.meta?.llmName || 'SYSTEM');
-    const eventType = String(entry?.proofEventType || entry?.meta?.proofEventType || api.canonicalType(entry));
-    const metadata = api.sanitizeValue(entry?.meta || {}, 'meta') || {};
-    const safeDetails = String(entry?.details || '');
+    const rawMetadata = api.sanitizeValue(entry?.meta || {}, 'meta') || {};
+    const modelId = String(llmName || entry?.platform || entry?.llmName || rawMetadata.llmName || 'SYSTEM');
+    const eventType = String(entry?.proofEventType || rawMetadata.proofEventType || api.canonicalType(entry));
+    const sourceEventType = String(entry?.label || entry?.event || rawMetadata.event || 'UNKNOWN').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'UNKNOWN';
+    const typed = entry?.typed || rawMetadata.typed || contracts()?.adaptLegacyEvent?.({ payload: { sourceEventType, metadata: rawMetadata } }) || { kind: 'unknown', state: 'unknown' };
+    const metadata = stripEnvelopeMetadata(rawMetadata);
+    const details = String(entry?.details || '');
     if (eventType === 'FINALIZATION_POLICY_EVALUATED') {
-      if (/accepted/i.test(safeDetails)) metadata.decisionAccepted = true;
-      if (/rejected|blocked/i.test(safeDetails)) metadata.decisionAccepted = false;
+      if (/accepted/i.test(details)) metadata.decisionAccepted = true;
+      if (/rejected|blocked/i.test(details)) metadata.decisionAccepted = false;
     }
     if (eventType === 'MODEL_TERMINAL_RECORDED') {
-      const status = safeDetails.trim().split(/[\s|:]+/)[0].toUpperCase();
+      const status = details.trim().split(/[\s|:]+/)[0].toUpperCase();
       if (/^[A-Z][A-Z0-9_]{1,40}$/.test(status)) metadata.terminalStatus = status;
     }
-    const dispatchId = metadata.dispatchId || metadata.requestId || undefined;
-    const firstWallTs = state.firstWallTs || wallTs;
-    const sourceEventType = String(entry?.label || entry?.event || entry?.meta?.event || 'UNKNOWN')
-      .trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'UNKNOWN';
-    const event = {
-      schemaVersion: api.EVENT_SCHEMA_VERSION,
-      eventId: `ev-${seq}-${api.eventFingerprint(`${runSessionId}|${modelId}|${dispatchId || ''}|${sourceEventType}|${wallTs}|${seq}`)}`,
+    const dispatchId = rawMetadata.dispatchId || rawMetadata.requestId || undefined;
+    const event = nextEnvelope(state, {
       eventType,
-      layer: String(entry?.proofLayer || entry?.meta?.proofLayer || api.layerFor(eventType)),
-      seq,
-      wallTs,
-      monoMs: Math.max(0, wallTs - firstWallTs),
-      runSessionId: String(runSessionId),
+      layer: String(entry?.proofLayer || rawMetadata.proofLayer || api.layerFor(eventType)),
+      wallTs: Number(entry?.ts || Date.now()),
       modelId,
       producer: {
-        component: String(entry?.meta?.producerComponent || options.producerComponent || 'runtime-telemetry'),
-        version: String(entry?.meta?.producerVersion || options.producerVersion || PRODUCER_VERSION)
+        component: String(rawMetadata.producerComponent || options.producerComponent || 'runtime-telemetry'),
+        version: String(rawMetadata.producerVersion || options.producerVersion || PRODUCER_VERSION)
       },
-      payload: {
-        sourceEventType,
-        sourceLevel: String(entry?.level || 'info'),
-        detailsLength: String(entry?.details || '').length,
-        metadata
-      }
-    };
+      clock: clockFor(entry, state, String(rawMetadata.producerComponent || options.producerComponent || 'runtime-telemetry')),
+      payload: { typed, sourceEventType, sourceLevel: String(entry?.level || 'info'), detailsLength: details.length, metadata }
+    });
     if (dispatchId) event.dispatchId = String(dispatchId);
-    if (Number.isFinite(Number(metadata.generationEpoch))) event.generationEpoch = Number(metadata.generationEpoch);
-    if (Number.isFinite(Number(metadata.tabId))) event.tabId = Number(metadata.tabId);
-    if (metadata.documentInstanceId) event.documentInstanceId = String(metadata.documentInstanceId);
-    if (Number.isFinite(Number(metadata.navigationEpoch))) event.navigationEpoch = Number(metadata.navigationEpoch);
-    if (metadata.conversationId !== undefined) event.conversationId = metadata.conversationId === null ? null : String(metadata.conversationId);
-    if (metadata.turnId) event.turnId = String(metadata.turnId);
-    if (metadata.candidateId) event.candidateId = String(metadata.candidateId);
-    if (metadata.captureId) event.captureId = String(metadata.captureId);
-    if (metadata.causationId) event.causationId = String(metadata.causationId);
-    if (metadata.correlationId) event.correlationId = String(metadata.correlationId);
-    if (Array.isArray(entry?.evidenceRefs || entry?.meta?.evidenceRefs)) {
-      event.evidenceRefs = (entry.evidenceRefs || entry.meta.evidenceRefs).map(String).slice(0, 50);
-    }
+    if (Number.isFinite(Number(rawMetadata.generationEpoch))) event.generationEpoch = Number(rawMetadata.generationEpoch);
+    ['documentInstanceId', 'turnId', 'candidateId', 'captureId', 'causationId', 'correlationId'].forEach((key) => {
+      if (rawMetadata[key]) event[key] = String(rawMetadata[key]);
+    });
+    ['tabId', 'navigationEpoch'].forEach((key) => {
+      if (Number.isFinite(Number(rawMetadata[key]))) event[key] = Number(rawMetadata[key]);
+    });
+    if (rawMetadata.conversationId !== undefined) event.conversationId = rawMetadata.conversationId === null ? null : String(rawMetadata.conversationId);
+    if (Array.isArray(entry?.evidenceRefs || rawMetadata.evidenceRefs)) event.evidenceRefs = (entry.evidenceRefs || rawMetadata.evidenceRefs).map(String).slice(0, 50);
     if (eventType === 'OBSERVATION_FRAME_CAPTURED') {
-      event.payload.metadata.captureStartedMonoMs = Number.isFinite(Number(metadata.captureStartedMonoMs)) ? Number(metadata.captureStartedMonoMs) : null;
-      event.payload.metadata.captureCompletedMonoMs = Number.isFinite(Number(metadata.captureCompletedMonoMs)) ? Number(metadata.captureCompletedMonoMs) : null;
-      event.payload.metadata.maximumSignalSkewMs = Number.isFinite(Number(metadata.maximumSignalSkewMs)) ? Number(metadata.maximumSignalSkewMs) : null;
-      event.payload.metadata.tabActive = metadata.tabActive ?? 'unknown';
-      event.payload.metadata.tabVisible = metadata.tabVisible ?? 'unknown';
-      event.payload.metadata.tabDiscarded = metadata.tabDiscarded ?? 'unknown';
-      event.payload.metadata.documentVisibility = metadata.documentVisibility ?? 'unknown';
-      event.payload.metadata.contentScriptAvailable = metadata.contentScriptAvailable ?? 'unknown';
-      event.payload.metadata.snapshotAgeMs = Number.isFinite(Number(metadata.snapshotAgeMs)) ? Number(metadata.snapshotAgeMs) : null;
-      event.payload.metadata.timerThrottlingSuspected = metadata.timerThrottlingSuspected ?? 'unknown';
-      event.payload.metadata.focusLeaseOwner = metadata.focusLeaseOwner ?? null;
-      event.payload.metadata.pageHealth = metadata.pageHealth ?? 'unknown';
-      event.payload.metadata.candidateSetRef = metadata.candidateSetRef ?? null;
-      event.payload.metadata.mutationCount = Number.isFinite(Number(metadata.mutationCount)) ? Number(metadata.mutationCount) : null;
-      event.payload.metadata.lastRelevantMutationMonoMs = Number.isFinite(Number(metadata.lastRelevantMutationMonoMs)) ? Number(metadata.lastRelevantMutationMonoMs) : null;
+      const checks = rawMetadata.checkedAtLocalMonoMs || {};
+      const coverage = root.ProofTelemetryClock?.signalCoverage?.(checks, contracts()?.THRESHOLDS?.maximumSignalSkewMs || 250);
+      Object.assign(event.payload.metadata, {
+        checkedAtLocalMonoMs: checks,
+        maximumSignalSkewMs: coverage?.maximumSignalSkewMs ?? null,
+        observationCoverage: coverage?.status || 'unknown',
+        observationToSendDelayMs: event.clock.sentAtLocalMonoMs !== null && event.clock.observedAtLocalMonoMs !== null
+          ? Math.max(0, event.clock.sentAtLocalMonoMs - event.clock.observedAtLocalMonoMs) : null,
+        tabActive: rawMetadata.tabActive ?? 'unknown',
+        tabVisible: rawMetadata.tabVisible ?? 'unknown',
+        tabDiscarded: rawMetadata.tabDiscarded ?? 'unknown',
+        documentVisibility: rawMetadata.documentVisibility ?? 'unknown',
+        contentScriptAvailable: rawMetadata.contentScriptAvailable ?? 'unknown',
+        timerThrottlingSuspected: rawMetadata.timerThrottlingSuspected ?? 'unknown',
+        pageHealth: rawMetadata.pageHealth ?? 'unknown'
+      });
     }
     return event;
   }
 
-  function createRunConfig(entry, llmName, state, options = {}) {
-    const wallTs = Number(entry?.ts || Date.now());
-    const runSessionId = resolveRunSessionId(entry, options.runSessionId || state.runSessionId || `runtime-${wallTs}`);
-    return {
-      schemaVersion: 5,
-      eventId: `ev-1-${proof().eventFingerprint(`${runSessionId}|RUN_CONFIG_RECORDED|${wallTs}`)}`,
-      eventType: 'RUN_CONFIG_RECORDED',
-      layer: 'system',
-      seq: 1,
-      wallTs,
-      monoMs: 0,
-      runSessionId: String(runSessionId),
-      modelId: 'SYSTEM',
-      producer: { component: 'proof-runtime-ledger', version: PRODUCER_VERSION },
-      payload: {
-        schemaVersion: '5.0',
-        policyId: 'proof-default-v1',
-        automaticMinimumEvidenceTier: 3,
-        privacyMode: 'metadata-only',
-        initialProducer: options.producerComponent || String(llmName || 'runtime-telemetry')
-      }
-    };
-  }
-
-  function createCompanion(descriptor, sourceEvent, events) {
-    const seq = events.length + 1;
-    const eventType = String(descriptor.eventType);
-    return {
-      schemaVersion: 5,
-      eventId: `ev-${seq}-${proof().eventFingerprint(`${sourceEvent.runSessionId}|${sourceEvent.modelId}|${eventType}|${sourceEvent.eventId}|${seq}`)}`,
-      eventType,
-      layer: descriptor.layer || proof().layerFor(eventType),
-      seq,
+  function createCompanion(descriptor, sourceEvent, state) {
+    return nextEnvelope(state, {
+      eventType: String(descriptor.eventType),
+      layer: descriptor.layer || proof().layerFor(descriptor.eventType),
       wallTs: sourceEvent.wallTs,
-      monoMs: sourceEvent.monoMs,
-      runSessionId: sourceEvent.runSessionId,
       modelId: sourceEvent.modelId,
       ...(sourceEvent.dispatchId ? { dispatchId: sourceEvent.dispatchId } : {}),
       ...(sourceEvent.generationEpoch !== undefined ? { generationEpoch: sourceEvent.generationEpoch } : {}),
-      ...(sourceEvent.tabId !== undefined ? { tabId: sourceEvent.tabId } : {}),
-      producer: { component: 'proof-inference-policy', version: 'proof-policy@1.0.0' },
-      payload: descriptor.payload || {},
+      producer: { component: 'proof-inference-policy', version: 'proof-policy@2.0.0' },
+      clock: { ...sourceEvent.clock, ingestMonoMs: Math.max(0, monotonicNow() - WORKER_STARTED_MONO_MS) },
+      payload: { typed: contracts()?.factOf?.({ payload: descriptor.payload || {} }) || { kind: 'inference', state: 'recorded' }, ...(descriptor.payload || {}) },
       evidenceRefs: Array.isArray(descriptor.evidenceRefs) ? descriptor.evidenceRefs.slice() : [sourceEvent.eventId]
-    };
+    });
+  }
+
+  function stateKey(event) {
+    const typed = contracts()?.factOf?.(event) || {};
+    return [event.runSessionId, event.modelId, event.dispatchId || 'none', event.generationEpoch ?? 'none', typed.kind || event.eventType].join('|');
+  }
+
+  function ensureProducerEpoch(state, entry, llmName) {
+    const supplied = entry?.clock || entry?.meta?.clock;
+    if (!supplied?.producerEpochId || state.producerEpochs[supplied.producerEpochId]) return;
+    const event = nextEnvelope(state, {
+      eventType: 'CLOCK_EPOCH_STARTED',
+      layer: 'system',
+      wallTs: Number(entry?.ts || Date.now()),
+      modelId: String(llmName || entry?.meta?.llmName || 'SYSTEM'),
+      producer: { component: 'proof-clock-runtime', version: PRODUCER_VERSION },
+      clock: clockFor(entry, state, 'proof-clock-runtime'),
+      payload: {
+        typed: { kind: 'clock_epoch', state: 'started' },
+        epochId: String(supplied.producerEpochId),
+        originKind: supplied.originKind || 'unknown',
+        predecessorEpochId: supplied.predecessorEpochId || null
+      }
+    });
+    state.events.push(event);
+    state.producerEpochs[supplied.producerEpochId] = event.eventId;
+  }
+
+  function appendRecordToState(state, entry, llmName, options = {}) {
+    ensureProducerEpoch(state, entry, llmName);
+    const event = createEvent(entry, llmName, state, options);
+    const producerSequence = event.clock?.producerSequence;
+    const producerEpochId = event.clock?.producerEpochId;
+    if (producerSequence !== null && producerEpochId) {
+      const previousSequence = state.producerSequences[producerEpochId];
+      if (Number.isInteger(previousSequence) && producerSequence <= previousSequence) {
+        const anomaly = nextEnvelope(state, {
+          eventType: 'CLOCK_ORDER_ANOMALY_RECORDED',
+          layer: 'audit',
+          wallTs: event.wallTs,
+          modelId: event.modelId,
+          ...(event.dispatchId ? { dispatchId: event.dispatchId } : {}),
+          ...(event.generationEpoch !== undefined ? { generationEpoch: event.generationEpoch } : {}),
+          producer: { component: 'proof-clock-runtime', version: PRODUCER_VERSION },
+          clock: { ...event.clock, ingestMonoMs: Math.max(0, monotonicNow() - WORKER_STARTED_MONO_MS) },
+          payload: { typed: { kind: 'clock_anomaly', state: 'producer_reordered' }, producerEpochId, previousSequence, observedSequence: producerSequence },
+          evidenceRefs: [event.eventId]
+        });
+        state.events.push(anomaly);
+      }
+      state.producerSequences[producerEpochId] = Math.max(Number(previousSequence ?? -1), producerSequence);
+    }
+    const key = stateKey(event);
+    const comparison = proof().stableStringify({ eventType: event.eventType, payload: event.payload });
+    if (state.signalStates[key] === comparison) {
+      state.nextIngestSeq -= 1;
+      state.noopCounts[key] = Number(state.noopCounts[key] || 0) + 1;
+      if (state.noopCounts[key] % HEARTBEAT_EVERY_NOOPS !== 0) return null;
+      event.eventType = 'OBSERVATION_HEARTBEAT';
+      event.payload = { typed: { kind: 'observation_heartbeat', state: 'unchanged' }, signalKey: key, suppressedNoopCount: state.noopCounts[key] };
+      event.ingestSeq = state.nextIngestSeq++;
+      event.eventId = makeId('event');
+    } else {
+      state.signalStates[key] = comparison;
+      state.noopCounts[key] = 0;
+    }
+    if (event.eventType === 'MODEL_TERMINAL_RECORDED') {
+      const decision = [...state.events].reverse().find((candidate) => candidate.eventType === 'DECISION_RECORDED'
+        && candidate.modelId === event.modelId && candidate.dispatchId === event.dispatchId
+        && candidate.generationEpoch === event.generationEpoch);
+      if (decision) {
+        event.evidenceRefs = Array.from(new Set([...(event.evidenceRefs || []), decision.eventId]));
+        event.payload.metadata.decisionId = decision.eventId;
+      }
+    }
+    state.events.push(event);
+    if (event.eventType === 'OBSERVATION_FRAME_CAPTURED') {
+      const intervalKey = [event.modelId, event.dispatchId || 'none', event.generationEpoch ?? 'none'].join('|');
+      const prior = state.openObservationIntervals[intervalKey];
+      state.openObservationIntervals[intervalKey] = prior
+        ? { ...prior, lastEventId: event.eventId, sampleCount: prior.sampleCount + 1 }
+        : { modelId: event.modelId, dispatchId: event.dispatchId, generationEpoch: event.generationEpoch, firstEventId: event.eventId, lastEventId: event.eventId, sampleCount: 1 };
+    }
+    const companions = [
+      ...(root.ProofTelemetryPolicy?.planCompanions?.(event, state.events) || []),
+      ...(root.ProofTelemetryAudit?.planAfterEvent?.(event, state.events) || [])
+    ];
+    companions.forEach((descriptor) => {
+      const companion = createCompanion(descriptor, event, state);
+      const companionKey = stateKey(companion);
+      const companionState = proof().stableStringify(companion.payload);
+      if (state.signalStates[companionKey] !== companionState) {
+        state.signalStates[companionKey] = companionState;
+        state.events.push(companion);
+      } else {
+        state.nextIngestSeq -= 1;
+      }
+    });
+    return event;
   }
 
   function record(entry = {}, llmName, options = {}) {
-    return enqueue((state) => {
+    return enqueue((current) => {
+      const state = normalizeState(current);
       const requestedRunId = resolveRunSessionId(entry, options.runSessionId || state.runSessionId);
-      const runChanged = state.runSessionId !== null && requestedRunId !== null
-        && String(state.runSessionId) !== String(requestedRunId);
-      if (runChanged) {
-        const staged = safeStagingRecord(entry, llmName, requestedRunId, state.runSessionId, 'run_identity_mismatch');
-        const result = boundedPush(state.quarantine, staged, MAX_QUARANTINE_EVENTS, {
-          eventType: 'PENDING_EVIDENCE_DROPPED',
-          buffer: 'quarantine',
-          runSessionId: String(requestedRunId)
-        });
-        return {
-          ...state,
-          quarantine: result.items,
-          stagingLosses: result.loss ? [...(state.stagingLosses || []), result.loss].slice(-MAX_PENDING_EVENTS) : (state.stagingLosses || [])
-        };
+      if (!requestedRunId) {
+        const ingestSeq = state.nextIngestSeq++;
+        const staged = safeStagingRecord(entry, llmName, null, state.runSessionId, 'unattributed_identity', ingestSeq);
+        const result = boundedPush(state.unattributed, staged, MAX_PENDING_EVENTS, { eventType: 'PENDING_EVIDENCE_DROPPED', buffer: 'unattributed' });
+        state.unattributed = result.items;
+        if (result.loss) state.stagingLosses.push(result.loss);
+        return state;
       }
-      const base = state;
-      // MAX_EVENTS is an operational warning threshold, not a deletion cap.
-      // Canonical proof events are never discarded merely to satisfy a size
-      // budget; exportAudit reports overflow and downstream retention may move
-      // the completed run as a whole.
-      const workingBase = base.events.length
-        ? base
-        : {
-          runSessionId: requestedRunId,
-          firstWallTs: Number(entry?.ts || Date.now()),
-          events: [createRunConfig(entry, llmName, base, options)]
-        };
-      const event = createEvent(entry, llmName, workingBase, options);
-      if (!event) return base;
-      const previous = [...workingBase.events].reverse().find((candidate) => (
-        candidate?.producer?.component !== 'proof-inference-policy'
-        && candidate.eventType !== 'RUN_CONFIG_RECORDED'
-      ));
-      const previousComparable = previous ? {
-        eventType: previous.eventType,
-        modelId: previous.modelId,
-        dispatchId: previous.dispatchId || null,
-        payload: previous.payload
-      } : null;
-      const nextComparable = {
-        eventType: event.eventType,
-        modelId: event.modelId,
-        dispatchId: event.dispatchId || null,
-        payload: event.payload
-      };
-      if (previousComparable && proof().stableStringify(previousComparable) === proof().stableStringify(nextComparable)) {
-        return base;
+      if (state.status !== 'active') {
+        const ingestSeq = state.nextIngestSeq++;
+        const staged = safeStagingRecord(entry, llmName, requestedRunId, state.runSessionId, 'run_not_active', ingestSeq);
+        const result = boundedPush(state.pending[requestedRunId], staged, MAX_PENDING_EVENTS, { eventType: 'PENDING_EVIDENCE_DROPPED', buffer: 'pending', runSessionId: String(requestedRunId) });
+        state.pending[requestedRunId] = result.items;
+        if (result.loss) state.stagingLosses.push(result.loss);
+        return state;
       }
-      if (event.eventType === 'MODEL_TERMINAL_RECORDED') {
-        const decision = [...base.events].reverse().find((candidate) => (
-          candidate.eventType === 'DECISION_RECORDED'
-          && String(candidate.modelId) === String(event.modelId)
-          && (!candidate.dispatchId || !event.dispatchId || String(candidate.dispatchId) === String(event.dispatchId))
-        ));
-        if (decision) {
-          event.evidenceRefs = Array.from(new Set([...(event.evidenceRefs || []), decision.eventId]));
-          event.payload.metadata.decisionId = decision.eventId;
-        }
+      if (String(state.runSessionId) !== String(requestedRunId)) {
+        const ingestSeq = state.nextIngestSeq++;
+        const staged = safeStagingRecord(entry, llmName, requestedRunId, state.runSessionId, 'run_identity_mismatch', ingestSeq);
+        const result = boundedPush(state.quarantine, staged, MAX_QUARANTINE_EVENTS, { eventType: 'PENDING_EVIDENCE_DROPPED', buffer: 'quarantine', runSessionId: String(requestedRunId) });
+        state.quarantine = result.items;
+        if (result.loss) state.stagingLosses.push(result.loss);
+        return state;
       }
-      const events = [...workingBase.events, event];
-      const companions = [
-        ...(root.ProofTelemetryPolicy?.planCompanions?.(event, events) || []),
-        ...(root.ProofTelemetryAudit?.planAfterEvent?.(event, events) || [])
-      ];
-      companions.forEach((descriptor) => events.push(createCompanion(descriptor, event, events)));
-      return {
-        runSessionId: event.runSessionId,
-        firstWallTs: workingBase.firstWallTs || event.wallTs,
-        events
-      };
+      appendRecordToState(state, entry, llmName, options);
+      return state;
     });
   }
 
   function appendCanonical(event = {}) {
-    return enqueue((state) => {
-      if (!event || Number(event.schemaVersion) !== 5) throw new Error('invalid canonical telemetry event');
-      const next = { ...event, seq: state.events.length + 1 };
-      if (!next.eventId) next.eventId = `ev-${next.seq}-${proof().eventFingerprint(JSON.stringify(next))}`;
-      return {
-        runSessionId: next.runSessionId || state.runSessionId,
-        firstWallTs: state.firstWallTs || next.wallTs || Date.now(),
-        events: [...state.events, next]
-      };
+    return enqueue((current) => {
+      const state = normalizeState(current);
+      if (!event || ![5, 6].includes(Number(event.schemaVersion))) throw new Error('invalid canonical telemetry event');
+      const next = { ...event, schemaVersion: 6, eventId: event.eventId || makeId('event'), seq: state.events.length + 1, ingestSeq: state.nextIngestSeq++, runGeneration: state.runGeneration || 1 };
+      next.clock ||= clockFor({}, state, next.producer?.component || 'canonical-import');
+      next.payload = { typed: contracts()?.factOf?.(next) || { kind: 'unknown', state: 'unknown' }, ...(next.payload || {}) };
+      state.events.push(next);
+      return state;
     });
   }
 
   function snapshot({ runSessionId = null } = {}) {
     return mutationChain.catch(() => {}).then(readStored).then((state) => {
-      const events = runSessionId === null
-        ? state.events
-        : state.events.filter((event) => String(event.runSessionId) === String(runSessionId));
+      const events = runSessionId === null ? state.events : state.events.filter((event) => String(event.runSessionId) === String(runSessionId));
+      const lifecycle = runSessionId === null ? state.lifecycle : state.lifecycle.filter((event) => String(event.runSessionId) === String(runSessionId));
       return {
-        schemaVersion: 5,
+        schemaVersion: 6,
         runSessionId: runSessionId ?? state.runSessionId,
+        runGeneration: state.runGeneration,
+        status: state.status,
         firstSeq: events[0]?.seq || 0,
         lastSeq: events[events.length - 1]?.seq || 0,
+        firstIngestSeq: [...lifecycle, ...events].length
+          ? [...lifecycle, ...events].reduce((min, event) => Math.min(min, event.ingestSeq), Infinity)
+          : 0,
+        lastIngestSeq: [...lifecycle, ...events].reduce((max, event) => Math.max(max, event.ingestSeq), 0),
         eventCount: events.length,
         events: events.slice(),
-        pendingEventCount: Object.values(state.pending || {}).reduce((sum, list) => sum + (Array.isArray(list) ? list.length : 0), 0),
-        quarantineEventCount: (state.quarantine || []).length,
-        stagingLosses: (state.stagingLosses || []).slice()
+        lifecycle: lifecycle.slice(),
+        pendingEventCount: Object.values(state.pending).reduce((sum, list) => sum + (Array.isArray(list) ? list.length : 0), 0),
+        quarantineEventCount: state.quarantine.length,
+        unattributedEventCount: state.unattributed.length,
+        stagingLosses: state.stagingLosses.slice()
       };
     });
   }
 
+  function recover() {
+    return enqueue((current) => {
+      const state = normalizeState(current);
+      const opening = [...state.lifecycle].reverse().find((event) => event.eventType === 'RUN_OPEN_INTENT');
+      const opened = [...state.lifecycle].reverse().find((event) => event.eventType === 'RUN_OPENED');
+      if (opening && (!opened || opened.ingestSeq < opening.ingestSeq)) {
+        appendLifecycle(state, 'RUN_OPEN_ABANDONED', { intentId: opening.payload.intentId, reason: 'worker_restart' }, opening);
+      }
+      if (state.status === 'closing') {
+        appendLifecycle(state, 'RUN_CLOSED', { reason: 'recovered_after_crash', completenessKnown: false });
+        state.status = 'closed';
+      } else if (state.status === 'active' && Object.keys(state.openObservationIntervals).length) {
+        closeIntervalsInState(state, 'observer_restart');
+      }
+      return state;
+    });
+  }
+
   function clear(runSessionId = null) {
-    return enqueue(() => ({ runSessionId, firstWallTs: null, events: [] }));
+    return enqueue((current) => {
+      const state = normalizeState(current);
+      closeIntervalsInState(state, 'cleared');
+      return { ...emptyState(), nextRunGeneration: state.nextRunGeneration, nextIngestSeq: state.nextIngestSeq, runSessionId };
+    });
   }
 
   root.ProofTelemetryLedger = Object.freeze({
-    STORAGE_KEY,
-    MAX_EVENTS,
-    MAX_QUARANTINE_EVENTS,
-    MAX_PENDING_EVENTS,
-    beginRun,
-    stagePending,
-    record,
-    appendCanonical,
-    snapshot,
-    clear
+    STORAGE_KEY, MAX_EVENTS, MAX_QUARANTINE_EVENTS, MAX_PENDING_EVENTS,
+    beginRun, closeRun, stagePending, record, appendCanonical, snapshot, recover, clear
   });
 })(typeof globalThis !== 'undefined' ? globalThis : self);

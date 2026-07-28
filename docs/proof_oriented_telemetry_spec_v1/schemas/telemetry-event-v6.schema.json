@@ -36,6 +36,7 @@
     "conversationId": { "type": ["string", "null"] },
     "turnId": { "type": "string" },
     "candidateId": { "type": "string" },
+    "captureId": { "type": "string" },
     "causationId": { "type": "string" },
     "correlationId": { "type": "string" },
     "producer": {

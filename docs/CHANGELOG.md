@@ -1,5 +1,19 @@
 # CHANGELOG — Project
 
+### 2026-08-28 — Proof lifecycle and clock runtime, version 2.81.134
+
+- Runtime events now use schema 6 with non-reused run generations, globally
+  monotonic ingestion order and collision-resistant identity.
+- Run intent/open/supersession/close transitions are an append-only lifecycle
+  journal; pending evidence promotes deterministically and late evidence stays
+  quarantined.
+- Added producer and service-worker clock epochs, exact/bounded/unavailable
+  comparisons and tri-state duration thresholds.
+- Atomic observations record per-signal checks, delivery delay and independent
+  coverage; worker restart closes open intervals as degraded.
+- Producer reordering becomes an explicit audit anomaly rather than a silent
+  timestamp reorder.
+
 ### 2026-08-28 — Executable proof contracts and schema 6, version 2.81.133
 
 - Added one runtime report registry for all eight diagnostic tasks, with typed

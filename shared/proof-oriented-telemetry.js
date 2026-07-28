@@ -1,5 +1,5 @@
 // shared/proof-oriented-telemetry.js
-// Proof-oriented telemetry export builder (canonical schema 5.0).
+// Proof-oriented telemetry export builder (schema 5 container, schema 6 events).
 //
 // The runtime still emits the established diagnostic event shape. This module
 // is the compatibility boundary: it freezes one run-scoped snapshot, converts
@@ -9,8 +9,9 @@
 (function initProofOrientedTelemetry(root) {
   'use strict';
 
+  const Contracts = root.ProofTelemetryContracts || (typeof require === 'function' ? require('./proof-telemetry-contracts.js') : null);
   const SCHEMA_VERSION = '5.0';
-  const EVENT_SCHEMA_VERSION = 5;
+  const EVENT_SCHEMA_VERSION = Contracts?.EVENT_SCHEMA_VERSION || 6;
   const GENERATOR_VERSION = 'proof-export@1.0.0';
   const REPORT_VERSION = '1.0.0';
   const REPORT_TYPES = Object.freeze([
@@ -190,12 +191,24 @@
         eventType: type,
         layer: layerFor(type),
         seq,
+        ingestSeq: seq,
+        runGeneration: Number(options.runGeneration || 1),
         wallTs,
-        monoMs: Math.max(0, wallTs - firstWallTs),
         runSessionId: String(runSessionId),
         modelId,
         producer: { component: 'legacy-telemetry-adapter', version: GENERATOR_VERSION },
+        clock: {
+          contractVersion: Contracts?.CLOCK_CONTRACT_VERSION || '1.0',
+          producerEpochId: 'legacy-clockless',
+          producerSequence: null,
+          observedAtLocalMonoMs: null,
+          sentAtLocalMonoMs: null,
+          originKind: 'unknown',
+          ingestEpochId: 'legacy-adapter',
+          ingestMonoMs: seq
+        },
         payload: {
+          typed: Contracts?.adaptLegacyEvent?.({ payload: { sourceEventType: normalizeLabel(legacy) || 'UNKNOWN', metadata: meta } }) || { kind: 'unknown', state: 'unknown' },
           sourceEventType: normalizeLabel(legacy) || 'UNKNOWN',
           sourceLevel: String(legacy?.level || 'info'),
           detailsLength: String(legacy?.details || '').length,

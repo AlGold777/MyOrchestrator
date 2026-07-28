@@ -11,6 +11,10 @@
 
 ## Статус реализации
 
+В версии `2.81.134` runtime ledger переведён на schema 6: append-only lifecycle,
+non-reused run generations, global ingestion order, clock epochs, tri-state
+duration comparisons и degraded interval closure при worker restart.
+
 В версии `2.81.133` опубликован executable schema 6 event contract и единый
 runtime registry typed evidence slots для всех восьми задач. Policy использует
 typed facts, а legacy labels преобразуются только одним migration adapter.

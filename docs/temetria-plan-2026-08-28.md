@@ -54,21 +54,21 @@ completion, extraction and terminal facts. - Done
 
 ## 4. Run lifecycle and clock runtime
 
-4.1. Implement append-only lifecycle events and non-reused run generations. - Pending
+4.1. Implement append-only lifecycle events and non-reused run generations. - Done
 
 4.2. Implement deterministic pending promotion, quarantine and worker-restart
-recovery. - Pending
+recovery. - Done
 
-4.3. Implement collision-resistant event IDs and global ingestion ordering. - Pending
+4.3. Implement collision-resistant event IDs and global ingestion ordering. - Done
 
-4.4. Implement producer/background clock epochs and comparison helpers. - Pending
+4.4. Implement producer/background clock epochs and comparison helpers. - Done
 
 4.5. Record per-signal check times, delivery delay and independent observation
-coverage. - Pending
+coverage. - Done
 
-4.6. Close observation intervals on restart/navigation with degraded coverage. - Pending
+4.6. Close observation intervals on restart/navigation with degraded coverage. - Done
 
-4.7. Add lifecycle/clock property and recovery tests; update version/docs. - Pending
+4.7. Add lifecycle/clock property and recovery tests; update version/docs. - Done
 
 ## 5. Typed transition emission
 

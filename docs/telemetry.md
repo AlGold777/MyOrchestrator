@@ -1,5 +1,21 @@
 # Telemetry - tab/session diagnostics
 
+## Run lifecycle and clock runtime v2.81.134 - 2026-08-28
+
+The background writer now persists schema 6 canonical events. Run order is
+defined by a non-reused `runGeneration`; event order is defined only by global
+`ingestSeq`. `wallTs` remains external-correlation metadata and cannot decide
+admission, timeout or completion.
+
+Every run has append-only open/close lifecycle events. Producer and worker
+epochs make exact durations legal only within one monotonic clock; cross-epoch
+comparisons are bounded or unavailable and threshold evaluation becomes
+tri-state. Observation frames preserve per-signal check times, transport delay
+and coverage. A worker restart closes an open interval with degraded coverage,
+never with inferred absence.
+
+Focused lifecycle/clock gate: 8 suites / 51 tests.
+
 ## Executable contracts and schema 6 v2.81.133 - 2026-08-28
 
 All eight Tasks are defined by one executable registry of typed evidence slots.

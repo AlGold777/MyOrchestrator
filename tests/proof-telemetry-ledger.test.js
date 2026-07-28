@@ -16,6 +16,8 @@ describe('native proof telemetry ledger', () => {
     };
     delete global.ProofOrientedTelemetry;
     delete global.ProofTelemetryLedger;
+    require('../shared/proof-telemetry-contracts.js');
+    require('../shared/proof-telemetry-clock.js');
     require('../shared/proof-oriented-telemetry.js');
     require('../shared/proof-telemetry-policy.js');
     require('../shared/proof-telemetry-audit.js');
@@ -30,7 +32,8 @@ describe('native proof telemetry ledger', () => {
     delete global.ProofTelemetryLedger;
   });
 
-  test('persists immutable schema 5 envelopes with monotonic seq', async () => {
+  test('persists immutable schema 6 envelopes with monotonic global ingestion order', async () => {
+    await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
     await global.ProofTelemetryLedger.record({
       ts: 1000,
       label: 'DISPATCH_SEND',
@@ -45,19 +48,22 @@ describe('native proof telemetry ledger', () => {
     }, 'GPT');
 
     const snapshot = await global.ProofTelemetryLedger.snapshot({ runSessionId: 42 });
-    expect(snapshot.eventCount).toBe(4);
-    expect(snapshot.events.map((event) => event.seq)).toEqual([1, 2, 3, 4]);
+    expect(snapshot.eventCount).toBe(5);
+    expect(snapshot.events.map((event) => event.seq)).toEqual([1, 2, 3, 4, 5]);
     expect(snapshot.events.map((event) => event.eventType)).toEqual([
       'RUN_CONFIG_RECORDED',
+      'CLOCK_EPOCH_STARTED',
       'SUBMIT_ACTION_OBSERVED',
       'SUBMISSION_EVIDENCE_CHANGED',
       'SUBMISSION_INFERRED'
     ]);
-    expect(snapshot.events[3].monoMs).toBe(200);
-    expect(snapshot.events.every((event) => event.schemaVersion === 5)).toBe(true);
+    expect(snapshot.events.every((event) => event.schemaVersion === 6)).toBe(true);
+    expect(snapshot.events.every((event) => event.ingestSeq > 0 && event.runGeneration === 1)).toBe(true);
+    expect(snapshot.events.every((event) => event.clock?.ingestEpochId)).toBe(true);
   });
 
   test('does not persist sensitive text and suppresses exact consecutive no-ops', async () => {
+    await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
     const source = {
       ts: 1000,
       label: 'ANSWER_GENERATING',
@@ -67,21 +73,24 @@ describe('native proof telemetry ledger', () => {
     await global.ProofTelemetryLedger.record(source, 'Claude');
     await global.ProofTelemetryLedger.record(source, 'Claude');
     const snapshot = await global.ProofTelemetryLedger.snapshot();
-    expect(snapshot.eventCount).toBe(3);
+    expect(snapshot.eventCount).toBe(4);
     expect(JSON.stringify(snapshot)).not.toContain('private answer');
     const sourceEvent = snapshot.events.find((event) => event.payload?.sourceEventType === 'ANSWER_GENERATING');
     expect(sourceEvent.payload.metadata.answerLength).toBe(14);
   });
 
   test('starts a fresh ledger when the run identity changes', async () => {
+    await global.ProofTelemetryLedger.beginRun(1, { wallTs: 1000 });
     await global.ProofTelemetryLedger.record({ ts: 1000, label: 'RUN_START', meta: { runSessionId: 1 } }, 'GPT');
     await global.ProofTelemetryLedger.beginRun(2, { wallTs: 2000 });
     await global.ProofTelemetryLedger.record({ ts: 2000, label: 'RUN_START', meta: { runSessionId: 2 } }, 'GPT');
     const snapshot = await global.ProofTelemetryLedger.snapshot();
     expect(snapshot.runSessionId).toBe('2');
-    expect(snapshot.eventCount).toBe(2);
+    expect(snapshot.eventCount).toBe(3);
     expect(snapshot.events[0].eventType).toBe('RUN_CONFIG_RECORDED');
-    expect(snapshot.events[1].seq).toBe(2);
+    expect(snapshot.events[2].seq).toBe(3);
+    expect(snapshot.runGeneration).toBe(2);
+    expect(snapshot.lifecycle.map((event) => event.eventType).slice(-2)).toEqual(['RUN_OPEN_INTENT', 'RUN_OPENED']);
   });
 
   test('quarantines a late event instead of resetting the active run', async () => {
@@ -106,7 +115,60 @@ describe('native proof telemetry ledger', () => {
     ]));
   });
 
+  test('promotes pre-open evidence in ingestion order after RUN_OPENED', async () => {
+    await global.ProofTelemetryLedger.stagePending({ label: 'DISPATCH_SEND', meta: { order: 1 } }, 'GPT', 7);
+    await global.ProofTelemetryLedger.stagePending({ label: 'PROMPT_SUBMITTED_ACCEPTED', meta: { order: 2 } }, 'GPT', 7);
+    await global.ProofTelemetryLedger.beginRun(7, { wallTs: 1000 });
+    const snapshot = await global.ProofTelemetryLedger.snapshot();
+    const promoted = snapshot.events.filter((event) => event.payload?.metadata?.promotedFromPending);
+    expect(promoted.map((event) => event.payload.metadata.order)).toEqual([1, 2]);
+    expect(snapshot.lifecycle.map((event) => event.eventType)).toEqual(['RUN_OPEN_INTENT', 'RUN_OPENED']);
+  });
+
+  test('serializes concurrent run intents with unique burned generations', async () => {
+    await Promise.all([
+      global.ProofTelemetryLedger.beginRun('a', { wallTs: 9000 }),
+      global.ProofTelemetryLedger.beginRun('b', { wallTs: 1 })
+    ]);
+    const snapshot = await global.ProofTelemetryLedger.snapshot();
+    const intents = snapshot.lifecycle.filter((event) => event.eventType === 'RUN_OPEN_INTENT');
+    expect(intents.map((event) => event.runGeneration)).toEqual([1, 2]);
+    expect(snapshot.runSessionId).toBe('b');
+    expect(snapshot.status).toBe('active');
+  });
+
+  test('records producer reordering and closes observation coverage after worker restart', async () => {
+    await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
+    const meta = { runSessionId: 42, dispatchId: 'GPT:42:1', generationEpoch: 1 };
+    await global.ProofTelemetryLedger.record({
+      ts: 1000,
+      label: 'LIFECYCLE_SNAPSHOT_ACCEPTED',
+      meta,
+      clock: { producerEpochId: 'document-1', producerSequence: 2, observedAtLocalMonoMs: 10, sentAtLocalMonoMs: 12, originKind: 'document' }
+    }, 'GPT');
+    await global.ProofTelemetryLedger.record({
+      ts: 1,
+      label: 'ANSWER_GENERATING',
+      meta,
+      clock: { producerEpochId: 'document-1', producerSequence: 1, observedAtLocalMonoMs: 14, sentAtLocalMonoMs: 15, originKind: 'document' }
+    }, 'GPT');
+    expect((await global.ProofTelemetryLedger.snapshot()).events.some((event) => event.eventType === 'CLOCK_ORDER_ANOMALY_RECORDED')).toBe(true);
+
+    jest.resetModules();
+    delete global.ProofTelemetryLedger;
+    require('../background/proof-telemetry-ledger.js');
+    await global.ProofTelemetryLedger.recover();
+    const recovered = await global.ProofTelemetryLedger.snapshot();
+    expect(recovered.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventType: 'OBSERVATION_INTERVAL_CLOSED',
+        payload: expect.objectContaining({ reason: 'observer_restart', coverage: 'degraded' })
+      })
+    ]));
+  });
+
   test('records policy, decision, override and terminal lineage explicitly', async () => {
+    await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
     const meta = { runSessionId: 42, dispatchId: 'Grok:42:1', llmName: 'Grok' };
     await global.ProofTelemetryLedger.record({ ts: 1000, label: 'DISPATCH_SEND', meta }, 'Grok');
     await global.ProofTelemetryLedger.record({ ts: 1100, label: 'PROMPT_SUBMITTED_ACCEPTED', meta }, 'Grok');
@@ -136,6 +198,7 @@ describe('native proof telemetry ledger', () => {
   });
 
   test('audits post-terminal growth and exports a privacy-safe forensic omission', async () => {
+    await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
     const meta = { runSessionId: 42, dispatchId: 'GPT:42:1', llmName: 'GPT' };
     await global.ProofTelemetryLedger.record({ ts: 1000, label: 'FINALIZATION_DECISION', details: 'SUCCESS:accepted', meta }, 'GPT');
     await global.ProofTelemetryLedger.record({
@@ -177,6 +240,7 @@ describe('native proof telemetry ledger', () => {
   });
 
   test('materializes an atomic observation frame and candidate inference', async () => {
+    await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
     const meta = { runSessionId: 42, dispatchId: 'GPT:42:1', llmName: 'GPT' };
     await global.ProofTelemetryLedger.record({
       ts: 1000,
@@ -191,9 +255,8 @@ describe('native proof telemetry ledger', () => {
     const snapshot = await global.ProofTelemetryLedger.snapshot();
     const frame = snapshot.events.find((event) => event.eventType === 'OBSERVATION_FRAME_CAPTURED');
     expect(frame.payload.metadata).toEqual(expect.objectContaining({
-      captureStartedMonoMs: null,
-      captureCompletedMonoMs: null,
-      maximumSignalSkewMs: 250,
+      maximumSignalSkewMs: null,
+      observationCoverage: 'unknown',
       contentScriptAvailable: 'unknown',
       mutationCount: 3
     }));

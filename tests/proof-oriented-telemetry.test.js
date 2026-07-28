@@ -10,7 +10,7 @@ const evt = (platform, label, ts, meta = {}, details = '') => ({
   meta: { llmName: platform, runSessionId: 42, dispatchId: `${platform}:42:1`, ...meta }
 });
 
-describe('Proof-oriented telemetry schema 5 export', () => {
+describe('Proof-oriented telemetry schema 6 event export', () => {
   test('builds one immutable canonical ledger and all eight embedded reports', async () => {
     const container = await ProofTelemetry.buildAllPresets({
       '<GPT>': [
@@ -33,7 +33,7 @@ describe('Proof-oriented telemetry schema 5 export', () => {
     expect(container.ledger.eventCount).toBe(10);
     expect(container.ledger.events.map((event) => event.seq)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     expect(new Set(container.ledger.events.map((event) => event.eventId)).size).toBe(10);
-    expect(container.ledger.events.every((event) => event.schemaVersion === 5)).toBe(true);
+    expect(container.ledger.events.every((event) => event.schemaVersion === 6)).toBe(true);
     expect(container.exportAudit.invariantViolations).toEqual([]);
     expect(container.exportAudit.hashes.ledger).toMatch(/^sha256:/);
     expect(container.reports['true-completion'].eventRefs.length).toBeGreaterThan(0);
