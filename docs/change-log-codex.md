@@ -1,6 +1,15 @@
 # Codex phase change log
 
-## 2.81.122 — Perplexity insertion no longer trusts execCommand
+## 2.81.123 — Perplexity insertion no longer trusts execCommand
+
+> Renumbered from a duplicate "2.81.122" heading: two independent sessions each
+> bumped 2.81.121 to 2.81.122 for unrelated work (this fix, and the telemetry
+> volume cut below) and committed without seeing each other's change. Neither
+> file conflicted, so git accepted both commits with the same version string.
+> No earlier release history was rewritten; this entry and all release metadata
+> (`manifest.json`, `package.json`, `package-lock.json`, and the notes-backup
+> `appVersion`) were moved forward to 2.81.123 to restore
+> one-version-one-commit.
 
 - Eight of nine providers now insert and submit; five deliver their answer before `Get It`. Perplexity remained the sole dispatch failure, reusing its existing tab while the others opened fresh ones.
 - `document.execCommand('insertText')` reports success even when the tab holds no focus and nothing was inserted. The guard around the range fallback read that return value (`if (!inserted && ...)`), so on a lie the fallback never ran and the composer stayed empty.
@@ -8,6 +17,14 @@
 - Insertion now verifies the composer content instead of the return value, and the reported method names the path that actually delivered the text. That distinction is what made the defect diagnosable, so it is preserved deliberately.
 - Regression added: `execCommand` stubbed to return `true` while changing nothing must still leave the prompt in the composer via the range path.
 - Not addressed here: the underlying lease is still released before the operation it protects completes. That is a scheduler change affecting all nine providers and is kept separate.
+
+## 2.81.122 — Cut telemetry export volume across encoding, payload, serialization
+
+- 2.81.119 stopped one model's event storm but the same run still exported 551KB. The remaining volume sat in three independent layers.
+- Encoding: the delta compared each event against the previous event of the same model, but meta shape follows the event label, not the model — 407 of 466 consecutive same-model pairs were different event types, so the diff compared unrelated structures and spent its savings on removed-key lists (present in 322 of 474 events, 7 after the fix). The baseline is now keyed by (platform, label), written as format marker 3; formats 1 and 2 still expand, dispatched per event marker.
+- Payload: `MODEL_RUN_TRANSITION` carried four projections of one state, and `legacyAfter` equalled `legacyBefore` in 47 of 47 transitions. Identical twins are no longer emitted; a missing twin reads as unchanged. Nothing in the UI, background or tests reads those fields.
+- Serialization: exports were pretty-printed, which cost 183KB (33.2%) on a 551KB file. Telemetry and Disput JSON are now written compact — they are read by analysis tooling, and any viewer re-formats on demand.
+- Measured on the same run: 551059 → 335320 bytes, round-trip verified lossless on every section of the real export.
 
 ## 2.81.121 — Deliver blocked answers as labelled candidates
 
