@@ -45,14 +45,15 @@ describe('native proof telemetry ledger', () => {
     }, 'GPT');
 
     const snapshot = await global.ProofTelemetryLedger.snapshot({ runSessionId: 42 });
-    expect(snapshot.eventCount).toBe(3);
-    expect(snapshot.events.map((event) => event.seq)).toEqual([1, 2, 3]);
+    expect(snapshot.eventCount).toBe(4);
+    expect(snapshot.events.map((event) => event.seq)).toEqual([1, 2, 3, 4]);
     expect(snapshot.events.map((event) => event.eventType)).toEqual([
+      'RUN_CONFIG_RECORDED',
       'SUBMIT_ACTION_OBSERVED',
       'SUBMISSION_EVIDENCE_CHANGED',
       'SUBMISSION_INFERRED'
     ]);
-    expect(snapshot.events[2].monoMs).toBe(200);
+    expect(snapshot.events[3].monoMs).toBe(200);
     expect(snapshot.events.every((event) => event.schemaVersion === 5)).toBe(true);
   });
 
@@ -66,9 +67,10 @@ describe('native proof telemetry ledger', () => {
     await global.ProofTelemetryLedger.record(source, 'Claude');
     await global.ProofTelemetryLedger.record(source, 'Claude');
     const snapshot = await global.ProofTelemetryLedger.snapshot();
-    expect(snapshot.eventCount).toBe(2);
+    expect(snapshot.eventCount).toBe(3);
     expect(JSON.stringify(snapshot)).not.toContain('private answer');
-    expect(snapshot.events[0].payload.metadata.answerLength).toBe(14);
+    const sourceEvent = snapshot.events.find((event) => event.payload?.sourceEventType === 'ANSWER_GENERATING');
+    expect(sourceEvent.payload.metadata.answerLength).toBe(14);
   });
 
   test('starts a fresh ledger when the run identity changes', async () => {
@@ -76,8 +78,9 @@ describe('native proof telemetry ledger', () => {
     await global.ProofTelemetryLedger.record({ ts: 2000, label: 'RUN_START', meta: { runSessionId: 2 } }, 'GPT');
     const snapshot = await global.ProofTelemetryLedger.snapshot();
     expect(snapshot.runSessionId).toBe('2');
-    expect(snapshot.eventCount).toBe(1);
-    expect(snapshot.events[0].seq).toBe(1);
+    expect(snapshot.eventCount).toBe(2);
+    expect(snapshot.events[0].eventType).toBe('RUN_CONFIG_RECORDED');
+    expect(snapshot.events[1].seq).toBe(2);
   });
 
   test('records policy, decision, override and terminal lineage explicitly', async () => {
@@ -148,5 +151,31 @@ describe('native proof telemetry ledger', () => {
       postTerminalAuditConclusion: 'contradicted',
       postTerminalGrowthChars: 25
     }));
+  });
+
+  test('materializes an atomic observation frame and candidate inference', async () => {
+    const meta = { runSessionId: 42, dispatchId: 'GPT:42:1', llmName: 'GPT' };
+    await global.ProofTelemetryLedger.record({
+      ts: 1000,
+      label: 'LIFECYCLE_SNAPSHOT_ACCEPTED',
+      meta: { ...meta, maximumSignalSkewMs: 250, mutationCount: 3 }
+    }, 'GPT');
+    await global.ProofTelemetryLedger.record({
+      ts: 1100,
+      label: 'MULTIPLE_CANDIDATES_AMBIGUOUS',
+      meta: { ...meta, candidateCount: 2 }
+    }, 'GPT');
+    const snapshot = await global.ProofTelemetryLedger.snapshot();
+    const frame = snapshot.events.find((event) => event.eventType === 'OBSERVATION_FRAME_CAPTURED');
+    expect(frame.payload.metadata).toEqual(expect.objectContaining({
+      captureStartedMonoMs: 0,
+      captureCompletedMonoMs: 0,
+      maximumSignalSkewMs: 250,
+      contentScriptAvailable: true,
+      mutationCount: 3
+    }));
+    const identity = snapshot.events.find((event) => event.eventType === 'CANDIDATE_IDENTITY_INFERRED');
+    expect(identity.payload.answerIdentity).toBe('ambiguous');
+    expect(identity.evidenceRefs).toHaveLength(1);
   });
 });

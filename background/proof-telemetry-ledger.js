@@ -98,7 +98,48 @@
     if (Array.isArray(entry?.evidenceRefs || entry?.meta?.evidenceRefs)) {
       event.evidenceRefs = (entry.evidenceRefs || entry.meta.evidenceRefs).map(String).slice(0, 50);
     }
+    if (eventType === 'OBSERVATION_FRAME_CAPTURED') {
+      event.payload.metadata.captureStartedMonoMs = Number(metadata.captureStartedMonoMs ?? event.monoMs);
+      event.payload.metadata.captureCompletedMonoMs = Number(metadata.captureCompletedMonoMs ?? event.monoMs);
+      event.payload.metadata.maximumSignalSkewMs = Number(metadata.maximumSignalSkewMs ?? 0);
+      event.payload.metadata.tabActive = metadata.tabActive ?? 'unknown';
+      event.payload.metadata.tabVisible = metadata.tabVisible ?? 'unknown';
+      event.payload.metadata.tabDiscarded = metadata.tabDiscarded ?? 'unknown';
+      event.payload.metadata.documentVisibility = metadata.documentVisibility ?? 'unknown';
+      event.payload.metadata.contentScriptAvailable = metadata.contentScriptAvailable ?? true;
+      event.payload.metadata.snapshotAgeMs = Number(metadata.snapshotAgeMs ?? 0);
+      event.payload.metadata.timerThrottlingSuspected = metadata.timerThrottlingSuspected ?? false;
+      event.payload.metadata.focusLeaseOwner = metadata.focusLeaseOwner ?? null;
+      event.payload.metadata.pageHealth = metadata.pageHealth ?? 'unknown';
+      event.payload.metadata.candidateSetRef = metadata.candidateSetRef ?? null;
+      event.payload.metadata.mutationCount = Number(metadata.mutationCount ?? 0);
+      event.payload.metadata.lastRelevantMutationMonoMs = Number(metadata.lastRelevantMutationMonoMs ?? event.monoMs);
+    }
     return event;
+  }
+
+  function createRunConfig(entry, llmName, state, options = {}) {
+    const wallTs = Number(entry?.ts || Date.now());
+    const runSessionId = resolveRunSessionId(entry, options.runSessionId || state.runSessionId || `runtime-${wallTs}`);
+    return {
+      schemaVersion: 5,
+      eventId: `ev-1-${proof().eventFingerprint(`${runSessionId}|RUN_CONFIG_RECORDED|${wallTs}`)}`,
+      eventType: 'RUN_CONFIG_RECORDED',
+      layer: 'system',
+      seq: 1,
+      wallTs,
+      monoMs: 0,
+      runSessionId: String(runSessionId),
+      modelId: 'SYSTEM',
+      producer: { component: 'proof-runtime-ledger', version: PRODUCER_VERSION },
+      payload: {
+        schemaVersion: '5.0',
+        policyId: 'proof-default-v1',
+        automaticMinimumEvidenceTier: 3,
+        privacyMode: 'metadata-only',
+        initialProducer: options.producerComponent || String(llmName || 'runtime-telemetry')
+      }
+    };
   }
 
   function createCompanion(descriptor, sourceEvent, events) {
@@ -131,10 +172,23 @@
       const base = runChanged
         ? { runSessionId: requestedRunId, firstWallTs: Number(entry?.ts || Date.now()), events: [] }
         : state;
-      if (base.events.length >= MAX_EVENTS) return base;
-      const event = createEvent(entry, llmName, base, options);
+      // MAX_EVENTS is an operational warning threshold, not a deletion cap.
+      // Canonical proof events are never discarded merely to satisfy a size
+      // budget; exportAudit reports overflow and downstream retention may move
+      // the completed run as a whole.
+      const workingBase = base.events.length
+        ? base
+        : {
+          runSessionId: requestedRunId,
+          firstWallTs: Number(entry?.ts || Date.now()),
+          events: [createRunConfig(entry, llmName, base, options)]
+        };
+      const event = createEvent(entry, llmName, workingBase, options);
       if (!event) return base;
-      const previous = [...base.events].reverse().find((candidate) => candidate?.producer?.component !== 'proof-inference-policy');
+      const previous = [...workingBase.events].reverse().find((candidate) => (
+        candidate?.producer?.component !== 'proof-inference-policy'
+        && candidate.eventType !== 'RUN_CONFIG_RECORDED'
+      ));
       const previousComparable = previous ? {
         eventType: previous.eventType,
         modelId: previous.modelId,
@@ -161,7 +215,7 @@
           event.payload.metadata.decisionId = decision.eventId;
         }
       }
-      const events = [...base.events, event];
+      const events = [...workingBase.events, event];
       const companions = [
         ...(root.ProofTelemetryPolicy?.planCompanions?.(event, events) || []),
         ...(root.ProofTelemetryAudit?.planAfterEvent?.(event, events) || [])
@@ -169,7 +223,7 @@
       companions.forEach((descriptor) => events.push(createCompanion(descriptor, event, events)));
       return {
         runSessionId: event.runSessionId,
-        firstWallTs: base.firstWallTs || event.wallTs,
+        firstWallTs: workingBase.firstWallTs || event.wallTs,
         events
       };
     });

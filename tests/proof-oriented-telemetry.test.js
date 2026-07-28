@@ -103,4 +103,22 @@ describe('Proof-oriented telemetry schema 5 export', () => {
       canonicalRuntimeEmissionPending: false
     });
   });
+
+  test('preserves monotonic source seq when a filtered native export has gaps', async () => {
+    const ledger = ProofTelemetry.buildLedger([
+      evt('GPT', 'DISPATCH_SEND', 1000),
+      evt('Claude', 'DISPATCH_SEND', 1100),
+      evt('GPT', 'ANSWER_START_DETECTED', 1200)
+    ], { runSessionId: 42 });
+    const filtered = ledger.filter((event) => event.modelId === 'GPT');
+    expect(filtered.map((event) => event.seq)).toEqual([1, 3]);
+    expect(ProofTelemetry.validateLedger(filtered)).toEqual([]);
+    const container = await ProofTelemetry.buildAllPresets(filtered, {
+      canonicalLedger: true,
+      runSessionId: 42,
+      exportedAt: 2000
+    });
+    expect(container.ledger.lastSeq).toBe(3);
+    expect(container.exportAudit.exportBoundary.ledgerCompleteThroughSeq).toBe(3);
+  });
 });

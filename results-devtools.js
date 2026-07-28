@@ -783,6 +783,18 @@
         }
         return filtered;
     };
+    const applyActiveProofFilter = (events = []) => {
+        const selectedSet = getSelectedLlmSet();
+        const platformFilter = normalizePlatformName(telemetryPlatformSelect?.value || 'all');
+        const taskFilter = (telemetryTaskSelect?.value || 'all').toLowerCase().trim();
+        return (Array.isArray(events) ? events : []).filter((event) => {
+            const modelId = normalizePlatformName(event?.modelId || 'SYSTEM');
+            if (selectedSet.size && !selectedSet.has(modelId)) return false;
+            if (platformFilter !== 'all' && modelId !== platformFilter) return false;
+            if (taskFilter && taskFilter !== 'all' && !JSON.stringify(event).toLowerCase().includes(taskFilter)) return false;
+            return true;
+        });
+    };
     // Набор нормализованных имён платформ, к которым сейчас сведён экспорт
     // (выбранные модели и/или фильтр по платформе). Пустой массив = «все».
     // Нужен для фильтрации секций диагностических логов в MD-экспорте.
@@ -791,36 +803,6 @@
         if (platformFilter !== 'all') return [platformFilter];
         const selectedSet = getSelectedLlmSet();
         return selectedSet.size ? Array.from(selectedSet) : [];
-    };
-
-    const groupTelemetryByPlatform = (events = []) => {
-        const grouped = {};
-        const orderedNames = [];
-        const seen = new Set();
-        const rememberName = (name) => {
-            const label = String(name || '').trim() || 'unknown';
-            const key = normalizePlatformName(label);
-            if (!key || seen.has(key)) return;
-            seen.add(key);
-            orderedNames.push(label);
-        };
-        const selectedNames = resolveSelectedLlmNames();
-        if (selectedNames.length) {
-            selectedNames.forEach(rememberName);
-        }
-        (Array.isArray(events) ? events : []).forEach((event) => {
-            rememberName(resolveTelemetryPlatformName(event));
-        });
-        orderedNames.forEach((name) => {
-            grouped[`<${name}>`] = [];
-        });
-        (Array.isArray(events) ? events : []).forEach((event) => {
-            const name = resolveTelemetryPlatformName(event);
-            const tag = `<${name || 'unknown'}>`;
-            if (!grouped[tag]) grouped[tag] = [];
-            grouped[tag].push(event);
-        });
-        return grouped;
     };
 
     // Совпадают ли уже существующие <option> у select'а с желаемым набором value.
@@ -1117,19 +1099,6 @@
     // twice → two downloaded JSON files. (refresh/reset/clear-all keep both
     // bindings because their double-invocation is idempotent; export writes a
     // file, so it must fire exactly once.)
-    const requestTelemetryExportSnapshot = (limit = 2000) => new Promise((resolve) => {
-        try {
-            chrome.runtime.sendMessage({ type: 'GET_DIAG_EVENTS', limit }, (resp) => {
-                if (chrome.runtime.lastError || !resp?.success || !Array.isArray(resp.events)) {
-                    resolve([]);
-                    return;
-                }
-                resolve(resp.events.slice());
-            });
-        } catch (_) {
-            resolve([]);
-        }
-    });
     const requestProofTelemetrySnapshot = (runSessionId = null) => new Promise((resolve) => {
         try {
             chrome.runtime.sendMessage({ type: 'GET_PROOF_TELEMETRY_SNAPSHOT', runSessionId }, (resp) => {
@@ -1143,103 +1112,24 @@
             resolve(null);
         }
     });
-    const requestTelemetryRunSummary = () => new Promise((resolve) => {
-        try {
-            chrome.runtime.sendMessage({ type: 'GET_RUN_OUTCOME_SUMMARY' }, (resp) => {
-                if (chrome.runtime.lastError || !resp?.success) {
-                    resolve(null);
-                    return;
-                }
-                resolve(resp);
-            });
-        } catch (_) {
-            resolve(null);
-        }
-    });
-    const mergeTelemetrySnapshotEvents = (...sources) => {
-        const merged = [];
-        const seen = new Set();
-        sources.flat().forEach((event) => {
-            if (!event) return;
-            const key = buildTelemetryEventKey(event);
-            if (key && seen.has(key)) return;
-            if (key) seen.add(key);
-            merged.push(event);
-        });
-        return merged;
-    };
     const exportTelemetryJson = async () => {
         try {
-            // База — run-scoped cache (а не UI-таблица с капом 250): при отсутствии
-            // фильтра выгружаем всё (иначе экспорт деградировал до round-событий,
-            // дефект телеметрии из run 1781134505984). Но если в окне задан фильтр
-            // (выбрана модель / платформа / тип / пресет) — уважаем его, чтобы не
-            // выгружать все платформы при выбранной одной модели.
-            const [persistedEvents, runOutcomeSummary] = await Promise.all([
-                requestTelemetryExportSnapshot(2000),
-                requestTelemetryRunSummary()
-            ]);
-            const proofSnapshot = await requestProofTelemetrySnapshot(runOutcomeSummary?.runSessionId || null);
-            const completeSnapshot = mergeTelemetrySnapshotEvents(
-                persistedEvents,
-                telemetryCache,
-                getDiagnosticsRoundEvents()
-            );
-            const scopedSnapshot = filterEventsToCurrentRun(
-                completeSnapshot,
-                runOutcomeSummary?.runSessionId || null
-            ).events;
-            let sourceEvents = applyActiveTelemetryFilter(scopedSnapshot);
-            const exportEvents = mergeRoundTelemetry(sourceEvents, getRoundTelemetryEvents(sourceEvents));
-            if (!exportEvents.length) return;
-            let grouped = groupTelemetryByPlatform(exportEvents);
-            // Each event's `meta` repeats the same ~15-20 mostly-constant fields
-            // (extVersion, runSessionId, pipeline ids, ...) on every entry. Delta
-            // -compact per platform so the downloaded file only carries what
-            // actually changed between consecutive events (see
-            // shared/telemetry-meta-delta.js; metaEncodingNote below explains the
-            // marker to anyone reading the exported file directly).
-            let metaEncoded = false;
-            if (window.TelemetryMetaDelta?.compactTelemetryEvents) {
-                Object.keys(grouped).forEach((tag) => {
-                    grouped[tag] = window.TelemetryMetaDelta.compactTelemetryEvents(grouped[tag]);
-                });
-                metaEncoded = true;
+            // Schema 5 is now the sole JSON export source. The snapshot call is
+            // also the persistence barrier: it waits for all earlier ledger
+            // appends and returns one immutable boundary.
+            const proofSnapshot = await requestProofTelemetrySnapshot(null);
+            if (!proofSnapshot?.events?.length || !window.ProofOrientedTelemetry?.buildAllPresets) {
+                if (telemetryStatus) telemetryStatus.textContent = 'Native telemetry ledger is empty';
+                return;
             }
-            if (window.TelemetryExport?.appendRunSummary) {
-                grouped = window.TelemetryExport.appendRunSummary(grouped, {
-                    runSessionId: resolveCurrentRunSessionId(sourceEvents),
-                    exportedAt: Date.now()
-                });
-            }
-            const exportMeta = {
-                generationWaitProfile: window.ResultsShared?.getGenerationWaitProfile?.() || 'unknown',
-                generationWaitProfileLabel: window.ResultsShared?.getGenerationWaitProfileLabel?.() || '',
-                runOutcomeSummary: runOutcomeSummary || null,
-                ...(metaEncoded ? {
-                    metaEncodingNote: 'Per-event "meta" only lists fields that changed vs. the previous event with the same model AND label; {"__telemetryMetaDelta":3} alone means meta is unchanged from that event.'
-                } : {})
-            };
-            // Defense-in-depth: scrub provider keys/tokens before the export
-            // leaves the extension (see shared/secret-redaction.js). Falls back
-            // to plain stringify only if the module failed to load.
-            // Schema 5 cutover: freeze the same complete run snapshot that fed
-            // the legacy view, then materialize one canonical ledger and eight
-            // embedded reports. Legacy groups remain an input adapter only and
-            // are deliberately not duplicated in the downloaded container.
-            const nativeLedgerAvailable = Boolean(proofSnapshot?.events?.length);
-            const payload = window.ProofOrientedTelemetry?.buildAllPresets
-                ? await window.ProofOrientedTelemetry.buildAllPresets(
-                    nativeLedgerAvailable ? proofSnapshot.events : grouped,
-                    {
-                    runSessionId: resolveCurrentRunSessionId(sourceEvents),
-                    exportedAt: Date.now(),
-                    extensionVersion: chrome?.runtime?.getManifest?.().version || 'unknown',
-                    legacyExportMeta: exportMeta,
-                    canonicalLedger: nativeLedgerAvailable
-                    }
-                )
-                : { ...exportMeta, ...grouped };
+            const canonicalEvents = applyActiveProofFilter(proofSnapshot.events);
+            if (!canonicalEvents.length) return;
+            const payload = await window.ProofOrientedTelemetry.buildAllPresets(canonicalEvents, {
+                runSessionId: proofSnapshot.runSessionId,
+                exportedAt: Date.now(),
+                extensionVersion: chrome?.runtime?.getManifest?.().version || 'unknown',
+                canonicalLedger: true
+            });
             // Written without indentation on purpose: this export is read by
             // analysis tooling, not by eye, and pretty-printing a few hundred
             // deeply nested events cost 183KB (33%) of a real 551KB export.

@@ -7,6 +7,7 @@
 ├── background/
 │   ├── index.js
 │   ├── message-router.js
+│   ├── proof-telemetry-ledger.js
 │   ├── job-orchestrator.js
 │   ├── tab-manager.js
 │   └── dispatch-coordinator.js
@@ -50,11 +51,16 @@
 │   └── perplexity.config.js
 ├── shared/
 │   ├── storage-budgets.js
+│   ├── proof-oriented-telemetry.js
+│   ├── proof-telemetry-policy.js
+│   ├── proof-telemetry-audit.js
 │   └── budgets.js
 ├── scripts/
-│   └── build-bundles.js
+│   ├── build-bundles.js
+│   └── validate-proof-telemetry.js
 ├── docs/
 │   ├── documentation-map.md       # единственная карта документации
+│   ├── proof_oriented_telemetry_spec_v1/ # schema 5 specification/schemas/examples
 │   ├── disput/
 │   │   ├── README-disput.md       # точка входа актуальной документации Disput
 │   │   ├── PLAN-*.md / ADR-*.md / TZ-*.md

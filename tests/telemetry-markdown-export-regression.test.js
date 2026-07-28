@@ -46,18 +46,18 @@ describe('telemetry Markdown export regression', () => {
     expect(handler).not.toContain('readDiagnosticsEventsConsistent');
   });
 
-  test('Only problems applies causal context to both JSON and Markdown exports', () => {
+  test('removed Only problems filter stays disabled in the Markdown bridge', () => {
     expect(DEVTOOLS_SRC).toContain('window.ProblemContextFilter.filterWithContext(events');
-    expect(DEVTOOLS_SRC).toContain('sourceEvents = filterTelemetryProblemsWithContext(sourceEvents)');
+    expect(DEVTOOLS_SRC).toContain('telemetryBridge.isOnlyProblemsEnabled = () => false');
     expect(RESULTS_SRC).toContain('bridge.applyOnlyProblemsFilter(filtered)');
     expect(RESULTS_SRC).toContain('window.ProblemContextFilter.filterWithContext(source');
   });
 
-  test('JSON export refreshes the persisted snapshot and includes background run state', () => {
-    expect(DEVTOOLS_SRC).toContain("chrome.runtime.sendMessage({ type: 'GET_DIAG_EVENTS', limit }");
-    expect(DEVTOOLS_SRC).toContain("chrome.runtime.sendMessage({ type: 'GET_RUN_OUTCOME_SUMMARY' }");
-    expect(DEVTOOLS_SRC).toContain('requestTelemetryExportSnapshot(2000)');
-    expect(DEVTOOLS_SRC).toContain('runOutcomeSummary: runOutcomeSummary || null');
+  test('JSON export uses only the native schema 5 snapshot', () => {
+    expect(DEVTOOLS_SRC).toContain("type: 'GET_PROOF_TELEMETRY_SNAPSHOT'");
+    expect(DEVTOOLS_SRC).toContain('canonicalLedger: true');
+    expect(DEVTOOLS_SRC).not.toContain('requestTelemetryExportSnapshot');
+    expect(DEVTOOLS_SRC).not.toContain('nativeLedgerAvailable');
   });
 
   test('content-tab diagnostics inherit run identity only from their mapped current tab', () => {

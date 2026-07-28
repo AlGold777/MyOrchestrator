@@ -388,8 +388,12 @@
   function validateLedger(ledger) {
     const violations = [];
     const ids = new Set();
+    let previousSeq = 0;
     ledger.forEach((event, index) => {
-      if (event.seq !== index + 1) violations.push({ invariantId: 'S01', eventId: event.eventId, message: 'seq is not contiguous and monotonic' });
+      if (!Number.isFinite(Number(event.seq)) || Number(event.seq) <= previousSeq) {
+        violations.push({ invariantId: 'S01', eventId: event.eventId, message: 'seq is not strictly monotonic' });
+      }
+      previousSeq = Number(event.seq);
       if (ids.has(event.eventId)) violations.push({ invariantId: 'S01', eventId: event.eventId, message: 'duplicate eventId' });
       ids.add(event.eventId);
       (event.evidenceRefs || []).forEach((ref) => {
@@ -457,6 +461,7 @@
     const recordedDecisionHash = replayResult ? await sha256(replayResult.recordedDecisions) : null;
     const recomputedDecisionHash = replayResult ? await sha256(replayResult.recomputedDecisions) : null;
     const exportId = `export-${runSessionId}-${exportedAt}`;
+    const ledgerCompleteThroughSeq = ledgerEvents[ledgerEvents.length - 1]?.seq || 0;
     const attachments = { byId: {}, omissions: [] };
     for (const event of ledgerEvents.filter((candidate) => candidate.eventType === 'SELECTOR_FORENSIC_SNAPSHOT_CAPTURED')) {
       const payload = event.payload || {};
@@ -498,7 +503,7 @@
       },
       crossReportCompatibility: {
         mode: 'same_export',
-        exactMatch: { runSessionId, ledgerHash, ledgerCompleteThroughSeq: ledgerEvents.length }
+        exactMatch: { runSessionId, ledgerHash, ledgerCompleteThroughSeq }
       },
       sharedConfig,
       ledger: {
@@ -513,7 +518,7 @@
       reports,
       attachments,
       exportAudit: {
-        exportBoundary: { runSessionId, ledgerCompleteThroughSeq: ledgerEvents.length, frozenAt: exportedAt },
+        exportBoundary: { runSessionId, ledgerCompleteThroughSeq, frozenAt: exportedAt },
         hashes: { ledger: ledgerHash, sharedConfig: sharedConfigHash, derivedViews: viewsHash, reports: reportsHash, attachments: await sha256(attachments) },
         schemaValidation: { valid: invariantViolations.length === 0, schemaVersion: SCHEMA_VERSION },
         invariantViolations,

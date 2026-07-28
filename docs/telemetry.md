@@ -1,5 +1,25 @@
 # Telemetry - tab/session diagnostics
 
+## Native-only schema 5 cutover v2.81.130 - 2026-07-28
+
+JSON export больше не зависит от legacy diagnostics, grouped platform payload,
+run-summary projection или `shared/telemetry-export.js`. Единственный источник
+JSON — frozen `GET_PROOF_TELEMETRY_SNAPSHOT`; пустой native ledger не подменяется
+старыми событиями.
+
+- Platform/Tasks фильтруют canonical envelopes по `modelId` и безопасному
+  event payload. Исходные `seq` не перенумеровываются; filtered ledger остаётся
+  immutable, а export boundary равен фактическому последнему включённому `seq`.
+- Каждый runtime ledger начинается с `RUN_CONFIG_RECORDED`.
+- `LIFECYCLE_SNAPSHOT_ACCEPTED` материализуется как atomic
+  `OBSERVATION_FRAME_CAPTURED` с capture times, signal skew, tab/document/content
+  script health, throttling, lease, candidate и mutation metadata.
+- Candidate-set facts порождают отдельный `CANDIDATE_IDENTITY_INFERRED`.
+- Legacy diagnostics остаются только источником текущего Timeline/MD UI и не
+  участвуют в schema 5 JSON integrity/replay.
+
+Расширенный regression gate: 27 suites / 173 tests.
+
 ## Offline validator v2.81.129 - 2026-07-28
 
 Проверка экспортированного All-presets:
@@ -73,9 +93,8 @@ Background runtime ведёт отдельный append-only ledger в
   очищают persistent ledger.
 - Exact consecutive no-op events подавляются до persistence.
 - Canonical payload проходит metadata-only sanitization до записи.
-- JSON export сначала запрашивает `GET_PROOF_TELEMETRY_SNAPSHOT` и строит
-  All-presets непосредственно из нативных envelopes. Legacy diagnostics
-  используются только как fallback, если native ledger пуст или недоступен.
+- JSON export запрашивает `GET_PROOF_TELEMETRY_SNAPSHOT` и строит All-presets
+  непосредственно из нативных envelopes.
 
 Для native export `exportAudit.sourceCompatibility.mode` равен
 `native-runtime-ledger`, а `canonicalRuntimeEmissionPending=false`.

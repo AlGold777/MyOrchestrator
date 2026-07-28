@@ -142,6 +142,14 @@
         payload: { observedGeneration: deriveAxes(eventsIncludingSource, sourceEvent).observedGeneration }
       });
     }
+    if (sourceEvent.eventType === 'CANDIDATE_SET_CHANGED') {
+      companions.push({
+        eventType: 'CANDIDATE_IDENTITY_INFERRED',
+        layer: 'inference',
+        evidenceRefs,
+        payload: { answerIdentity: deriveAxes(eventsIncludingSource, sourceEvent).answerIdentity }
+      });
+    }
     if (sourceEvent.eventType === 'COMPLETION_HYPOTHESIS_EVALUATED') {
       companions.push({
         eventType: 'ANSWER_COMPLETENESS_EVALUATED',

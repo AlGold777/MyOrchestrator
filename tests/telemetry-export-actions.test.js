@@ -43,9 +43,12 @@ describe('Telemetry export actions', () => {
   test('JSON export loads and builds the proof-oriented schema 5 container', () => {
     expect(html).toContain('src="shared/proof-oriented-telemetry.js"');
     expect(pipelineHtml).toContain('src="shared/proof-oriented-telemetry.js"');
+    expect(html).not.toContain('src="shared/telemetry-export.js"');
+    expect(pipelineHtml).not.toContain('src="shared/telemetry-export.js"');
     expect(devtoolsSource).toContain('window.ProofOrientedTelemetry.buildAllPresets');
     expect(devtoolsSource).toContain("type: 'GET_PROOF_TELEMETRY_SNAPSHOT'");
-    expect(devtoolsSource).toContain('canonicalLedger: nativeLedgerAvailable');
+    expect(devtoolsSource).toContain('canonicalLedger: true');
+    expect(devtoolsSource).not.toContain('nativeLedgerAvailable ? proofSnapshot.events : grouped');
   });
 
   test('Disput JSON download icon precedes the textual MD export', () => {

@@ -1,5 +1,17 @@
 # CHANGELOG — Project
 
+### 2026-07-28 — Native-only proof telemetry cutover, version 2.81.130
+
+- Удалена runtime-зависимость JSON export от legacy grouped telemetry и
+  `shared/telemetry-export.js`; fallback на legacy snapshot запрещён.
+- Platform/Tasks применяются непосредственно к canonical envelopes с
+  сохранением исходных seq и корректного filtered export boundary.
+- Ledger начинается с `RUN_CONFIG_RECORDED`; lifecycle snapshot получает полный
+  atomic observation frame contract, candidate facts — identity inference.
+- Legacy diagnostics сохранены только для Timeline/Markdown совместимости.
+- Расширенный telemetry/lifecycle/finalization regression gate прошёл 27 suites,
+  173 tests.
+
 ### 2026-07-28 — Offline proof telemetry validator, version 2.81.129
 
 - Добавлен CLI `npm run validate:telemetry -- <all-presets.json>`.
