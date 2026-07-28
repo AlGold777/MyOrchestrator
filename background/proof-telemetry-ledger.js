@@ -8,6 +8,8 @@
   const MAX_EVENTS = 10000;
   const MAX_QUARANTINE_EVENTS = 200;
   const MAX_PENDING_EVENTS = 200;
+  const MAX_LEGACY_DEBUG_RECORDS = 200;
+  const OPERATIONAL_CHECKPOINT_COUNT = 50;
   let idCounter = 0;
   const HEARTBEAT_EVERY_NOOPS = 120;
   const PRODUCER_VERSION = 'proof-runtime-ledger@2.0.0';
@@ -48,7 +50,9 @@
       noopCounts: {},
       openObservationIntervals: {},
       producerEpochs: {},
-      producerSequences: {}
+      producerSequences: {},
+      operationalIntervals: {},
+      legacyDebugRing: []
     };
   }
 
@@ -73,6 +77,8 @@
       openObservationIntervals: value.openObservationIntervals && typeof value.openObservationIntervals === 'object' ? value.openObservationIntervals : {},
       producerEpochs: value.producerEpochs && typeof value.producerEpochs === 'object' ? value.producerEpochs : {},
       producerSequences: value.producerSequences && typeof value.producerSequences === 'object' ? value.producerSequences : {},
+      operationalIntervals: value.operationalIntervals && typeof value.operationalIntervals === 'object' ? value.operationalIntervals : {},
+      legacyDebugRing: Array.isArray(value.legacyDebugRing) ? value.legacyDebugRing.slice(-MAX_LEGACY_DEBUG_RECORDS) : [],
       nextRunGeneration: Math.max(Number(value.nextRunGeneration || 1), maxGeneration + 1),
       nextIngestSeq: Math.max(Number(value.nextIngestSeq || 1), maxIngest + 1)
     };
@@ -123,6 +129,27 @@
     return Object.fromEntries(Object.entries(metadata || {}).filter(([key]) => !duplicateKeys.has(key)));
   }
 
+  function compactProofMetadata(metadata) {
+    const staticKeys = new Set(['telemetryTaxonomy', 'extVersion', 'schemaVersion', 'event', 'legacyBefore', 'legacyAfter', 'previousState', 'nextState', 'projection', 'modelState']);
+    const structuredKeys = new Set(['checkedAtLocalMonoMs']);
+    const proofKey = /(?:hash|length|len|count|status|state|reasons?|mode|tier|coverage|verified|visible|active|discarded|health|mutation|attempt|deadline|timeout|duration|delay|skew|growth|candidate|answerIdentity|finalStatus|terminalStatus|finishReason|decisionAccepted|promotedFromPending|promotedStagingIngestSeq|source|signal|ms)$/i;
+    const compact = {};
+    Object.entries(metadata || {}).forEach(([key, value]) => {
+      if (staticKeys.has(key) || value === undefined || value === null) return;
+      if (structuredKeys.has(key) && value && typeof value === 'object') {
+        compact[key] = Object.fromEntries(Object.entries(value).filter(([, item]) => Number.isFinite(Number(item))).slice(0, 20));
+        return;
+      }
+      if (!proofKey.test(key)) return;
+      if (['string', 'number', 'boolean'].includes(typeof value)) {
+        compact[key] = typeof value === 'string' ? value.slice(0, 200) : value;
+      } else if (Array.isArray(value)) {
+        compact[key] = value.filter((item) => ['string', 'number', 'boolean'].includes(typeof item)).slice(0, 20);
+      }
+    });
+    return compact;
+  }
+
   function safeStagingRecord(entry, llmName, requestedRunId, activeRunId, reason, ingestSeq) {
     return {
       stagingId: makeId('stg'),
@@ -140,16 +167,17 @@
     const supplied = entry?.clock || entry?.meta?.clock || {};
     const ingestMonoMs = Math.max(0, monotonicNow() - WORKER_STARTED_MONO_MS);
     const producerEpochId = supplied.producerEpochId || entry?.meta?.producerEpochId || `${producerComponent}:clockless`;
-    return {
+    const clock = {
       contractVersion: contracts()?.CLOCK_CONTRACT_VERSION || '1.0',
       producerEpochId: String(producerEpochId),
-      producerSequence: Number.isInteger(Number(supplied.producerSequence)) ? Number(supplied.producerSequence) : null,
-      observedAtLocalMonoMs: Number.isFinite(Number(supplied.observedAtLocalMonoMs)) ? Number(supplied.observedAtLocalMonoMs) : null,
-      sentAtLocalMonoMs: Number.isFinite(Number(supplied.sentAtLocalMonoMs)) ? Number(supplied.sentAtLocalMonoMs) : null,
       originKind: ['document', 'worker', 'system'].includes(supplied.originKind) ? supplied.originKind : 'unknown',
       ingestEpochId: WORKER_EPOCH_ID,
       ingestMonoMs
     };
+    if (supplied.producerSequence !== null && supplied.producerSequence !== undefined && Number.isInteger(Number(supplied.producerSequence))) clock.producerSequence = Number(supplied.producerSequence);
+    if (supplied.observedAtLocalMonoMs !== null && supplied.observedAtLocalMonoMs !== undefined && Number.isFinite(Number(supplied.observedAtLocalMonoMs))) clock.observedAtLocalMonoMs = Number(supplied.observedAtLocalMonoMs);
+    if (supplied.sentAtLocalMonoMs !== null && supplied.sentAtLocalMonoMs !== undefined && Number.isFinite(Number(supplied.sentAtLocalMonoMs))) clock.sentAtLocalMonoMs = Number(supplied.sentAtLocalMonoMs);
+    return clock;
   }
 
   function nextEnvelope(state, fields) {
@@ -236,6 +264,7 @@
       const state = normalizeState(current);
       if (state.runSessionId === requested && state.status === 'active') return state;
       if (state.status === 'active') {
+        flushOperationalIntervals(state, 'run_superseded');
         closeIntervalsInState(state, 'run_superseded');
         appendLifecycle(state, 'RUN_SUPERSESSION_REQUESTED', { successorRunSessionId: requested }, { wallTs: options.wallTs });
         appendLifecycle(state, 'RUN_CLOSE_INTENT', { reason: 'superseded' }, { wallTs: options.wallTs });
@@ -257,6 +286,8 @@
       state.openObservationIntervals = {};
       state.producerEpochs = {};
       state.producerSequences = {};
+      state.operationalIntervals = {};
+      state.legacyDebugRing = [];
       appendLifecycle(state, 'RUN_OPENED', { intentId }, { runSessionId: requested, runGeneration: generation, wallTs: options.wallTs });
       state.status = 'active';
       const config = createRunConfig(state, options);
@@ -277,7 +308,7 @@
       promoted.forEach((record) => appendRecordToState(state, {
         ts: state.firstWallTs,
         label: record.sourceEventType,
-        meta: { ...(record.metadata || {}), runSessionId: requested, promotedFromPending: true }
+            meta: { ...(record.metadata || {}), runSessionId: requested, promotedFromPending: true, promotedStagingIngestSeq: record.ingestSeq }
       }, record.modelId, { producerComponent: 'pending-promotion' }));
       return state;
     });
@@ -287,6 +318,7 @@
     return enqueue((current) => {
       const state = normalizeState(current);
       if (state.status !== 'active') return state;
+      flushOperationalIntervals(state, reason);
       closeIntervalsInState(state, options.observationReason || 'run_closed');
       appendLifecycle(state, 'RUN_CLOSE_INTENT', { reason }, { wallTs: options.wallTs });
       state.status = 'closing';
@@ -317,7 +349,7 @@
     const eventType = String(entry?.proofEventType || rawMetadata.proofEventType || api.canonicalType(entry));
     const sourceEventType = String(entry?.label || entry?.event || rawMetadata.event || 'UNKNOWN').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'UNKNOWN';
     const typed = entry?.typed || rawMetadata.typed || contracts()?.adaptLegacyEvent?.({ payload: { sourceEventType, metadata: rawMetadata } }) || { kind: 'unknown', state: 'unknown' };
-    const metadata = stripEnvelopeMetadata(rawMetadata);
+    const metadata = compactProofMetadata(stripEnvelopeMetadata(rawMetadata));
     const details = String(entry?.details || '');
     if (eventType === 'FINALIZATION_POLICY_EVALUATED') {
       if (/accepted/i.test(details)) metadata.decisionAccepted = true;
@@ -357,7 +389,7 @@
         checkedAtLocalMonoMs: checks,
         maximumSignalSkewMs: coverage?.maximumSignalSkewMs ?? null,
         observationCoverage: coverage?.status || 'unknown',
-        observationToSendDelayMs: event.clock.sentAtLocalMonoMs !== null && event.clock.observedAtLocalMonoMs !== null
+        observationToSendDelayMs: Number.isFinite(event.clock.sentAtLocalMonoMs) && Number.isFinite(event.clock.observedAtLocalMonoMs)
           ? Math.max(0, event.clock.sentAtLocalMonoMs - event.clock.observedAtLocalMonoMs) : null,
         tabActive: rawMetadata.tabActive ?? 'unknown',
         tabVisible: rawMetadata.tabVisible ?? 'unknown',
@@ -391,6 +423,95 @@
   function stateKey(event) {
     const typed = contracts()?.factOf?.(event) || {};
     return [event.runSessionId, event.modelId, event.dispatchId || 'none', event.generationEpoch ?? 'none', event.layer, typed.kind || event.eventType].join('|');
+  }
+
+  function operationalKey(entry, llmName, state) {
+    const meta = entry?.meta || {};
+    const route = proof().classifyRuntimeEvent?.(entry) || {};
+    return [state.runSessionId, llmName || meta.llmName || 'SYSTEM', meta.dispatchId || meta.requestId || 'none', meta.generationEpoch ?? 'none', route.label || 'UNKNOWN'].join('|');
+  }
+
+  function flushOperationalAccumulator(state, key, reason = 'checkpoint') {
+    const interval = state.operationalIntervals[key];
+    if (!interval) return false;
+    delete state.operationalIntervals[key];
+    appendRecordToState(state, {
+      ts: interval.lastWallTs,
+      label: 'OPERATIONAL_INTERVAL_CLOSED',
+      proofEventType: 'OBSERVER_HEALTH_INTERVAL_CLOSED',
+      proofLayer: 'fact',
+      typed: { kind: 'observation_interval', state: interval.degraded ? 'degraded' : 'observed' },
+      meta: {
+        runSessionId: interval.runSessionId,
+        dispatchId: interval.dispatchId,
+        generationEpoch: interval.generationEpoch,
+        source: interval.signal,
+        signal: interval.signal,
+        count: interval.count,
+        reason,
+        reasons: interval.reasons,
+        firstObservedIngestMonoMs: interval.firstIngestMonoMs,
+        lastObservedIngestMonoMs: interval.lastIngestMonoMs,
+        distinctReasonCount: interval.reasons.length
+      }
+    }, interval.modelId, { producerComponent: 'proof-operational-aggregator' });
+    return true;
+  }
+
+  function flushOperationalIntervals(state, reason) {
+    let count = 0;
+    Object.keys(state.operationalIntervals || {}).forEach((key) => {
+      if (flushOperationalAccumulator(state, key, reason)) count += 1;
+    });
+    return count;
+  }
+
+  function accumulateOperational(state, entry, llmName) {
+    const key = operationalKey(entry, llmName, state);
+    const meta = entry?.meta || {};
+    const label = proof().classifyRuntimeEvent(entry).label;
+    const nowMono = monotonicNow();
+    const reason = String(meta.reason || meta.errorReason || meta.status || 'unspecified').slice(0, 120);
+    const current = state.operationalIntervals[key] || {
+      runSessionId: String(state.runSessionId),
+      modelId: String(llmName || meta.llmName || 'SYSTEM'),
+      dispatchId: meta.dispatchId || meta.requestId || null,
+      generationEpoch: Number.isFinite(Number(meta.generationEpoch)) ? Number(meta.generationEpoch) : undefined,
+      signal: label,
+      count: 0,
+      firstWallTs: Number(entry?.ts || Date.now()),
+      firstIngestMonoMs: nowMono,
+      reasons: [],
+      degraded: false
+    };
+    current.count += 1;
+    current.lastWallTs = Number(entry?.ts || Date.now());
+    current.lastIngestMonoMs = nowMono;
+    if (!current.reasons.includes(reason)) current.reasons = [...current.reasons, reason].slice(0, 10);
+    current.degraded ||= /FAIL|EXHAUSTED|DENIED|ERROR/.test(label);
+    state.operationalIntervals[key] = current;
+    if (current.count >= OPERATIONAL_CHECKPOINT_COUNT) flushOperationalAccumulator(state, key, 'count_checkpoint');
+  }
+
+  function stageLegacyDebug(state, entry, llmName, route) {
+    const meta = entry?.meta || {};
+    const key = [llmName || meta.llmName || 'SYSTEM', route.label || 'UNKNOWN', meta.dispatchId || 'none'].join('|');
+    const previous = state.legacyDebugRing[state.legacyDebugRing.length - 1];
+    if (previous?.key === key) {
+      previous.count += 1;
+      previous.lastWallTs = Number(entry?.ts || Date.now());
+      return;
+    }
+    state.legacyDebugRing.push({
+      key,
+      sourceEventType: route.label || 'UNKNOWN',
+      modelId: String(llmName || meta.llmName || 'SYSTEM'),
+      dispatchId: meta.dispatchId || null,
+      firstWallTs: Number(entry?.ts || Date.now()),
+      lastWallTs: Number(entry?.ts || Date.now()),
+      count: 1
+    });
+    state.legacyDebugRing = state.legacyDebugRing.slice(-MAX_LEGACY_DEBUG_RECORDS);
   }
 
   function ensureProducerEpoch(state, entry, llmName) {
@@ -519,6 +640,18 @@
         if (result.loss) state.stagingLosses.push(result.loss);
         return state;
       }
+      const route = proof().classifyRuntimeEvent?.(entry) || { route: 'canonical' };
+      if (route.route === 'operational') {
+        accumulateOperational(state, entry, llmName);
+        return state;
+      }
+      if (route.route === 'debug') {
+        stageLegacyDebug(state, entry, llmName, route);
+        return state;
+      }
+      if ((!entry.proofEventType && !entry?.meta?.proofEventType && route.eventType) || route.typed) {
+        entry = { ...entry, ...(route.eventType ? { proofEventType: route.eventType } : {}), ...(route.typed ? { typed: route.typed } : {}) };
+      }
       appendRecordToState(state, entry, llmName, options);
       return state;
     });
@@ -537,7 +670,10 @@
   }
 
   function snapshot({ runSessionId = null } = {}) {
-    return mutationChain.catch(() => {}).then(readStored).then((state) => {
+    return enqueue((current) => {
+      const state = normalizeState(current);
+      return flushOperationalIntervals(state, 'export_snapshot') ? state : current;
+    }).then((state) => {
       const events = runSessionId === null ? state.events : state.events.filter((event) => String(event.runSessionId) === String(runSessionId));
       const lifecycle = runSessionId === null ? state.lifecycle : state.lifecycle.filter((event) => String(event.runSessionId) === String(runSessionId));
       return {
@@ -557,6 +693,7 @@
         pendingEventCount: Object.values(state.pending).reduce((sum, list) => sum + (Array.isArray(list) ? list.length : 0), 0),
         quarantineEventCount: state.quarantine.length,
         unattributedEventCount: state.unattributed.length,
+        legacyDebugRecordCount: state.legacyDebugRing.length,
         stagingLosses: state.stagingLosses.slice()
       };
     });

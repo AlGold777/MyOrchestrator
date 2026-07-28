@@ -1,5 +1,27 @@
 # CHANGELOG — Project
 
+### 2026-08-28 — Semantic ingestion and operational aggregation, version 2.81.142
+
+- Removed the catch-all runtime conversion of unknown legacy labels into
+  `OBSERVER_HEALTH_OBSERVED`: proof facts, operational signals and unknown
+  debug events now have separate routes.
+- Adaptive probes, manual pings, gate waits, detector/recovery/focus polling
+  persist as bounded `OBSERVER_HEALTH_INTERVAL_CLOSED` summaries rather than
+  one canonical event per iteration.
+- Unknown legacy labels are aggregated in a bounded debug ring outside proof
+  exports. Known provider-specific submission/candidate/extraction failures
+  retain explicit typed mappings.
+- Canonical metadata now keeps proof-bearing scalar/metric fields and removes
+  repeated taxonomy/version/state projections. Optional null clock fields are
+  omitted.
+- All-presets internal indexes use numeric `eventSeqs`; repeated UUID arrays
+  are retained only in standalone/external proof boundaries.
+- Oversized All-presets artifacts explicitly report
+  `oversized_preserved_core`; evidence is not silently discarded.
+- A stress regression reduces 635 polling/debug inputs to fewer than 20 proof
+  events and a sub-100 KB snapshot while retaining typed failure summaries.
+- Full regression gate passed 184 suites / 1249 tests.
+
 ### 2026-08-28 — Task export zero-evidence fix, version 2.81.141
 
 - A selected Task no longer requires an event from its own evidence-slot list

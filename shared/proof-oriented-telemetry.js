@@ -54,6 +54,10 @@
     PROMPT_SUBMITTED_INFERRED: 'SUBMISSION_INFERRED',
     ANSWER_START_DETECTED: 'GENERATION_START_EVALUATED',
     ANSWER_GENERATING: 'GENERATION_SIGNAL_CHANGED',
+    STREAMING_TRUE_TO_FALSE: 'GENERATION_SIGNAL_CHANGED',
+    STREAMING_STOPPED: 'GENERATION_SIGNAL_CHANGED',
+    STOP_BUTTON_PRESENT_TO_ABSENT: 'GENERATION_SIGNAL_CHANGED',
+    STOP_BUTTON_DISAPPEARED: 'GENERATION_SIGNAL_CHANGED',
     ANSWER_TEXT_STABLE: 'STABILITY_INTERVAL_CLOSED',
     ANSWER_LENGTH_DECREASED: 'TEXT_STATE_CHANGED',
     ANSWER_LENGTH_REGRESSION_RECOVERED: 'TEXT_STATE_CHANGED',
@@ -76,8 +80,52 @@
     FOCUS_STUCK: 'OBSERVER_HEALTH_OBSERVED',
     LEASE_GRANTED: 'OBSERVATION_SLOT_GRANTED',
     LEASE_DENIED: 'OBSERVATION_SLOT_DENIED',
-    LEASE_RELEASED: 'OBSERVATION_SLOT_RELEASED'
+    LEASE_RELEASED: 'OBSERVATION_SLOT_RELEASED',
+    COMMAND_SEND_ERROR: 'SUBMISSION_EVIDENCE_CHANGED',
+    SEND_DEFERRED_TRANSIENT_BLOCKER: 'SUBMISSION_EVIDENCE_CHANGED',
+    SEND_DEGRADED_AFTER_SUBMIT: 'SUBMISSION_EVIDENCE_CHANGED',
+    LLM_RESPONSE_READY: 'EXTRACTION_COMPLETED',
+    GEMINI_STALE_BASELINE_REJECTED: 'CANDIDATE_SET_CHANGED',
+    GROK_PROMPT_ECHO_REJECTED: 'CANDIDATE_SET_CHANGED',
+    GROK_SENT_PROMPT_CONFIRMED: 'SUBMISSION_EVIDENCE_CHANGED',
+    DOM_FALLBACK_START: 'EXTRACTION_COMPLETED',
+    DOM_FALLBACK_JOINED: 'EXTRACTION_COMPLETED',
+    DOM_FALLBACK_SUCCESS: 'EXTRACTION_COMPLETED',
+    DOM_FALLBACK_TIMEOUT: 'EXTRACTION_COMPLETED',
+    COMPOSER_NOT_FOUND: 'PAGE_HEALTH_OBSERVED'
   });
+
+  const RUNTIME_TYPED_FACTS = Object.freeze({
+    COMMAND_SEND_ERROR: { kind: 'submission', state: 'failed' },
+    SEND_DEFERRED_TRANSIENT_BLOCKER: { kind: 'submission', state: 'deferred' },
+    SEND_DEGRADED_AFTER_SUBMIT: { kind: 'submission', state: 'confirmed' },
+    LLM_RESPONSE_READY: { kind: 'extraction', state: 'completed' },
+    GEMINI_STALE_BASELINE_REJECTED: { kind: 'candidate_identity', state: 'stale' },
+    GROK_PROMPT_ECHO_REJECTED: { kind: 'candidate_identity', state: 'rejected' },
+    GROK_SENT_PROMPT_CONFIRMED: { kind: 'submission', state: 'confirmed' },
+    DOM_FALLBACK_START: { kind: 'extraction', state: 'fallback' },
+    DOM_FALLBACK_JOINED: { kind: 'extraction', state: 'fallback' },
+    DOM_FALLBACK_SUCCESS: { kind: 'extraction', state: 'completed' },
+    DOM_FALLBACK_TIMEOUT: { kind: 'extraction', state: 'failed' },
+    COMPOSER_NOT_FOUND: { kind: 'observation', state: 'degraded' }
+  });
+
+  const OPERATIONAL_EVENT_PATTERN = /^(?:ADAPTIVE_PROBE_TICK|MANUAL_PING(?:_FAIL|_START|_RESULT)?|PING_(?:TRANSPORT_ERROR|RETRY|TICK)|ROUND4_GATE_WAIT|MODEL_RUN_TRANSITION|STATE_PROJECTION_COMMITTED|DETECTOR_TICK|SELECTOR_STATS|RECOVERY_BUDGET_(?:EXHAUSTED|CONSUMED|WAIT)|FOCUS_(?:WAIT|RETRY|CHECK)|LEASE_(?:WAIT|RETRY|CHECK)|POLL(?:ING)?_TICK|WATCHDOG_TICK)$/;
+
+  function classifyRuntimeEvent(event = {}) {
+    const label = normalizeLabel(event);
+    if (event?.proofEventType || event?.meta?.proofEventType) {
+      return { route: 'canonical', label, eventType: String(event.proofEventType || event.meta.proofEventType) };
+    }
+    if (EVENT_MAP[label]) return { route: 'canonical', label, eventType: EVENT_MAP[label], typed: RUNTIME_TYPED_FACTS[label] || null };
+    if (OPERATIONAL_EVENT_PATTERN.test(label)) return { route: 'operational', label, eventType: 'OBSERVER_HEALTH_INTERVAL_CLOSED' };
+    if (/PROVIDER_(?:FINISH_REASON|COMPLETE|TERMINAL)|TERMINAL_MARKER/.test(label)) return { route: 'canonical', label, eventType: 'COMPLETION_HYPOTHESIS_EVALUATED' };
+    if (/EXTRACT|MATERIALIZE|RESPONSE_CAPTURE/.test(label)) return { route: 'canonical', label, eventType: 'EXTRACTION_COMPLETED' };
+    if (/TURN_RESOLUTION|CANDIDATE|ANSWER_NODE/.test(label)) return { route: 'canonical', label, eventType: 'CANDIDATE_SET_CHANGED' };
+    if (/PAGE_HEALTH|SCRIPT_HEALTH|SELECTOR_(?:FAIL|MISS)|OBSERVER_(?:FAIL|UNAVAILABLE)/.test(label)) return { route: 'canonical', label, eventType: 'OBSERVER_HEALTH_OBSERVED' };
+    if (/SUBMISSION|PROMPT_SUBMITTED|DISPATCH_(?:BASELINE|SEND|START)/.test(label)) return { route: 'canonical', label, eventType: canonicalType(event) };
+    return { route: 'debug', label, eventType: null };
+  }
 
   const INFERENCE_TYPES = new Set(['SUBMISSION_INFERRED', 'GENERATION_START_EVALUATED', 'CANDIDATE_IDENTITY_INFERRED', 'GENERATION_STATE_INFERRED', 'ANSWER_COMPLETENESS_EVALUATED', 'STRUCTURAL_VERIFICATION_EVALUATED', 'COMPLETION_HYPOTHESIS_EVALUATED']);
   const DECISION_TYPES = new Set(['FINALIZATION_POLICY_EVALUATED', 'POLICY_OVERRIDE_APPLIED', 'DECISION_RECORDED', 'DECISION_SUPERSEDED', 'MISSING_EVIDENCE_RECORDED']);
@@ -296,7 +344,7 @@
     return {
       modelId,
       stateAxes: axes,
-      eventRefs: events.map((event) => event.eventId),
+      eventSeqs: events.map((event) => event.seq),
       firstSeq: events[0]?.seq || null,
       lastSeq: events[events.length - 1]?.seq || null,
       submissionEvidenceCount: events.filter((event) => /SUBMISSION|SUBMIT_ACTION/.test(event.eventType)).length,
@@ -398,7 +446,7 @@
           }]))
         },
         stateAxes: Object.fromEntries(allViews.map((view) => [view.modelId, view.stateAxes])),
-        eventRefs: relevant.map((event) => event.eventId),
+        eventSeqs: relevant.map((event) => event.seq),
         derivedViewRef: 'model-timeline',
         siblings: siblingEvaluations,
         analysisInstructionsRef: 'sharedConfig.commonAnalysisInstructions'
@@ -467,7 +515,7 @@
     const derivedViews = {
       'model-timeline': {
         viewType: 'model-timeline',
-        derivedFromEventRefs: ledgerEvents.map((event) => event.eventId),
+        derivedFromEventSeqs: ledgerEvents.map((event) => event.seq),
         generatorVersion: GENERATOR_VERSION,
         ledgerHash,
         data: modelViews
@@ -517,7 +565,7 @@
         encoding: 'inline-json',
         contentIndex: { reportTypes: REPORT_TYPES.slice(), modelIds: Object.keys(modelViews), eventCount: ledgerEvents.length },
         reportSchemas: Object.fromEntries(REPORT_TYPES.map((type) => [type, REPORT_VERSION])),
-        deduplication: { canonicalEventsStoredOnce: true, embeddedReportsContainEventRefsOnly: true },
+        deduplication: { canonicalEventsStoredOnce: true, embeddedReportsContainEventSeqsOnly: true },
         privacyMode: 'metadata-only',
         sizeBudgetBytes: 1000000,
         overflowPolicy: ['drop-rebuildable-derived-detail', 'externalize-optional-attachments', 'aggregate-repeated-checks', 'preserve-canonical-proof-events'],
@@ -566,6 +614,7 @@
         : serialized.length;
       container.exportAudit.budget.measuredBytes = measuredBytes;
       container.exportAudit.budget.withinBudget = measuredBytes <= container.manifest.sizeBudgetBytes;
+      container.exportAudit.budget.status = container.exportAudit.budget.withinBudget ? 'within_budget' : 'oversized_preserved_core';
     }
     const hashInput = JSON.parse(JSON.stringify(container));
     delete hashInput.exportAudit.hashes.container;
@@ -770,6 +819,7 @@
     stableStringify,
     sha256,
     canonicalType,
+    classifyRuntimeEvent,
     layerFor,
     sanitizeValue,
     eventFingerprint,

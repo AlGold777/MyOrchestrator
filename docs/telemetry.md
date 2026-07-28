@@ -1,5 +1,23 @@
 # Telemetry - tab/session diagnostics
 
+## Semantic ingestion and operational aggregation v2.81.142 - 2026-08-28
+
+Runtime ingestion no longer wraps the entire legacy operational stream in
+Schema 6 envelopes. It uses three explicit routes:
+
+1. Known proof facts become typed canonical events.
+2. Repeating probe/ping/gate/detector/recovery signals become immutable
+   `OBSERVER_HEALTH_INTERVAL_CLOSED` summaries with first/last monotonic times,
+   count and distinct reasons.
+3. Unknown legacy labels enter a bounded debug ring outside proof export.
+
+Canonical metadata excludes repeated taxonomy, extension/schema versions,
+legacy before/after objects and state projections. Optional unavailable clock
+fields are absent instead of repeated as `null`. Embedded All-presets reports
+use compact numeric `eventSeqs`; standalone reports keep resolvable event IDs.
+If complete core evidence exceeds an operational size budget, the status is
+`oversized_preserved_core` rather than a misleading ordinary success.
+
 ## Task export zero-evidence fix v2.81.141 - 2026-08-28
 
 Selecting a Task always creates a report for the selected Platform's incident,
@@ -298,8 +316,9 @@ JSON export на вкладке Telemetry теперь выдаёт канони
   `extraction-integrity`, `forced-success`, `forced-finalization`;
 - вычисленные `requestIf` зависимости с результатом по каждой модели;
 - compatibility boundary, section hashes, invariant validation, replay marker и
-  проверку лимита 1 MB в `exportAudit`;
-- только ссылки `eventRefs` внутри отчётов: события не дублируются;
+  measurement и явный `oversized_preserved_core` в `exportAudit`;
+- только compact `eventSeqs` внутри embedded reports: события и UUID не
+  дублируются;
 - metadata-only privacy: произвольные details, prompt, answer, HTML, content,
   tokens и credentials не попадают в canonical payload; сохраняются безопасные
   hash/length/state/ID/evidence поля.

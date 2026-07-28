@@ -86,9 +86,9 @@ describe('native proof telemetry ledger', () => {
     await global.ProofTelemetryLedger.record({ ts: 2000, label: 'RUN_START', meta: { runSessionId: 2 } }, 'GPT');
     const snapshot = await global.ProofTelemetryLedger.snapshot();
     expect(snapshot.runSessionId).toBe('2');
-    expect(snapshot.eventCount).toBe(3);
+    expect(snapshot.eventCount).toBe(2);
     expect(snapshot.events[0].eventType).toBe('RUN_CONFIG_RECORDED');
-    expect(snapshot.events[2].seq).toBe(3);
+    expect(snapshot.events[1].seq).toBe(2);
     expect(snapshot.runGeneration).toBe(2);
     expect(snapshot.lifecycle.map((event) => event.eventType).slice(-2)).toEqual(['RUN_OPEN_INTENT', 'RUN_OPENED']);
   });
@@ -121,7 +121,7 @@ describe('native proof telemetry ledger', () => {
     await global.ProofTelemetryLedger.beginRun(7, { wallTs: 1000 });
     const snapshot = await global.ProofTelemetryLedger.snapshot();
     const promoted = snapshot.events.filter((event) => event.payload?.metadata?.promotedFromPending);
-    expect(promoted.map((event) => event.payload.metadata.order)).toEqual([1, 2]);
+    expect(promoted.map((event) => event.payload.metadata.promotedStagingIngestSeq)).toEqual([1, 2]);
     expect(snapshot.lifecycle.map((event) => event.eventType)).toEqual(['RUN_OPEN_INTENT', 'RUN_OPENED']);
   });
 
@@ -187,6 +187,48 @@ describe('native proof telemetry ledger', () => {
     expect(source.payload.metadata).not.toHaveProperty('runSessionId');
     expect(source.payload.metadata).not.toHaveProperty('dispatchId');
     expect(source.payload.typed).toEqual(expect.objectContaining({ kind: 'generation', state: 'active' }));
+  });
+
+  test('aggregates operational polling, quarantines unknown legacy noise and compacts metadata', async () => {
+    await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
+    const meta = {
+      runSessionId: 42,
+      dispatchId: 'GPT:42:1',
+      generationEpoch: 1,
+      telemetryTaxonomy: 'repeated-static-value',
+      extVersion: '2.81.141',
+      schemaVersion: 'legacy',
+      legacyBefore: { huge: 'x'.repeat(500) },
+      previousState: { huge: 'y'.repeat(500) },
+      reason: 'content_script_unavailable'
+    };
+    for (let index = 0; index < 300; index += 1) {
+      await global.ProofTelemetryLedger.record({ ts: 1000 + index, label: 'ADAPTIVE_PROBE_TICK', meta }, 'GPT');
+    }
+    for (let index = 0; index < 235; index += 1) {
+      await global.ProofTelemetryLedger.record({ ts: 2000 + index, label: 'MANUAL_PING_FAIL', meta }, 'GPT');
+    }
+    for (let index = 0; index < 100; index += 1) {
+      await global.ProofTelemetryLedger.record({ ts: 3000 + index, label: 'UNMAPPED_LEGACY_NOISE', meta }, 'GPT');
+    }
+    await global.ProofTelemetryLedger.record({
+      ts: 4000,
+      label: 'ANSWER_GENERATING',
+      meta: { ...meta, answerLength: 123, answerHash: 'hash:safe' }
+    }, 'GPT');
+    const snapshot = await global.ProofTelemetryLedger.snapshot();
+    expect(snapshot.events.filter((event) => event.eventType === 'OBSERVER_HEALTH_INTERVAL_CLOSED')).toHaveLength(11);
+    expect(snapshot.eventCount).toBeLessThan(20);
+    expect(snapshot.legacyDebugRecordCount).toBe(1);
+    expect(snapshot.events.some((event) => event.payload?.sourceEventType === 'UNMAPPED_LEGACY_NOISE')).toBe(false);
+    const answer = snapshot.events.find((event) => event.payload?.sourceEventType === 'ANSWER_GENERATING');
+    expect(answer.payload.metadata).toEqual(expect.objectContaining({ answerLength: 123, answerHash: 'hash:safe' }));
+    expect(JSON.stringify(snapshot)).not.toContain('telemetryTaxonomy');
+    expect(JSON.stringify(snapshot)).not.toContain('legacyBefore');
+    expect(answer.clock).not.toHaveProperty('producerSequence');
+    expect(answer.clock).not.toHaveProperty('observedAtLocalMonoMs');
+    expect(answer.clock).not.toHaveProperty('sentAtLocalMonoMs');
+    expect(Buffer.byteLength(JSON.stringify(snapshot), 'utf8')).toBeLessThan(100000);
   });
 
   test('records policy, decision, override and terminal lineage explicitly', async () => {

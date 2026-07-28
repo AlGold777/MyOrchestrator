@@ -102,6 +102,7 @@ async function validateContainer(container, { verifyContainerHash = true } = {})
   replay.invariantViolations.forEach((violation) => addError(violation.invariantId, violation.message, violation));
 
   const ids = new Set(events.map((event) => event.eventId));
+  const seqs = new Set(events.map((event) => event.seq));
   REQUIRED_REPORTS.forEach((reportType) => {
     const report = container?.reports?.[reportType];
     if (!report) {
@@ -110,8 +111,8 @@ async function validateContainer(container, { verifyContainerHash = true } = {})
     }
     if (report?.reportDescriptor?.reportMode !== 'embedded-in-all-presets') addError('REPORT_MODE', `${reportType} is not embedded`);
     if (Object.prototype.hasOwnProperty.call(report, 'materializedEvents')) addError('EVENT_DUPLICATION', `${reportType} materializes canonical events`);
-    (report.eventRefs || []).forEach((eventRef) => {
-      if (!ids.has(eventRef)) addError('REPORT_EVENT_REF', `${reportType} references missing event ${eventRef}`);
+    (report.eventSeqs || []).forEach((eventSeq) => {
+      if (!seqs.has(eventSeq)) addError('REPORT_EVENT_REF', `${reportType} references missing event seq ${eventSeq}`);
     });
     (report.siblings || []).forEach((rule) => {
       (rule?.evaluation?.predicateResults || []).forEach((recorded) => {

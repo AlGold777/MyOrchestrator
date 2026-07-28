@@ -21,7 +21,7 @@
         ['submit_action', 'critical', ['SUBMIT_ACTION_OBSERVED']],
         ['acceptance_evidence', 'critical', ['SUBMISSION_EVIDENCE_CHANGED', 'SUBMISSION_INFERRED']],
         ['page_context', 'required', ['PAGE_CONTEXT_OBSERVED', 'PAGE_HEALTH_OBSERVED']],
-        ['observer_context', 'conditional', ['OBSERVER_HEALTH_OBSERVED', 'OBSERVATION_SLOT_DENIED']]
+        ['observer_context', 'conditional', ['OBSERVER_HEALTH_OBSERVED', 'OBSERVER_HEALTH_INTERVAL_CLOSED', 'OBSERVATION_SLOT_DENIED']]
       ]
     },
     'generation-not-started': {
@@ -30,7 +30,7 @@
         ['submission_proof', 'critical', ['SUBMISSION_EVIDENCE_CHANGED', 'SUBMISSION_INFERRED']],
         ['generation_start', 'critical', ['GENERATION_START_EVALUATED']],
         ['first_candidate_or_signal', 'required', ['CANDIDATE_SET_CHANGED', 'GENERATION_SIGNAL_CHANGED', 'TEXT_STATE_CHANGED']],
-        ['observer_context', 'required', ['PAGE_HEALTH_OBSERVED', 'OBSERVER_HEALTH_OBSERVED', 'OBSERVATION_SLOT_DENIED']]
+        ['observer_context', 'required', ['PAGE_HEALTH_OBSERVED', 'OBSERVER_HEALTH_OBSERVED', 'OBSERVER_HEALTH_INTERVAL_CLOSED', 'OBSERVATION_SLOT_DENIED']]
       ]
     },
     truncation: {

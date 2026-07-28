@@ -227,3 +227,29 @@ Schema 6 platforms instead of restricting it to active models. - Done
 
 12.3. Add zero-evidence task export and complete-platform-list regressions;
 update version/docs. - Done
+
+## 13. Semantic-size correction
+
+13.1. Stop catch-all wrapping of unknown legacy events as observer health. - Done
+
+13.2. Route known proof facts, repeating operational signals and unknown debug
+events into canonical, interval and bounded-debug stores respectively. - Done
+
+13.3. Aggregate polling/recovery families into immutable interval summaries
+with count, monotonic bounds and distinct reasons. - Done
+
+13.4. Remove repeated taxonomy/version/projection metadata and unavailable
+clock fields without removing proof-bearing metrics. - Done
+
+13.5. Replace repeated All-presets UUID indexes with compact event sequence
+indexes while preserving standalone event IDs. - Done
+
+13.6. Report unavoidable overflow explicitly as `oversized_preserved_core`. - Done
+
+13.7. Add a quantitative polling/noise regression and update version/docs. - Done
+
+13.8. Run the complete regression gate after canonical-ingress cutover. - Done
+
+Section 13 evidence: 635 operational/debug inputs produce fewer than 20
+canonical events and a sub-100 KB proof snapshot; full gate passes 184 suites /
+1249 tests.

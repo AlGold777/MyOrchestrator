@@ -223,6 +223,7 @@ RUN_CONFIG_RECORDED
 → PAGE_CONTEXT_OBSERVED
 → PAGE_HEALTH_OBSERVED
 → OBSERVER_HEALTH_OBSERVED
+→ OBSERVER_HEALTH_INTERVAL_CLOSED
 → OPTIONAL_NETWORK_FACTS
 → DISPATCH_BASELINE_CAPTURED
 → SUBMIT_ACTION_OBSERVED
@@ -253,7 +254,12 @@ RUN_CONFIG_RECORDED
 
 ### 9.1. System и observation
 
-`RUN_CONFIG_RECORDED`, `SELECTOR_CANARY_RESULT`, `OBSERVATION_SLOT_REQUESTED`, `OBSERVATION_SLOT_GRANTED`, `OBSERVATION_SLOT_DENIED`, `OBSERVATION_SLOT_BACKOFF`, `OBSERVATION_SLOT_RELEASED`, `PAGE_CONTEXT_OBSERVED`, `PAGE_HEALTH_OBSERVED`, `OBSERVER_HEALTH_OBSERVED`.
+`RUN_CONFIG_RECORDED`, `SELECTOR_CANARY_RESULT`, `OBSERVATION_SLOT_REQUESTED`, `OBSERVATION_SLOT_GRANTED`, `OBSERVATION_SLOT_DENIED`, `OBSERVATION_SLOT_BACKOFF`, `OBSERVATION_SLOT_RELEASED`, `PAGE_CONTEXT_OBSERVED`, `PAGE_HEALTH_OBSERVED`, `OBSERVER_HEALTH_OBSERVED`, `OBSERVER_HEALTH_INTERVAL_CLOSED`.
+
+Operational ticks MUST NOT be wrapped one-for-one as
+`OBSERVER_HEALTH_OBSERVED`. Known proof facts enter the canonical ledger;
+repeated operational signals become interval summaries; unknown legacy labels
+enter a bounded debug ring outside proof export.
 
 ### 9.2. Dispatch
 
@@ -401,7 +407,10 @@ Standalone report MUST материализовать минимальный eve
 
 ### 15.2. Embedded preset
 
-Внутри All-presets report MUST содержать только `eventRefs`, derived data и self-description. Canonical events, shared config и attachments хранятся один раз.
+Внутри All-presets report MUST содержать только compact `eventSeqs`, derived
+data и self-description. UUID `eventId` остаётся в canonical events и на
+standalone/external boundaries, но не повторяется во внутренних индексах.
+Canonical events, shared config и attachments хранятся один раз.
 
 ## 16. Top-level структура
 
@@ -494,7 +503,7 @@ Chunked mode MUST содержать ordered chunk hashes и root hash.
 ```json
 {
   "viewType": "truncation",
-  "derivedFromEventRefs": ["ev-..."],
+  "derivedFromEventSeqs": [17, 18, 19],
   "generatorVersion": "summary-builder@5",
   "ledgerHash": "sha256:...",
   "data": {}

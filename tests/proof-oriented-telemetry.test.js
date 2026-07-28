@@ -11,6 +11,16 @@ const evt = (platform, label, ts, meta = {}, details = '') => ({
 });
 
 describe('Proof-oriented telemetry schema 6 event export', () => {
+  test('routes proof, operational and unknown legacy events to distinct stores', () => {
+    expect(ProofTelemetry.classifyRuntimeEvent({ label: 'GROK_PROMPT_ECHO_REJECTED' })).toEqual(expect.objectContaining({
+      route: 'canonical',
+      eventType: 'CANDIDATE_SET_CHANGED',
+      typed: { kind: 'candidate_identity', state: 'rejected' }
+    }));
+    expect(ProofTelemetry.classifyRuntimeEvent({ label: 'ADAPTIVE_PROBE_TICK' }).route).toBe('operational');
+    expect(ProofTelemetry.classifyRuntimeEvent({ label: 'UNMAPPED_LEGACY_NOISE' }).route).toBe('debug');
+  });
+
   test('builds one immutable canonical ledger and all eight embedded reports', async () => {
     const container = await ProofTelemetry.buildAllPresets({
       '<GPT>': [
@@ -36,7 +46,7 @@ describe('Proof-oriented telemetry schema 6 event export', () => {
     expect(container.ledger.events.every((event) => event.schemaVersion === 6)).toBe(true);
     expect(container.exportAudit.invariantViolations).toEqual([]);
     expect(container.exportAudit.hashes.ledger).toMatch(/^sha256:/);
-    expect(container.reports['true-completion'].eventRefs.length).toBeGreaterThan(0);
+    expect(container.reports['true-completion'].eventSeqs.length).toBeGreaterThan(0);
     expect(container.reports['true-completion']).not.toHaveProperty('materializedEvents');
   });
 

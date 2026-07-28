@@ -11,6 +11,10 @@
 
 ## Статус реализации
 
+В версии `2.81.142` legacy operational stream удалён из canonical ingress:
+polling агрегируется в interval summaries, неизвестные labels уходят в bounded
+debug ring, metadata/clock стали compact, а embedded indexes используют seq.
+
 В версии `2.81.141` zero-match Task больше не блокирует export: создаётся
 валидный `insufficient` report с incident anchor и explicit missing slots.
 

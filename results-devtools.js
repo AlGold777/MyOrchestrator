@@ -1206,7 +1206,7 @@
                     console.info('[proof-telemetry-shadow]', {
                         task,
                         incidentCount: incidentIds.length,
-                        previousSharedReportEventCount: previous.reports?.[task]?.eventRefs?.length || 0,
+                        previousSharedReportEventCount: previous.reports?.[task]?.eventSeqs?.length || 0,
                         status: 'compared'
                     });
                 } catch (error) {
