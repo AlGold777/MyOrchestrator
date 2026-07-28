@@ -1274,7 +1274,18 @@
             // Defense-in-depth: scrub provider keys/tokens before the export
             // leaves the extension (see shared/secret-redaction.js). Falls back
             // to plain stringify only if the module failed to load.
-            const payload = { ...exportMeta, ...grouped };
+            // Schema 5 cutover: freeze the same complete run snapshot that fed
+            // the legacy view, then materialize one canonical ledger and eight
+            // embedded reports. Legacy groups remain an input adapter only and
+            // are deliberately not duplicated in the downloaded container.
+            const payload = window.ProofOrientedTelemetry?.buildAllPresets
+                ? await window.ProofOrientedTelemetry.buildAllPresets(grouped, {
+                    runSessionId: resolveCurrentRunSessionId(sourceEvents),
+                    exportedAt: Date.now(),
+                    extensionVersion: chrome?.runtime?.getManifest?.().version || 'unknown',
+                    legacyExportMeta: exportMeta
+                })
+                : { ...exportMeta, ...grouped };
             // Written without indentation on purpose: this export is read by
             // analysis tooling, not by eye, and pretty-printing a few hundred
             // deeply nested events cost 183KB (33%) of a real 551KB export.

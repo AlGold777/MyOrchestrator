@@ -1,5 +1,45 @@
 # Telemetry - tab/session diagnostics
 
+## Proof-oriented export v2.81.124 - 2026-07-28
+
+JSON export на вкладке Telemetry теперь выдаёт канонический контейнер
+`all-presets` schema `5.0`, а не набор независимых массивов по платформам.
+Точка входа реализации — `shared/proof-oriented-telemetry.js`; UI вызывает её
+из `results-devtools.js` после получения полного run-scoped snapshot.
+
+Контейнер содержит:
+
+- один упорядоченный append-only ledger с envelope schema `5`, уникальными
+  `eventId`/`seq`, `wallTs` и производным `monoMs`;
+- независимые оси submission, generation start, answer identity, наблюдаемой
+  генерации, эволюции текста, полноты, extraction, verification, completion,
+  observation reliability и finalization;
+- восемь embedded reports: `request-not-sent`, `generation-not-started`,
+  `truncation`, `true-completion`, `submission-proof`,
+  `extraction-integrity`, `forced-success`, `forced-finalization`;
+- вычисленные `requestIf` зависимости с результатом по каждой модели;
+- compatibility boundary, section hashes, invariant validation, replay marker и
+  проверку лимита 1 MB в `exportAudit`;
+- только ссылки `eventRefs` внутри отчётов: события не дублируются;
+- metadata-only privacy: произвольные details, prompt, answer, HTML, content,
+  tokens и credentials не попадают в canonical payload; сохраняются безопасные
+  hash/length/state/ID/evidence поля.
+
+### Текущая граница миграции
+
+Runtime продолжает писать совместимые legacy diagnostics. Exporter замораживает
+один snapshot и детерминированно преобразует его в canonical ledger. Поэтому
+`exportAudit.sourceCompatibility.mode` равен `legacy-runtime-adapter`, а
+`canonicalRuntimeEmissionPending=true`. Это намеренная первая стадия cutover:
+новый формат, privacy и offline-анализ уже проверяемы, но нативная запись FACT /
+INFERENCE / DECISION / ACTION / AUDIT непосредственно в runtime остаётся
+следующим этапом. Адаптер не превращает terminal `SUCCESS` в доказательство
+completion и не превращает forced finalization в `inferred_complete`.
+
+Нормативный design package находится в
+`docs/proof_oriented_telemetry_spec_v1/`; текущий исполняемый контракт этого
+этапа задают код и `tests/proof-oriented-telemetry.test.js`.
+
 ## Update v2.81.74 - 2026-07-25
 
 Purpose: keep Disput telemetry diagnostic rather than turning it into a second

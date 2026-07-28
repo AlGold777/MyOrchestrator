@@ -14,7 +14,8 @@
 | Полный порядок foreground visits, focus ownership, lease, quota и recovery | [model-tabs-architecture.md#pages-visit](model-tabs-architecture.md#pages-visit) | timing-документы, telemetry history |
 | Все текущие числовые тайминги, retry/backoff и wait budgets | [timings-settings.md](timings-settings.md) | model-tabs-architecture, changelog |
 | Исторический снимок timing-настроек | [timings-settings - jul24.md](<timings-settings - jul24.md>) | текущая спецификация |
-| Общая telemetry главной страницы: схема, экспорт и диагностика | [telemetry.md](telemetry.md) | архитектура, changelog |
+| Общая telemetry главной страницы: текущая схема, экспорт и диагностика | [telemetry.md](telemetry.md) | архитектура, changelog |
+| Нормативный план proof-oriented telemetry schema 5 и примеры отчётов | [proof_oriented_telemetry_spec_v1/README.md](proof_oriented_telemetry_spec_v1/README.md), [proof_oriented_telemetry_spec_v1/SPECIFICATION.md](proof_oriented_telemetry_spec_v1/SPECIFICATION.md) | telemetry history, архитектура |
 | Полнота извлечения ответа: принципы, состояние фаз и журнал отвергнутых решений | [answer-completeness-handoff.md](answer-completeness-handoff.md) | changelog, telemetry, live-answer-skeletons |
 | Каталог внешних идей по доказательству состояния на чужой странице | [review->LLM-pages.md](<review->LLM-pages.md>) | answer-completeness-handoff |
 | Отложенные альтернативы определению окончания генерации | [answers-detection-alternativa.md](answers-detection-alternativa.md) | review->LLM-pages, answer-completeness-handoff |
@@ -36,6 +37,9 @@
   Pages Visit.
 - `timings-settings.md` — единственный текущий перечень числовых таймингов.
 - `telemetry.md` — контракт и диагностика общей telemetry главной страницы.
+- `proof_oriented_telemetry_spec_v1/SPECIFICATION.md` — целевой нормативный
+  контракт proof-oriented telemetry schema 5; `telemetry.md` фиксирует, какая
+  часть cutover уже является исполняемой в текущей версии.
 - `answer-completeness-handoff.md` — четыре принципа доказательства полноты ответа,
   состояние фаз, открытые пункты и обоснования отвергнутых альтернатив. Читать перед
   любой правкой резолвера узла, структурного инварианта или проекции статуса.

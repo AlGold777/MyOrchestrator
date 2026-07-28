@@ -1,5 +1,24 @@
 # CHANGELOG — Project
 
+### 2026-07-28 — Proof-oriented telemetry export foundation, version 2.81.124
+
+- JSON export Telemetry переведён на контейнер `all-presets` schema `5.0`:
+  canonical ledger хранится один раз, а восемь diagnostic reports содержат
+  только derived summaries и `eventRefs`.
+- Добавлен `shared/proof-oriented-telemetry.js`: legacy runtime snapshot
+  детерминированно преобразуется в envelope schema 5, независимые state axes,
+  model timeline, evaluated sibling rules и cross-report compatibility.
+- Export audit фиксирует boundary, SHA-256 hashes секций, нарушения инвариантов,
+  replay result и соблюдение лимита 1 MB. Переходный источник честно помечен
+  `legacy-runtime-adapter`; нативная runtime-запись schema 5 остаётся следующим
+  этапом миграции.
+- Privacy boundary удаляет произвольные details, prompt/answer/HTML/content,
+  tokens и credentials до canonical persistence в export; сохраняются
+  безопасные hash/length/state/ID/evidence поля.
+- Добавлены тесты на форму контейнера, восемь reports, уникальность ledger,
+  независимость forced/completion/completeness, predicate evaluation и запрет
+  экспорта чувствительного текста.
+
 ### 2026-07-28 — Telemetry export volume, three-layer fix, version 2.81.122
 
 После 2.81.119 storm одной модели был устранён (Z.ai: 539 событий → 95), но

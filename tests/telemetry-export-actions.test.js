@@ -4,6 +4,7 @@ const path = require('path');
 const html = fs.readFileSync(path.join(__dirname, '..', 'result_new.html'), 'utf8');
 const pipelineHtml = fs.readFileSync(path.join(__dirname, '..', 'pipeline_panel.html'), 'utf8');
 const resultsSource = fs.readFileSync(path.join(__dirname, '..', 'results.js'), 'utf8');
+const devtoolsSource = fs.readFileSync(path.join(__dirname, '..', 'results-devtools.js'), 'utf8');
 
 describe('Telemetry export actions', () => {
   test('both result pages expose the extension-native sanitized B1 capture action', () => {
@@ -32,6 +33,12 @@ describe('Telemetry export actions', () => {
     expect(jsonButton).toContain('class="ti ti-download"');
     expect(jsonButton).toContain('aria-label="Export telemetry as JSON"');
     expect(jsonButton).not.toContain('>Json');
+  });
+
+  test('JSON export loads and builds the proof-oriented schema 5 container', () => {
+    expect(html).toContain('src="shared/proof-oriented-telemetry.js"');
+    expect(pipelineHtml).toContain('src="shared/proof-oriented-telemetry.js"');
+    expect(devtoolsSource).toContain('window.ProofOrientedTelemetry.buildAllPresets');
   });
 
   test('Disput JSON download icon precedes the textual MD export', () => {
