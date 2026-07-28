@@ -1,5 +1,14 @@
 # CHANGELOG — Project
 
+### 2026-07-28 — Two-filter Telemetry toolbar, version 2.81.125
+
+- В окне Telemetry оставлены ровно два фильтра: `Platform` и `Tasks`.
+- `Tasks` заменяет прежний Presets dropdown и сохраняет его диагностические
+  категории; отдельный динамический `Type` удалён.
+- Фильтр `Only problems` удалён из UI и export bridge, поэтому больше не
+  образует скрытый третий критерий фильтрации.
+- Reset/clear и JSON/MD export синхронизированы с новой двухфильтровой моделью.
+
 ### 2026-07-28 — Proof-oriented telemetry export foundation, version 2.81.124
 
 - JSON export Telemetry переведён на контейнер `all-presets` schema `5.0`:

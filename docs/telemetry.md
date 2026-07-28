@@ -1,5 +1,18 @@
 # Telemetry - tab/session diagnostics
 
+## Telemetry filters v2.81.125 - 2026-07-28
+
+В toolbar вкладки Telemetry оставлены ровно два фильтра:
+
+- `Platform` — ограничивает события одной платформой;
+- `Tasks` — ограничивает события выбранной диагностической задачей: DOM
+  Fallback, Pipeline, Streaming, Extraction, Selector, Composer, Send, Error
+  или Timeout.
+
+Отдельные `Type`, `Presets` и `Only problems` удалены из UI и экспортного
+контура. Выбор `Tasks` использует прежнюю полнотекстовую классификацию события,
+поэтому поведение категорий сохранено без третьего параллельного фильтра.
+
 ## Proof-oriented export v2.81.124 - 2026-07-28
 
 JSON export на вкладке Telemetry теперь выдаёт канонический контейнер

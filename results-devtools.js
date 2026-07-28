@@ -3,9 +3,7 @@
     if (window.__DEVTOOLS_TELEMETRY_READY__) return;
     window.__DEVTOOLS_TELEMETRY_READY__ = true;
     const telemetryPlatformSelect = document.getElementById('telemetry-platform-select');
-    const telemetryTypeSelect = document.getElementById('telemetry-type-select');
-    const telemetryPresetSelect = document.getElementById('telemetry-preset-select');
-    const telemetryOnlyProblems = document.getElementById('telemetry-only-problems');
+    const telemetryTaskSelect = document.getElementById('telemetry-task-select');
     const telemetryRefreshBtn = document.getElementById('telemetry-refresh-btn');
     const telemetryCopyBtn = document.getElementById('telemetry-copy-btn');
     const telemetryExportJsonBtn = document.getElementById('telemetry-export-json-btn');
@@ -480,7 +478,7 @@
         telemetryBridge.getFilteredEvents = () => telemetryFilteredCache.slice();
         telemetryBridge.getEffectiveEvents = () => {
             const base = telemetryScopedCache;
-            const hasRestrictiveFilter = telemetryOnlyProblems?.checked === true || isTelemetryFilterActive();
+            const hasRestrictiveFilter = isTelemetryFilterActive();
             const effective = hasRestrictiveFilter
                 ? telemetryFilteredCache
                 : (telemetryFilteredCache.length ? telemetryFilteredCache : base);
@@ -489,10 +487,8 @@
         // Экспорты (JSON в окне + MD в results.js) применяют активный фильтр окна,
         // чтобы при выбранной одной модели выгружалась только она, а не все платформы.
         telemetryBridge.applyActiveFilter = (events = []) => applyActiveTelemetryFilter(events);
-        telemetryBridge.applyOnlyProblemsFilter = (events = []) => (
-            telemetryOnlyProblems?.checked === true ? filterTelemetryProblemsWithContext(events) : (Array.isArray(events) ? events.slice() : [])
-        );
-        telemetryBridge.isOnlyProblemsEnabled = () => telemetryOnlyProblems?.checked === true;
+        telemetryBridge.applyOnlyProblemsFilter = (events = []) => (Array.isArray(events) ? events.slice() : []);
+        telemetryBridge.isOnlyProblemsEnabled = () => false;
         telemetryBridge.getActivePlatformNames = () => getActiveTelemetryPlatformNames();
         telemetryBridge.isFilterActive = () => isTelemetryFilterActive();
     };
@@ -664,15 +660,6 @@
         replaceChildrenFromHtml(telemetrySummary, summaryHtml);
     };
 
-    const buildTelemetryTypeOptions = (events = []) => {
-        const types = new Set(['all', 'TIMING', 'COMPOSER', 'SEND', 'ERROR', 'INFO']);
-        events.forEach((e) => {
-            const type = (e?.type || '').toString().trim();
-            if (type) types.add(type);
-        });
-        return Array.from(types);
-    };
-
     const buildTelemetryPlatformOptions = (events = []) => {
         const selectedNames = resolveSelectedLlmNames();
         const options = [];
@@ -699,9 +686,8 @@
         const selectedSet = getSelectedLlmSet();
         const hasSelection = Boolean(selectedSet.size);
         const platformFilter = normalizePlatformName(telemetryPlatformSelect?.value || 'all');
-        const typeFilter = normalizePlatformName(telemetryTypeSelect?.value || 'all');
-        const presetFilter = (telemetryPresetSelect?.value || 'all').toLowerCase().trim();
-        const hasCustomFilters = platformFilter !== 'all' || typeFilter !== 'all' || (presetFilter && presetFilter !== 'all');
+        const taskFilter = (telemetryTaskSelect?.value || 'all').toLowerCase().trim();
+        const hasCustomFilters = platformFilter !== 'all' || (taskFilter && taskFilter !== 'all');
         if (!hasSelection && !hasCustomFilters) {
             return { filtered: [], hasSelection: false };
         }
@@ -716,11 +702,8 @@
                 normalizePlatformName(event?.platform || event?.llmName) === platformFilter
             ));
         }
-        if (typeFilter !== 'all') {
-            filtered = filtered.filter((event) => normalizePlatformName(event?.type) === typeFilter);
-        }
-        if (presetFilter && presetFilter !== 'all') {
-            filtered = filtered.filter((event) => JSON.stringify(event).toLowerCase().includes(presetFilter));
+        if (taskFilter && taskFilter !== 'all') {
+            filtered = filtered.filter((event) => JSON.stringify(event).toLowerCase().includes(taskFilter));
         }
         filtered = filtered.slice(-250);
         const effectiveSelection = hasSelection || Boolean(filtered.length);
@@ -767,26 +750,23 @@
         return source.filter((_, index) => keep.has(index));
     }
 
-    // Активные критерии фильтра (модель + платформа/тип/пресет). В отличие от
+    // Активные критерии фильтра (модель + платформа/задача). В отличие от
     // getTelemetryFilteredEvents — без UI-капа в 250 и без пустышки при «нет
     // фильтра»: когда фильтр не задан, возвращаем все события. Используется
     // экспортами (JSON/MD), чтобы они уважали выбранную в окне модель/фильтр.
     const isTelemetryFilterActive = () => {
         const platformFilter = normalizePlatformName(telemetryPlatformSelect?.value || 'all');
-        const typeFilter = normalizePlatformName(telemetryTypeSelect?.value || 'all');
-        const presetFilter = (telemetryPresetSelect?.value || 'all').toLowerCase().trim();
+        const taskFilter = (telemetryTaskSelect?.value || 'all').toLowerCase().trim();
         return Boolean(getSelectedLlmSet().size)
             || platformFilter !== 'all'
-            || typeFilter !== 'all'
-            || (presetFilter && presetFilter !== 'all');
+            || (taskFilter && taskFilter !== 'all');
     };
     const applyActiveTelemetryFilter = (events = []) => {
         const list = Array.isArray(events) ? events.slice() : [];
         if (!isTelemetryFilterActive()) return list;
         const selectedSet = getSelectedLlmSet();
         const platformFilter = normalizePlatformName(telemetryPlatformSelect?.value || 'all');
-        const typeFilter = normalizePlatformName(telemetryTypeSelect?.value || 'all');
-        const presetFilter = (telemetryPresetSelect?.value || 'all').toLowerCase().trim();
+        const taskFilter = (telemetryTaskSelect?.value || 'all').toLowerCase().trim();
         let filtered = list;
         if (selectedSet.size) {
             filtered = filtered.filter((event) => selectedSet.has(
@@ -798,11 +778,8 @@
                 normalizePlatformName(event?.platform || event?.llmName) === platformFilter
             ));
         }
-        if (typeFilter !== 'all') {
-            filtered = filtered.filter((event) => normalizePlatformName(event?.type) === typeFilter);
-        }
-        if (presetFilter && presetFilter !== 'all') {
-            filtered = filtered.filter((event) => JSON.stringify(event).toLowerCase().includes(presetFilter));
+        if (taskFilter && taskFilter !== 'all') {
+            filtered = filtered.filter((event) => JSON.stringify(event).toLowerCase().includes(taskFilter));
         }
         return filtered;
     };
@@ -880,39 +857,13 @@
         telemetryPlatformSelect.value = optionValues.includes(current) ? current : 'all';
     };
 
-    const syncTelemetryTypeOptions = (events = []) => {
-        if (!telemetryTypeSelect) return;
-        const currentType = telemetryTypeSelect.value;
-        const selectedSet = getSelectedLlmSet();
-        const typeSource = selectedSet.size
-            ? (Array.isArray(events) ? events : []).filter((event) => selectedSet.has(
-                normalizePlatformName(event?.platform || event?.llmName)
-            ))
-            : (Array.isArray(events) ? events : []);
-        const types = buildTelemetryTypeOptions(typeSource);
-        if (selectOptionValuesMatch(telemetryTypeSelect, types)) {
-            if (!types.includes(currentType)) telemetryTypeSelect.value = 'all';
-            return;
-        }
-        clearNode(telemetryTypeSelect);
-        types.forEach((t) => {
-            const option = document.createElement('option');
-            option.value = t;
-            option.textContent = t === 'all' ? 'All types' : t;
-            telemetryTypeSelect.appendChild(option);
-        });
-        if (types.includes(currentType)) telemetryTypeSelect.value = currentType;
-    };
-
     const renderTelemetry = (events = []) => {
         if (!telemetryTimeline) return;
         const scoped = filterEventsToCurrentRun(events);
         const scopedEvents = scoped.events;
         telemetryScopedCache = scopedEvents.slice();
         const { filtered, hasSelection } = getTelemetryFilteredEvents(scopedEvents);
-        const visibleEvents = telemetryOnlyProblems?.checked === true
-            ? filterTelemetryProblemsWithContext(filtered)
-            : filtered;
+        const visibleEvents = filtered;
         telemetryFilteredCache = visibleEvents;
         refreshTelemetryBridge();
         renderTelemetryRounds(scopedEvents);
@@ -986,7 +937,6 @@
     const renderTelemetryIfVisible = () => {
         if (!isTelemetrySurfaceVisible()) return false;
         syncTelemetryPlatformOptions(telemetryCache);
-        syncTelemetryTypeOptions(telemetryCache);
         renderTelemetry(telemetryCache);
         return true;
     };
@@ -1022,7 +972,6 @@
             telemetryFilteredCache = [];
             refreshTelemetryBridge();
             syncTelemetryPlatformOptions([]);
-            syncTelemetryTypeOptions([]);
             renderTelemetry([]);
         }
     };
@@ -1094,19 +1043,11 @@
     };
 
     telemetryRefreshBtn && telemetryRefreshBtn.addEventListener('click', refreshTelemetry);
-    telemetryPresetSelect && telemetryPresetSelect.addEventListener('change', () => {
-        if (telemetryPresetSelect.value && telemetryPresetSelect.value !== 'all') {
-            if (telemetryTypeSelect) telemetryTypeSelect.value = 'all';
-        }
-        renderTelemetry(telemetryCache);
-    });
+    telemetryTaskSelect && telemetryTaskSelect.addEventListener('change', () => renderTelemetry(telemetryCache));
     telemetryPlatformSelect && telemetryPlatformSelect.addEventListener('change', () => renderTelemetry(telemetryCache));
-    telemetryTypeSelect && telemetryTypeSelect.addEventListener('change', () => renderTelemetry(telemetryCache));
-    telemetryOnlyProblems && telemetryOnlyProblems.addEventListener('change', () => renderTelemetry(telemetryCache));
     telemetryResetBtn && telemetryResetBtn.addEventListener('click', () => {
         if (telemetryPlatformSelect) telemetryPlatformSelect.value = 'all';
-        if (telemetryTypeSelect) telemetryTypeSelect.value = 'all';
-        if (telemetryPresetSelect) telemetryPresetSelect.value = 'all';
+        if (telemetryTaskSelect) telemetryTaskSelect.value = 'all';
         renderTelemetry(telemetryCache);
     });
     // Hard clear: wipe the backend diag/telemetry store AND every telemetry window
@@ -1131,8 +1072,7 @@
         telemetryFilteredCache = [];
         telemetryEventKeys = new Set();
         if (telemetryPlatformSelect) telemetryPlatformSelect.value = 'all';
-        if (telemetryTypeSelect) telemetryTypeSelect.value = 'all';
-        if (telemetryPresetSelect) telemetryPresetSelect.value = 'all';
+        if (telemetryTaskSelect) telemetryTaskSelect.value = 'all';
         refreshTelemetryBridge();
         renderTelemetry([]);
         if (telemetryStatus) telemetryStatus.textContent = 'No telemetry events';
@@ -1153,7 +1093,6 @@
         telemetryFilteredCache = [];
         telemetryEventKeys = new Set();
         syncTelemetryPlatformOptions([]);
-        syncTelemetryTypeOptions([]);
         renderTelemetry([]);
         renderTelemetrySummary([]);
         renderTelemetryRounds([]);
@@ -1168,8 +1107,7 @@
     });
     document.addEventListener('telemetry-reset-request', () => {
         if (telemetryPlatformSelect) telemetryPlatformSelect.value = 'all';
-        if (telemetryTypeSelect) telemetryTypeSelect.value = 'all';
-        if (telemetryPresetSelect) telemetryPresetSelect.value = 'all';
+        if (telemetryTaskSelect) telemetryTaskSelect.value = 'all';
         renderTelemetry(telemetryCache);
     });
     // Export/copy are invoked ONLY through the delegated action listener below
@@ -1238,9 +1176,6 @@
                 runOutcomeSummary?.runSessionId || null
             ).events;
             let sourceEvents = applyActiveTelemetryFilter(scopedSnapshot);
-            if (telemetryOnlyProblems?.checked === true) {
-                sourceEvents = filterTelemetryProblemsWithContext(sourceEvents);
-            }
             const exportEvents = mergeRoundTelemetry(sourceEvents, getRoundTelemetryEvents(sourceEvents));
             if (!exportEvents.length) return;
             let grouped = groupTelemetryByPlatform(exportEvents);
@@ -1345,8 +1280,7 @@
         }
         if (target.id === 'telemetry-reset-btn') {
             if (telemetryPlatformSelect) telemetryPlatformSelect.value = 'all';
-            if (telemetryTypeSelect) telemetryTypeSelect.value = 'all';
-            if (telemetryPresetSelect) telemetryPresetSelect.value = 'all';
+            if (telemetryTaskSelect) telemetryTaskSelect.value = 'all';
             renderTelemetry(telemetryCache);
             return;
         }
@@ -1427,8 +1361,7 @@
     window.__telemetryRefreshHook = refreshTelemetry;
     window.__telemetryResetHook = () => {
         if (telemetryPlatformSelect) telemetryPlatformSelect.value = 'all';
-        if (telemetryTypeSelect) telemetryTypeSelect.value = 'all';
-        if (telemetryPresetSelect) telemetryPresetSelect.value = 'all';
+        if (telemetryTaskSelect) telemetryTaskSelect.value = 'all';
         renderTelemetry(telemetryCache);
     };
 

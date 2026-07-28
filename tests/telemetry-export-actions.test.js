@@ -14,13 +14,18 @@ describe('Telemetry export actions', () => {
     expect(resultsSource).toContain("downloadDiagnosticsJson('B1 Sanitized Answer Skeletons'");
   });
 
-  test('Telemetry exposes the Only problems filter backed by the shared context utility', () => {
-    expect(html).toContain('id="telemetry-only-problems"');
-    const checkboxAt = html.indexOf('id="telemetry-only-problems"');
-    expect(html.slice(html.lastIndexOf('<input', checkboxAt), html.indexOf('>', checkboxAt))).toContain('checked');
-    expect(html).toContain('src="shared/problem-context-filter.js"');
-    expect(pipelineHtml).toContain('id="telemetry-only-problems" checked');
-    expect(pipelineHtml).toContain('src="shared/problem-context-filter.js"');
+  test('Telemetry exposes exactly the Platform and Tasks filters', () => {
+    [html, pipelineHtml].forEach((page) => {
+      const start = page.indexOf('<div class="telemetry-filters">');
+      const end = page.indexOf('</div>', start);
+      const filters = page.slice(start, end);
+      expect((filters.match(/<select /g) || []).length).toBe(2);
+      expect(filters).toContain('id="telemetry-platform-select"');
+      expect(filters).toContain('id="telemetry-task-select"');
+      expect(filters).not.toContain('telemetry-type-select');
+      expect(filters).not.toContain('telemetry-preset-select');
+      expect(filters).not.toContain('telemetry-only-problems');
+    });
   });
 
   test('JSON download icon precedes the textual MD export without changing action ids', () => {

@@ -192,10 +192,12 @@ describe('release log regression guards', () => {
       const disputEnd = html.indexOf('id="selectors0-tabpanel"', disputStart);
       const disputBlock = disputStart >= 0 && disputEnd >= 0 ? html.slice(disputStart, disputEnd) : '';
       expect(telemetryBlock).toContain('All platforms');
-      expect(telemetryBlock).toContain('All types');
-      expect(telemetryBlock).toContain('Presets');
+      expect(telemetryBlock).toContain('All tasks');
+      expect(telemetryBlock).not.toContain('All types');
+      expect(telemetryBlock).not.toContain('Presets');
       expect(disputBlock).not.toContain('All platforms');
       expect(disputBlock).not.toContain('All types');
+      expect(disputBlock).not.toContain('All tasks');
       expect(disputBlock).not.toContain('Presets');
       expect(disputBlock.indexOf('id="disput-export-json"')).toBeLessThan(disputBlock.indexOf('id="disput-export-md"'));
       expect(disputBlock).toContain('class="ti ti-download"');

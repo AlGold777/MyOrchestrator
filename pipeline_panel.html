@@ -527,13 +527,9 @@
                                         <select id="telemetry-platform-select" class="devtools-select" style="min-width:160px;">
                                             <option value="all">All platforms</option>
                                         </select>
-                                        <label class="sr-only" for="telemetry-type-select">Type</label>
-                                        <select id="telemetry-type-select" class="devtools-select" style="min-width:140px;">
-                                            <option value="all">All types</option>
-                                        </select>
-                                        <label class="sr-only" for="telemetry-preset-select">Presets</label>
-                                        <select id="telemetry-preset-select" class="devtools-select" style="min-width:170px;">
-                                            <option value="all">Presets</option>
+                                        <label class="sr-only" for="telemetry-task-select">Tasks</label>
+                                        <select id="telemetry-task-select" class="devtools-select" style="min-width:170px;">
+                                            <option value="all">All tasks</option>
                                             <option value="DOM_FALLBACK">DOM Fallback</option>
                                             <option value="PIPELINE">Pipeline</option>
                                             <option value="STREAMING">Streaming</option>
@@ -544,7 +540,6 @@
                                             <option value="ERROR">Error</option>
                                             <option value="timeout">Timeout</option>
                                         </select>
-                                        <label class="telemetry-only-problems-label" title="Show and export problems with preceding causal context"><input type="checkbox" id="telemetry-only-problems" checked> Only problems</label>
                                     </div>
                                     <div class="telemetry-actions">
                                         <button type="button" class="diag-icon-btn" id="telemetry-export-json-btn" title="Export telemetry as JSON" aria-label="Export telemetry as JSON"><i class="ti ti-download" aria-hidden="true"></i></button>
