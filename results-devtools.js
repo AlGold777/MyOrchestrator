@@ -797,7 +797,7 @@
         return (Array.isArray(events) ? events : []).filter((event) => {
             const modelId = normalizePlatformName(event?.modelId || 'SYSTEM');
             if (platformFilter === 'all' && selectedSet.size && modelId !== 'system' && !selectedSet.has(modelId)) return false;
-            if (platformFilter !== 'all' && modelId !== platformFilter) return false;
+            if (platformFilter !== 'all' && modelId !== 'system' && modelId !== platformFilter) return false;
             if (includeTask && !matchesProofTask(event, taskFilter)) return false;
             return true;
         });

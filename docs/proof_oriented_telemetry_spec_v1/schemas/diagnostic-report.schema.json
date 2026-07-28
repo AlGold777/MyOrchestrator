@@ -94,6 +94,9 @@
         "type": "object"
       }
     },
+    "runConfiguration": {
+      "type": "object"
+    },
     "diagnosticSummary": {
       "type": "object"
     },

@@ -152,6 +152,15 @@ describe('Proof-oriented telemetry schema 5 export', () => {
     expect(new Set(ids).size).toBe(ids.length);
     expect(standalone.exportIntegrity.deduplication.duplicateEventIds).toBe(0);
     expect(standalone.exportIntegrity.budget.withinBudget).toBe(true);
+    expect(standalone.exportIntegrity.schemaValidation).toEqual(expect.objectContaining({
+      valid: false,
+      scope: 'materialized-events',
+      status: 'provisional'
+    }));
+    expect(standalone.analysisInstructions).toEqual(expect.objectContaining({
+      version: '1.0.0',
+      instructions: expect.any(Array)
+    }));
     expect(standalone.exportIntegrity.budget.measuredBytes).toBeLessThan(
       new TextEncoder().encode(JSON.stringify(allPresets)).length
     );

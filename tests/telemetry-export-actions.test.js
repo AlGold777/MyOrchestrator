@@ -65,6 +65,7 @@ describe('Telemetry export actions', () => {
     expect(devtoolsSource).toContain("type: 'GET_PROOF_TELEMETRY_SNAPSHOT'");
     expect(devtoolsSource).toContain('canonicalLedger: true');
     expect(devtoolsSource).not.toContain('nativeLedgerAvailable ? proofSnapshot.events : grouped');
+    expect(devtoolsSource).toContain("modelId !== 'system' && modelId !== platformFilter");
   });
 
   test('Disput JSON download icon precedes the textual MD export', () => {

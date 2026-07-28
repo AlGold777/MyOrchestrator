@@ -1,5 +1,18 @@
 # Telemetry - tab/session diagnostics
 
+## Safety containment v2.81.132 - 2026-08-28
+
+- Новый run авторитетно открывается до первой model telemetry; событие с другим
+  run ID больше не очищает active ledger и помещается в bounded quarantine.
+- Добавлены bounded pending records и явные `PENDING_EVIDENCE_DROPPED` markers.
+- Generic completion + structural verification больше не повышают evidence до
+  T3; требуется strong UI transition и identity `current_dispatch`.
+- Standalone export больше не выдаёт validation/replay полного скрытого ledger
+  за собственную проверку: до incident closure статус честно provisional.
+- Standalone JSON приведён к schema, SYSTEM context сохраняется при Platform,
+  signal skew унифицирован на 250 ms, неизвестные observation values не
+  подменяются оптимистичными defaults.
+
 ## Bounded standalone diagnostic reports v2.81.131 - 2026-07-28
 
 `Tasks` теперь выбирает не дополнительный срез большого All-presets файла, а

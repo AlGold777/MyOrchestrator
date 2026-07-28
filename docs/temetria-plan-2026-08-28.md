@@ -18,23 +18,23 @@ implementation, tests, documentation and required commit are complete.
 
 ## 2. Safety containment
 
-2.1. Prevent mismatched or late-run events from resetting the active ledger. - Pending
+2.1. Prevent mismatched or late-run events from resetting the active ledger. - Done
 
-2.2. Add bounded pending, quarantine and explicit detected-loss records. - Pending
+2.2. Add bounded pending, quarantine and explicit detected-loss records. - Done
 
 2.3. Remove generic completion-plus-verification promotion to T3; require a
-strong transition and current-dispatch identity. - Pending
+strong transition and current-dispatch identity. - Done
 
-2.4. Remove standalone replay/schema attestation derived from hidden events. - Pending
+2.4. Remove standalone replay/schema attestation derived from hidden events. - Done
 
-2.5. Make standalone output conform to its JSON Schema. - Pending
+2.5. Make standalone output conform to its JSON Schema. - Done
 
-2.6. Preserve applicable SYSTEM context under an explicit Platform filter. - Pending
+2.6. Preserve applicable SYSTEM context under an explicit Platform filter. - Done
 
 2.7. Unify signal-skew thresholds and replace optimistic observation defaults
-with unknown/degraded values. - Pending
+with unknown/degraded values. - Done
 
-2.8. Add containment regressions and update version/documentation. - Pending
+2.8. Add containment regressions and update version/documentation. - Done
 
 ## 3. Executable contracts and schema 6
 
@@ -208,4 +208,3 @@ strong absence or automatic completion proof. - Pending
 11.11. Late events, restarts and quota failures do not destroy active evidence. - Pending
 
 11.12. Exactly two telemetry filters remain in both result surfaces. - Pending
-

@@ -35,6 +35,22 @@ describe('proof telemetry evidence and policy replay', () => {
     expect(Policy.evidenceTier(ledger, ledger[ledger.length - 1])).toBe(4);
   });
 
+  test('does not promote generic completion and verification to tier 3', () => {
+    const ledger = ProofTelemetry.buildLedger([
+      evt('ANSWER_VERIFICATION_RECORDED', 1000, { verified: true }),
+      evt('ANSWER_COMPLETE_DETECTED', 1100)
+    ], { runSessionId: 42 });
+    expect(Policy.evidenceTier(ledger, ledger[ledger.length - 1])).toBeLessThan(3);
+  });
+
+  test('requires current-dispatch identity for a strong UI transition', () => {
+    const ledger = ProofTelemetry.buildLedger([
+      evt('MULTIPLE_CANDIDATES_AMBIGUOUS', 1000, { answerIdentity: 'ambiguous' }),
+      evt('STREAMING_TRUE_TO_FALSE', 1100)
+    ], { runSessionId: 42 });
+    expect(Policy.evidenceTier(ledger, ledger[ledger.length - 1])).toBeLessThan(3);
+  });
+
   test('reports missing decision lineage on an unlinked terminal event', () => {
     const ledger = ProofTelemetry.buildLedger([
       evt('MODEL_FINAL', 1000, { finalStatus: 'SUCCESS' }, 'SUCCESS')

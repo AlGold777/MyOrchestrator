@@ -75,12 +75,35 @@ describe('native proof telemetry ledger', () => {
 
   test('starts a fresh ledger when the run identity changes', async () => {
     await global.ProofTelemetryLedger.record({ ts: 1000, label: 'RUN_START', meta: { runSessionId: 1 } }, 'GPT');
+    await global.ProofTelemetryLedger.beginRun(2, { wallTs: 2000 });
     await global.ProofTelemetryLedger.record({ ts: 2000, label: 'RUN_START', meta: { runSessionId: 2 } }, 'GPT');
     const snapshot = await global.ProofTelemetryLedger.snapshot();
     expect(snapshot.runSessionId).toBe('2');
     expect(snapshot.eventCount).toBe(2);
     expect(snapshot.events[0].eventType).toBe('RUN_CONFIG_RECORDED');
     expect(snapshot.events[1].seq).toBe(2);
+  });
+
+  test('quarantines a late event instead of resetting the active run', async () => {
+    await global.ProofTelemetryLedger.beginRun(2, { wallTs: 2000 });
+    await global.ProofTelemetryLedger.record({ ts: 2100, label: 'ANSWER_GENERATING', meta: { runSessionId: 2 } }, 'GPT');
+    await global.ProofTelemetryLedger.record({ ts: 9999, label: 'LATE_OLD_RUN_EVENT', meta: { runSessionId: 1 } }, 'GPT');
+    const snapshot = await global.ProofTelemetryLedger.snapshot();
+    expect(snapshot.runSessionId).toBe('2');
+    expect(snapshot.events.some((event) => event.payload?.sourceEventType === 'LATE_OLD_RUN_EVENT')).toBe(false);
+    expect(snapshot.quarantineEventCount).toBe(1);
+  });
+
+  test('bounds pending evidence and records detected loss', async () => {
+    const limit = global.ProofTelemetryLedger.MAX_PENDING_EVENTS;
+    for (let index = 0; index <= limit; index += 1) {
+      await global.ProofTelemetryLedger.stagePending({ label: 'PRE_OPEN', meta: { index } }, 'GPT', 7);
+    }
+    const snapshot = await global.ProofTelemetryLedger.snapshot();
+    expect(snapshot.pendingEventCount).toBe(limit);
+    expect(snapshot.stagingLosses).toEqual(expect.arrayContaining([
+      expect.objectContaining({ eventType: 'PENDING_EVIDENCE_DROPPED', buffer: 'pending' })
+    ]));
   });
 
   test('records policy, decision, override and terminal lineage explicitly', async () => {
@@ -168,10 +191,10 @@ describe('native proof telemetry ledger', () => {
     const snapshot = await global.ProofTelemetryLedger.snapshot();
     const frame = snapshot.events.find((event) => event.eventType === 'OBSERVATION_FRAME_CAPTURED');
     expect(frame.payload.metadata).toEqual(expect.objectContaining({
-      captureStartedMonoMs: 0,
-      captureCompletedMonoMs: 0,
+      captureStartedMonoMs: null,
+      captureCompletedMonoMs: null,
       maximumSignalSkewMs: 250,
-      contentScriptAvailable: true,
+      contentScriptAvailable: 'unknown',
       mutationCount: 3
     }));
     const identity = snapshot.events.find((event) => event.eventType === 'CANDIDATE_IDENTITY_INFERRED');

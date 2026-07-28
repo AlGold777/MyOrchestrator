@@ -1,4 +1,7 @@
 const ProofTelemetry = require('../shared/proof-oriented-telemetry.js');
+const fs = require('fs');
+const path = require('path');
+const Ajv2020 = require('ajv/dist/2020');
 const { validateContainer, validateStandaloneReport, reconstructAtSeq, privacyViolations } = require('../scripts/validate-proof-telemetry.js');
 
 const evt = (label, ts, meta = {}) => ({
@@ -99,5 +102,15 @@ describe('offline proof telemetry validator', () => {
     const result = await validateStandaloneReport(standalone);
     expect(result.valid).toBe(true);
     expect(result.errors).toEqual([]);
+    const schema = JSON.parse(fs.readFileSync(path.join(
+      __dirname,
+      '..',
+      'docs',
+      'proof_oriented_telemetry_spec_v1',
+      'schemas',
+      'diagnostic-report.schema.json'
+    ), 'utf8'));
+    const ajv = new Ajv2020({ strict: false, allErrors: true });
+    expect(ajv.validate(schema, standalone)).toBe(true);
   });
 });

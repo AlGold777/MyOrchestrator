@@ -437,7 +437,7 @@
       generationWaitProfile: String(options.generationWaitProfile || 'unknown'),
       schemaVersion: SCHEMA_VERSION,
       generatorVersion: GENERATOR_VERSION,
-      policy: { policyId: 'proof-default-v1', automaticMinimumEvidenceTier: 3, maximumSignalSkewMs: 1000 },
+      policy: { policyId: 'proof-default-v1', automaticMinimumEvidenceTier: 3, maximumSignalSkewMs: 250 },
       privacy: { mode: 'metadata-only', rawPromptAnswerExported: false, urlMode: 'hash-only' },
       dependencyRegistry: registrySnapshot,
       commonAnalysisInstructions: [
@@ -642,7 +642,10 @@
       contradictions: container.exportAudit.invariantViolations,
       missingEvidence: embedded.reportDescriptor.completeness.missingItems,
       siblings: embedded.siblings,
-      analysisInstructions: container.sharedConfig.commonAnalysisInstructions,
+      analysisInstructions: {
+        version: '1.0.0',
+        instructions: container.sharedConfig.commonAnalysisInstructions
+      },
       crossReportCompatibility: {
         mode: 'same_ledger',
         exactMatch: {
@@ -667,8 +670,18 @@
           canonicalEventCopies: materializedEvents.length,
           duplicateEventIds: materializedEvents.length - new Set(materializedEvents.map((event) => event.eventId)).size
         },
-        schemaValidation: container.exportAudit.schemaValidation,
-        replay: container.exportAudit.replay,
+        schemaValidation: {
+          valid: false,
+          scope: 'materialized-events',
+          status: 'provisional',
+          reason: 'incident closure validation pending'
+        },
+        replay: {
+          valid: false,
+          scope: 'materialized-events',
+          status: 'provisional',
+          reason: 'derived state still depends on source-ledger context'
+        },
         hashes: { report: null },
         budget: { limitBytes: 60000, measuredBytes: null, withinBudget: null }
       }

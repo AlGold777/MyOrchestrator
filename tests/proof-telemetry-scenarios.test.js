@@ -13,8 +13,10 @@ describe('proof telemetry required scenario matrix', () => {
     ['normal completion', [
       ['PROMPT_SUBMITTED_ACCEPTED', 1000],
       ['ANSWER_START_DETECTED', 1100],
-      ['ANSWER_VERIFICATION_RECORDED', 1200, { verified: true }],
-      ['ANSWER_COMPLETE_DETECTED', 1300]
+      ['TURN_RESOLUTION_ACCEPTED', 1200, { answerIdentity: 'current_dispatch' }],
+      ['ANSWER_VERIFICATION_RECORDED', 1300, { verified: true }],
+      ['STREAMING_TRUE_TO_FALSE', 1400],
+      ['ANSWER_COMPLETE_DETECTED', 1500]
     ], (axes) => axes.completionEvidenceTier >= 3 && axes.verification === 'verified'],
     ['temporary pause', [
       ['ANSWER_GENERATING', 1000, { textLength: 50 }],

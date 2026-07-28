@@ -1,5 +1,14 @@
 # CHANGELOG — Project
 
+### 2026-08-28 — Proof telemetry safety containment, version 2.81.132
+
+- Late/mismatched run evidence quarantines instead of replacing the active
+  ledger; new runs are admitted before model telemetry.
+- Added bounded pending/quarantine staging and explicit detected-loss markers.
+- Removed false T3 promotion and false standalone validation/replay attestation.
+- Restored standalone JSON Schema validity and SYSTEM context under Platform.
+- Unified signal skew at 250 ms and replaced optimistic observation defaults.
+
 ### 2026-07-28 — Bounded standalone telemetry reports, version 2.81.131
 
 - `Tasks` заменён восемью proof-oriented диагностическими вопросами и при

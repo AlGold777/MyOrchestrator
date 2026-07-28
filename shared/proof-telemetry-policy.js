@@ -31,12 +31,19 @@
     const providerTerminal = has(scoped, /PROVIDER_COMPLETE|FINISH_REASON|PROVIDER_TERMINAL|TERMINAL_MARKER/);
     if (providerTerminal) return 4;
     const strongUiTransition = has(scoped, /STOP_(BUTTON_)?(PRESENT_TO_ABSENT|DISAPPEARED)|STREAMING_(TRUE_TO_FALSE|STOPPED)|COMPLETION_CONTROLS_APPEARED/);
-    const identityVerified = has(scoped, /CANDIDATE_IDENTITY_INFERRED|TURN_RESOLUTION|ANSWER_VERIFICATION/);
-    if (strongUiTransition && identityVerified) return 3;
+    const identityCurrentDispatch = scoped.some((event) => {
+      const payload = event?.payload || {};
+      const metadata = payload.metadata || {};
+      const state = payload.answerIdentity || payload.state || metadata.answerIdentity || metadata.state;
+      return state === 'current_dispatch';
+    });
+    if (strongUiTransition && identityCurrentDispatch) return 3;
     const completed = has(scoped, /ANSWER_COMPLETE_DETECTED|COMPLETION_HYPOTHESIS_EVALUATED/);
     const verified = has(scoped, /STRUCTURAL_VERIFICATION_EVALUATED|ANSWER_VERIFICATION_(RECORDED|RESULT)/)
       && !has(scoped, /VERIFICATION_(REJECTED|FAILED)|ANSWER_VERIFICATION.*(REJECT|FAIL)/);
-    if (completed && verified) return 3;
+    // Completion hypothesis and structural verification describe different
+    // axes; together they still do not constitute a strong provider UI
+    // transition. They may contribute to lower tiers below.
     const stable = has(scoped, /ANSWER_TEXT_STABLE|STABILITY_INTERVAL_CLOSED/);
     const idle = has(scoped, /MUTATION_IDLE|GENERATION_INACTIVE|LOADING_ABSENT|COMPOSER_READY/);
     if (stable && (idle || has(scoped, /MODEL_TERMINAL_RECORDED|MODEL_FINAL/))) return 2;
@@ -61,7 +68,7 @@
     const frames = scoped.filter((event) => event.eventType === 'OBSERVATION_FRAME_CAPTURED');
     const degradedFrame = frames.some((event) => {
       const meta = event?.payload?.metadata || {};
-      return Number(meta.maximumSignalSkewMs || 0) > 1000
+      return (Number.isFinite(Number(meta.maximumSignalSkewMs)) && Number(meta.maximumSignalSkewMs) > 250)
         || meta.timerThrottlingSuspected === true
         || meta.contentScriptAvailable === false
         || meta.tabDiscarded === true;

@@ -6,6 +6,8 @@
 (function initProofTelemetryLedger(root) {
   const STORAGE_KEY = '__proof_telemetry_ledger_v5__';
   const MAX_EVENTS = 10000;
+  const MAX_QUARANTINE_EVENTS = 200;
+  const MAX_PENDING_EVENTS = 200;
   const PRODUCER_VERSION = 'proof-runtime-ledger@1.0.0';
   let mutationChain = Promise.resolve();
 
@@ -14,11 +16,14 @@
   async function readStored() {
     const stored = await chrome.storage.local.get([STORAGE_KEY]);
     const value = stored?.[STORAGE_KEY];
-    if (!value || typeof value !== 'object') return { runSessionId: null, firstWallTs: null, events: [] };
+    if (!value || typeof value !== 'object') return { runSessionId: null, firstWallTs: null, events: [], pending: {}, quarantine: [], stagingLosses: [] };
     return {
       runSessionId: value.runSessionId ?? null,
       firstWallTs: Number(value.firstWallTs || 0) || null,
-      events: Array.isArray(value.events) ? value.events : []
+      events: Array.isArray(value.events) ? value.events : [],
+      pending: value.pending && typeof value.pending === 'object' ? value.pending : {},
+      quarantine: Array.isArray(value.quarantine) ? value.quarantine : [],
+      stagingLosses: Array.isArray(value.stagingLosses) ? value.stagingLosses : []
     };
   }
 
@@ -39,6 +44,81 @@
 
   function resolveRunSessionId(entry = {}, fallback = null) {
     return entry?.meta?.runSessionId || entry?.runSessionId || entry?.sessionId || fallback || null;
+  }
+
+  function boundedPush(items, value, limit, lossDescriptor) {
+    const next = [...(Array.isArray(items) ? items : []), value];
+    if (next.length <= limit) return { items: next, loss: null };
+    const dropped = next.length - limit;
+    return {
+      items: next.slice(-limit),
+      loss: { ...lossDescriptor, droppedCount: dropped, detectedAtIngest: true }
+    };
+  }
+
+  function safeStagingRecord(entry, llmName, requestedRunId, activeRunId, reason) {
+    return {
+      stagingId: `stg-${proof().eventFingerprint(`${requestedRunId}|${llmName}|${entry?.label || entry?.event || ''}|${entry?.ts || ''}|${reason}`)}`,
+      requestedRunSessionId: requestedRunId === null ? null : String(requestedRunId),
+      activeRunSessionId: activeRunId === null ? null : String(activeRunId),
+      modelId: String(llmName || entry?.platform || entry?.llmName || 'SYSTEM'),
+      sourceEventType: String(entry?.label || entry?.event || entry?.meta?.event || 'UNKNOWN'),
+      metadata: proof().sanitizeValue(entry?.meta || {}, 'meta') || {},
+      reason
+    };
+  }
+
+  function beginRun(runSessionId, options = {}) {
+    const requested = runSessionId === null || runSessionId === undefined ? null : String(runSessionId);
+    if (!requested) return Promise.reject(new Error('proof telemetry beginRun requires runSessionId'));
+    return enqueue((state) => {
+      if (String(state.runSessionId || '') === requested) return state;
+      const promoted = Array.isArray(state.pending?.[requested]) ? state.pending[requested] : [];
+      const pending = { ...(state.pending || {}) };
+      delete pending[requested];
+      const opened = {
+        runSessionId: requested,
+        firstWallTs: Number(options.wallTs || Date.now()),
+        events: [],
+        pending,
+        quarantine: state.quarantine || [],
+        stagingLosses: state.stagingLosses || []
+      };
+      if (promoted.length) {
+        const seed = { ts: opened.firstWallTs, meta: { runSessionId: requested } };
+        opened.events.push(createRunConfig(seed, 'SYSTEM', opened, { runSessionId: requested }));
+        promoted.forEach((record) => {
+          const event = createEvent({
+            ts: opened.firstWallTs,
+            label: record.sourceEventType,
+            level: 'info',
+            meta: { ...(record.metadata || {}), runSessionId: requested, promotedFromPending: true }
+          }, record.modelId, opened, { runSessionId: requested, producerComponent: 'pending-promotion' });
+          if (event) opened.events.push(event);
+        });
+      }
+      return opened;
+    });
+  }
+
+  function stagePending(entry = {}, llmName, runSessionId) {
+    const requested = runSessionId === null || runSessionId === undefined ? null : String(runSessionId);
+    if (!requested) return Promise.reject(new Error('proof telemetry pending evidence requires runSessionId'));
+    return enqueue((state) => {
+      const pending = { ...(state.pending || {}) };
+      const staged = safeStagingRecord(entry, llmName, requested, state.runSessionId, 'run_not_open');
+      const result = boundedPush(pending[requested], staged, MAX_PENDING_EVENTS, {
+        eventType: 'PENDING_EVIDENCE_DROPPED',
+        buffer: 'pending',
+        runSessionId: requested
+      });
+      pending[requested] = result.items;
+      return {
+        ...state,
+        pending,
+        stagingLosses: result.loss ? [...(state.stagingLosses || []), result.loss].slice(-MAX_PENDING_EVENTS) : (state.stagingLosses || [])
+      };
+    });
   }
 
   function createEvent(entry = {}, llmName, state, options = {}) {
@@ -99,21 +179,21 @@
       event.evidenceRefs = (entry.evidenceRefs || entry.meta.evidenceRefs).map(String).slice(0, 50);
     }
     if (eventType === 'OBSERVATION_FRAME_CAPTURED') {
-      event.payload.metadata.captureStartedMonoMs = Number(metadata.captureStartedMonoMs ?? event.monoMs);
-      event.payload.metadata.captureCompletedMonoMs = Number(metadata.captureCompletedMonoMs ?? event.monoMs);
-      event.payload.metadata.maximumSignalSkewMs = Number(metadata.maximumSignalSkewMs ?? 0);
+      event.payload.metadata.captureStartedMonoMs = Number.isFinite(Number(metadata.captureStartedMonoMs)) ? Number(metadata.captureStartedMonoMs) : null;
+      event.payload.metadata.captureCompletedMonoMs = Number.isFinite(Number(metadata.captureCompletedMonoMs)) ? Number(metadata.captureCompletedMonoMs) : null;
+      event.payload.metadata.maximumSignalSkewMs = Number.isFinite(Number(metadata.maximumSignalSkewMs)) ? Number(metadata.maximumSignalSkewMs) : null;
       event.payload.metadata.tabActive = metadata.tabActive ?? 'unknown';
       event.payload.metadata.tabVisible = metadata.tabVisible ?? 'unknown';
       event.payload.metadata.tabDiscarded = metadata.tabDiscarded ?? 'unknown';
       event.payload.metadata.documentVisibility = metadata.documentVisibility ?? 'unknown';
-      event.payload.metadata.contentScriptAvailable = metadata.contentScriptAvailable ?? true;
-      event.payload.metadata.snapshotAgeMs = Number(metadata.snapshotAgeMs ?? 0);
-      event.payload.metadata.timerThrottlingSuspected = metadata.timerThrottlingSuspected ?? false;
+      event.payload.metadata.contentScriptAvailable = metadata.contentScriptAvailable ?? 'unknown';
+      event.payload.metadata.snapshotAgeMs = Number.isFinite(Number(metadata.snapshotAgeMs)) ? Number(metadata.snapshotAgeMs) : null;
+      event.payload.metadata.timerThrottlingSuspected = metadata.timerThrottlingSuspected ?? 'unknown';
       event.payload.metadata.focusLeaseOwner = metadata.focusLeaseOwner ?? null;
       event.payload.metadata.pageHealth = metadata.pageHealth ?? 'unknown';
       event.payload.metadata.candidateSetRef = metadata.candidateSetRef ?? null;
-      event.payload.metadata.mutationCount = Number(metadata.mutationCount ?? 0);
-      event.payload.metadata.lastRelevantMutationMonoMs = Number(metadata.lastRelevantMutationMonoMs ?? event.monoMs);
+      event.payload.metadata.mutationCount = Number.isFinite(Number(metadata.mutationCount)) ? Number(metadata.mutationCount) : null;
+      event.payload.metadata.lastRelevantMutationMonoMs = Number.isFinite(Number(metadata.lastRelevantMutationMonoMs)) ? Number(metadata.lastRelevantMutationMonoMs) : null;
     }
     return event;
   }
@@ -169,9 +249,20 @@
       const requestedRunId = resolveRunSessionId(entry, options.runSessionId || state.runSessionId);
       const runChanged = state.runSessionId !== null && requestedRunId !== null
         && String(state.runSessionId) !== String(requestedRunId);
-      const base = runChanged
-        ? { runSessionId: requestedRunId, firstWallTs: Number(entry?.ts || Date.now()), events: [] }
-        : state;
+      if (runChanged) {
+        const staged = safeStagingRecord(entry, llmName, requestedRunId, state.runSessionId, 'run_identity_mismatch');
+        const result = boundedPush(state.quarantine, staged, MAX_QUARANTINE_EVENTS, {
+          eventType: 'PENDING_EVIDENCE_DROPPED',
+          buffer: 'quarantine',
+          runSessionId: String(requestedRunId)
+        });
+        return {
+          ...state,
+          quarantine: result.items,
+          stagingLosses: result.loss ? [...(state.stagingLosses || []), result.loss].slice(-MAX_PENDING_EVENTS) : (state.stagingLosses || [])
+        };
+      }
+      const base = state;
       // MAX_EVENTS is an operational warning threshold, not a deletion cap.
       // Canonical proof events are never discarded merely to satisfy a size
       // budget; exportAudit reports overflow and downstream retention may move
@@ -253,7 +344,10 @@
         firstSeq: events[0]?.seq || 0,
         lastSeq: events[events.length - 1]?.seq || 0,
         eventCount: events.length,
-        events: events.slice()
+        events: events.slice(),
+        pendingEventCount: Object.values(state.pending || {}).reduce((sum, list) => sum + (Array.isArray(list) ? list.length : 0), 0),
+        quarantineEventCount: (state.quarantine || []).length,
+        stagingLosses: (state.stagingLosses || []).slice()
       };
     });
   }
@@ -265,6 +359,10 @@
   root.ProofTelemetryLedger = Object.freeze({
     STORAGE_KEY,
     MAX_EVENTS,
+    MAX_QUARANTINE_EVENTS,
+    MAX_PENDING_EVENTS,
+    beginRun,
+    stagePending,
     record,
     appendCanonical,
     snapshot,

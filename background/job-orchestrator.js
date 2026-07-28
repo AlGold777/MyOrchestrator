@@ -4756,6 +4756,10 @@ async function startProcess(prompt, selectedLLMs, resultsTab, options = {}) {
     startedAt: sessionStartTime,
     promptsByModel
   });
+  // Authoritatively admit the new run before any model telemetry can arrive.
+  // A mismatched late event is quarantined by the proof ledger and can no
+  // longer reset the active run implicitly.
+  await self.ProofTelemetryLedger?.beginRun?.(sessionStartTime, { wallTs: sessionStartTime });
   humanPresencePaused = false;
   humanPresenceManuallyStopped = false;
   if (self.PipelineFSM?.startRun) {
