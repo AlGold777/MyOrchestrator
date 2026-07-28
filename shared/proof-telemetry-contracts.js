@@ -137,7 +137,23 @@
 
   function factOf(event) {
     const typed = event?.payload?.typed;
-    return typed && typeof typed === 'object' ? typed : adaptLegacyEvent(event);
+    if (typed && typeof typed === 'object') return typed;
+    const payload = event?.payload || {};
+    const canonical = ({
+      SUBMISSION_INFERRED: { kind: 'submission', state: payload.submission || 'unknown' },
+      GENERATION_STATE_INFERRED: { kind: 'generation', state: payload.observedGeneration || 'unknown' },
+      CANDIDATE_IDENTITY_INFERRED: { kind: 'candidate_identity', state: payload.answerIdentity || 'unknown' },
+      ANSWER_COMPLETENESS_EVALUATED: { kind: 'answer_completeness', state: payload.answerCompleteness || 'unknown' },
+      STRUCTURAL_VERIFICATION_EVALUATED: { kind: 'verification', state: payload.verified === false ? 'rejected' : (payload.verification || 'verified') },
+      COMPLETION_HYPOTHESIS_EVALUATED: { kind: 'completion_hypothesis', state: payload.completionDetection || 'evaluated' },
+      EXTRACTION_COMPLETED: { kind: 'extraction', state: payload.status || 'completed' },
+      TERMINAL_DEADLINE_REACHED: { kind: 'deadline', state: 'reached' },
+      POLICY_OVERRIDE_APPLIED: { kind: 'policy_override', state: payload.mode || 'forced' },
+      DECISION_RECORDED: { kind: 'decision', state: payload.accepted === true ? 'accepted' : 'rejected' },
+      MODEL_TERMINAL_RECORDED: { kind: 'terminal_action', state: payload.metadata?.terminalStatus || payload.status || 'unknown' },
+      OBSERVATION_INTERVAL_CLOSED: { kind: 'observation_interval', state: 'closed' }
+    })[event?.eventType];
+    return canonical || adaptLegacyEvent(event);
   }
 
   function sameIncidentScope(left, right, { allowSystem = false } = {}) {

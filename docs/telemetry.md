@@ -1,5 +1,23 @@
 # Telemetry - tab/session diagnostics
 
+## Incident cutover v2.81.140 - 2026-08-28
+
+The Telemetry toolbar has exactly two filters: Platform and Tasks. Its existing
+status line shows the selected dispatch/generation, deterministic selection
+reason and other-match count; there is no `Only problems` or incident filter.
+If multiple incidents match one Platform + Task, export writes one isolated
+standalone file for each incident.
+
+Schema 6 segmented persistence and the direct incident builder are now the
+proof JSON source of truth. The legacy schema 5 storage key and obsolete
+standalone closure path have been removed. Optional shadow comparison is gated
+by `chrome.storage.local.proofTelemetryShadowCompare`. Missing observation is
+`unknown` and cannot satisfy automatic completion evidence.
+
+Final regression gate: 184 suites / 1244 tests. The completed numbered gates
+and acceptance evidence are recorded in
+[temetria-plan-2026-08-28.md](temetria-plan-2026-08-28.md).
+
 ## Segmented persistence v2.81.139 - 2026-08-28
 
 Production proof telemetry is persisted in IndexedDB stores for lifecycle,

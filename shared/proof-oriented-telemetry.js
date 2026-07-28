@@ -573,28 +573,6 @@
     return container;
   }
 
-  function materializeEventClosure(events, eventRefs) {
-    const byId = new Map((Array.isArray(events) ? events : []).map((event) => [event.eventId, event]));
-    const selected = new Set(eventRefs || []);
-    (Array.isArray(events) ? events : []).forEach((event) => {
-      if (event.eventType === 'RUN_CONFIG_RECORDED') selected.add(event.eventId);
-    });
-    let changed = true;
-    while (changed) {
-      changed = false;
-      Array.from(selected).forEach((eventId) => {
-        const event = byId.get(eventId);
-        (event?.evidenceRefs || []).forEach((evidenceRef) => {
-          if (!selected.has(evidenceRef) && byId.has(evidenceRef)) {
-            selected.add(evidenceRef);
-            changed = true;
-          }
-        });
-      });
-    }
-    return (Array.isArray(events) ? events : []).filter((event) => selected.has(event.eventId));
-  }
-
   async function buildStandaloneReport(input, options = {}) {
     const reportType = String(options.reportType || '');
     if (!REPORT_TYPES.includes(reportType)) throw new Error(`unsupported proof telemetry report: ${reportType}`);

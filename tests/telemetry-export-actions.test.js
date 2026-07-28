@@ -66,6 +66,10 @@ describe('Telemetry export actions', () => {
     expect(devtoolsSource).toContain('canonicalLedger: true');
     expect(devtoolsSource).not.toContain('nativeLedgerAvailable ? proofSnapshot.events : grouped');
     expect(devtoolsSource).toContain("modelId !== 'system' && modelId !== platformFilter");
+    expect(devtoolsSource).toContain('describeSelectedIncident(selection)');
+    expect(devtoolsSource).toContain('selection.otherMatchingIncidents');
+    expect(devtoolsSource).toContain('incident-${index + 1}');
+    expect(devtoolsSource).toContain("proofTelemetryShadowCompare");
   });
 
   test('Disput JSON download icon precedes the textual MD export', () => {

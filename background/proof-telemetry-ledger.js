@@ -5,7 +5,6 @@
 
 (function initProofTelemetryLedger(root) {
   const STORAGE_KEY = '__proof_telemetry_ledger_v6__';
-  const LEGACY_STORAGE_KEY = '__proof_telemetry_ledger_v5__';
   const MAX_EVENTS = 10000;
   const MAX_QUARANTINE_EVENTS = 200;
   const MAX_PENDING_EVENTS = 200;
@@ -84,7 +83,7 @@
       const segmented = await root.ProofTelemetryStore.loadState();
       if (segmented) return normalizeState(segmented);
     }
-    const stored = await chrome.storage.local.get([STORAGE_KEY, LEGACY_STORAGE_KEY]);
+    const stored = await chrome.storage.local.get([STORAGE_KEY]);
     return normalizeState(stored?.[STORAGE_KEY]);
   }
 
@@ -373,8 +372,10 @@
   }
 
   function createCompanion(descriptor, sourceEvent, state) {
+    const eventType = String(descriptor.eventType);
+    const descriptorPayload = descriptor.payload || {};
     return nextEnvelope(state, {
-      eventType: String(descriptor.eventType),
+      eventType,
       layer: descriptor.layer || proof().layerFor(descriptor.eventType),
       wallTs: sourceEvent.wallTs,
       modelId: sourceEvent.modelId,
@@ -382,14 +383,14 @@
       ...(sourceEvent.generationEpoch !== undefined ? { generationEpoch: sourceEvent.generationEpoch } : {}),
       producer: { component: 'proof-inference-policy', version: 'proof-policy@2.0.0' },
       clock: { ...sourceEvent.clock, ingestMonoMs: Math.max(0, monotonicNow() - WORKER_STARTED_MONO_MS) },
-      payload: { typed: contracts()?.factOf?.({ payload: descriptor.payload || {} }) || { kind: 'inference', state: 'recorded' }, ...(descriptor.payload || {}) },
+      payload: { typed: contracts()?.factOf?.({ eventType, payload: descriptorPayload }) || { kind: 'inference', state: 'recorded' }, ...descriptorPayload },
       evidenceRefs: Array.isArray(descriptor.evidenceRefs) ? descriptor.evidenceRefs.slice() : [sourceEvent.eventId]
     });
   }
 
   function stateKey(event) {
     const typed = contracts()?.factOf?.(event) || {};
-    return [event.runSessionId, event.modelId, event.dispatchId || 'none', event.generationEpoch ?? 'none', typed.kind || event.eventType].join('|');
+    return [event.runSessionId, event.modelId, event.dispatchId || 'none', event.generationEpoch ?? 'none', event.layer, typed.kind || event.eventType].join('|');
   }
 
   function ensureProducerEpoch(state, entry, llmName) {

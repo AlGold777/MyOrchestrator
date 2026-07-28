@@ -7,6 +7,7 @@
 ├── background/
 │   ├── index.js
 │   ├── message-router.js
+│   ├── proof-telemetry-store.js
 │   ├── proof-telemetry-ledger.js
 │   ├── job-orchestrator.js
 │   ├── tab-manager.js
@@ -52,6 +53,9 @@
 ├── shared/
 │   ├── storage-budgets.js
 │   ├── proof-oriented-telemetry.js
+│   ├── proof-telemetry-contracts.js
+│   ├── proof-telemetry-clock.js
+│   ├── proof-telemetry-incidents.js
 │   ├── proof-telemetry-policy.js
 │   ├── proof-telemetry-audit.js
 │   └── budgets.js
@@ -60,7 +64,10 @@
 │   └── validate-proof-telemetry.js
 ├── docs/
 │   ├── documentation-map.md       # единственная карта документации
-│   ├── proof_oriented_telemetry_spec_v1/ # schema 5 specification/schemas/examples
+│   ├── proof-telemetry-run-lifecycle-contract.md
+│   ├── proof-telemetry-clock-contract.md
+│   ├── temetria-plan-2026-08-28.md
+│   ├── proof_oriented_telemetry_spec_v1/ # schema 5 container + schema 6 events
 │   ├── disput/
 │   │   ├── README-disput.md       # точка входа актуальной документации Disput
 │   │   ├── PLAN-*.md / ADR-*.md / TZ-*.md

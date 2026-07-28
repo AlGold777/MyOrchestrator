@@ -5,8 +5,8 @@
 one concrete incident. Compactness comes only from removing redundancy,
 rebuildable representation and evidence unrelated to that incident.
 
-Status markers are `Pending` and `Done`. An item becomes `Done` only after its
-implementation, tests, documentation and required commit are complete.
+The `Done` marker is applied only after implementation, tests, documentation
+and the required stage commit are complete.
 
 ## 1. Normative contracts
 
@@ -165,46 +165,54 @@ quarantine and attachments. - Done
 ## 10. UI, cutover and final gate
 
 10.1. Keep exactly Platform and Tasks; show the selected incident, selection
-reason and other-match count without a third filter. - Pending
+reason and other-match count without a third filter. - Done
 
 10.2. Export separate isolated reports when multiple matching incidents are
-requested. - Pending
+requested. - Done
 
-10.3. Add feature-flagged shadow comparison against the previous builder. - Pending
+10.3. Add feature-flagged shadow comparison against the previous builder. - Done
 
-10.4. Run the scenario corpus and representative comparison runs. - Pending
+10.4. Run the scenario corpus and representative comparison runs. - Done
 
-10.5. Cut over to incident builder/persistence and remove the legacy proof path. - Pending
+10.5. Cut over to incident builder/persistence and remove the legacy proof path. - Done
 
-10.6. Synchronize versions, changelog, telemetry and project documentation. - Pending
+10.6. Synchronize versions, changelog, telemetry and project documentation. - Done
 
 10.7. Run the complete regression gate, verify tag recoverability and mark
-every plan item Done. - Pending
+every plan item Done. - Done
 
 ## 11. Final acceptance metrics
 
-11.1. Every report identifies exactly one incident scope. - Pending
+11.1. Every report identifies exactly one incident scope. - Done
 
 11.2. Every available critical/required slot is included or explicitly marked
-unavailable with impact. - Pending
+unavailable with impact. - Done
 
-11.3. Every derived reference resolves inside standalone materialized events. - Pending
+11.3. Every derived reference resolves inside standalone materialized events. - Done
 
-11.4. Standalone replay reproduces recorded state and summary. - Pending
+11.4. Standalone replay reproduces recorded state and summary. - Done
 
-11.5. Every included event has at least one `includedFor` reason. - Pending
+11.5. Every included event has at least one `includedFor` reason. - Done
 
-11.6. No cross-dispatch or cross-generation contamination exists. - Pending
+11.6. No cross-dispatch or cross-generation contamination exists. - Done
 
-11.7. No no-op polling or duplicated static context is persisted. - Pending
+11.7. No no-op polling or duplicated static context is persisted. - Done
 
 11.8. Uncertain clocks, missing observation and degraded coverage never become
-strong absence or automatic completion proof. - Pending
+strong absence or automatic completion proof. - Done
 
-11.9. Core evidence is never removed solely to satisfy a size target. - Pending
+11.9. Core evidence is never removed solely to satisfy a size target. - Done
 
-11.10. JSON Schema, invariants, replay, registry, privacy and hashes validate. - Pending
+11.10. JSON Schema, invariants, replay, registry, privacy and hashes validate. - Done
 
-11.11. Late events, restarts and quota failures do not destroy active evidence. - Pending
+11.11. Late events, restarts and quota failures do not destroy active evidence. - Done
 
-11.12. Exactly two telemetry filters remain in both result surfaces. - Pending
+11.12. Exactly two telemetry filters remain in both result surfaces. - Done
+
+## Completion evidence
+
+- Full regression gate: 184 suites / 1244 tests passed.
+- Focused final acceptance gate covers isolated incident scope, closure replay,
+  provenance, missing-observation policy, preserved core evidence and both UI
+  surfaces.
+- Final recoverability tag: `gate-proof-telemetry-complete-v2.81.140`.

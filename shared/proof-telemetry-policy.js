@@ -21,9 +21,10 @@
     return [...entries].reverse().find((entry) => entry.fact.kind === kind) || null;
   }
 
-  function observationReliable(events) {
+  function observationReliability(events) {
     const threshold = Number(contracts()?.THRESHOLDS?.maximumSignalSkewMs ?? 250);
-    return !events.some((event) => {
+    const frames = events.filter((event) => event.eventType === 'OBSERVATION_FRAME_CAPTURED');
+    const explicitlyDegraded = events.some((event) => {
       const fact = contracts()?.factOf?.(event);
       if (fact?.kind === 'observation' && fact.state === 'degraded') return true;
       if (event.eventType !== 'OBSERVATION_FRAME_CAPTURED') return false;
@@ -32,6 +33,9 @@
       if (meta.tabDiscarded === true || meta.timerThrottlingSuspected === true) return true;
       return !Number.isFinite(Number(meta.maximumSignalSkewMs)) || Number(meta.maximumSignalSkewMs) > threshold;
     });
+    if (explicitlyDegraded) return 'degraded';
+    if (!frames.length) return 'unknown';
+    return 'reliable';
   }
 
   function evidenceTier(events, target = events[events.length - 1]) {
@@ -41,12 +45,12 @@
     if (entries.some(({ fact }) => fact.kind === 'provider_terminal' && fact.state === 'completed')) return 4;
     const strongTransition = entries.some(({ fact }) => fact.kind === 'generation_transition' && fact.strong === true);
     const currentIdentity = entries.some(({ fact }) => fact.kind === 'candidate_identity' && fact.state === 'current_dispatch');
-    if (strongTransition && currentIdentity && observationReliable(scoped)) return 3;
+    if (strongTransition && currentIdentity && observationReliability(scoped) === 'reliable') return 3;
     const stable = entries.some(({ fact }) => fact.kind === 'text' && fact.state === 'stable');
     const indirect = new Set(entries
       .filter(({ fact }) => fact.kind === 'completion_indirect' && fact.state === 'satisfied')
       .map(({ fact }) => fact.signal));
-    if (stable && indirect.size >= 2 && observationReliable(scoped)) return 2;
+    if (stable && indirect.size >= 2 && observationReliability(scoped) === 'reliable') return 2;
     if (stable || entries.some(({ fact }) => ['completion_hypothesis', 'deadline', 'terminal_action'].includes(fact.kind))) return 1;
     return 0;
   }
@@ -79,7 +83,7 @@
       verification: latestVerification?.state || (started ? 'pending' : 'none'),
       completionDetection: providerTerminal ? 'provider_complete' : tier >= 3 ? 'inferred_complete' : completionHypothesis ? 'probably_complete' : terminal ? 'inconclusive' : latestGeneration?.state === 'active' ? 'probably_active' : 'not_evaluated',
       completionEvidenceTier: tier,
-      observationReliability: observationReliable(scoped) ? 'reliable' : 'degraded',
+      observationReliability: observationReliability(scoped),
       finalization: terminal ? 'accepted' : deadline ? 'retry_scheduled' : 'not_evaluated',
       terminalMode: terminal ? (deadline ? 'forced' : 'automatic') : 'none',
       terminationCause: terminal ? (deadline ? 'policy_forced' : providerTerminal || tier >= 3 ? 'provider_completed' : 'unknown') : 'unknown'

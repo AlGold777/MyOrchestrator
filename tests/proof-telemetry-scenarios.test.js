@@ -15,6 +15,7 @@ describe('proof telemetry required scenario matrix', () => {
       ['ANSWER_START_DETECTED', 1100],
       ['TURN_RESOLUTION_ACCEPTED', 1200, { answerIdentity: 'current_dispatch' }],
       ['ANSWER_VERIFICATION_RECORDED', 1300, { verified: true }],
+      ['LIFECYCLE_SNAPSHOT_ACCEPTED', 1350, { contentScriptAvailable: true, maximumSignalSkewMs: 100 }],
       ['STREAMING_TRUE_TO_FALSE', 1400],
       ['ANSWER_COMPLETE_DETECTED', 1500]
     ], (axes) => axes.completionEvidenceTier >= 3 && axes.verification === 'verified'],
@@ -55,7 +56,7 @@ describe('proof telemetry required scenario matrix', () => {
     ], (axes) => axes.terminalMode === 'forced' && axes.completionDetection !== 'inferred_complete'],
     ['SPA navigation', [
       ['SPA_NAVIGATION', 1000, { navigationEpoch: 2, documentInstanceId: 'doc-2' }]
-    ], (axes) => axes.observationReliability === 'reliable'],
+    ], (axes) => axes.observationReliability === 'unknown'],
     ['active run export', [
       ['ANSWER_GENERATING', 1000, { textLength: 25 }]
     ], (axes) => axes.finalization === 'not_evaluated' && axes.observedGeneration === 'active']

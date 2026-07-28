@@ -1,5 +1,21 @@
 # CHANGELOG — Project
 
+### 2026-08-28 — Incident telemetry cutover, version 2.81.140
+
+- Telemetry keeps exactly two filters, Platform and Tasks, while the existing
+  status area shows selected dispatch/generation, selection reason and the
+  number of other matching incidents.
+- A task matching multiple incidents exports one isolated standalone artifact
+  per incident instead of merging their evidence.
+- Added a `proofTelemetryShadowCompare` feature flag for comparison with the
+  shared-ledger builder without changing exported evidence.
+- Removed the legacy schema 5 proof storage key and obsolete standalone closure
+  path; schema 6 incident persistence/builder is the runtime source of truth.
+- Missing observation is now `unknown`, not reliable, and cannot promote a
+  strong UI transition to T3.
+- Final regression gate passed 184 suites / 1244 tests; every numbered plan and
+  acceptance metric is complete.
+
 ### 2026-08-28 — Segmented proof persistence, version 2.81.139
 
 - Canonical events, lifecycle, incident indexes, quarantine and attachments now

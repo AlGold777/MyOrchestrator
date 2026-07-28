@@ -1032,8 +1032,14 @@
     };
 
     telemetryRefreshBtn && telemetryRefreshBtn.addEventListener('click', refreshTelemetry);
-    telemetryTaskSelect && telemetryTaskSelect.addEventListener('change', () => renderTelemetry(telemetryCache));
-    telemetryPlatformSelect && telemetryPlatformSelect.addEventListener('change', () => renderTelemetry(telemetryCache));
+    telemetryTaskSelect && telemetryTaskSelect.addEventListener('change', () => {
+        renderTelemetry(telemetryCache);
+        updateIncidentStatus();
+    });
+    telemetryPlatformSelect && telemetryPlatformSelect.addEventListener('change', () => {
+        renderTelemetry(telemetryCache);
+        updateIncidentStatus();
+    });
     telemetryResetBtn && telemetryResetBtn.addEventListener('click', () => {
         if (telemetryPlatformSelect) telemetryPlatformSelect.value = 'all';
         if (telemetryTaskSelect) telemetryTaskSelect.value = 'all';
@@ -1119,6 +1125,34 @@
             resolve(null);
         }
     });
+    const downloadProofArtifact = (payload, filename) => {
+        const json = window.SecretRedaction?.stringifySafe
+            ? window.SecretRedaction.stringifySafe(payload)
+            : JSON.stringify(payload);
+        if (!json || json === '{}') return;
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    };
+    const describeSelectedIncident = (selection) => {
+        if (!selection?.selected) return 'No matching incident';
+        const scope = selection.selected.scope;
+        return `Incident ${scope.dispatchId || 'unattributed'} / generation ${scope.generationEpoch ?? 'unknown'} • ${selection.selectionReason} • ${selection.otherMatchingIncidents.length} other match(es)`;
+    };
+    const updateIncidentStatus = async () => {
+        const task = String(telemetryTaskSelect?.value || 'all');
+        const platform = String(telemetryPlatformSelect?.value || 'all');
+        if (task === 'all' || platform === 'all' || !window.ProofTelemetryIncidents) return;
+        const snapshot = await requestProofTelemetrySnapshot(null);
+        if (!snapshot?.events) return;
+        const modelId = snapshot.events.find((event) => normalizePlatformName(event.modelId) === normalizePlatformName(platform))?.modelId || platform;
+        const selection = window.ProofTelemetryIncidents.selectIncident(snapshot.events, { platform: modelId, task });
+        if (telemetryStatus) telemetryStatus.textContent = describeSelectedIncident(selection);
+    };
     const exportTelemetryJson = async () => {
         try {
             // Schema 5 is now the sole JSON export source. The snapshot call is
@@ -1144,30 +1178,42 @@
                 generationWaitProfile: window.ResultsShared?.getGenerationWaitProfile?.(),
                 canonicalLedger: true
             };
-            const payload = task === 'all'
-                ? await window.ProofOrientedTelemetry.buildAllPresets(canonicalEvents, buildOptions)
-                : await window.ProofOrientedTelemetry.buildStandaloneReport(canonicalEvents, {
+            if (task === 'all') {
+                const payload = await window.ProofOrientedTelemetry.buildAllPresets(canonicalEvents, buildOptions);
+                downloadProofArtifact(payload, `telemetry-all-presets-${Date.now()}.json`);
+                return;
+            }
+            const modelId = canonicalEvents.find((event) => normalizePlatformName(event.modelId) === normalizePlatformName(platform))?.modelId || platform;
+            const selection = window.ProofTelemetryIncidents?.selectIncident?.(canonicalEvents, { platform: modelId, task });
+            if (!selection?.selected) {
+                if (telemetryStatus) telemetryStatus.textContent = 'No matching incident for Platform + Task';
+                return;
+            }
+            if (telemetryStatus) telemetryStatus.textContent = describeSelectedIncident(selection);
+            const incidentIds = [selection.selected.incidentId, ...selection.otherMatchingIncidents];
+            for (const [index, incidentId] of incidentIds.entries()) {
+                const payload = await window.ProofOrientedTelemetry.buildStandaloneReport(canonicalEvents, {
                     ...buildOptions,
                     reportType: task,
-                    modelId: canonicalEvents.find((event) => normalizePlatformName(event.modelId) === normalizePlatformName(platform))?.modelId || platform
+                    modelId,
+                    incidentId
                 });
-            // Written without indentation on purpose: this export is read by
-            // analysis tooling, not by eye, and pretty-printing a few hundred
-            // deeply nested events cost 183KB (33%) of a real 551KB export.
-            // Any JSON viewer or `jq .` re-formats it on demand.
-            const json = window.SecretRedaction?.stringifySafe
-                ? window.SecretRedaction.stringifySafe(payload)
-                : JSON.stringify(payload);
-            if (!json || json === '{}') return;
-            const blob = new Blob([json], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = task === 'all'
-                ? `telemetry-all-presets-${Date.now()}.json`
-                : `telemetry-${task}-${platform}-${Date.now()}.json`;
-            a.click();
-            setTimeout(() => URL.revokeObjectURL(url), 1000);
+                downloadProofArtifact(payload, `telemetry-${task}-${platform}-incident-${index + 1}-${Date.now()}.json`);
+            }
+            chrome.storage.local.get(['proofTelemetryShadowCompare'], async (stored) => {
+                if (!stored?.proofTelemetryShadowCompare) return;
+                try {
+                    const previous = await window.ProofOrientedTelemetry.buildAllPresets(canonicalEvents, buildOptions);
+                    console.info('[proof-telemetry-shadow]', {
+                        task,
+                        incidentCount: incidentIds.length,
+                        previousSharedReportEventCount: previous.reports?.[task]?.eventRefs?.length || 0,
+                        status: 'compared'
+                    });
+                } catch (error) {
+                    console.warn('[proof-telemetry-shadow] comparison failed', error);
+                }
+            });
         } catch (err) {
             console.warn('[devtools] telemetry export json error', err);
         }
