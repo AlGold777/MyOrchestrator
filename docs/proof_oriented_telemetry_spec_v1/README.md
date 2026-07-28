@@ -11,6 +11,9 @@
 
 ## Статус реализации
 
+В версии `2.81.138` offline validator независимо пересобирает schema, S01–S20,
+slots, replay и hashes; optimizer сохраняет core evidence при любом overflow.
+
 В версии `2.81.137` standalone reports строятся напрямую из одного incident
 closure; axes/replay имеют field provenance, а размер является measurement-only.
 

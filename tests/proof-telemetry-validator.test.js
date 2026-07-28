@@ -2,7 +2,7 @@ const ProofTelemetry = require('../shared/proof-oriented-telemetry.js');
 const fs = require('fs');
 const path = require('path');
 const Ajv2020 = require('ajv/dist/2020');
-const { validateContainer, validateStandaloneReport, reconstructAtSeq, privacyViolations } = require('../scripts/validate-proof-telemetry.js');
+const { validateContainer, validateStandaloneReport, reconstructAtSeq, privacyViolations, optimizeRepresentation } = require('../scripts/validate-proof-telemetry.js');
 
 const evt = (label, ts, meta = {}) => ({
   ts,
@@ -112,5 +112,48 @@ describe('offline proof telemetry validator', () => {
     ), 'utf8'));
     const ajv = new Ajv2020({ strict: false, allErrors: true });
     expect(ajv.validate(schema, standalone)).toBe(true);
+  });
+
+  test('detects includedFor, provenance and semantic tampering', async () => {
+    const container = await validContainer();
+    const standalone = await ProofTelemetry.buildStandaloneReport(container.ledger.events, {
+      canonicalLedger: true, modelId: 'GPT', reportType: 'generation-not-started'
+    });
+    standalone.eventSelection.materializedEvents[0].includedFor = [];
+    standalone.derivedViews.fieldProvenance.submission.derivedFromEventIds.push('missing-event');
+    standalone.exportIntegrity.semanticHash = 'sha256:tampered';
+    const result = await validateStandaloneReport(standalone);
+    expect(result.errors).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'INCLUDED_FOR_MISSING' }),
+      expect.objectContaining({ code: 'DERIVED_REF' }),
+      expect.objectContaining({ code: 'SEMANTIC_HASH_MISMATCH' })
+    ]));
+  });
+
+  test('semantic hash ignores wallTs while artifact hash changes', async () => {
+    const container = await validContainer();
+    const first = await ProofTelemetry.buildStandaloneReport(container.ledger.events, {
+      canonicalLedger: true, modelId: 'GPT', reportType: 'generation-not-started'
+    });
+    const shifted = container.ledger.events.map((event) => ({ ...event, wallTs: event.wallTs + 999999 }));
+    const second = await ProofTelemetry.buildStandaloneReport(shifted, {
+      canonicalLedger: true, modelId: 'GPT', reportType: 'generation-not-started'
+    });
+    expect(second.exportIntegrity.hashes.semantic).toBe(first.exportIntegrity.hashes.semantic);
+    expect(second.exportIntegrity.hashes.artifact).not.toBe(first.exportIntegrity.hashes.artifact);
+  });
+
+  test('optimizer preserves every core event and reports unavoidable overflow', async () => {
+    const container = await validContainer();
+    const standalone = await ProofTelemetry.buildStandaloneReport(container.ledger.events, {
+      canonicalLedger: true, modelId: 'GPT', reportType: 'generation-not-started'
+    });
+    standalone.reportDescriptor.completeness.level = 'bounded';
+    const optimized = await optimizeRepresentation(standalone, { transportLimitBytes: 1 });
+    expect(optimized.eventSelection.materializedEvents).toEqual(standalone.eventSelection.materializedEvents);
+    expect(optimized.exportIntegrity.optimization).toEqual(expect.objectContaining({
+      status: 'oversized_preserved_core',
+      coreEvidencePreserved: true
+    }));
   });
 });

@@ -1,5 +1,18 @@
 # Telemetry - tab/session diagnostics
 
+## Strict validator and representation optimizer v2.81.138 - 2026-08-28
+
+`npm run validate:telemetry -- <file>` validates all JSON Schemas, incident and
+clock scope, S01–S20, evidence slots, inclusion/provenance references, registry,
+sibling predicates, attachments, privacy, replay and semantic/artifact hashes.
+Derived state is rebuilt from the standalone materialized closure.
+
+Optimization is representation-only and happens after sufficiency. It may drop
+rebuildable view detail or externalize optional attachments, but never removes
+canonical core evidence. If an external transport limit still cannot be met,
+the result is explicitly `oversized_preserved_core`; it is not made smaller by
+weakening proof completeness.
+
 ## Incident standalone reports v2.81.137 - 2026-08-28
 
 A selected Task now invokes a dedicated incident builder. It does not create a

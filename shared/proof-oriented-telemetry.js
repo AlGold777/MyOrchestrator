@@ -185,7 +185,8 @@
       const type = canonicalType(legacy);
       const meta = sanitizeValue(legacy?.meta || {}, 'meta') || {};
       const dispatchId = meta.dispatchId || meta.requestId || undefined;
-      const eventId = `ev-${seq}-${eventFingerprint(`${runSessionId}|${modelId}|${dispatchId || ''}|${normalizeLabel(legacy)}|${wallTs}`)}`;
+      const identityMaterial = `${runSessionId}|${modelId}|${dispatchId || ''}|${normalizeLabel(legacy)}|${wallTs}|${seq}`;
+      const eventId = `event-${eventFingerprint(identityMaterial)}-${eventFingerprint(identityMaterial.split('').reverse().join(''))}`;
       const envelope = {
         schemaVersion: EVENT_SCHEMA_VERSION,
         eventId,

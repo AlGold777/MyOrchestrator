@@ -9,12 +9,13 @@
   }
 
   function scopeOf(event) {
+    const numeric = (candidate) => value(candidate) !== null && Number.isFinite(Number(candidate)) ? Number(candidate) : null;
     return {
       runSessionId: value(event?.runSessionId) === null ? null : String(event.runSessionId),
-      runGeneration: Number.isFinite(Number(event?.runGeneration)) ? Number(event.runGeneration) : null,
+      runGeneration: numeric(event?.runGeneration),
       modelId: value(event?.modelId) === null ? null : String(event.modelId),
       dispatchId: value(event?.dispatchId) === null ? null : String(event.dispatchId),
-      generationEpoch: Number.isFinite(Number(event?.generationEpoch)) ? Number(event.generationEpoch) : null
+      generationEpoch: numeric(event?.generationEpoch)
     };
   }
 

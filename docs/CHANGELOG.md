@@ -1,5 +1,18 @@
 # CHANGELOG — Project
 
+### 2026-08-28 — Strict proof validator and optimizer, version 2.81.138
+
+- Offline validation now executes container, report and schema 6 event JSON
+  Schemas, incident/lifecycle/clock rules and S01–S20 semantic invariants.
+- Evidence slots, inclusion reasons, field provenance, registry identity,
+  siblings, attachments, privacy and canonical ingestion order are rebuilt and
+  verified rather than trusted.
+- Replay and semantic hashes are recomputed from materialized closure; wall
+  timestamps cannot change semantic identity.
+- Representation optimization runs only after evidence sufficiency and never
+  removes core events. Unavoidable overflow is explicit, not a failed proof.
+- Added tampering, wall-time independence and preserved-core overflow tests.
+
 ### 2026-08-28 — Incident standalone report builder, version 2.81.137
 
 - Standalone reports no longer build an All-presets container first; each task

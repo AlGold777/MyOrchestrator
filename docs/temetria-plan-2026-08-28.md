@@ -129,22 +129,22 @@ event references without duplicated events. - Done
 
 ## 8. Strict validator and representation optimizer
 
-8.1. Validate report/container/event JSON Schemas. - Pending
+8.1. Validate report/container/event JSON Schemas. - Done
 
-8.2. Validate lifecycle, clock, scope and S01-S20 invariants. - Pending
+8.2. Validate lifecycle, clock, scope and S01-S20 invariants. - Done
 
 8.3. Rebuild derived fields and summary from materialized events and compare
-semantic hashes. - Pending
+semantic hashes. - Done
 
 8.4. Validate evidence slots, `includedFor`, registry hash, siblings,
-attachments and privacy. - Pending
+attachments and privacy. - Done
 
 8.5. Apply overflow strategy only after sufficiency: remove rebuildable detail,
-deduplicate static context, externalize optional attachments and compress. - Pending
+deduplicate static context, externalize optional attachments and compress. - Done
 
-8.6. Preserve core evidence and report explicit oversized/externalized status. - Pending
+8.6. Preserve core evidence and report explicit oversized/externalized status. - Done
 
-8.7. Add tampering, overflow and minimality tests; update version/docs. - Pending
+8.7. Add tampering, overflow and minimality tests; update version/docs. - Done
 
 ## 9. Segmented persistence
 
