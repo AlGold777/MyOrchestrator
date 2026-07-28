@@ -1,5 +1,17 @@
 # CHANGELOG — Project
 
+### 2026-08-28 — Segmented proof persistence, version 2.81.139
+
+- Canonical events, lifecycle, incident indexes, quarantine and attachments now
+  use separate IndexedDB stores; `chrome.storage.local` keeps only a compact
+  active pointer/manifest and feature state.
+- Strict transactions append only records beyond the persisted ingestion
+  boundary and update the projection atomically.
+- Indexed run/incident reads avoid loading unrelated historical telemetry.
+- Added index rebuilding, crash continuation and quota failure behavior; a
+  failed activation transaction cannot make a run active.
+- Added restart/durability, incident-range and compact-pointer regressions.
+
 ### 2026-08-28 — Strict proof validator and optimizer, version 2.81.138
 
 - Offline validation now executes container, report and schema 6 event JSON

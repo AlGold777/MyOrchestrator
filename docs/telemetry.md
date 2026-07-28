@@ -1,5 +1,19 @@
 # Telemetry - tab/session diagnostics
 
+## Segmented persistence v2.81.139 - 2026-08-28
+
+Production proof telemetry is persisted in IndexedDB stores for lifecycle,
+canonical events, incident indexes, quarantine and attachments. Only the active
+pointer, compact manifest and feature status remain in `chrome.storage.local`.
+The fallback used when IndexedDB is unavailable is explicitly marked
+`fallback-test-only`.
+
+Writes are strict transactions and append only events beyond the persisted
+global ingestion boundary. Run and incident indexes support range reads without
+deserializing the history of unrelated models/problems. Indexes can be rebuilt
+from canonical events. A quota/transaction failure preserves the prior active
+pointer and becomes explicit detected persistence loss on recovery.
+
 ## Strict validator and representation optimizer v2.81.138 - 2026-08-28
 
 `npm run validate:telemetry -- <file>` validates all JSON Schemas, incident and

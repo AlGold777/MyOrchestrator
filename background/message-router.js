@@ -3498,6 +3498,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             case 'GET_PROOF_TELEMETRY_SNAPSHOT': {
                 (async () => {
                     try {
+                        if (message?.incidentScope && self.ProofTelemetryLedger?.snapshotIncident) {
+                            const events = await self.ProofTelemetryLedger.snapshotIncident(message.incidentScope);
+                            sendResponse({
+                                success: true,
+                                schemaVersion: 6,
+                                incidentScope: message.incidentScope,
+                                eventCount: events.length,
+                                events
+                            });
+                            return;
+                        }
                         const snapshot = await self.ProofTelemetryLedger?.snapshot?.({
                             runSessionId: message?.runSessionId || null
                         });
@@ -3506,6 +3517,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                             return;
                         }
                         sendResponse({ success: true, ...snapshot });
+                    } catch (err) {
+                        sendResponse({ success: false, error: err?.message || String(err) });
+                    }
+                })();
+                return true;
+            }
+
+            case 'GET_PROOF_TELEMETRY_INCIDENTS': {
+                (async () => {
+                    try {
+                        const incidents = await self.ProofTelemetryStore?.listIncidents?.({
+                            runGeneration: message?.runGeneration ?? null,
+                            modelId: message?.modelId || null
+                        }) || [];
+                        sendResponse({ success: true, incidents });
                     } catch (err) {
                         sendResponse({ success: false, error: err?.message || String(err) });
                     }

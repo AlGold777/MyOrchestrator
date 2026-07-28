@@ -149,18 +149,18 @@ deduplicate static context, externalize optional attachments and compress. - Don
 ## 9. Segmented persistence
 
 9.1. Add IndexedDB stores for lifecycle, canonical events, incidents,
-quarantine and attachments. - Pending
+quarantine and attachments. - Done
 
 9.2. Keep only the active pointer, compact manifest and feature flags in
-`chrome.storage.local`. - Pending
+`chrome.storage.local`. - Done
 
-9.3. Implement transactional append, indexes and incident-range reads. - Pending
+9.3. Implement transactional append, indexes and incident-range reads. - Done
 
-9.4. Implement crash/index recovery and quota-failure behavior. - Pending
+9.4. Implement crash/index recovery and quota-failure behavior. - Done
 
-9.5. Make snapshots read only the records required by the selected run/incident. - Pending
+9.5. Make snapshots read only the records required by the selected run/incident. - Done
 
-9.6. Add restart, durability and bounded-write tests; update version/docs. - Pending
+9.6. Add restart, durability and bounded-write tests; update version/docs. - Done
 
 ## 10. UI, cutover and final gate
 

@@ -80,11 +80,16 @@
   }
 
   async function readStored() {
+    if (root.ProofTelemetryStore?.loadState) {
+      const segmented = await root.ProofTelemetryStore.loadState();
+      if (segmented) return normalizeState(segmented);
+    }
     const stored = await chrome.storage.local.get([STORAGE_KEY, LEGACY_STORAGE_KEY]);
     return normalizeState(stored?.[STORAGE_KEY]);
   }
 
   async function writeStored(value) {
+    if (root.ProofTelemetryStore?.saveState) return root.ProofTelemetryStore.saveState(value);
     await chrome.storage.local.set({ [STORAGE_KEY]: value });
     return value;
   }
@@ -556,6 +561,15 @@
     });
   }
 
+  function snapshotIncident(scope) {
+    if (root.ProofTelemetryStore?.readIncident) return root.ProofTelemetryStore.readIncident(scope);
+    return snapshot({ runSessionId: scope?.runSessionId }).then((result) => result.events.filter((event) => (
+      String(event.modelId) === String(scope?.modelId)
+      && String(event.dispatchId) === String(scope?.dispatchId)
+      && Number(event.generationEpoch ?? -1) === Number(scope?.generationEpoch ?? -1)
+    )));
+  }
+
   function recover() {
     return enqueue((current) => {
       const state = normalizeState(current);
@@ -575,15 +589,21 @@
   }
 
   function clear(runSessionId = null) {
-    return enqueue((current) => {
-      const state = normalizeState(current);
-      closeIntervalsInState(state, 'cleared');
-      return { ...emptyState(), nextRunGeneration: state.nextRunGeneration, nextIngestSeq: state.nextIngestSeq, runSessionId };
+    const operation = mutationChain.catch(() => {}).then(async () => {
+      const current = normalizeState(await readStored());
+      if (root.ProofTelemetryStore?.clearActive) await root.ProofTelemetryStore.clearActive();
+      else await chrome.storage.local.set({ [STORAGE_KEY]: null });
+      const next = { ...emptyState(), nextRunGeneration: current.nextRunGeneration, nextIngestSeq: current.nextIngestSeq, runSessionId };
+      if (root.ProofTelemetryStore?.saveState) await root.ProofTelemetryStore.saveState(next);
+      else await chrome.storage.local.set({ [STORAGE_KEY]: next });
+      return next;
     });
+    mutationChain = operation.then(() => undefined, () => undefined);
+    return operation;
   }
 
   root.ProofTelemetryLedger = Object.freeze({
     STORAGE_KEY, MAX_EVENTS, MAX_QUARANTINE_EVENTS, MAX_PENDING_EVENTS,
-    beginRun, closeRun, stagePending, record, appendCanonical, snapshot, recover, clear
+    beginRun, closeRun, stagePending, record, appendCanonical, snapshot, snapshotIncident, recover, clear
   });
 })(typeof globalThis !== 'undefined' ? globalThis : self);

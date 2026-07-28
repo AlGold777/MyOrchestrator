@@ -206,6 +206,7 @@ importScripts(
   'shared-state.js',
   'llm-targets.js',
   'b1-skeleton-collector.js',
+  'proof-telemetry-store.js',
   'proof-telemetry-ledger.js',
   'telemetry-logs.js',
   'human-presence.js',

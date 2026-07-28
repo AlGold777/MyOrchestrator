@@ -11,6 +11,9 @@
 
 ## Статус реализации
 
+В версии `2.81.139` proof history разделена по IndexedDB stores и читается по
+run/incident indexes; `chrome.storage.local` содержит только compact pointer.
+
 В версии `2.81.138` offline validator независимо пересобирает schema, S01–S20,
 slots, replay и hashes; optimizer сохраняет core evidence при любом overflow.
 
