@@ -1,0 +1,481 @@
+{
+  "schemaVersion": "5.0",
+  "fileKind": "diagnostic-report",
+  "reportDescriptor": {
+    "reportId": "rpt-ei-001",
+    "reportType": "extraction-integrity",
+    "reportVersion": "1.0.0",
+    "title": "Ошибки извлечения ответа",
+    "primaryQuestion": "Был ли захвачен весь текст из релевантных DOM-кандидатов?",
+    "canDiagnose": [
+      {
+        "code": "DOM_COVERAGE",
+        "statement": "Считает покрытие извлечения относительно всех релевантных кандидатов"
+      },
+      {
+        "code": "HIDDEN_NODES",
+        "statement": "Показывает релевантный текст в невидимых узлах"
+      }
+    ],
+    "cannotDiagnoseAlone": [
+      {
+        "code": "TRUE_END",
+        "question": "Были ли все кандидаты уже завершены в момент capture",
+        "reason": "Нужна completion timeline",
+        "requiredReport": "true-completion"
+      }
+    ],
+    "completeness": {
+      "level": "complete",
+      "evidenceCoveragePct": 95,
+      "missingCriticalEvidence": false,
+      "missingItems": [],
+      "safeConclusions": [
+        "Извлечено 80% релевантного текста",
+        "620 символов остались в невидимом узле"
+      ],
+      "blockedConclusions": [
+        "Семантическая необходимость скрытого узла без attachment просмотра"
+      ]
+    },
+    "reportMode": "standalone",
+    "dependencyRegistryVersion": "1.0.0",
+    "dependencyRegistryHash": "sha256:ee727e80bbeb45cfc7b8c736f532219ffc65696d7cc4143707775b8ed46babbd"
+  },
+  "correlation": {
+    "exportId": "export-run-ei-20260728-115700",
+    "runSessionId": "run-ei-20260728-115700",
+    "modelId": "Qwen",
+    "dispatchId": "qwen-ei-001",
+    "tabId": 101,
+    "documentInstanceId": "doc-qwen-ei-001",
+    "navigationEpoch": 1,
+    "conversationId": "conv-qwen-ei-001",
+    "generationEpoch": 1,
+    "ledgerHash": "sha256:a1fe8df559dff391d6a9628896ecf0c57e0ee22769d070ec06af3994972b704e",
+    "exportBoundary": {
+      "ledgerCompleteThroughSeq": 5,
+      "pendingWritersFlushed": true
+    }
+  },
+  "reportCatalogSnapshot": [
+    {
+      "reportType": "request-not-sent",
+      "purpose": "Диагностика отсутствия фактической отправки или принятия запроса"
+    },
+    {
+      "reportType": "generation-not-started",
+      "purpose": "Диагностика отсутствия признаков начала генерации после dispatch"
+    },
+    {
+      "reportType": "truncation",
+      "purpose": "Диагностика сохранения неполного или преждевременно зафиксированного ответа"
+    },
+    {
+      "reportType": "true-completion",
+      "purpose": "Проверка истинности зафиксированного окончания генерации"
+    },
+    {
+      "reportType": "submission-proof",
+      "purpose": "Доказательная фиксация факта принятия запроса платформой"
+    },
+    {
+      "reportType": "extraction-integrity",
+      "purpose": "Проверка полноты извлечения текста из релевантных DOM-кандидатов"
+    },
+    {
+      "reportType": "forced-success",
+      "purpose": "Аудит SUCCESS без доказанного automatic completion"
+    },
+    {
+      "reportType": "forced-finalization",
+      "purpose": "Аудит принудительного прекращения ожидания расширением"
+    }
+  ],
+  "diagnosticSummary": {
+    "factsEstablished": [
+      "Основной видимый root содержит 2480 символов",
+      "Релевантный скрытый root содержит ещё 620 символов"
+    ],
+    "preliminaryFindings": [
+      "Extraction выбрал только видимый root"
+    ],
+    "causalVerdict": null,
+    "confidence": "high",
+    "requiredAdditionalReports": [
+      {
+        "reportType": "truncation",
+        "requestPurpose": "Оценить влияние неполного извлечения на итоговый ответ.",
+        "matchedPredicates": [
+          {
+            "predicate": {
+              "path": "$.derivedViews.extractionCoveragePct",
+              "operator": "lt",
+              "value": 98.0
+            },
+            "observedValue": 80.0,
+            "matched": true
+          },
+          {
+            "predicate": {
+              "path": "$.derivedViews.hiddenRelevantTextLength",
+              "operator": "gt",
+              "value": 0
+            },
+            "observedValue": 620,
+            "matched": true
+          }
+        ]
+      }
+    ],
+    "finalCausalVerdictAvailable": false,
+    "boundedDiagnosis": "incomplete DOM extraction"
+  },
+  "stateAxes": {
+    "answerIdentity": "current_dispatch",
+    "completionDetection": "inferred_complete",
+    "textEvolution": "stable",
+    "answerCompleteness": "probably_truncated",
+    "extraction": "exact",
+    "verification": "rejected",
+    "observationReliability": "reliable",
+    "terminalMode": "automatic"
+  },
+  "eventSelection": {
+    "includedEventTypes": [
+      "ANSWER_COMPLETENESS_EVALUATED",
+      "CANDIDATE_IDENTITY_INFERRED",
+      "CANDIDATE_SET_CHANGED",
+      "EXTRACTION_COMPLETED",
+      "SELECTOR_FORENSIC_SNAPSHOT_CAPTURED"
+    ],
+    "eventRefs": [
+      "ev-qwen-ei-001-1",
+      "ev-qwen-ei-001-2",
+      "ev-qwen-ei-001-3",
+      "ev-qwen-ei-001-4",
+      "ev-qwen-ei-001-5"
+    ],
+    "materializedEvents": [
+      {
+        "schemaVersion": 5,
+        "eventId": "ev-qwen-ei-001-1",
+        "eventType": "CANDIDATE_SET_CHANGED",
+        "layer": "fact",
+        "seq": 1,
+        "wallTs": 1785230012000,
+        "monoMs": 12000,
+        "runSessionId": "run-ei-20260728-115700",
+        "modelId": "Qwen",
+        "dispatchId": "qwen-ei-001",
+        "generationEpoch": 1,
+        "producer": {
+          "component": "telemetry-core",
+          "version": "5.0.0"
+        },
+        "payload": {
+          "candidateCount": 2,
+          "candidates": [
+            {
+              "candidateId": "cand-main",
+              "textLength": 2480,
+              "visible": true
+            },
+            {
+              "candidateId": "cand-hidden",
+              "textLength": 620,
+              "visible": false,
+              "relevant": true
+            }
+          ]
+        }
+      },
+      {
+        "schemaVersion": 5,
+        "eventId": "ev-qwen-ei-001-2",
+        "eventType": "CANDIDATE_IDENTITY_INFERRED",
+        "layer": "inference",
+        "seq": 2,
+        "wallTs": 1785230012100,
+        "monoMs": 12100,
+        "runSessionId": "run-ei-20260728-115700",
+        "modelId": "Qwen",
+        "dispatchId": "qwen-ei-001",
+        "generationEpoch": 1,
+        "producer": {
+          "component": "telemetry-core",
+          "version": "5.0.0"
+        },
+        "payload": {
+          "candidateId": "cand-main",
+          "state": "current_dispatch",
+          "confidence": "medium"
+        },
+        "candidateId": "cand-main"
+      },
+      {
+        "schemaVersion": 5,
+        "eventId": "ev-qwen-ei-001-3",
+        "eventType": "EXTRACTION_COMPLETED",
+        "layer": "action",
+        "seq": 3,
+        "wallTs": 1785230012200,
+        "monoMs": 12200,
+        "runSessionId": "run-ei-20260728-115700",
+        "modelId": "Qwen",
+        "dispatchId": "qwen-ei-001",
+        "generationEpoch": 1,
+        "producer": {
+          "component": "telemetry-core",
+          "version": "5.0.0"
+        },
+        "payload": {
+          "candidateId": "cand-main",
+          "resolution": "exact_visible_root",
+          "extractedLength": 2480
+        },
+        "candidateId": "cand-main"
+      },
+      {
+        "schemaVersion": 5,
+        "eventId": "ev-qwen-ei-001-4",
+        "eventType": "ANSWER_COMPLETENESS_EVALUATED",
+        "layer": "inference",
+        "seq": 4,
+        "wallTs": 1785230012300,
+        "monoMs": 12300,
+        "runSessionId": "run-ei-20260728-115700",
+        "modelId": "Qwen",
+        "dispatchId": "qwen-ei-001",
+        "generationEpoch": 1,
+        "producer": {
+          "component": "telemetry-core",
+          "version": "5.0.0"
+        },
+        "payload": {
+          "maximumRelevantTextLength": 3100,
+          "extractedLength": 2480,
+          "coveragePct": 80.0,
+          "hiddenRelevantTextLength": 620,
+          "result": "probably_truncated"
+        }
+      },
+      {
+        "schemaVersion": 5,
+        "eventId": "ev-qwen-ei-001-5",
+        "eventType": "SELECTOR_FORENSIC_SNAPSHOT_CAPTURED",
+        "layer": "audit",
+        "seq": 5,
+        "wallTs": 1785230012400,
+        "monoMs": 12400,
+        "runSessionId": "run-ei-20260728-115700",
+        "modelId": "Qwen",
+        "dispatchId": "qwen-ei-001",
+        "generationEpoch": 1,
+        "producer": {
+          "component": "telemetry-core",
+          "version": "5.0.0"
+        },
+        "payload": {
+          "attachmentRef": "att-dom-ei-1",
+          "hiddenRelevantNodeCount": 1
+        }
+      }
+    ]
+  },
+  "derivedViews": {
+    "extractionCoveragePct": 80.0,
+    "hiddenRelevantTextLength": 620,
+    "hiddenRelevantNodeCount": 1,
+    "relevantCandidateCount": 2,
+    "captureBeforeTerminal": false,
+    "completionEvidenceTier": 3,
+    "terminalBeforeLastRelevantMutation": false
+  },
+  "contradictions": [],
+  "missingEvidence": [],
+  "siblings": [
+    {
+      "reportType": "truncation",
+      "relation": "symptom",
+      "priority": "required",
+      "requestIf": {
+        "any": [
+          {
+            "path": "$.derivedViews.extractionCoveragePct",
+            "operator": "lt",
+            "value": 98.0
+          },
+          {
+            "path": "$.derivedViews.hiddenRelevantTextLength",
+            "operator": "gt",
+            "value": 0
+          }
+        ]
+      },
+      "requestPurpose": "Оценить влияние неполного извлечения на итоговый ответ.",
+      "evaluation": {
+        "matched": true,
+        "predicateResults": [
+          {
+            "predicate": {
+              "path": "$.derivedViews.extractionCoveragePct",
+              "operator": "lt",
+              "value": 98.0
+            },
+            "observedValue": 80.0,
+            "matched": true
+          },
+          {
+            "predicate": {
+              "path": "$.derivedViews.hiddenRelevantTextLength",
+              "operator": "gt",
+              "value": 0
+            },
+            "observedValue": 620,
+            "matched": true
+          }
+        ]
+      }
+    },
+    {
+      "reportType": "true-completion",
+      "relation": "temporal-dependency",
+      "priority": "required",
+      "requestIf": {
+        "any": [
+          {
+            "path": "$.derivedViews.captureBeforeTerminal",
+            "operator": "eq",
+            "value": true
+          },
+          {
+            "path": "$.derivedViews.completionEvidenceTier",
+            "operator": "lt",
+            "value": 3
+          }
+        ]
+      },
+      "requestPurpose": "Проверить, не извлекался ли текст до истинного окончания генерации.",
+      "evaluation": {
+        "matched": false,
+        "predicateResults": [
+          {
+            "predicate": {
+              "path": "$.derivedViews.captureBeforeTerminal",
+              "operator": "eq",
+              "value": true
+            },
+            "observedValue": false,
+            "matched": false
+          },
+          {
+            "predicate": {
+              "path": "$.derivedViews.completionEvidenceTier",
+              "operator": "lt",
+              "value": 3
+            },
+            "observedValue": 3,
+            "matched": false
+          }
+        ]
+      }
+    },
+    {
+      "reportType": "forced-finalization",
+      "relation": "temporal-cause",
+      "priority": "required",
+      "requestIf": {
+        "any": [
+          {
+            "path": "$.stateAxes.terminalMode",
+            "operator": "eq",
+            "value": "forced"
+          },
+          {
+            "path": "$.derivedViews.terminalBeforeLastRelevantMutation",
+            "operator": "eq",
+            "value": true
+          }
+        ]
+      },
+      "requestPurpose": "Проверить, прекратило ли расширение ожидание до завершения DOM-эволюции.",
+      "evaluation": {
+        "matched": false,
+        "predicateResults": [
+          {
+            "predicate": {
+              "path": "$.stateAxes.terminalMode",
+              "operator": "eq",
+              "value": "forced"
+            },
+            "observedValue": "automatic",
+            "matched": false
+          },
+          {
+            "predicate": {
+              "path": "$.derivedViews.terminalBeforeLastRelevantMutation",
+              "operator": "eq",
+              "value": true
+            },
+            "observedValue": false,
+            "matched": false
+          }
+        ]
+      }
+    }
+  ],
+  "analysisInstructions": {
+    "treatReportAsPartialView": true,
+    "doNotAssumeMissingSignalsAreAbsent": true,
+    "distinguishFactsInferencesDecisionsActionsAudits": true,
+    "citeEventIdsForEveryTechnicalConclusion": true,
+    "stateObservationReliability": true,
+    "evaluateAllRequestIfRules": true,
+    "requestMatchedRequiredReportsBeforeFinalCausalVerdict": true,
+    "mayProvideEstablishedFactsBeforeEscalation": true,
+    "doNotMergeIncompatibleReports": true,
+    "outputContract": {
+      "sections": [
+        "Established facts",
+        "Bounded diagnosis",
+        "Contradictions",
+        "Missing evidence",
+        "Required additional reports",
+        "Final causal verdict"
+      ],
+      "finalCausalVerdictAllowedWhen": "completeness.level == complete AND requiredAdditionalReports is empty",
+      "additionalReportRequestTemplate": "Для однозначного вывода нужен файл {reportType}: {requestPurpose}. Сработавшее условие: {matchedPredicate}."
+    }
+  },
+  "crossReportCompatibility": {
+    "requiredExactMatch": [
+      "runSessionId",
+      "modelId",
+      "dispatchId",
+      "generationEpoch",
+      "ledgerHash",
+      "exportBoundary.ledgerCompleteThroughSeq"
+    ],
+    "navigationCompatibility": "documentInstanceId/navigationEpoch may differ only for an explicitly recorded home-to-conversation transition",
+    "compatibleWithSameExportOnly": true
+  },
+  "attachments": [
+    {
+      "attachmentId": "att-dom-ei-1",
+      "type": "redacted-dom-fragment",
+      "hash": "sha256:dom1",
+      "sizeBytes": 1840
+    }
+  ],
+  "exportIntegrity": {
+    "schemaValid": true,
+    "ledgerCompleteThroughSeq": 5,
+    "eventCount": 5,
+    "eventsHash": "sha256:a1fe8df559dff391d6a9628896ecf0c57e0ee22769d070ec06af3994972b704e",
+    "reportHash": "sha256:8f563d47b18e356681219c01b2a72d9ed76777d6fd709376f2fb1b87f38caa10",
+    "invariantsPassed": true,
+    "violatedInvariants": [],
+    "sampleData": true
+  }
+}

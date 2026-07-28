@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/all-presets.schema.json",
+  "title": "All-presets export container",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "containerType",
+    "exportId",
+    "manifest",
+    "crossReportCompatibility",
+    "sharedConfig",
+    "ledger",
+    "derivedViews",
+    "reports",
+    "attachments",
+    "exportAudit"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "5.0"
+    },
+    "containerType": {
+      "const": "all-presets"
+    },
+    "exportId": {
+      "type": "string"
+    },
+    "manifest": {
+      "type": "object"
+    },
+    "crossReportCompatibility": {
+      "type": "object"
+    },
+    "sharedConfig": {
+      "type": "object"
+    },
+    "ledger": {
+      "type": "object"
+    },
+    "derivedViews": {
+      "type": "object"
+    },
+    "reports": {
+      "type": "object"
+    },
+    "attachments": {
+      "type": "object"
+    },
+    "exportAudit": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": false
+}

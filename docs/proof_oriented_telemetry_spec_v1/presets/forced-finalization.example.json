@@ -1,0 +1,617 @@
+{
+  "schemaVersion": "5.0",
+  "fileKind": "diagnostic-report",
+  "reportDescriptor": {
+    "reportId": "rpt-ff-001",
+    "reportType": "forced-finalization",
+    "reportVersion": "1.0.0",
+    "title": "Принудительная финализация",
+    "primaryQuestion": "Когда и почему расширение прекратило ожидание по таймауту?",
+    "canDiagnose": [
+      {
+        "code": "DEADLINE",
+        "statement": "Фиксирует configured deadline и фактический момент force"
+      },
+      {
+        "code": "ACTIVE_AT_FORCE",
+        "statement": "Показывает активные признаки в момент force"
+      },
+      {
+        "code": "CONSEQUENCE",
+        "statement": "Проверяет post-force рост"
+      }
+    ],
+    "cannotDiagnoseAlone": [
+      {
+        "code": "PROVIDER_CAUSE",
+        "question": "Почему provider продолжал генерацию",
+        "reason": "Нет provider-side telemetry",
+        "requiredReport": "true-completion"
+      }
+    ],
+    "completeness": {
+      "level": "complete",
+      "evidenceCoveragePct": 97,
+      "missingCriticalEvidence": false,
+      "missingItems": [],
+      "safeConclusions": [
+        "Hard timeout достигнут в 120 000 мс",
+        "На момент force Stop оставался present",
+        "После force текст вырос на 31,82%"
+      ],
+      "blockedConclusions": [
+        "Причина длительности provider generation"
+      ]
+    },
+    "reportMode": "standalone",
+    "dependencyRegistryVersion": "1.0.0",
+    "dependencyRegistryHash": "sha256:ee727e80bbeb45cfc7b8c736f532219ffc65696d7cc4143707775b8ed46babbd"
+  },
+  "correlation": {
+    "exportId": "export-run-ff-20260728-115900",
+    "runSessionId": "run-ff-20260728-115900",
+    "modelId": "Grok",
+    "dispatchId": "grok-ff-001",
+    "tabId": 101,
+    "documentInstanceId": "doc-grok-ff-001",
+    "navigationEpoch": 1,
+    "conversationId": "conv-grok-ff-001",
+    "generationEpoch": 1,
+    "ledgerHash": "sha256:01f660134a59947466b3022b30fef8dccbff7f4e1cee3c1da322d79f37c80e20",
+    "exportBoundary": {
+      "ledgerCompleteThroughSeq": 8,
+      "pendingWritersFlushed": true
+    }
+  },
+  "reportCatalogSnapshot": [
+    {
+      "reportType": "request-not-sent",
+      "purpose": "Диагностика отсутствия фактической отправки или принятия запроса"
+    },
+    {
+      "reportType": "generation-not-started",
+      "purpose": "Диагностика отсутствия признаков начала генерации после dispatch"
+    },
+    {
+      "reportType": "truncation",
+      "purpose": "Диагностика сохранения неполного или преждевременно зафиксированного ответа"
+    },
+    {
+      "reportType": "true-completion",
+      "purpose": "Проверка истинности зафиксированного окончания генерации"
+    },
+    {
+      "reportType": "submission-proof",
+      "purpose": "Доказательная фиксация факта принятия запроса платформой"
+    },
+    {
+      "reportType": "extraction-integrity",
+      "purpose": "Проверка полноты извлечения текста из релевантных DOM-кандидатов"
+    },
+    {
+      "reportType": "forced-success",
+      "purpose": "Аудит SUCCESS без доказанного automatic completion"
+    },
+    {
+      "reportType": "forced-finalization",
+      "purpose": "Аудит принудительного прекращения ожидания расширением"
+    }
+  ],
+  "diagnosticSummary": {
+    "factsEstablished": [
+      "Deadline был достигнут",
+      "В момент force сохранялся active-generation signal",
+      "После terminal текст продолжил расти"
+    ],
+    "preliminaryFindings": [
+      "Расширение принудительно завершило активную сессию"
+    ],
+    "causalVerdict": null,
+    "confidence": "high",
+    "requiredAdditionalReports": [
+      {
+        "reportType": "forced-success",
+        "requestPurpose": "Проверить, был ли forced terminal спроецирован как SUCCESS.",
+        "matchedPredicates": [
+          {
+            "predicate": {
+              "path": "$.derivedViews.terminalOutcome",
+              "operator": "eq",
+              "value": "SUCCESS"
+            },
+            "observedValue": "SUCCESS",
+            "matched": true
+          }
+        ]
+      },
+      {
+        "reportType": "true-completion",
+        "requestPurpose": "Установить, завершилась ли модель до принудительного прекращения ожидания.",
+        "matchedPredicates": [
+          {
+            "predicate": {
+              "path": "$.derivedViews.completionEvidenceTier",
+              "operator": "lt",
+              "value": 3
+            },
+            "observedValue": 1,
+            "matched": true
+          },
+          {
+            "predicate": {
+              "path": "$.derivedViews.activeSignalAtForce",
+              "operator": "eq",
+              "value": true
+            },
+            "observedValue": true,
+            "matched": true
+          }
+        ]
+      },
+      {
+        "reportType": "truncation",
+        "requestPurpose": "Проверить, была ли сохранена неполная версия ответа.",
+        "matchedPredicates": [
+          {
+            "predicate": {
+              "path": "$.derivedViews.answerLengthAtForce",
+              "operator": "gt",
+              "value": 0
+            },
+            "observedValue": 1540,
+            "matched": true
+          },
+          {
+            "predicate": {
+              "path": "$.derivedViews.postTerminalGrowthPct",
+              "operator": "gt",
+              "value": 0.5
+            },
+            "observedValue": 31.82,
+            "matched": true
+          }
+        ]
+      }
+    ],
+    "finalCausalVerdictAvailable": false,
+    "boundedDiagnosis": "forced finalization occurred before generation end"
+  },
+  "stateAxes": {
+    "submission": "confirmed",
+    "observedGeneration": "active",
+    "completionDetection": "inconclusive",
+    "textEvolution": "restarted",
+    "answerCompleteness": "probably_truncated",
+    "extraction": "exact",
+    "verification": "pending",
+    "observationReliability": "reliable",
+    "finalization": "accepted",
+    "terminalMode": "forced"
+  },
+  "eventSelection": {
+    "includedEventTypes": [
+      "DECISION_RECORDED",
+      "GENERATION_SIGNAL_CHANGED",
+      "MODEL_TERMINAL_RECORDED",
+      "POLICY_OVERRIDE_APPLIED",
+      "POST_TERMINAL_AUDIT_COMPLETED",
+      "TERMINAL_DEADLINE_REACHED",
+      "TEXT_STATE_CHANGED"
+    ],
+    "eventRefs": [
+      "ev-grok-ff-001-1",
+      "ev-grok-ff-001-2",
+      "ev-grok-ff-001-3",
+      "ev-grok-ff-001-4",
+      "ev-grok-ff-001-5",
+      "ev-grok-ff-001-6",
+      "ev-grok-ff-001-7",
+      "ev-grok-ff-001-8"
+    ],
+    "materializedEvents": [
+      {
+        "schemaVersion": 5,
+        "eventId": "ev-grok-ff-001-1",
+        "eventType": "GENERATION_SIGNAL_CHANGED",
+        "layer": "fact",
+        "seq": 1,
+        "wallTs": 1785230119900,
+        "monoMs": 119900,
+        "runSessionId": "run-ff-20260728-115900",
+        "modelId": "Grok",
+        "dispatchId": "grok-ff-001",
+        "generationEpoch": 1,
+        "producer": {
+          "component": "telemetry-core",
+          "version": "5.0.0"
+        },
+        "payload": {
+          "signal": "stopButton",
+          "from": "present",
+          "to": "present",
+          "reliability": "reliable"
+        }
+      },
+      {
+        "schemaVersion": 5,
+        "eventId": "ev-grok-ff-001-2",
+        "eventType": "TEXT_STATE_CHANGED",
+        "layer": "fact",
+        "seq": 2,
+        "wallTs": 1785230119900,
+        "monoMs": 119900,
+        "runSessionId": "run-ff-20260728-115900",
+        "modelId": "Grok",
+        "dispatchId": "grok-ff-001",
+        "generationEpoch": 1,
+        "producer": {
+          "component": "telemetry-core",
+          "version": "5.0.0"
+        },
+        "payload": {
+          "candidateId": "cand-g",
+          "textLength": 1540,
+          "textHash": "sha256:g1540",
+          "change": "growth"
+        },
+        "candidateId": "cand-g"
+      },
+      {
+        "schemaVersion": 5,
+        "eventId": "ev-grok-ff-001-3",
+        "eventType": "TERMINAL_DEADLINE_REACHED",
+        "layer": "fact",
+        "seq": 3,
+        "wallTs": 1785230120000,
+        "monoMs": 120000,
+        "runSessionId": "run-ff-20260728-115900",
+        "modelId": "Grok",
+        "dispatchId": "grok-ff-001",
+        "generationEpoch": 1,
+        "producer": {
+          "component": "telemetry-core",
+          "version": "5.0.0"
+        },
+        "payload": {
+          "deadlineMs": 120000,
+          "elapsedMs": 120000
+        }
+      },
+      {
+        "schemaVersion": 5,
+        "eventId": "ev-grok-ff-001-4",
+        "eventType": "POLICY_OVERRIDE_APPLIED",
+        "layer": "decision",
+        "seq": 4,
+        "wallTs": 1785230120430,
+        "monoMs": 120430,
+        "runSessionId": "run-ff-20260728-115900",
+        "modelId": "Grok",
+        "dispatchId": "grok-ff-001",
+        "generationEpoch": 1,
+        "producer": {
+          "component": "telemetry-core",
+          "version": "5.0.0"
+        },
+        "payload": {
+          "mode": "forced",
+          "reasonCode": "hard_timeout",
+          "activeSignalAtForce": true
+        }
+      },
+      {
+        "schemaVersion": 5,
+        "eventId": "ev-grok-ff-001-5",
+        "eventType": "DECISION_RECORDED",
+        "layer": "decision",
+        "seq": 5,
+        "wallTs": 1785230120440,
+        "monoMs": 120440,
+        "runSessionId": "run-ff-20260728-115900",
+        "modelId": "Grok",
+        "dispatchId": "grok-ff-001",
+        "generationEpoch": 1,
+        "producer": {
+          "component": "telemetry-core",
+          "version": "5.0.0"
+        },
+        "payload": {
+          "decisionId": "dec-ff-1",
+          "completionDetectionOutcome": "inconclusive",
+          "terminalMode": "forced",
+          "terminalOutcome": "SUCCESS",
+          "answerLength": 1540
+        }
+      },
+      {
+        "schemaVersion": 5,
+        "eventId": "ev-grok-ff-001-6",
+        "eventType": "MODEL_TERMINAL_RECORDED",
+        "layer": "action",
+        "seq": 6,
+        "wallTs": 1785230120450,
+        "monoMs": 120450,
+        "runSessionId": "run-ff-20260728-115900",
+        "modelId": "Grok",
+        "dispatchId": "grok-ff-001",
+        "generationEpoch": 1,
+        "producer": {
+          "component": "telemetry-core",
+          "version": "5.0.0"
+        },
+        "payload": {
+          "decisionId": "dec-ff-1",
+          "status": "SUCCESS",
+          "mode": "forced",
+          "answerLength": 1540
+        }
+      },
+      {
+        "schemaVersion": 5,
+        "eventId": "ev-grok-ff-001-7",
+        "eventType": "TEXT_STATE_CHANGED",
+        "layer": "fact",
+        "seq": 7,
+        "wallTs": 1785230124000,
+        "monoMs": 124000,
+        "runSessionId": "run-ff-20260728-115900",
+        "modelId": "Grok",
+        "dispatchId": "grok-ff-001",
+        "generationEpoch": 1,
+        "producer": {
+          "component": "telemetry-core",
+          "version": "5.0.0"
+        },
+        "payload": {
+          "candidateId": "cand-g",
+          "textLength": 2030,
+          "textHash": "sha256:g2030",
+          "change": "post_terminal_growth"
+        },
+        "candidateId": "cand-g"
+      },
+      {
+        "schemaVersion": 5,
+        "eventId": "ev-grok-ff-001-8",
+        "eventType": "POST_TERMINAL_AUDIT_COMPLETED",
+        "layer": "audit",
+        "seq": 8,
+        "wallTs": 1785230127450,
+        "monoMs": 127450,
+        "runSessionId": "run-ff-20260728-115900",
+        "modelId": "Grok",
+        "dispatchId": "grok-ff-001",
+        "generationEpoch": 1,
+        "producer": {
+          "component": "telemetry-core",
+          "version": "5.0.0"
+        },
+        "payload": {
+          "decisionId": "dec-ff-1",
+          "result": "generation_resumed",
+          "lengthAtDecision": 1540,
+          "lengthAfterAudit": 2030,
+          "postTerminalGrowthPct": 31.82
+        }
+      }
+    ]
+  },
+  "derivedViews": {
+    "terminalOutcome": "SUCCESS",
+    "completionEvidenceTier": 1,
+    "activeSignalAtForce": true,
+    "answerLengthAtForce": 1540,
+    "postTerminalGrowthPct": 31.82,
+    "deadlineExceeded": true,
+    "configuredDeadlineMs": 120000,
+    "actualForceAtMs": 120430
+  },
+  "contradictions": [],
+  "missingEvidence": [],
+  "siblings": [
+    {
+      "reportType": "forced-success",
+      "relation": "status-projection",
+      "priority": "required",
+      "requestIf": {
+        "any": [
+          {
+            "path": "$.derivedViews.terminalOutcome",
+            "operator": "eq",
+            "value": "SUCCESS"
+          }
+        ]
+      },
+      "requestPurpose": "Проверить, был ли forced terminal спроецирован как SUCCESS.",
+      "evaluation": {
+        "matched": true,
+        "predicateResults": [
+          {
+            "predicate": {
+              "path": "$.derivedViews.terminalOutcome",
+              "operator": "eq",
+              "value": "SUCCESS"
+            },
+            "observedValue": "SUCCESS",
+            "matched": true
+          }
+        ]
+      }
+    },
+    {
+      "reportType": "true-completion",
+      "relation": "counterfactual",
+      "priority": "required",
+      "requestIf": {
+        "any": [
+          {
+            "path": "$.derivedViews.completionEvidenceTier",
+            "operator": "lt",
+            "value": 3
+          },
+          {
+            "path": "$.derivedViews.activeSignalAtForce",
+            "operator": "eq",
+            "value": true
+          }
+        ]
+      },
+      "requestPurpose": "Установить, завершилась ли модель до принудительного прекращения ожидания.",
+      "evaluation": {
+        "matched": true,
+        "predicateResults": [
+          {
+            "predicate": {
+              "path": "$.derivedViews.completionEvidenceTier",
+              "operator": "lt",
+              "value": 3
+            },
+            "observedValue": 1,
+            "matched": true
+          },
+          {
+            "predicate": {
+              "path": "$.derivedViews.activeSignalAtForce",
+              "operator": "eq",
+              "value": true
+            },
+            "observedValue": true,
+            "matched": true
+          }
+        ]
+      }
+    },
+    {
+      "reportType": "generation-not-started",
+      "relation": "pre-start-timeout",
+      "priority": "required",
+      "requestIf": {
+        "all": [
+          {
+            "path": "$.stateAxes.observedGeneration",
+            "operator": "eq",
+            "value": "not_started"
+          },
+          {
+            "path": "$.derivedViews.answerLengthAtForce",
+            "operator": "eq",
+            "value": 0
+          }
+        ]
+      },
+      "requestPurpose": "Отличить timeout ожидания старта от timeout активной генерации.",
+      "evaluation": {
+        "matched": false,
+        "predicateResults": [
+          {
+            "predicate": {
+              "path": "$.stateAxes.observedGeneration",
+              "operator": "eq",
+              "value": "not_started"
+            },
+            "observedValue": "active",
+            "matched": false
+          },
+          {
+            "predicate": {
+              "path": "$.derivedViews.answerLengthAtForce",
+              "operator": "eq",
+              "value": 0
+            },
+            "observedValue": 1540,
+            "matched": false
+          }
+        ]
+      }
+    },
+    {
+      "reportType": "truncation",
+      "relation": "post-force-consequence",
+      "priority": "required",
+      "requestIf": {
+        "all": [
+          {
+            "path": "$.derivedViews.answerLengthAtForce",
+            "operator": "gt",
+            "value": 0
+          },
+          {
+            "path": "$.derivedViews.postTerminalGrowthPct",
+            "operator": "gt",
+            "value": 0.5
+          }
+        ]
+      },
+      "requestPurpose": "Проверить, была ли сохранена неполная версия ответа.",
+      "evaluation": {
+        "matched": true,
+        "predicateResults": [
+          {
+            "predicate": {
+              "path": "$.derivedViews.answerLengthAtForce",
+              "operator": "gt",
+              "value": 0
+            },
+            "observedValue": 1540,
+            "matched": true
+          },
+          {
+            "predicate": {
+              "path": "$.derivedViews.postTerminalGrowthPct",
+              "operator": "gt",
+              "value": 0.5
+            },
+            "observedValue": 31.82,
+            "matched": true
+          }
+        ]
+      }
+    }
+  ],
+  "analysisInstructions": {
+    "treatReportAsPartialView": true,
+    "doNotAssumeMissingSignalsAreAbsent": true,
+    "distinguishFactsInferencesDecisionsActionsAudits": true,
+    "citeEventIdsForEveryTechnicalConclusion": true,
+    "stateObservationReliability": true,
+    "evaluateAllRequestIfRules": true,
+    "requestMatchedRequiredReportsBeforeFinalCausalVerdict": true,
+    "mayProvideEstablishedFactsBeforeEscalation": true,
+    "doNotMergeIncompatibleReports": true,
+    "outputContract": {
+      "sections": [
+        "Established facts",
+        "Bounded diagnosis",
+        "Contradictions",
+        "Missing evidence",
+        "Required additional reports",
+        "Final causal verdict"
+      ],
+      "finalCausalVerdictAllowedWhen": "completeness.level == complete AND requiredAdditionalReports is empty",
+      "additionalReportRequestTemplate": "Для однозначного вывода нужен файл {reportType}: {requestPurpose}. Сработавшее условие: {matchedPredicate}."
+    }
+  },
+  "crossReportCompatibility": {
+    "requiredExactMatch": [
+      "runSessionId",
+      "modelId",
+      "dispatchId",
+      "generationEpoch",
+      "ledgerHash",
+      "exportBoundary.ledgerCompleteThroughSeq"
+    ],
+    "navigationCompatibility": "documentInstanceId/navigationEpoch may differ only for an explicitly recorded home-to-conversation transition",
+    "compatibleWithSameExportOnly": true
+  },
+  "attachments": [],
+  "exportIntegrity": {
+    "schemaValid": true,
+    "ledgerCompleteThroughSeq": 8,
+    "eventCount": 8,
+    "eventsHash": "sha256:01f660134a59947466b3022b30fef8dccbff7f4e1cee3c1da322d79f37c80e20",
+    "reportHash": "sha256:43738875029c07c3734e94ad5e548362879c3c707eb776154cff5936f4cc4b68",
+    "invariantsPassed": true,
+    "violatedInvariants": [],
+    "sampleData": true
+  }
+}

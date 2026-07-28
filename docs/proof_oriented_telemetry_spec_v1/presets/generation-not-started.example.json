@@ -1,0 +1,444 @@
+{
+  "schemaVersion": "5.0",
+  "fileKind": "diagnostic-report",
+  "reportDescriptor": {
+    "reportId": "rpt-gns-001",
+    "reportType": "generation-not-started",
+    "reportVersion": "1.0.0",
+    "title": "Генерация ответа не началась",
+    "primaryQuestion": "Почему после принятого запроса не появились признаки генерации?",
+    "canDiagnose": [
+      {
+        "code": "START_PROOF",
+        "statement": "Проверяет assistant candidate, active UI signals и text growth"
+      },
+      {
+        "code": "PAGE_BLOCKERS",
+        "statement": "Показывает page-health блокировки"
+      }
+    ],
+    "cannotDiagnoseAlone": [
+      {
+        "code": "PROVIDER_REASON",
+        "question": "Почему provider не начал вычисление",
+        "reason": "Нет provider-side telemetry",
+        "requiredReport": "all-presets"
+      }
+    ],
+    "completeness": {
+      "level": "partial",
+      "evidenceCoveragePct": 88,
+      "missingCriticalEvidence": true,
+      "missingItems": [
+        "provider request/response channel unavailable"
+      ],
+      "safeConclusions": [
+        "Submission подтверждён",
+        "За 20 000 мс генерация не наблюдалась"
+      ],
+      "blockedConclusions": [
+        "Внутренняя provider-side причина"
+      ]
+    },
+    "reportMode": "standalone",
+    "dependencyRegistryVersion": "1.0.0",
+    "dependencyRegistryHash": "sha256:ee727e80bbeb45cfc7b8c736f532219ffc65696d7cc4143707775b8ed46babbd"
+  },
+  "correlation": {
+    "exportId": "export-run-gns-20260728-115300",
+    "runSessionId": "run-gns-20260728-115300",
+    "modelId": "Claude",
+    "dispatchId": "claude-gns-001",
+    "tabId": 101,
+    "documentInstanceId": "doc-claude-gns-001",
+    "navigationEpoch": 1,
+    "conversationId": "conv-claude-gns-001",
+    "generationEpoch": 1,
+    "ledgerHash": "sha256:f0d39347c033299061b37f84efe545455e2e2eed0a9a184fe1c9ef377842aa51",
+    "exportBoundary": {
+      "ledgerCompleteThroughSeq": 6,
+      "pendingWritersFlushed": true
+    }
+  },
+  "reportCatalogSnapshot": [
+    {
+      "reportType": "request-not-sent",
+      "purpose": "Диагностика отсутствия фактической отправки или принятия запроса"
+    },
+    {
+      "reportType": "generation-not-started",
+      "purpose": "Диагностика отсутствия признаков начала генерации после dispatch"
+    },
+    {
+      "reportType": "truncation",
+      "purpose": "Диагностика сохранения неполного или преждевременно зафиксированного ответа"
+    },
+    {
+      "reportType": "true-completion",
+      "purpose": "Проверка истинности зафиксированного окончания генерации"
+    },
+    {
+      "reportType": "submission-proof",
+      "purpose": "Доказательная фиксация факта принятия запроса платформой"
+    },
+    {
+      "reportType": "extraction-integrity",
+      "purpose": "Проверка полноты извлечения текста из релевантных DOM-кандидатов"
+    },
+    {
+      "reportType": "forced-success",
+      "purpose": "Аудит SUCCESS без доказанного automatic completion"
+    },
+    {
+      "reportType": "forced-finalization",
+      "purpose": "Аудит принудительного прекращения ожидания расширением"
+    }
+  ],
+  "diagnosticSummary": {
+    "factsEstablished": [
+      "Запрос подтверждён внешними UI-признаками",
+      "Страница доступна и наблюдалась надёжно"
+    ],
+    "preliminaryFindings": [
+      "Признаки начала генерации отсутствуют после timeout"
+    ],
+    "causalVerdict": "generation start not observed",
+    "confidence": "medium",
+    "requiredAdditionalReports": [],
+    "finalCausalVerdictAvailable": false
+  },
+  "stateAxes": {
+    "submission": "confirmed",
+    "observedGeneration": "not_started",
+    "answerIdentity": "none",
+    "observationReliability": "reliable",
+    "terminalMode": "none"
+  },
+  "eventSelection": {
+    "includedEventTypes": [
+      "DISPATCH_BASELINE_CAPTURED",
+      "GENERATION_START_EVALUATED",
+      "PAGE_HEALTH_OBSERVED",
+      "SUBMISSION_EVIDENCE_CHANGED",
+      "SUBMISSION_INFERRED",
+      "SUBMIT_ACTION_OBSERVED"
+    ],
+    "eventRefs": [
+      "ev-claude-gns-001-1",
+      "ev-claude-gns-001-2",
+      "ev-claude-gns-001-3",
+      "ev-claude-gns-001-4",
+      "ev-claude-gns-001-5",
+      "ev-claude-gns-001-6"
+    ],
+    "materializedEvents": [
+      {
+        "schemaVersion": 5,
+        "eventId": "ev-claude-gns-001-1",
+        "eventType": "DISPATCH_BASELINE_CAPTURED",
+        "layer": "fact",
+        "seq": 1,
+        "wallTs": 1785230000000,
+        "monoMs": 0,
+        "runSessionId": "run-gns-20260728-115300",
+        "modelId": "Claude",
+        "dispatchId": "claude-gns-001",
+        "generationEpoch": 1,
+        "producer": {
+          "component": "telemetry-core",
+          "version": "5.0.0"
+        },
+        "payload": {
+          "pageType": "conversation",
+          "promptHash": "sha256:prompt-b"
+        }
+      },
+      {
+        "schemaVersion": 5,
+        "eventId": "ev-claude-gns-001-2",
+        "eventType": "SUBMIT_ACTION_OBSERVED",
+        "layer": "fact",
+        "seq": 2,
+        "wallTs": 1785230000200,
+        "monoMs": 200,
+        "runSessionId": "run-gns-20260728-115300",
+        "modelId": "Claude",
+        "dispatchId": "claude-gns-001",
+        "generationEpoch": 1,
+        "producer": {
+          "component": "telemetry-core",
+          "version": "5.0.0"
+        },
+        "payload": {
+          "method": "button_click",
+          "actionDispatched": true
+        }
+      },
+      {
+        "schemaVersion": 5,
+        "eventId": "ev-claude-gns-001-3",
+        "eventType": "SUBMISSION_EVIDENCE_CHANGED",
+        "layer": "fact",
+        "seq": 3,
+        "wallTs": 1785230000900,
+        "monoMs": 900,
+        "runSessionId": "run-gns-20260728-115300",
+        "modelId": "Claude",
+        "dispatchId": "claude-gns-001",
+        "generationEpoch": 1,
+        "producer": {
+          "component": "telemetry-core",
+          "version": "5.0.0"
+        },
+        "payload": {
+          "composerCleared": "present",
+          "userMessageAppeared": "present",
+          "userMessageHashMatchesPrompt": "present"
+        }
+      },
+      {
+        "schemaVersion": 5,
+        "eventId": "ev-claude-gns-001-4",
+        "eventType": "SUBMISSION_INFERRED",
+        "layer": "inference",
+        "seq": 4,
+        "wallTs": 1785230001000,
+        "monoMs": 1000,
+        "runSessionId": "run-gns-20260728-115300",
+        "modelId": "Claude",
+        "dispatchId": "claude-gns-001",
+        "generationEpoch": 1,
+        "producer": {
+          "component": "telemetry-core",
+          "version": "5.0.0"
+        },
+        "payload": {
+          "state": "confirmed",
+          "confidence": "high",
+          "evidenceTier": 3
+        },
+        "evidenceRefs": [
+          "ev-claude-gns-001-2",
+          "ev-claude-gns-001-3"
+        ]
+      },
+      {
+        "schemaVersion": 5,
+        "eventId": "ev-claude-gns-001-5",
+        "eventType": "PAGE_HEALTH_OBSERVED",
+        "layer": "fact",
+        "seq": 5,
+        "wallTs": 1785230016000,
+        "monoMs": 16000,
+        "runSessionId": "run-gns-20260728-115300",
+        "modelId": "Claude",
+        "dispatchId": "claude-gns-001",
+        "generationEpoch": 1,
+        "producer": {
+          "component": "telemetry-core",
+          "version": "5.0.0"
+        },
+        "payload": {
+          "authState": "authenticated",
+          "blockingOverlay": "none",
+          "rateLimit": false,
+          "contentScriptAvailable": true,
+          "observationReliability": "reliable"
+        }
+      },
+      {
+        "schemaVersion": 5,
+        "eventId": "ev-claude-gns-001-6",
+        "eventType": "GENERATION_START_EVALUATED",
+        "layer": "inference",
+        "seq": 6,
+        "wallTs": 1785230021000,
+        "monoMs": 21000,
+        "runSessionId": "run-gns-20260728-115300",
+        "modelId": "Claude",
+        "dispatchId": "claude-gns-001",
+        "generationEpoch": 1,
+        "producer": {
+          "component": "telemetry-core",
+          "version": "5.0.0"
+        },
+        "payload": {
+          "state": "not_started",
+          "assistantCandidateCount": 0,
+          "activeSignalCount": 0,
+          "elapsedSinceSubmissionMs": 20000
+        }
+      }
+    ]
+  },
+  "derivedViews": {
+    "submissionEvidenceTier": 3,
+    "firstGenerationSignalDelayMs": 20000,
+    "assistantCandidateCount": 0,
+    "activeSignalCount": 0,
+    "generationStartTimeoutMs": 15000
+  },
+  "contradictions": [],
+  "missingEvidence": [
+    {
+      "code": "NETWORK_UNAVAILABLE",
+      "impact": "provider-side cause unavailable"
+    }
+  ],
+  "siblings": [
+    {
+      "reportType": "submission-proof",
+      "relation": "prerequisite",
+      "priority": "required",
+      "requestIf": {
+        "any": [
+          {
+            "path": "$.stateAxes.submission",
+            "operator": "ne",
+            "value": "confirmed"
+          },
+          {
+            "path": "$.derivedViews.submissionEvidenceTier",
+            "operator": "lt",
+            "value": 3
+          }
+        ]
+      },
+      "requestPurpose": "Подтвердить, что ожидание генерации началось после принятого запроса.",
+      "evaluation": {
+        "matched": false,
+        "predicateResults": [
+          {
+            "predicate": {
+              "path": "$.stateAxes.submission",
+              "operator": "ne",
+              "value": "confirmed"
+            },
+            "observedValue": "confirmed",
+            "matched": false
+          },
+          {
+            "predicate": {
+              "path": "$.derivedViews.submissionEvidenceTier",
+              "operator": "lt",
+              "value": 3
+            },
+            "observedValue": 3,
+            "matched": false
+          }
+        ]
+      }
+    },
+    {
+      "reportType": "request-not-sent",
+      "relation": "alternative-cause",
+      "priority": "required",
+      "requestIf": {
+        "all": [
+          {
+            "path": "$.derivedViews.firstGenerationSignalDelayMs",
+            "operator": "gte",
+            "value": 15000
+          },
+          {
+            "path": "$.derivedViews.assistantCandidateCount",
+            "operator": "eq",
+            "value": 0
+          },
+          {
+            "path": "$.stateAxes.submission",
+            "operator": "in",
+            "value": [
+              "failed",
+              "evidence_partial",
+              "unknown"
+            ]
+          }
+        ]
+      },
+      "requestPurpose": "Проверить альтернативу: запрос не был принят платформой.",
+      "evaluation": {
+        "matched": false,
+        "predicateResults": [
+          {
+            "predicate": {
+              "path": "$.derivedViews.firstGenerationSignalDelayMs",
+              "operator": "gte",
+              "value": 15000
+            },
+            "observedValue": 20000,
+            "matched": true
+          },
+          {
+            "predicate": {
+              "path": "$.derivedViews.assistantCandidateCount",
+              "operator": "eq",
+              "value": 0
+            },
+            "observedValue": 0,
+            "matched": true
+          },
+          {
+            "predicate": {
+              "path": "$.stateAxes.submission",
+              "operator": "in",
+              "value": [
+                "failed",
+                "evidence_partial",
+                "unknown"
+              ]
+            },
+            "observedValue": "confirmed",
+            "matched": false
+          }
+        ]
+      }
+    }
+  ],
+  "analysisInstructions": {
+    "treatReportAsPartialView": true,
+    "doNotAssumeMissingSignalsAreAbsent": true,
+    "distinguishFactsInferencesDecisionsActionsAudits": true,
+    "citeEventIdsForEveryTechnicalConclusion": true,
+    "stateObservationReliability": true,
+    "evaluateAllRequestIfRules": true,
+    "requestMatchedRequiredReportsBeforeFinalCausalVerdict": true,
+    "mayProvideEstablishedFactsBeforeEscalation": true,
+    "doNotMergeIncompatibleReports": true,
+    "outputContract": {
+      "sections": [
+        "Established facts",
+        "Bounded diagnosis",
+        "Contradictions",
+        "Missing evidence",
+        "Required additional reports",
+        "Final causal verdict"
+      ],
+      "finalCausalVerdictAllowedWhen": "completeness.level == complete AND requiredAdditionalReports is empty",
+      "additionalReportRequestTemplate": "Для однозначного вывода нужен файл {reportType}: {requestPurpose}. Сработавшее условие: {matchedPredicate}."
+    }
+  },
+  "crossReportCompatibility": {
+    "requiredExactMatch": [
+      "runSessionId",
+      "modelId",
+      "dispatchId",
+      "generationEpoch",
+      "ledgerHash",
+      "exportBoundary.ledgerCompleteThroughSeq"
+    ],
+    "navigationCompatibility": "documentInstanceId/navigationEpoch may differ only for an explicitly recorded home-to-conversation transition",
+    "compatibleWithSameExportOnly": true
+  },
+  "attachments": [],
+  "exportIntegrity": {
+    "schemaValid": true,
+    "ledgerCompleteThroughSeq": 6,
+    "eventCount": 6,
+    "eventsHash": "sha256:f0d39347c033299061b37f84efe545455e2e2eed0a9a184fe1c9ef377842aa51",
+    "reportHash": "sha256:1ab93daf81d023a35eb80e0aadbb667616123d3b3e61e3b8ff504d3b59e99e44",
+    "invariantsPassed": true,
+    "violatedInvariants": [],
+    "sampleData": true
+  }
+}

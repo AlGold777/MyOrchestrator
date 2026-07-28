@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>GPT Response</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #ffffff; color: #111; padding: 24px; line-height: 1.5; }
+        h1 { font-size: 24px; margin-bottom: 8px; }
+        h3 { font-size: 16px; margin-top: 0; margin-bottom: 20px; }
+        pre { background: #f6f8fa; padding: 12px; border-radius: 8px; white-space: pre-wrap; word-wrap: break-word; }
+        .response-body table { width: 100%; border-collapse: collapse; margin: 8px 0; }
+        .response-body th, .response-body td { border: 1px solid #ddd; padding: 6px 8px; vertical-align: top; }
+        .response-body ul, .response-body ol { padding-left: 24px; }
+        .response-meta { margin: 0 0 12px; color: #555; font-size: 14px; }
+    </style>
+</head>
+<body>
+    
+            <h1>GPT Response</h1>
+            <p class="response-meta">2026-07-28_12-41</p>
+            <p class="response-meta">2026-07-28 12-29  https://chatgpt.com/c/6a6873e2-d548-83eb-9043-a17af9f10d4e</p>
+            <div class="response-body"><h2>Вердикт</h2><p>Да. Но из ответов стоит взять <strong>не новую архитектуру</strong>, а несколько точечных усилений. Основная спецификация уже сильнее предложенных вариантов примерно по 85–90% пунктов.</p><h2>Что добавить в версию 1.1</h2><h3>1. Авторизация producer → eventType → layer</h3><p>Claude формулирует полезное правило: компонент не должен писать события чужого слоя. В текущей спецификации допустимые слои указаны в таблице компонентов, но это ещё не машиночитаемый контракт.</p><p>Добавить реестр:</p><pre><code class="language-json">{
+  "eventType": "COMPLETION_HYPOTHESIS_EVALUATED",
+  "requiredLayer": "inference",
+  "allowedProducers": [
+    "completion-inference-engine"
+  ]
+}
+</code></pre><p>Новый инвариант:</p><blockquote><p><strong>S21 Producer authorization:</strong> <code>producer.component</code>, <code>eventType</code> и <code>layer</code> должны соответствовать Event Type Registry.</p></blockquote><p>Validator должен отклонять, например, <code>FINALIZATION_POLICY_EVALUATED</code>, записанный DOM-adapter’ом.</p><p>При этом примеры сейчас местами используют универсальный:</p><pre><code class="language-json">"producer": {
+  "component": "telemetry-core"
+}
+</code></pre><p>После введения S21 их нужно заменить реальными producer-компонентами.</p><hr><h3>2. Явное закрытие окна ожидания сигнала</h3><p>Claude предлагает <code>ABSENCE_CONFIRMED</code>. Сама идея правильная, но универсальное название опасно: отсутствие события нельзя подтверждать без описания окна и качества наблюдений.</p><p>Лучше добавить:</p><pre><code class="language-text">EXPECTED_SIGNAL_WINDOW_CLOSED
+</code></pre><p>Пример:</p><pre><code class="language-json">{
+  "eventType": "EXPECTED_SIGNAL_WINDOW_CLOSED",
+  "layer": "inference",
+  "payload": {
+    "expectedSignal": "first_generation_activity",
+    "windowStartedMonoMs": 800,
+    "windowEndedMonoMs": 15800,
+    "windowDurationMs": 15000,
+    "totalChecks": 12,
+    "reliableChecks": 9,
+    "observationCoveragePct": 82.4,
+    "maximumObservationGapMs": 3100,
+    "result": "not_observed",
+    "confidence": "moderate"
+  },
+  "evidenceRefs": [
+    "observation-frame-1",
+    "observation-frame-12"
+  ]
+}
+</code></pre><p>Допустимые результаты:</p><pre><code class="language-text">observed
+not_observed
+unobservable
+window_interrupted
+</code></pre><p>Это практически усилит отчёты:</p><ul><li><p><code>request-not-sent</code>;</p></li><li><p><code>generation-not-started</code>;</p></li><li><p><code>true-completion</code>;</p></li><li><p><code>forced-finalization</code>.</p></li></ul><hr><h3>3. Отдельная ось состояния post-terminal аудита</h3><p>У Claude есть <code>auditStatus</code>. В текущей спецификации аудит представлен событием и derived-полями, но отдельной оси нет.</p><p>Добавить:</p><pre><code class="language-ts">auditStatus:
+  | "not_required"
+  | "not_planned"
+  | "planned"
+  | "running"
+  | "supports_decision"
+  | "contradicts_decision"
+  | "inconclusive"
+  | "unavailable";
+</code></pre><p>Это позволит без разбора payload сразу различать:</p><pre><code class="language-text">решение принято, аудит ещё идёт;
+решение подтверждено;
+обнаружена преждевременная финализация;
+аудит технически невозможен.
+</code></pre><hr><h3>4. Ограничение количества файлов в одном цикле эскалации</h3><p>Claude правильно указал на риск гиперзапроса. Сейчас уже есть:</p><pre><code class="language-json">"maxEscalationDepth": 2
+</code></pre><p>Но нет ограничения количества файлов на одном уровне.</p><p>Добавить:</p><pre><code class="language-json">{
+  "antiLoopPolicy": {
+    "maxEscalationDepth": 2,
+    "maxRequiredReportsPerRound": 2,
+    "maxOptionalReportsPerRound": 1,
+    "doNotRequestAlreadyProvided": true,
+    "doNotRequestAlreadyRequested": true,
+    "requireNewQuestionToResolve": true,
+    "overflowStrategy": "rank_and_defer"
+  }
+}
+</code></pre><p>Ранжировать matched rules по:</p><ol><li><p>блокирует ли отсутствие файла causal verdict;</p></li><li><p>способен ли файл различить конкурирующие причины;</p></li><li><p><code>priority</code>;</p></li><li><p>число разрешаемых <code>blockedConclusions</code>;</p></li><li><p>детерминированный <code>ruleId</code> как tie-breaker.</p></li></ol><p>Невошедшие запросы хранить:</p><pre><code class="language-json">"deferredAdditionalReports": []
+</code></pre><hr><h3>5. Машиночитаемый <code>presetIndex</code> в manifest</h3><p>Из ответа Claude стоит взять саму идею индекса, но <strong>не <code>eventTypeRange</code></strong>: события не образуют непрерывные диапазоны, а presets пересекаются.</p><p>Добавить:</p><pre><code class="language-json">{
+  "presetIndex": [
+    {
+      "reportType": "truncation",
+      "reportSchemaVersion": "1.0.0",
+      "embeddedPath": "$.reports.truncation",
+      "standaloneFilename": "truncation.json",
+      "eventSelectionProfileId": "truncation-events@1",
+      "derivedViewIds": [
+        "candidate-lineage",
+        "text-evolution",
+        "completion-proof",
+        "post-terminal-audit"
+      ],
+      "dependencyRuleSetId": "truncation@1"
+    }
+  ]
+}
+</code></pre><p>Это позволит инструменту или LLM быстро определить:</p><ul><li><p>где находится нужный отчёт;</p></li><li><p>какие derived views ему соответствуют;</p></li><li><p>какой профиль событий использован;</p></li><li><p>какой набор escalation-правил применён.</p></li></ul><hr><h3>6. Инвариант единственного актуального terminal decision</h3><p>Z.ai предлагает:</p><blockquote><p><code>1 dispatch = 1 decision</code></p></blockquote><p>Это неправильно: возможны retry, recovery и <code>DECISION_SUPERSEDED</code>.</p><p>Но из идеи следует полезный более точный инвариант:</p><blockquote><p><strong>S22 Active terminal uniqueness:</strong> на одной export boundary у dispatch может быть несколько immutable decisions, но ровно одно terminal decision, которое не superseded.</p></blockquote><p>Проверка:</p><pre><code class="language-text">count(
+  terminal decisions
+  minus superseded decisions
+) &lt;= 1
+</code></pre><p>Для terminal dispatch:</p><pre><code class="language-text">count(active terminal decisions) == 1
+</code></pre><hr><h3>7. Observer health score — только как derived metric</h3><p>Claude предлагает числовой <code>observerHealth: 0.0–1.0</code>. Это удобно для сортировки и dashboards, но опасно как источник решения: одинаковый score может скрывать разные причины деградации.</p><p>Можно добавить:</p><pre><code class="language-json">{
+  "observerHealth": {
+    "score": 0.42,
+    "algorithmVersion": "observer-health@1",
+    "components": {
+      "contentScriptAvailability": 1.0,
+      "observationFreshness": 0.3,
+      "schedulerAccess": 0.2,
+      "selectorConfidence": 0.8,
+      "documentContinuity": 0.5
+    },
+    "level": "degraded"
+  }
+}
+</code></pre><p>Правило:</p><blockquote><p>Completion policy MUST использовать первичные компоненты и reliability facts. Итоговый score используется только как диагностический derived indicator.</p></blockquote><hr><h2>Что брать не следует</h2><h3><code>completionEvidenceTier: absent | weak | moderate | strong</code></h3><p>Текущая шкала <code>T0–T4</code> точнее: она различает provider terminal evidence и сильный UI transition.</p><h3><code>terminalMode = forced_timeout | forced_error</code></h3><p>Текущая модель лучше:</p><pre><code class="language-text">terminalMode = forced
+terminationCause = extension_timeout
+</code></pre><p>Она не смешивает способ финализации с причиной.</p><h3><code>true_completion требует отсутствия любых post-terminal DOM mutations</code></h3><p>Неверно. После завершения возможны нерелевантные DOM-мутации: кнопки, citations, layout, toolbar.</p><p>Нужно проверять:</p><ul><li><p>hash принятого кандидата;</p></li><li><p>длину;</p></li><li><p>relevant mutations;</p></li><li><p>возобновление active-generation signals;</p></li><li><p>смену кандидата.</p></li></ul><h3><code>attachments без верхнего лимита</code></h3><p>Не принимать. TTL не защищает от memory/storage pressure. Текущие per-attachment и total budgets нужны.</p><h3><code>networkStatus == 200</code> как доказательство отправки</h3><p>Для веб-интерфейсов LLM это ненадёжно и неуниверсально. Network telemetry может отсутствовать, запрос может идти через SSE/WebSocket, service worker или непрозрачный transport.</p><h3><code>networkChunkLength &gt; DOM length</code></h3><p>Допустимо только при:</p><pre><code class="language-json">"capabilities": {
+  "networkObservation": true,
+  "networkContentCompleteness": "verified"
+}
+</code></pre><p>Иначе network length должна быть <code>unknown</code>, а не использоваться в правиле.</p><h3>Укрупнение восьми отчётов в четыре технических файла</h3><p>Не нужно. Это ухудшит пользовательский интерфейс. Внутренние evidence-домены могут быть общими, но пользовательские presets должны оставаться проблемно-ориентированными.</p><h2>Итог</h2><p>В спецификацию целесообразно добавить <strong>шесть обязательных изменений</strong>:</p><ol><li><p><code>S21 Producer authorization</code>;</p></li><li><p><code>EXPECTED_SIGNAL_WINDOW_CLOSED</code>;</p></li><li><p>ось <code>auditStatus</code>;</p></li><li><p><code>maxRequiredReportsPerRound</code> и ranking;</p></li><li><p>машинный <code>presetIndex</code>;</p></li><li><p><code>S22 Active terminal uniqueness</code>.</p></li></ol><p><code>observerHealth.score</code> можно добавить как необязательный derived metric.</p><p>Остальные существенные идеи других моделей либо уже реализованы в текущей спецификации, либо являются упрощениями, которые снизят доказательность системы.</p></div>
+        
+</body>
+</html>

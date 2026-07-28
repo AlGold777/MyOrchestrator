@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/diagnostic-report.schema.json",
+  "title": "Standalone diagnostic report",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "fileKind",
+    "reportDescriptor",
+    "correlation",
+    "diagnosticSummary",
+    "stateAxes",
+    "eventSelection",
+    "derivedViews",
+    "siblings",
+    "analysisInstructions",
+    "crossReportCompatibility",
+    "exportIntegrity"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "5.0"
+    },
+    "fileKind": {
+      "const": "diagnostic-report"
+    },
+    "reportDescriptor": {
+      "type": "object",
+      "required": [
+        "reportId",
+        "reportType",
+        "reportVersion",
+        "title",
+        "primaryQuestion",
+        "canDiagnose",
+        "cannotDiagnoseAlone",
+        "completeness",
+        "reportMode",
+        "dependencyRegistryVersion",
+        "dependencyRegistryHash"
+      ],
+      "properties": {
+        "reportId": {
+          "type": "string"
+        },
+        "reportType": {
+          "type": "string"
+        },
+        "reportVersion": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "primaryQuestion": {
+          "type": "string"
+        },
+        "canDiagnose": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "cannotDiagnoseAlone": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "completeness": {
+          "type": "object"
+        },
+        "reportMode": {
+          "enum": [
+            "standalone",
+            "embedded-in-all-presets"
+          ]
+        },
+        "dependencyRegistryVersion": {
+          "type": "string"
+        },
+        "dependencyRegistryHash": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "correlation": {
+      "type": "object"
+    },
+    "reportCatalogSnapshot": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "diagnosticSummary": {
+      "type": "object"
+    },
+    "stateAxes": {
+      "type": "object"
+    },
+    "eventSelection": {
+      "type": "object"
+    },
+    "derivedViews": {
+      "type": "object"
+    },
+    "contradictions": {
+      "type": "array"
+    },
+    "missingEvidence": {
+      "type": "array"
+    },
+    "siblings": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "analysisInstructions": {
+      "type": "object"
+    },
+    "crossReportCompatibility": {
+      "type": "object"
+    },
+    "attachments": {
+      "type": "array"
+    },
+    "exportIntegrity": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": false
+}
