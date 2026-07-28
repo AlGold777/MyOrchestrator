@@ -1,104 +1,93 @@
-// shared/proof-telemetry-policy.js
-// Pure evidence-tier, finalization-policy and replay engine for schema 5.
-
+// Typed evidence-tier, finalization-policy and replay engine.
 (function initProofTelemetryPolicy(root) {
   'use strict';
 
+  const contracts = () => root.ProofTelemetryContracts || (typeof require === 'function' ? require('./proof-telemetry-contracts.js') : null);
   const AUTOMATIC_MINIMUM_EVIDENCE_TIER = 3;
 
-  function sourceType(event) {
-    return String(event?.payload?.sourceEventType || '').toUpperCase();
-  }
-
   function sameScope(left, right) {
-    if (!left || !right) return false;
-    if (String(left.runSessionId) !== String(right.runSessionId)) return false;
-    if (String(left.modelId) !== String(right.modelId)) return false;
-    if (left.dispatchId && right.dispatchId && String(left.dispatchId) !== String(right.dispatchId)) return false;
-    return true;
+    return contracts()?.sameIncidentScope?.(left, right) === true;
   }
 
   function scopedEvents(events, target) {
     return (Array.isArray(events) ? events : []).filter((event) => sameScope(event, target));
   }
 
-  function has(events, pattern) {
-    return events.some((event) => pattern.test(`${event.eventType} ${sourceType(event)}`));
+  function facts(events) {
+    return events.map((event) => ({ event, fact: contracts()?.factOf?.(event) || { kind: 'unknown', state: 'unknown' } }));
+  }
+
+  function latestFact(entries, kind) {
+    return [...entries].reverse().find((entry) => entry.fact.kind === kind) || null;
+  }
+
+  function observationReliable(events) {
+    const threshold = Number(contracts()?.THRESHOLDS?.maximumSignalSkewMs ?? 250);
+    return !events.some((event) => {
+      const fact = contracts()?.factOf?.(event);
+      if (fact?.kind === 'observation' && fact.state === 'degraded') return true;
+      if (event.eventType !== 'OBSERVATION_FRAME_CAPTURED') return false;
+      const meta = event?.payload?.metadata || {};
+      if (meta.contentScriptAvailable === false || meta.contentScriptAvailable === 'unknown') return true;
+      if (meta.tabDiscarded === true || meta.timerThrottlingSuspected === true) return true;
+      return !Number.isFinite(Number(meta.maximumSignalSkewMs)) || Number(meta.maximumSignalSkewMs) > threshold;
+    });
   }
 
   function evidenceTier(events, target = events[events.length - 1]) {
+    if (!target) return 0;
     const scoped = scopedEvents(events, target);
-    const providerTerminal = has(scoped, /PROVIDER_COMPLETE|FINISH_REASON|PROVIDER_TERMINAL|TERMINAL_MARKER/);
-    if (providerTerminal) return 4;
-    const strongUiTransition = has(scoped, /STOP_(BUTTON_)?(PRESENT_TO_ABSENT|DISAPPEARED)|STREAMING_(TRUE_TO_FALSE|STOPPED)|COMPLETION_CONTROLS_APPEARED/);
-    const identityCurrentDispatch = scoped.some((event) => {
-      const payload = event?.payload || {};
-      const metadata = payload.metadata || {};
-      const state = payload.answerIdentity || payload.state || metadata.answerIdentity || metadata.state;
-      return state === 'current_dispatch';
-    });
-    if (strongUiTransition && identityCurrentDispatch) return 3;
-    const completed = has(scoped, /ANSWER_COMPLETE_DETECTED|COMPLETION_HYPOTHESIS_EVALUATED/);
-    const verified = has(scoped, /STRUCTURAL_VERIFICATION_EVALUATED|ANSWER_VERIFICATION_(RECORDED|RESULT)/)
-      && !has(scoped, /VERIFICATION_(REJECTED|FAILED)|ANSWER_VERIFICATION.*(REJECT|FAIL)/);
-    // Completion hypothesis and structural verification describe different
-    // axes; together they still do not constitute a strong provider UI
-    // transition. They may contribute to lower tiers below.
-    const stable = has(scoped, /ANSWER_TEXT_STABLE|STABILITY_INTERVAL_CLOSED/);
-    const idle = has(scoped, /MUTATION_IDLE|GENERATION_INACTIVE|LOADING_ABSENT|COMPOSER_READY/);
-    if (stable && (idle || has(scoped, /MODEL_TERMINAL_RECORDED|MODEL_FINAL/))) return 2;
-    if (stable || completed || has(scoped, /TIMEOUT|MODEL_TERMINAL_RECORDED|MODEL_FINAL/)) return 1;
+    const entries = facts(scoped);
+    if (entries.some(({ fact }) => fact.kind === 'provider_terminal' && fact.state === 'completed')) return 4;
+    const strongTransition = entries.some(({ fact }) => fact.kind === 'generation_transition' && fact.strong === true);
+    const currentIdentity = entries.some(({ fact }) => fact.kind === 'candidate_identity' && fact.state === 'current_dispatch');
+    if (strongTransition && currentIdentity && observationReliable(scoped)) return 3;
+    const stable = entries.some(({ fact }) => fact.kind === 'text' && fact.state === 'stable');
+    const indirect = new Set(entries
+      .filter(({ fact }) => fact.kind === 'completion_indirect' && fact.state === 'satisfied')
+      .map(({ fact }) => fact.signal));
+    if (stable && indirect.size >= 2 && observationReliable(scoped)) return 2;
+    if (stable || entries.some(({ fact }) => ['completion_hypothesis', 'deadline', 'terminal_action'].includes(fact.kind))) return 1;
     return 0;
   }
 
   function deriveAxes(events, target = events[events.length - 1]) {
+    if (!target) return root.ProofOrientedTelemetry?.deriveAxes?.([]) || {};
     const scoped = scopedEvents(events, target);
-    const fallback = root.ProofOrientedTelemetry?.deriveAxes?.(scoped) || {};
-    const latest = (pattern) => [...scoped].reverse().find((event) => pattern.test(`${event.eventType} ${sourceType(event)}`));
-    const latestGeneration = latest(/GENERATION_SIGNAL_CHANGED|ANSWER_GENERATING|ANSWER_TEXT_STABLE|ANSWER_COMPLETE_DETECTED|MODEL_TERMINAL_RECORDED|MODEL_FINAL/);
-    const generationSource = latestGeneration ? `${latestGeneration.eventType} ${sourceType(latestGeneration)}` : '';
-    const observedGeneration = /MODEL_TERMINAL|MODEL_FINAL|ANSWER_COMPLETE/.test(generationSource) ? 'inactive'
-      : /ANSWER_TEXT_STABLE/.test(generationSource) ? 'quiescent'
-        : /ANSWER_GENERATING|GENERATION_SIGNAL_CHANGED/.test(generationSource) ? 'active'
-          : fallback.observedGeneration;
-    const identity = has(scoped, /CANDIDATE.*AMBIGUOUS|MULTIPLE_CANDIDATES/) ? 'ambiguous'
-      : has(scoped, /STALE_BASELINE|CANDIDATE.*STALE/) ? 'stale'
-        : has(scoped, /PROMPT_ECHO_REJECTED|CANDIDATE.*REJECTED/) ? 'rejected'
-          : fallback.answerIdentity;
-    const frames = scoped.filter((event) => event.eventType === 'OBSERVATION_FRAME_CAPTURED');
-    const degradedFrame = frames.some((event) => {
-      const meta = event?.payload?.metadata || {};
-      return (Number.isFinite(Number(meta.maximumSignalSkewMs)) && Number(meta.maximumSignalSkewMs) > 250)
-        || meta.timerThrottlingSuspected === true
-        || meta.contentScriptAvailable === false
-        || meta.tabDiscarded === true;
-    });
-    const observerFailure = has(scoped, /FOCUS_STUCK|SCRIPT_HEALTH_FAIL|OBSERVER.*(FAIL|UNAVAILABLE)|BACKGROUND_THROTTL|SELECTOR.*(FAIL|MISS)/);
-    const textEvents = scoped.filter((event) => /TEXT_STATE_CHANGED|ANSWER_(GENERATING|TEXT_STABLE|LENGTH_DECREASED)|RESPONSE/.test(`${event.eventType} ${sourceType(event)}`));
-    let textEvolution = fallback.textEvolution;
-    if (textEvents.length >= 2) {
-      const previousMeta = textEvents[textEvents.length - 2]?.payload?.metadata || {};
-      const latestMeta = textEvents[textEvents.length - 1]?.payload?.metadata || {};
-      const previousLength = Number(previousMeta.textLength || previousMeta.answerLength || 0);
-      const latestLength = Number(latestMeta.textLength || latestMeta.answerLength || 0);
-      const previousHash = previousMeta.textHash || previousMeta.answerHash || null;
-      const latestHash = latestMeta.textHash || latestMeta.answerHash || null;
-      if (latestLength < previousLength) textEvolution = 'regressed';
-      else if (latestHash && previousHash && latestHash !== previousHash) textEvolution = 'changing';
-    }
+    const entries = facts(scoped);
+    const latestSubmission = latestFact(entries, 'submission')?.fact;
+    const latestIdentity = latestFact(entries, 'candidate_identity')?.fact;
+    const latestGeneration = [...entries].reverse().find(({ fact }) => ['generation', 'generation_transition', 'terminal_action', 'text'].includes(fact.kind))?.fact;
+    const latestVerification = latestFact(entries, 'verification')?.fact;
+    const latestExtraction = latestFact(entries, 'extraction')?.fact;
+    const deadline = entries.some(({ fact }) => fact.kind === 'deadline' && fact.state === 'reached');
+    const terminal = latestFact(entries, 'terminal_action')?.fact;
+    const tier = evidenceTier(scoped, target);
+    const textFacts = entries.filter(({ fact }) => fact.kind === 'text').map(({ fact }) => fact);
+    const completionHypothesis = latestFact(entries, 'completion_hypothesis')?.fact;
+    const providerTerminal = latestFact(entries, 'provider_terminal')?.fact;
+    const started = entries.some(({ fact }) => fact.kind === 'generation_start' && fact.state === 'started')
+      || entries.some(({ fact }) => fact.kind === 'generation');
     return {
-      ...fallback,
-      answerIdentity: identity,
-      observedGeneration,
-      textEvolution,
-      observationReliability: degradedFrame || observerFailure ? 'degraded' : fallback.observationReliability,
-      completionEvidenceTier: evidenceTier(scoped, target)
+      submission: latestSubmission?.state === 'confirmed' ? 'confirmed' : latestSubmission?.state === 'failed' ? 'failed' : latestSubmission ? 'evidence_partial' : 'not_attempted',
+      generationStart: started ? 'started' : latestSubmission?.state === 'confirmed' ? 'not_started' : 'not_evaluated',
+      answerIdentity: latestIdentity?.state || (started ? 'candidate' : 'none'),
+      observedGeneration: terminal ? 'inactive' : latestGeneration?.state === 'provider_ui_completed' ? 'inactive' : latestGeneration?.state === 'active' ? 'active' : latestGeneration?.state === 'stable' ? 'quiescent' : started ? 'unknown' : 'not_started',
+      textEvolution: textFacts.some((fact) => fact.state === 'regressed') ? 'regressed' : latestGeneration?.state === 'active' ? 'changing' : textFacts.some((fact) => fact.state === 'stable') ? 'stable' : 'none',
+      answerCompleteness: tier >= 3 ? 'probably_complete' : terminal ? 'unknown' : 'not_evaluated',
+      extraction: latestExtraction?.state || (started ? 'candidate' : 'none'),
+      verification: latestVerification?.state || (started ? 'pending' : 'none'),
+      completionDetection: providerTerminal ? 'provider_complete' : tier >= 3 ? 'inferred_complete' : completionHypothesis ? 'probably_complete' : terminal ? 'inconclusive' : latestGeneration?.state === 'active' ? 'probably_active' : 'not_evaluated',
+      completionEvidenceTier: tier,
+      observationReliability: observationReliable(scoped) ? 'reliable' : 'degraded',
+      finalization: terminal ? 'accepted' : deadline ? 'retry_scheduled' : 'not_evaluated',
+      terminalMode: terminal ? (deadline ? 'forced' : 'automatic') : 'none',
+      terminationCause: terminal ? (deadline ? 'policy_forced' : providerTerminal || tier >= 3 ? 'provider_completed' : 'unknown') : 'unknown'
     };
   }
 
   function evaluateFinalization(events, target) {
     const axes = deriveAxes(events, target);
-    const tier = axes.completionEvidenceTier;
     const contradictions = [];
     if (axes.observedGeneration === 'active') contradictions.push('generation_still_active');
     if (axes.answerCompleteness === 'probably_truncated') contradictions.push('answer_probably_truncated');
@@ -109,15 +98,14 @@
       { ruleId: 'observation_reliable', passed: axes.observationReliability === 'reliable', observed: axes.observationReliability },
       { ruleId: 'generation_not_active', passed: axes.observedGeneration !== 'active', observed: axes.observedGeneration },
       { ruleId: 'structural_verification', passed: axes.verification === 'verified', observed: axes.verification },
-      { ruleId: 'minimum_evidence_tier', passed: tier >= AUTOMATIC_MINIMUM_EVIDENCE_TIER, observed: tier, expected: AUTOMATIC_MINIMUM_EVIDENCE_TIER },
+      { ruleId: 'minimum_evidence_tier', passed: axes.completionEvidenceTier >= AUTOMATIC_MINIMUM_EVIDENCE_TIER, observed: axes.completionEvidenceTier, expected: AUTOMATIC_MINIMUM_EVIDENCE_TIER },
       { ruleId: 'no_high_severity_contradiction', passed: contradictions.length === 0, observed: contradictions }
     ];
-    const blockers = rules.filter((rule) => !rule.passed).map((rule) => rule.ruleId);
     return {
-      allowed: blockers.length === 0,
-      evidenceTier: tier,
+      allowed: rules.every((rule) => rule.passed),
+      evidenceTier: axes.completionEvidenceTier,
       rules,
-      blockers,
+      blockers: rules.filter((rule) => !rule.passed).map((rule) => rule.ruleId),
       contradictions,
       stateAxes: axes
     };
@@ -133,106 +121,34 @@
   function planCompanions(sourceEvent, eventsIncludingSource) {
     const companions = [];
     const evidenceRefs = [sourceEvent.eventId];
-    if (sourceEvent.eventType === 'SUBMISSION_EVIDENCE_CHANGED') {
-      companions.push({
-        eventType: 'SUBMISSION_INFERRED',
-        layer: 'inference',
-        evidenceRefs,
-        payload: { submission: deriveAxes(eventsIncludingSource, sourceEvent).submission }
-      });
-    }
-    if (sourceEvent.eventType === 'GENERATION_SIGNAL_CHANGED') {
-      companions.push({
-        eventType: 'GENERATION_STATE_INFERRED',
-        layer: 'inference',
-        evidenceRefs,
-        payload: { observedGeneration: deriveAxes(eventsIncludingSource, sourceEvent).observedGeneration }
-      });
-    }
-    if (sourceEvent.eventType === 'CANDIDATE_SET_CHANGED') {
-      companions.push({
-        eventType: 'CANDIDATE_IDENTITY_INFERRED',
-        layer: 'inference',
-        evidenceRefs,
-        payload: { answerIdentity: deriveAxes(eventsIncludingSource, sourceEvent).answerIdentity }
-      });
-    }
-    if (sourceEvent.eventType === 'COMPLETION_HYPOTHESIS_EVALUATED') {
-      companions.push({
-        eventType: 'ANSWER_COMPLETENESS_EVALUATED',
-        layer: 'inference',
-        evidenceRefs,
-        payload: {
-          answerCompleteness: deriveAxes(eventsIncludingSource, sourceEvent).answerCompleteness,
-          completionEvidenceTier: evidenceTier(eventsIncludingSource, sourceEvent)
-        }
-      });
-    }
+    const axes = () => deriveAxes(eventsIncludingSource, sourceEvent);
+    if (sourceEvent.eventType === 'SUBMISSION_EVIDENCE_CHANGED') companions.push({ eventType: 'SUBMISSION_INFERRED', layer: 'inference', evidenceRefs, payload: { submission: axes().submission } });
+    if (sourceEvent.eventType === 'GENERATION_SIGNAL_CHANGED') companions.push({ eventType: 'GENERATION_STATE_INFERRED', layer: 'inference', evidenceRefs, payload: { observedGeneration: axes().observedGeneration } });
+    if (sourceEvent.eventType === 'CANDIDATE_SET_CHANGED') companions.push({ eventType: 'CANDIDATE_IDENTITY_INFERRED', layer: 'inference', evidenceRefs, payload: { answerIdentity: axes().answerIdentity } });
+    if (sourceEvent.eventType === 'COMPLETION_HYPOTHESIS_EVALUATED') companions.push({ eventType: 'ANSWER_COMPLETENESS_EVALUATED', layer: 'inference', evidenceRefs, payload: { answerCompleteness: axes().answerCompleteness, completionEvidenceTier: axes().completionEvidenceTier } });
     if (sourceEvent.eventType === 'TERMINAL_DEADLINE_REACHED') {
-      companions.push({
-        eventType: 'POLICY_OVERRIDE_APPLIED',
-        layer: 'decision',
-        evidenceRefs,
-        payload: {
-          trigger: sourceType(sourceEvent),
-          mode: 'forced',
-          waivedRules: evaluateFinalization(eventsIncludingSource, sourceEvent).blockers,
-          residualRisk: 'completion_not_proven'
-        }
-      });
+      const evaluation = evaluateFinalization(eventsIncludingSource, sourceEvent);
+      companions.push({ eventType: 'POLICY_OVERRIDE_APPLIED', layer: 'decision', evidenceRefs, payload: { trigger: 'terminal_deadline', mode: 'forced', waivedRules: evaluation.blockers, residualRisk: 'completion_not_proven' } });
     }
     if (sourceEvent.eventType === 'FINALIZATION_POLICY_EVALUATED') {
       const evaluation = evaluateFinalization(eventsIncludingSource, sourceEvent);
-      const explicitlyAccepted = safeDecisionOutcome(sourceEvent);
-      const accepted = explicitlyAccepted === null ? evaluation.allowed : explicitlyAccepted;
+      const explicit = safeDecisionOutcome(sourceEvent);
+      const accepted = explicit === null ? evaluation.allowed : explicit;
       const forced = accepted && !evaluation.allowed;
-      if (forced) {
-        companions.push({
-          eventType: 'POLICY_OVERRIDE_APPLIED',
-          layer: 'decision',
-          evidenceRefs,
-          payload: {
-            trigger: 'accepted_below_automatic_policy',
-            mode: 'forced',
-            waivedRules: evaluation.blockers,
-            residualRisk: 'automatic_completion_not_proven'
-          }
-        });
-      }
-      companions.push({
-        eventType: 'DECISION_RECORDED',
-        layer: 'decision',
-        evidenceRefs,
-        payload: {
-          accepted,
-          mode: forced ? 'forced' : 'automatic',
-          evidenceTier: evaluation.evidenceTier,
-          blockers: evaluation.blockers,
-          rules: evaluation.rules
-        }
-      });
+      if (forced) companions.push({ eventType: 'POLICY_OVERRIDE_APPLIED', layer: 'decision', evidenceRefs, payload: { trigger: 'accepted_below_automatic_policy', mode: 'forced', waivedRules: evaluation.blockers, residualRisk: 'automatic_completion_not_proven' } });
+      companions.push({ eventType: 'DECISION_RECORDED', layer: 'decision', evidenceRefs, payload: { accepted, mode: forced ? 'forced' : 'automatic', evidenceTier: evaluation.evidenceTier, blockers: evaluation.blockers, rules: evaluation.rules } });
     }
     return companions;
   }
 
   function normalizedDecision(event) {
     const payload = event?.payload?.decision || event?.payload?.metadata?.decision || event?.payload?.metadata || event?.payload || {};
-    return {
-      modelId: event.modelId,
-      dispatchId: event.dispatchId || null,
-      accepted: payload.accepted === true,
-      mode: payload.mode || 'automatic',
-      evidenceTier: Number(payload.evidenceTier || 0),
-      blockers: Array.isArray(payload.blockers) ? payload.blockers.slice().sort() : []
-    };
+    return { modelId: event.modelId, dispatchId: event.dispatchId || null, accepted: payload.accepted === true, mode: payload.mode || 'automatic', evidenceTier: Number(payload.evidenceTier || 0), blockers: Array.isArray(payload.blockers) ? payload.blockers.slice().sort() : [] };
   }
 
   function replay(events = []) {
-    const ordered = (Array.isArray(events) ? events.slice() : []).sort((left, right) => left.seq - right.seq);
-    const models = {};
-    const invariantViolations = [];
-    const recordedDecisions = [];
-    const recomputedDecisions = [];
+    const ordered = (Array.isArray(events) ? events.slice() : []).sort((left, right) => Number(left.ingestSeq || left.seq) - Number(right.ingestSeq || right.seq));
+    const models = {}, invariantViolations = [], recordedDecisions = [], recomputedDecisions = [];
     ordered.forEach((event, index) => {
       const through = ordered.slice(0, index + 1);
       if (!models[event.modelId]) models[event.modelId] = {};
@@ -242,28 +158,18 @@
         const recorded = normalizedDecision(event);
         recordedDecisions.push(recorded);
         const policyEvent = [...through].reverse().find((candidate) => candidate.eventType === 'FINALIZATION_POLICY_EVALUATED' && sameScope(candidate, event));
-        if (policyEvent) {
-          const evaluation = evaluateFinalization(through.filter((candidate) => candidate.seq <= policyEvent.seq), policyEvent);
-          recomputedDecisions.push({
-            modelId: event.modelId,
-            dispatchId: event.dispatchId || null,
-            accepted: recorded.mode === 'forced' ? recorded.accepted : evaluation.allowed,
-            mode: recorded.mode,
-            evidenceTier: evaluation.evidenceTier,
-            blockers: evaluation.blockers.slice().sort()
-          });
-        } else {
+        if (!policyEvent) {
           recomputedDecisions.push(recorded);
           invariantViolations.push({ invariantId: 'S06', eventId: event.eventId, message: 'decision has no preceding policy evaluation' });
+        } else {
+          const evaluation = evaluateFinalization(through.filter((candidate) => Number(candidate.seq) <= Number(policyEvent.seq)), policyEvent);
+          recomputedDecisions.push({ modelId: event.modelId, dispatchId: event.dispatchId || null, accepted: recorded.mode === 'forced' ? recorded.accepted : evaluation.allowed, mode: recorded.mode, evidenceTier: evaluation.evidenceTier, blockers: evaluation.blockers.slice().sort() });
         }
       }
       if (event.eventType === 'MODEL_TERMINAL_RECORDED') {
-        const linkedDecision = [...through].reverse().find((candidate) => candidate.eventType === 'DECISION_RECORDED' && sameScope(candidate, event));
-        if (!linkedDecision || !(event.evidenceRefs || []).includes(linkedDecision.eventId)) {
-          invariantViolations.push({ invariantId: 'S06', eventId: event.eventId, message: 'terminal does not reference its decision' });
-        }
-        const axes = models[event.modelId].stateAxes;
-        if (axes.terminalMode === 'forced') {
+        const linked = [...through].reverse().find((candidate) => candidate.eventType === 'DECISION_RECORDED' && sameScope(candidate, event));
+        if (!linked || !(event.evidenceRefs || []).includes(linked.eventId)) invariantViolations.push({ invariantId: 'S06', eventId: event.eventId, message: 'terminal does not reference its decision' });
+        if (models[event.modelId].stateAxes.terminalMode === 'forced') {
           const override = [...through].reverse().find((candidate) => candidate.eventType === 'POLICY_OVERRIDE_APPLIED' && sameScope(candidate, event));
           if (!override) invariantViolations.push({ invariantId: 'S07', eventId: event.eventId, message: 'forced terminal has no policy override' });
         }
@@ -272,15 +178,7 @@
     return { models, recordedDecisions, recomputedDecisions, invariantViolations };
   }
 
-  const api = Object.freeze({
-    AUTOMATIC_MINIMUM_EVIDENCE_TIER,
-    sameScope,
-    evidenceTier,
-    deriveAxes,
-    evaluateFinalization,
-    planCompanions,
-    replay
-  });
+  const api = Object.freeze({ AUTOMATIC_MINIMUM_EVIDENCE_TIER, sameScope, evidenceTier, deriveAxes, evaluateFinalization, planCompanions, replay });
   root.ProofTelemetryPolicy = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

@@ -1,5 +1,17 @@
 # CHANGELOG — Project
 
+### 2026-08-28 — Executable proof contracts and schema 6, version 2.81.133
+
+- Added one runtime report registry for all eight diagnostic tasks, with typed
+  evidence slots and criticality.
+- Added the schema 6 canonical-event contract, including producer and ingest
+  clock epochs, global ingest ordering and run generation.
+- Evidence policy now consumes typed facts; all legacy label interpretation is
+  isolated in one migration adapter.
+- Incident compatibility is strict across run, model, dispatch and generation;
+  missing dispatch identity is never treated as a wildcard.
+- Added registry, JSON Schema and strict-scope conformance regressions.
+
 ### 2026-08-28 — Proof telemetry safety containment, version 2.81.132
 
 - Late/mismatched run evidence quarantines instead of replacing the active

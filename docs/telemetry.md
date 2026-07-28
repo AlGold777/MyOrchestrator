@@ -1,5 +1,18 @@
 # Telemetry - tab/session diagnostics
 
+## Executable contracts and schema 6 v2.81.133 - 2026-08-28
+
+All eight Tasks are defined by one executable registry of typed evidence slots.
+The runtime policy reads normalized typed facts; legacy `sourceEventType` text
+is interpreted only at the migration adapter boundary. Incident joins require
+the exact run, model, dispatch and generation identity, so an absent identity
+cannot silently broaden a report.
+
+The schema 6 event contract adds non-reused `runGeneration`, global
+`ingestSeq`, a collision-resistant `eventId` and explicit producer/worker clock
+epochs. These fields are the executable input contract for the lifecycle and
+clock runtime introduced by the next migration stage.
+
 ## Safety containment v2.81.132 - 2026-08-28
 
 - Новый run авторитетно открывается до первой model telemetry; событие с другим

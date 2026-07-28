@@ -11,6 +11,10 @@
 
 ## Статус реализации
 
+В версии `2.81.133` опубликован executable schema 6 event contract и единый
+runtime registry typed evidence slots для всех восьми задач. Policy использует
+typed facts, а legacy labels преобразуются только одним migration adapter.
+
 Начиная с версии расширения `2.81.131` реализованы native schema 5 ledger,
 independent axes, T0–T4 policy/replay, terminal lineage, post-terminal audit,
 forensic omissions, восемь embedded reports, All-presets export и offline

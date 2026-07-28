@@ -39,18 +39,18 @@ with unknown/degraded values. - Done
 ## 3. Executable contracts and schema 6
 
 3.1. Create one executable report registry with typed evidence slots,
-criticality and sibling rules for all eight tasks. - Pending
+criticality and sibling rules for all eight tasks. - Done
 
-3.2. Add schema 6 event payload and clock definitions. - Pending
+3.2. Add schema 6 event payload and clock definitions. - Done
 
 3.3. Add typed accessors for submission, candidate identity, generation,
-completion, extraction and terminal facts. - Pending
+completion, extraction and terminal facts. - Done
 
-3.4. Make policy consume typed state rather than regex over legacy labels. - Pending
+3.4. Make policy consume typed state rather than regex over legacy labels. - Done
 
-3.5. Enforce strict run/model/dispatch/generation scope compatibility. - Pending
+3.5. Enforce strict run/model/dispatch/generation scope compatibility. - Done
 
-3.6. Add registry/schema/policy conformance tests and update version/docs. - Pending
+3.6. Add registry/schema/policy conformance tests and update version/docs. - Done
 
 ## 4. Run lifecycle and clock runtime
 
