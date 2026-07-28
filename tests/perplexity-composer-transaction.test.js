@@ -174,6 +174,30 @@ describe('Perplexity composer transaction', () => {
     expect(window.PerplexityComposerTransaction.resolveSendControl(composer)).toBeNull();
   });
 
+  // 2.81.122 field regression: on a tab whose focus was taken mid-insert,
+  // execCommand('insertText') returned true while inserting nothing. The old
+  // guard trusted that return value, so the range fallback never ran and the
+  // draft stayed empty — history showed insertMethod beforeinput_exec_command
+  // together with inserted:false on all three attempts.
+  test('falls back to range insertion when execCommand lies about success', async () => {
+    document.body.innerHTML = '<div contenteditable="true" role="textbox"></div>';
+    const composer = document.querySelector('[contenteditable]');
+    const prompt = 'Focus-less insertion payload';
+    setRect(composer, { top: 253, left: 309, width: 606, height: 240 });
+    const originalExecCommand = document.execCommand;
+    // Reports success, changes nothing — exactly the unfocused-tab behaviour.
+    document.execCommand = jest.fn(() => true);
+
+    const result = await window.PerplexityComposerTransaction.insert(composer, prompt, {
+      sleep: () => Promise.resolve(), settleMs: 0
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.method).toBe('beforeinput_range');
+    expect(composer.textContent).toContain(prompt);
+    document.execCommand = originalExecCommand;
+  });
+
   test('reads a contenteditable draft even when innerText is unavailable', () => {
     document.body.innerHTML = '<div contenteditable="true" role="textbox"></div>';
     const composer = document.querySelector('[contenteditable]');

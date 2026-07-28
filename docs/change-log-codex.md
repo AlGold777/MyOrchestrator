@@ -1,5 +1,14 @@
 # Codex phase change log
 
+## 2.81.122 — Perplexity insertion no longer trusts execCommand
+
+- Eight of nine providers now insert and submit; five deliver their answer before `Get It`. Perplexity remained the sole dispatch failure, reusing its existing tab while the others opened fresh ones.
+- `document.execCommand('insertText')` reports success even when the tab holds no focus and nothing was inserted. The guard around the range fallback read that return value (`if (!inserted && ...)`), so on a lie the fallback never ran and the composer stayed empty.
+- Field evidence: every attempt in the rejection history carried `insertMethod: "beforeinput_exec_command"` together with `inserted: false`. The focus timeline explains the lie — Perplexity's visit ended after 845 ms against `minUsefulMs: 1500`, its lease was released, and Z.ai took the focus one second later while the three insertion attempts were still running.
+- Insertion now verifies the composer content instead of the return value, and the reported method names the path that actually delivered the text. That distinction is what made the defect diagnosable, so it is preserved deliberately.
+- Regression added: `execCommand` stubbed to return `true` while changing nothing must still leave the prompt in the composer via the range path.
+- Not addressed here: the underlying lease is still released before the operation it protects completes. That is a scheduler change affecting all nine providers and is kept separate.
+
 ## 2.81.121 — Deliver blocked answers as labelled candidates
 
 - Light field test: every answer arrived complete and carried its end marker, yet nothing appeared in the cards until `Get It`, and Claude and Z.ai needed a double-click on top of that.
