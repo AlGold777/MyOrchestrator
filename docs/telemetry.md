@@ -1,5 +1,23 @@
 # Telemetry - tab/session diagnostics
 
+## Post-terminal audit and forensic omissions v2.81.128 - 2026-07-28
+
+`shared/proof-telemetry-audit.js` выполняет аудит наблюдений после terminal
+decision.
+
+- В terminal boundary создаётся `MISSING_EVIDENCE_RECORDED` со статусом
+  `pending`: отсутствие последующего наблюдения не считается подтверждением.
+- Первое и последующие релевантные answer/text/candidate observations сравнивают
+  принятые и наблюдаемые length/hash и создают
+  `POST_TERMINAL_AUDIT_COMPLETED` с `confirmed` либо `contradicted`.
+- Рост более 0.5% или изменение hash фиксирует точные growth chars/percent и
+  включает truncation/true-completion escalation.
+- Selector, observer, contradiction и post-terminal anomalies создают forensic
+  trigger. Raw DOM не сохраняется автоматически: при недоступном безопасном
+  capture All-presets содержит content-addressable omission с reason и impact.
+- Model timeline экспортирует audit status/conclusion и корректно считает рост
+  относительно terminal accepted length, а не последнего позднего snapshot.
+
 ## Evidence policy and replay v2.81.127 - 2026-07-28
 
 `shared/proof-telemetry-policy.js` является чистым inference/policy engine для

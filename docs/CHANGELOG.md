@@ -1,5 +1,16 @@
 # CHANGELOG — Project
 
+### 2026-07-28 — Post-terminal audit and forensic triggers, version 2.81.128
+
+- Terminal boundary теперь явно отмечает pending post-terminal evidence.
+- Поздние answer/text/candidate observations сравниваются с terminal length/hash
+  и создают confirmed/contradicted audit с точным ростом.
+- Post-terminal growth, selector/observer failures и contradictions создают
+  anomaly-triggered forensic records.
+- Metadata-only privacy не допускает скрытого raw DOM persistence: недоступный
+  capture становится явным attachment omission с reason/impact/eventRef.
+- Исправлен derived growth baseline: сравнение идёт с принятым terminal length.
+
 ### 2026-07-28 — Evidence policy and decision replay, version 2.81.127
 
 - Добавлен pure policy/replay engine с независимыми axes и evidence tiers T0–T4.

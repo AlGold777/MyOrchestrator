@@ -263,9 +263,13 @@
     const lengths = numericMeta(events, ['textLength', 'answerLength', 'answerLen', 'latestObservedTextLength']);
     const terminalEvent = events.find((event) => event.eventType === 'MODEL_TERMINAL_RECORDED');
     const postTerminalLengths = terminalEvent ? numericMeta(events.filter((event) => event.seq > terminalEvent.seq), ['textLength', 'answerLength', 'answerLen']) : [];
-    const acceptedLength = lengths.length ? lengths[lengths.length - 1] : 0;
+    const acceptedLength = terminalEvent
+      ? (numericMeta([terminalEvent], ['textLength', 'answerLength', 'answerLen'])[0] || 0)
+      : (lengths.length ? lengths[lengths.length - 1] : 0);
     const maxObservedLength = lengths.length ? Math.max(...lengths) : 0;
     const postTerminalMax = postTerminalLengths.length ? Math.max(...postTerminalLengths) : acceptedLength;
+    const latestAudit = [...events].reverse().find((event) => event.eventType === 'POST_TERMINAL_AUDIT_COMPLETED');
+    const pendingAudit = events.some((event) => event.eventType === 'MISSING_EVIDENCE_RECORDED' && event?.payload?.missingEvidence === 'post_terminal_observation');
     return {
       modelId,
       stateAxes: axes,
@@ -278,6 +282,8 @@
       maxObservedTextLength: maxObservedLength,
       postTerminalGrowthChars: Math.max(0, postTerminalMax - acceptedLength),
       postTerminalGrowthPct: acceptedLength > 0 ? Math.max(0, ((postTerminalMax - acceptedLength) / acceptedLength) * 100) : 0,
+      postTerminalAuditStatus: latestAudit ? 'completed' : pendingAudit ? 'pending' : 'not_applicable',
+      postTerminalAuditConclusion: latestAudit?.payload?.conclusion || null,
       extractionCoveragePct: maxObservedLength > 0 ? Math.min(100, (acceptedLength / maxObservedLength) * 100) : 0,
       hiddenRelevantTextLength: 0,
       candidateCount: new Set(events.map((event) => event.candidateId).filter(Boolean)).size,
@@ -449,6 +455,30 @@
     const recordedDecisionHash = replayResult ? await sha256(replayResult.recordedDecisions) : null;
     const recomputedDecisionHash = replayResult ? await sha256(replayResult.recomputedDecisions) : null;
     const exportId = `export-${runSessionId}-${exportedAt}`;
+    const attachments = { byId: {}, omissions: [] };
+    for (const event of ledgerEvents.filter((candidate) => candidate.eventType === 'SELECTOR_FORENSIC_SNAPSHOT_CAPTURED')) {
+      const payload = event.payload || {};
+      if (payload.captureAvailable === false) {
+        attachments.omissions.push({
+          attachmentType: payload.attachmentType || 'unknown',
+          reason: payload.omissionReason || 'capture unavailable',
+          impact: payload.impact || 'forensic detail unavailable',
+          eventRef: event.eventId,
+          anomalyTrigger: payload.anomalyTrigger || null
+        });
+        continue;
+      }
+      const contentHash = await sha256(payload);
+      const attachmentId = `att-${contentHash.replace(/^sha256:/, '').slice(0, 16)}`;
+      attachments.byId[attachmentId] = {
+        attachmentId,
+        attachmentType: payload.attachmentType || 'unknown',
+        contentHash,
+        redacted: true,
+        eventRef: event.eventId,
+        data: payload.data || null
+      };
+    }
     const container = {
       schemaVersion: SCHEMA_VERSION,
       containerType: 'all-presets',
@@ -479,10 +509,10 @@
       },
       derivedViews,
       reports,
-      attachments: { byId: {}, omissions: [] },
+      attachments,
       exportAudit: {
         exportBoundary: { runSessionId, ledgerCompleteThroughSeq: ledgerEvents.length, frozenAt: exportedAt },
-        hashes: { ledger: ledgerHash, sharedConfig: sharedConfigHash, derivedViews: viewsHash, reports: reportsHash, attachments: await sha256({}) },
+        hashes: { ledger: ledgerHash, sharedConfig: sharedConfigHash, derivedViews: viewsHash, reports: reportsHash, attachments: await sha256(attachments) },
         schemaValidation: { valid: invariantViolations.length === 0, schemaVersion: SCHEMA_VERSION },
         invariantViolations,
         replay: {

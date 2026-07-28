@@ -162,7 +162,10 @@
         }
       }
       const events = [...base.events, event];
-      const companions = root.ProofTelemetryPolicy?.planCompanions?.(event, events) || [];
+      const companions = [
+        ...(root.ProofTelemetryPolicy?.planCompanions?.(event, events) || []),
+        ...(root.ProofTelemetryAudit?.planAfterEvent?.(event, events) || [])
+      ];
       companions.forEach((descriptor) => events.push(createCompanion(descriptor, event, events)));
       return {
         runSessionId: event.runSessionId,

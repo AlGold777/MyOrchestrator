@@ -18,6 +18,7 @@ describe('native proof telemetry ledger', () => {
     delete global.ProofTelemetryLedger;
     require('../shared/proof-oriented-telemetry.js');
     require('../shared/proof-telemetry-policy.js');
+    require('../shared/proof-telemetry-audit.js');
     require('../background/proof-telemetry-ledger.js');
   });
 
@@ -25,6 +26,7 @@ describe('native proof telemetry ledger', () => {
     delete global.chrome;
     delete global.ProofOrientedTelemetry;
     delete global.ProofTelemetryPolicy;
+    delete global.ProofTelemetryAudit;
     delete global.ProofTelemetryLedger;
   });
 
@@ -105,5 +107,46 @@ describe('native proof telemetry ledger', () => {
     expect(container.exportAudit.replay.valid).toBe(true);
     expect(container.exportAudit.replay.recordedDecisionHash)
       .toBe(container.exportAudit.replay.recomputedDecisionHash);
+  });
+
+  test('audits post-terminal growth and exports a privacy-safe forensic omission', async () => {
+    const meta = { runSessionId: 42, dispatchId: 'GPT:42:1', llmName: 'GPT' };
+    await global.ProofTelemetryLedger.record({ ts: 1000, label: 'FINALIZATION_DECISION', details: 'SUCCESS:accepted', meta }, 'GPT');
+    await global.ProofTelemetryLedger.record({
+      ts: 1100,
+      label: 'MODEL_FINAL',
+      details: 'SUCCESS',
+      meta: { ...meta, finalStatus: 'SUCCESS', answerLength: 100, answerHash: 'hash:a' }
+    }, 'GPT');
+    await global.ProofTelemetryLedger.record({
+      ts: 1500,
+      label: 'ANSWER_GENERATING',
+      meta: { ...meta, answerLength: 125, answerHash: 'hash:b' }
+    }, 'GPT');
+
+    const snapshot = await global.ProofTelemetryLedger.snapshot();
+    const audit = snapshot.events.find((event) => event.eventType === 'POST_TERMINAL_AUDIT_COMPLETED');
+    expect(audit.payload).toEqual(expect.objectContaining({
+      conclusion: 'contradicted',
+      growthChars: 25,
+      growthPct: 25,
+      hashChanged: true
+    }));
+    const forensic = snapshot.events.find((event) => event.eventType === 'SELECTOR_FORENSIC_SNAPSHOT_CAPTURED');
+    expect(forensic.payload.captureAvailable).toBe(false);
+
+    const container = await global.ProofOrientedTelemetry.buildAllPresets(snapshot.events, {
+      canonicalLedger: true,
+      runSessionId: 42,
+      exportedAt: 2000
+    });
+    expect(container.attachments.omissions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ anomalyTrigger: 'post_terminal_answer_change' })
+    ]));
+    expect(container.derivedViews['model-timeline'].data.GPT).toEqual(expect.objectContaining({
+      postTerminalAuditStatus: 'completed',
+      postTerminalAuditConclusion: 'contradicted',
+      postTerminalGrowthChars: 25
+    }));
   });
 });
