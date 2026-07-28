@@ -1,0 +1,211 @@
+# Finish plan: incident-oriented proof telemetry
+
+**Date:** 2026-08-28  
+**Primary metric:** maximum independently verifiable evidence completeness for
+one concrete incident. Compactness comes only from removing redundancy,
+rebuildable representation and evidence unrelated to that incident.
+
+Status markers are `Pending` and `Done`. An item becomes `Done` only after its
+implementation, tests, documentation and required commit are complete.
+
+## 1. Normative contracts
+
+1.1. Publish the Run Lifecycle Contract. - Done
+
+1.2. Publish the Clock Contract. - Done
+
+1.3. Publish this numbered implementation plan and completion gates. - Done
+
+## 2. Safety containment
+
+2.1. Prevent mismatched or late-run events from resetting the active ledger. - Pending
+
+2.2. Add bounded pending, quarantine and explicit detected-loss records. - Pending
+
+2.3. Remove generic completion-plus-verification promotion to T3; require a
+strong transition and current-dispatch identity. - Pending
+
+2.4. Remove standalone replay/schema attestation derived from hidden events. - Pending
+
+2.5. Make standalone output conform to its JSON Schema. - Pending
+
+2.6. Preserve applicable SYSTEM context under an explicit Platform filter. - Pending
+
+2.7. Unify signal-skew thresholds and replace optimistic observation defaults
+with unknown/degraded values. - Pending
+
+2.8. Add containment regressions and update version/documentation. - Pending
+
+## 3. Executable contracts and schema 6
+
+3.1. Create one executable report registry with typed evidence slots,
+criticality and sibling rules for all eight tasks. - Pending
+
+3.2. Add schema 6 event payload and clock definitions. - Pending
+
+3.3. Add typed accessors for submission, candidate identity, generation,
+completion, extraction and terminal facts. - Pending
+
+3.4. Make policy consume typed state rather than regex over legacy labels. - Pending
+
+3.5. Enforce strict run/model/dispatch/generation scope compatibility. - Pending
+
+3.6. Add registry/schema/policy conformance tests and update version/docs. - Pending
+
+## 4. Run lifecycle and clock runtime
+
+4.1. Implement append-only lifecycle events and non-reused run generations. - Pending
+
+4.2. Implement deterministic pending promotion, quarantine and worker-restart
+recovery. - Pending
+
+4.3. Implement collision-resistant event IDs and global ingestion ordering. - Pending
+
+4.4. Implement producer/background clock epochs and comparison helpers. - Pending
+
+4.5. Record per-signal check times, delivery delay and independent observation
+coverage. - Pending
+
+4.6. Close observation intervals on restart/navigation with degraded coverage. - Pending
+
+4.7. Add lifecycle/clock property and recovery tests; update version/docs. - Pending
+
+## 5. Typed transition emission
+
+5.1. Isolate legacy label mapping in one migration adapter. - Pending
+
+5.2. Emit typed canonical facts from runtime producers where available. - Pending
+
+5.3. Suppress no-op observations by incident/signal state instead of the last
+global event. - Pending
+
+5.4. Add immutable `OBSERVATION_INTERVAL_CLOSED` summaries and rare heartbeats. - Pending
+
+5.5. Emit inference companions only when inferred state changes. - Pending
+
+5.6. Remove envelope/static fields duplicated inside payload metadata. - Pending
+
+5.7. Add interleaved polling, mutation and restart tests; update version/docs. - Pending
+
+## 6. Incident index and evidence graph
+
+6.1. Index incidents by run/model/dispatch/generation/candidate and navigation
+lineage. - Pending
+
+6.2. Implement deterministic Platform + Task selection and record its reason
+and other matching incidents. - Pending
+
+6.3. Resolve critical, required, conditional and corroborating evidence slots. - Pending
+
+6.4. Build causal/correlation/evidence closure with SYSTEM context,
+decision/terminal lineage, contradictions and audit evidence. - Pending
+
+6.5. Attach `includedFor` provenance to every materialized event. - Pending
+
+6.6. Reject cross-dispatch, cross-generation and unproved navigation mixing. - Pending
+
+6.7. Add complete/bounded/insufficient and multi-incident tests; update
+version/docs. - Pending
+
+## 7. Standalone and All-presets builders
+
+7.1. Replace standalone-through-All-presets with a dedicated incident pipeline. - Pending
+
+7.2. Compute every state axis, summary and replay only from materialized closure. - Pending
+
+7.3. Add per-field `derivedFromEventIds` and derivation versions. - Pending
+
+7.4. Compute typed sufficiency, missing evidence, safe conclusions and blocked
+conclusions from evidence slots. - Pending
+
+7.5. Evaluate the normative sibling registry and anti-loop policy. - Pending
+
+7.6. Compose All-presets from one shared ledger/attachment store and embedded
+event references without duplicated events. - Pending
+
+7.7. Add artifact/semantic hashes and size-category accounting. - Pending
+
+7.8. Add all-eight-report replay-equivalence tests; update version/docs. - Pending
+
+## 8. Strict validator and representation optimizer
+
+8.1. Validate report/container/event JSON Schemas. - Pending
+
+8.2. Validate lifecycle, clock, scope and S01-S20 invariants. - Pending
+
+8.3. Rebuild derived fields and summary from materialized events and compare
+semantic hashes. - Pending
+
+8.4. Validate evidence slots, `includedFor`, registry hash, siblings,
+attachments and privacy. - Pending
+
+8.5. Apply overflow strategy only after sufficiency: remove rebuildable detail,
+deduplicate static context, externalize optional attachments and compress. - Pending
+
+8.6. Preserve core evidence and report explicit oversized/externalized status. - Pending
+
+8.7. Add tampering, overflow and minimality tests; update version/docs. - Pending
+
+## 9. Segmented persistence
+
+9.1. Add IndexedDB stores for lifecycle, canonical events, incidents,
+quarantine and attachments. - Pending
+
+9.2. Keep only the active pointer, compact manifest and feature flags in
+`chrome.storage.local`. - Pending
+
+9.3. Implement transactional append, indexes and incident-range reads. - Pending
+
+9.4. Implement crash/index recovery and quota-failure behavior. - Pending
+
+9.5. Make snapshots read only the records required by the selected run/incident. - Pending
+
+9.6. Add restart, durability and bounded-write tests; update version/docs. - Pending
+
+## 10. UI, cutover and final gate
+
+10.1. Keep exactly Platform and Tasks; show the selected incident, selection
+reason and other-match count without a third filter. - Pending
+
+10.2. Export separate isolated reports when multiple matching incidents are
+requested. - Pending
+
+10.3. Add feature-flagged shadow comparison against the previous builder. - Pending
+
+10.4. Run the scenario corpus and representative comparison runs. - Pending
+
+10.5. Cut over to incident builder/persistence and remove the legacy proof path. - Pending
+
+10.6. Synchronize versions, changelog, telemetry and project documentation. - Pending
+
+10.7. Run the complete regression gate, verify tag recoverability and mark
+every plan item Done. - Pending
+
+## 11. Final acceptance metrics
+
+11.1. Every report identifies exactly one incident scope. - Pending
+
+11.2. Every available critical/required slot is included or explicitly marked
+unavailable with impact. - Pending
+
+11.3. Every derived reference resolves inside standalone materialized events. - Pending
+
+11.4. Standalone replay reproduces recorded state and summary. - Pending
+
+11.5. Every included event has at least one `includedFor` reason. - Pending
+
+11.6. No cross-dispatch or cross-generation contamination exists. - Pending
+
+11.7. No no-op polling or duplicated static context is persisted. - Pending
+
+11.8. Uncertain clocks, missing observation and degraded coverage never become
+strong absence or automatic completion proof. - Pending
+
+11.9. Core evidence is never removed solely to satisfy a size target. - Pending
+
+11.10. JSON Schema, invariants, replay, registry, privacy and hashes validate. - Pending
+
+11.11. Late events, restarts and quota failures do not destroy active evidence. - Pending
+
+11.12. Exactly two telemetry filters remain in both result surfaces. - Pending
+
