@@ -1,5 +1,17 @@
 # CHANGELOG — Project
 
+### 2026-08-28 — Incident evidence graph, version 2.81.136
+
+- Added an incident index keyed by run generation, model, dispatch and
+  generation epoch, with candidate and navigation lineage.
+- Platform + Task deterministically select one incident and retain the reason
+  plus identifiers of other matching incidents.
+- Report contracts resolve critical/required/conditional slots and classify
+  evidence as complete, bounded or insufficient.
+- Evidence closure includes causal, correlation, decision, terminal, audit and
+  SYSTEM context; every materialized event records `includedFor` provenance.
+- Cross-dispatch and cross-generation edges are rejected as scope violations.
+
 ### 2026-08-28 — Typed transition telemetry, version 2.81.135
 
 - Canonical events persist typed facts; legacy label interpretation remains in

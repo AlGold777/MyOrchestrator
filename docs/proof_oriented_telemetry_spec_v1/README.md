@@ -11,6 +11,9 @@
 
 ## Статус реализации
 
+В версии `2.81.136` добавлены incident index, evidence-slot resolver и
+materialized closure с обязательным `includedFor` для каждого события.
+
 В версии `2.81.135` runtime сохраняет typed transitions, выполняет per-signal
 no-op suppression и закрывает observation intervals при navigation/restart.
 

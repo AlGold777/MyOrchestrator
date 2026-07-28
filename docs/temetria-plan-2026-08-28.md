@@ -90,22 +90,22 @@ global event. - Done
 ## 6. Incident index and evidence graph
 
 6.1. Index incidents by run/model/dispatch/generation/candidate and navigation
-lineage. - Pending
+lineage. - Done
 
 6.2. Implement deterministic Platform + Task selection and record its reason
-and other matching incidents. - Pending
+and other matching incidents. - Done
 
-6.3. Resolve critical, required, conditional and corroborating evidence slots. - Pending
+6.3. Resolve critical, required, conditional and corroborating evidence slots. - Done
 
 6.4. Build causal/correlation/evidence closure with SYSTEM context,
-decision/terminal lineage, contradictions and audit evidence. - Pending
+decision/terminal lineage, contradictions and audit evidence. - Done
 
-6.5. Attach `includedFor` provenance to every materialized event. - Pending
+6.5. Attach `includedFor` provenance to every materialized event. - Done
 
-6.6. Reject cross-dispatch, cross-generation and unproved navigation mixing. - Pending
+6.6. Reject cross-dispatch, cross-generation and unproved navigation mixing. - Done
 
 6.7. Add complete/bounded/insufficient and multi-incident tests; update
-version/docs. - Pending
+version/docs. - Done
 
 ## 7. Standalone and All-presets builders
 

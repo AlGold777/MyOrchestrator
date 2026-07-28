@@ -1,5 +1,19 @@
 # Telemetry - tab/session diagnostics
 
+## Incident evidence graph v2.81.136 - 2026-08-28
+
+Telemetry analysis is now indexed around one incident scope:
+`runGeneration + runSessionId + modelId + dispatchId + generationEpoch`.
+Candidate IDs and navigation lineage remain attached to that scope. Platform
+and Task select one deterministic incident and expose the reason and other
+matching incident count without adding another UI filter.
+
+The report registry resolves critical, required and conditional evidence
+slots. Materialization follows evidence, causal and correlation edges plus
+SYSTEM, decision, terminal, contradiction and audit context. Every copied event
+has one or more `includedFor` reasons; incompatible dispatch/generation edges
+are rejected rather than silently merged.
+
 ## Typed transition emission v2.81.135 - 2026-08-28
 
 Canonical records contain typed facts at ingestion. Polling deduplication is
