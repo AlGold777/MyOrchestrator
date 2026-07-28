@@ -409,6 +409,10 @@
   }
 
   function appendRecordToState(state, entry, llmName, options = {}) {
+    const normalizedSource = String(entry?.label || entry?.event || '').toUpperCase();
+    if (/SPA_NAVIGATION|DOCUMENT_REPLACED|NAVIGATION_COMMITTED/.test(normalizedSource)) {
+      closeIntervalsInState(state, 'navigation');
+    }
     ensureProducerEpoch(state, entry, llmName);
     const event = createEvent(entry, llmName, state, options);
     const producerSequence = event.clock?.producerSequence;

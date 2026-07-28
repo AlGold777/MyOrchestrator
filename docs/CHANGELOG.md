@@ -1,5 +1,16 @@
 # CHANGELOG — Project
 
+### 2026-08-28 — Typed transition telemetry, version 2.81.135
+
+- Canonical events persist typed facts; legacy label interpretation remains in
+  one migration adapter.
+- No-op suppression is keyed by incident and signal, so interleaved polling no
+  longer defeats deduplication; rare heartbeats summarize long quiet periods.
+- Observation intervals close immutably on navigation, restart and run close,
+  with explicit degraded coverage where continuity is unknown.
+- Inference companions are emitted only on state transitions and payload
+  metadata no longer repeats canonical envelope identity fields.
+
 ### 2026-08-28 — Proof lifecycle and clock runtime, version 2.81.134
 
 - Runtime events now use schema 6 with non-reused run generations, globally

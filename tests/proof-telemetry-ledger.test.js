@@ -167,6 +167,28 @@ describe('native proof telemetry ledger', () => {
     ]));
   });
 
+  test('suppresses per-signal no-ops across interleaved polling and closes on navigation', async () => {
+    await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
+    const meta = { runSessionId: 42, dispatchId: 'GPT:42:1', generationEpoch: 1 };
+    const generation = { ts: 1000, label: 'ANSWER_GENERATING', meta: { ...meta, textLength: 10 } };
+    await global.ProofTelemetryLedger.record(generation, 'GPT');
+    await global.ProofTelemetryLedger.record({ ts: 1010, label: 'LIFECYCLE_SNAPSHOT_ACCEPTED', meta }, 'GPT');
+    await global.ProofTelemetryLedger.record({ ...generation, ts: 1020 }, 'GPT');
+    await global.ProofTelemetryLedger.record({ ts: 1030, label: 'SPA_NAVIGATION', meta: { ...meta, navigationEpoch: 2 } }, 'GPT');
+    const snapshot = await global.ProofTelemetryLedger.snapshot();
+    expect(snapshot.events.filter((event) => event.payload?.sourceEventType === 'ANSWER_GENERATING')).toHaveLength(1);
+    expect(snapshot.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventType: 'OBSERVATION_INTERVAL_CLOSED',
+        payload: expect.objectContaining({ reason: 'navigation', coverage: 'degraded' })
+      })
+    ]));
+    const source = snapshot.events.find((event) => event.payload?.sourceEventType === 'ANSWER_GENERATING');
+    expect(source.payload.metadata).not.toHaveProperty('runSessionId');
+    expect(source.payload.metadata).not.toHaveProperty('dispatchId');
+    expect(source.payload.typed).toEqual(expect.objectContaining({ kind: 'generation', state: 'active' }));
+  });
+
   test('records policy, decision, override and terminal lineage explicitly', async () => {
     await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
     const meta = { runSessionId: 42, dispatchId: 'Grok:42:1', llmName: 'Grok' };

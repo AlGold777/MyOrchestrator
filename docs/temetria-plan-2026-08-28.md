@@ -72,20 +72,20 @@ coverage. - Done
 
 ## 5. Typed transition emission
 
-5.1. Isolate legacy label mapping in one migration adapter. - Pending
+5.1. Isolate legacy label mapping in one migration adapter. - Done
 
-5.2. Emit typed canonical facts from runtime producers where available. - Pending
+5.2. Emit typed canonical facts from runtime producers where available. - Done
 
 5.3. Suppress no-op observations by incident/signal state instead of the last
-global event. - Pending
+global event. - Done
 
-5.4. Add immutable `OBSERVATION_INTERVAL_CLOSED` summaries and rare heartbeats. - Pending
+5.4. Add immutable `OBSERVATION_INTERVAL_CLOSED` summaries and rare heartbeats. - Done
 
-5.5. Emit inference companions only when inferred state changes. - Pending
+5.5. Emit inference companions only when inferred state changes. - Done
 
-5.6. Remove envelope/static fields duplicated inside payload metadata. - Pending
+5.6. Remove envelope/static fields duplicated inside payload metadata. - Done
 
-5.7. Add interleaved polling, mutation and restart tests; update version/docs. - Pending
+5.7. Add interleaved polling, mutation and restart tests; update version/docs. - Done
 
 ## 6. Incident index and evidence graph
 

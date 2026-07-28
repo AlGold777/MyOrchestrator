@@ -1,5 +1,17 @@
 # Telemetry - tab/session diagnostics
 
+## Typed transition emission v2.81.135 - 2026-08-28
+
+Canonical records contain typed facts at ingestion. Polling deduplication is
+maintained independently for each run/model/dispatch/generation/signal, so a
+different signal between two equal samples does not cause the equal sample to
+be stored again. Long unchanged periods use bounded heartbeats.
+
+Navigation, worker restart and run closure produce immutable observation
+interval summaries. Derived inference is recorded only when its state changes;
+identity already present in the event envelope is removed from payload
+metadata.
+
 ## Run lifecycle and clock runtime v2.81.134 - 2026-08-28
 
 The background writer now persists schema 6 canonical events. Run order is

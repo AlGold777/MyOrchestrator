@@ -11,6 +11,9 @@
 
 ## Статус реализации
 
+В версии `2.81.135` runtime сохраняет typed transitions, выполняет per-signal
+no-op suppression и закрывает observation intervals при navigation/restart.
+
 В версии `2.81.134` runtime ledger переведён на schema 6: append-only lifecycle,
 non-reused run generations, global ingestion order, clock epochs, tri-state
 duration comparisons и degraded interval closure при worker restart.
