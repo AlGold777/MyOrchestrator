@@ -17,12 +17,14 @@ describe('native proof telemetry ledger', () => {
     delete global.ProofOrientedTelemetry;
     delete global.ProofTelemetryLedger;
     require('../shared/proof-oriented-telemetry.js');
+    require('../shared/proof-telemetry-policy.js');
     require('../background/proof-telemetry-ledger.js');
   });
 
   afterEach(() => {
     delete global.chrome;
     delete global.ProofOrientedTelemetry;
+    delete global.ProofTelemetryPolicy;
     delete global.ProofTelemetryLedger;
   });
 
@@ -41,13 +43,14 @@ describe('native proof telemetry ledger', () => {
     }, 'GPT');
 
     const snapshot = await global.ProofTelemetryLedger.snapshot({ runSessionId: 42 });
-    expect(snapshot.eventCount).toBe(2);
-    expect(snapshot.events.map((event) => event.seq)).toEqual([1, 2]);
+    expect(snapshot.eventCount).toBe(3);
+    expect(snapshot.events.map((event) => event.seq)).toEqual([1, 2, 3]);
     expect(snapshot.events.map((event) => event.eventType)).toEqual([
       'SUBMIT_ACTION_OBSERVED',
-      'SUBMISSION_EVIDENCE_CHANGED'
+      'SUBMISSION_EVIDENCE_CHANGED',
+      'SUBMISSION_INFERRED'
     ]);
-    expect(snapshot.events[1].monoMs).toBe(200);
+    expect(snapshot.events[2].monoMs).toBe(200);
     expect(snapshot.events.every((event) => event.schemaVersion === 5)).toBe(true);
   });
 
@@ -61,7 +64,7 @@ describe('native proof telemetry ledger', () => {
     await global.ProofTelemetryLedger.record(source, 'Claude');
     await global.ProofTelemetryLedger.record(source, 'Claude');
     const snapshot = await global.ProofTelemetryLedger.snapshot();
-    expect(snapshot.eventCount).toBe(1);
+    expect(snapshot.eventCount).toBe(2);
     expect(JSON.stringify(snapshot)).not.toContain('private answer');
     expect(snapshot.events[0].payload.metadata.answerLength).toBe(14);
   });
@@ -73,5 +76,34 @@ describe('native proof telemetry ledger', () => {
     expect(snapshot.runSessionId).toBe('2');
     expect(snapshot.eventCount).toBe(1);
     expect(snapshot.events[0].seq).toBe(1);
+  });
+
+  test('records policy, decision, override and terminal lineage explicitly', async () => {
+    const meta = { runSessionId: 42, dispatchId: 'Grok:42:1', llmName: 'Grok' };
+    await global.ProofTelemetryLedger.record({ ts: 1000, label: 'DISPATCH_SEND', meta }, 'Grok');
+    await global.ProofTelemetryLedger.record({ ts: 1100, label: 'PROMPT_SUBMITTED_ACCEPTED', meta }, 'Grok');
+    await global.ProofTelemetryLedger.record({ ts: 1200, label: 'ANSWER_START_DETECTED', meta: { ...meta, textLength: 10 } }, 'Grok');
+    await global.ProofTelemetryLedger.record({ ts: 2000, label: 'FINALIZATION_DECISION', details: 'SUCCESS:accepted', meta }, 'Grok');
+    await global.ProofTelemetryLedger.record({ ts: 2100, label: 'MODEL_FINAL', details: 'SUCCESS', meta: { ...meta, finalStatus: 'SUCCESS' } }, 'Grok');
+
+    const snapshot = await global.ProofTelemetryLedger.snapshot();
+    const policy = snapshot.events.find((event) => event.eventType === 'FINALIZATION_POLICY_EVALUATED');
+    const override = snapshot.events.find((event) => event.eventType === 'POLICY_OVERRIDE_APPLIED');
+    const decision = snapshot.events.find((event) => event.eventType === 'DECISION_RECORDED');
+    const terminal = snapshot.events.find((event) => event.eventType === 'MODEL_TERMINAL_RECORDED');
+    expect(policy).toBeTruthy();
+    expect(override.payload.mode).toBe('forced');
+    expect(decision.payload).toEqual(expect.objectContaining({ accepted: true, mode: 'forced' }));
+    expect(terminal.evidenceRefs).toContain(decision.eventId);
+    expect(terminal.payload.metadata.decisionId).toBe(decision.eventId);
+    expect(global.ProofTelemetryPolicy.replay(snapshot.events).invariantViolations).toEqual([]);
+    const container = await global.ProofOrientedTelemetry.buildAllPresets(snapshot.events, {
+      canonicalLedger: true,
+      runSessionId: 42,
+      exportedAt: 2200
+    });
+    expect(container.exportAudit.replay.valid).toBe(true);
+    expect(container.exportAudit.replay.recordedDecisionHash)
+      .toBe(container.exportAudit.replay.recomputedDecisionHash);
   });
 });

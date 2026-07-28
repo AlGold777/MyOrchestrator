@@ -55,7 +55,7 @@
     ANSWER_PARTIAL_ON_TIMEOUT: 'ANSWER_COMPLETENESS_EVALUATED',
     ANSWER_VERIFICATION_RECORDED: 'STRUCTURAL_VERIFICATION_EVALUATED',
     ANSWER_VERIFICATION_RESULT: 'STRUCTURAL_VERIFICATION_EVALUATED',
-    FINALIZATION_DECISION: 'DECISION_RECORDED',
+    FINALIZATION_DECISION: 'FINALIZATION_POLICY_EVALUATED',
     ROUND4_FORCE_FINAL: 'POLICY_OVERRIDE_APPLIED',
     AUTOMATION_DEADLINE_REACHED: 'TERMINAL_DEADLINE_REACHED',
     MODEL_FINAL: 'MODEL_TERMINAL_RECORDED',
@@ -404,7 +404,14 @@
       if (!byModel[event.modelId]) byModel[event.modelId] = [];
       byModel[event.modelId].push(event);
     });
-    const modelViews = Object.fromEntries(Object.entries(byModel).map(([modelId, events]) => [modelId, deriveModelView(modelId, events)]));
+    const replayResult = root.ProofTelemetryPolicy?.replay
+      ? root.ProofTelemetryPolicy.replay(ledgerEvents)
+      : null;
+    const modelViews = Object.fromEntries(Object.entries(byModel).map(([modelId, events]) => {
+      const view = deriveModelView(modelId, events);
+      if (replayResult?.models?.[modelId]?.stateAxes) view.stateAxes = replayResult.models[modelId].stateAxes;
+      return [modelId, view];
+    }));
     const registrySnapshot = { version: '1.0.0', predicateLanguageVersion: '1.0.0', maxEscalationDepth: 2, rules: SIBLING_RULES };
     const registryHash = await sha256(registrySnapshot);
     const sharedConfig = {
@@ -435,7 +442,12 @@
     const reports = buildReports(ledgerEvents, modelViews, ledgerHash, registryHash);
     const viewsHash = await sha256(derivedViews);
     const reportsHash = await sha256(reports);
-    const invariantViolations = validateLedger(ledgerEvents);
+    const invariantViolations = [
+      ...validateLedger(ledgerEvents),
+      ...(Array.isArray(replayResult?.invariantViolations) ? replayResult.invariantViolations : [])
+    ];
+    const recordedDecisionHash = replayResult ? await sha256(replayResult.recordedDecisions) : null;
+    const recomputedDecisionHash = replayResult ? await sha256(replayResult.recomputedDecisions) : null;
     const exportId = `export-${runSessionId}-${exportedAt}`;
     const container = {
       schemaVersion: SCHEMA_VERSION,
@@ -473,7 +485,11 @@
         hashes: { ledger: ledgerHash, sharedConfig: sharedConfigHash, derivedViews: viewsHash, reports: reportsHash, attachments: await sha256({}) },
         schemaValidation: { valid: invariantViolations.length === 0, schemaVersion: SCHEMA_VERSION },
         invariantViolations,
-        replay: { valid: invariantViolations.length === 0, recordedDecisionHash: null, recomputedDecisionHash: null },
+        replay: {
+          valid: invariantViolations.length === 0 && (!replayResult || recordedDecisionHash === recomputedDecisionHash),
+          recordedDecisionHash,
+          recomputedDecisionHash
+        },
         budget: { limitBytes: 1000000, measuredBytes: null, withinBudget: null },
         sourceCompatibility: options.canonicalLedger === true
           ? { mode: 'native-runtime-ledger', canonicalRuntimeEmissionPending: false }

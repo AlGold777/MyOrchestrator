@@ -1,5 +1,17 @@
 # CHANGELOG — Project
 
+### 2026-07-28 — Evidence policy and decision replay, version 2.81.127
+
+- Добавлен pure policy/replay engine с независимыми axes и evidence tiers T0–T4.
+- Runtime создаёт inference companions для submission/generation/completeness и
+  отдельные policy/decision/override события.
+- Forced SUCCESS больше не маскируется под inferred completion: waived rules и
+  residual risk сохраняются явно.
+- Terminal action связывается evidenceRefs с принятым decision; replay проверяет
+  S06/S07 и сравнивает recorded/recomputed SHA-256 decision hashes.
+- Добавлены сценарии timeout below T3, provider T4, missing lineage и forced
+  override с успешным deterministic replay.
+
 ### 2026-07-28 — Native proof telemetry ledger, version 2.81.126
 
 - Добавлен persistent append-only schema 5 ledger в background service worker.

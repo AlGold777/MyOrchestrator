@@ -1,5 +1,24 @@
 # Telemetry - tab/session diagnostics
 
+## Evidence policy and replay v2.81.127 - 2026-07-28
+
+`shared/proof-telemetry-policy.js` является чистым inference/policy engine для
+schema 5 ledger.
+
+- Submission и generation facts порождают отдельные `SUBMISSION_INFERRED` и
+  `GENERATION_STATE_INFERRED`, не изменяя исходный FACT.
+- Completion evidence классифицируется по T0–T4; timeout/stability/terminal
+  status сами по себе не повышают proof до T3.
+- Перед terminal action сохраняются `FINALIZATION_POLICY_EVALUATED` и
+  `DECISION_RECORDED` со всеми rules, blockers и evidence tier.
+- SUCCESS ниже automatic policy создаёт явный `POLICY_OVERRIDE_APPLIED` с
+  waived rules и residual risk; completion state при этом не переписывается.
+- `MODEL_TERMINAL_RECORDED` содержит `evidenceRefs` и `decisionId` принятого
+  решения. Replay проверяет S06/S07 lineage.
+- Export повторно вычисляет state axes и decision projections. SHA-256
+  `recordedDecisionHash` и `recomputedDecisionHash` должны совпасть, иначе
+  `exportAudit.replay.valid=false`.
+
 ## Native schema 5 ledger v2.81.126 - 2026-07-28
 
 Background runtime ведёт отдельный append-only ledger в

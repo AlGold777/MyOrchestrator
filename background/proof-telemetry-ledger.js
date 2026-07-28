@@ -50,6 +50,15 @@
     const modelId = String(llmName || entry?.platform || entry?.llmName || entry?.meta?.llmName || 'SYSTEM');
     const eventType = String(entry?.proofEventType || entry?.meta?.proofEventType || api.canonicalType(entry));
     const metadata = api.sanitizeValue(entry?.meta || {}, 'meta') || {};
+    const safeDetails = String(entry?.details || '');
+    if (eventType === 'FINALIZATION_POLICY_EVALUATED') {
+      if (/accepted/i.test(safeDetails)) metadata.decisionAccepted = true;
+      if (/rejected|blocked/i.test(safeDetails)) metadata.decisionAccepted = false;
+    }
+    if (eventType === 'MODEL_TERMINAL_RECORDED') {
+      const status = safeDetails.trim().split(/[\s|:]+/)[0].toUpperCase();
+      if (/^[A-Z][A-Z0-9_]{1,40}$/.test(status)) metadata.terminalStatus = status;
+    }
     const dispatchId = metadata.dispatchId || metadata.requestId || undefined;
     const firstWallTs = state.firstWallTs || wallTs;
     const sourceEventType = String(entry?.label || entry?.event || entry?.meta?.event || 'UNKNOWN')
@@ -92,6 +101,28 @@
     return event;
   }
 
+  function createCompanion(descriptor, sourceEvent, events) {
+    const seq = events.length + 1;
+    const eventType = String(descriptor.eventType);
+    return {
+      schemaVersion: 5,
+      eventId: `ev-${seq}-${proof().eventFingerprint(`${sourceEvent.runSessionId}|${sourceEvent.modelId}|${eventType}|${sourceEvent.eventId}|${seq}`)}`,
+      eventType,
+      layer: descriptor.layer || proof().layerFor(eventType),
+      seq,
+      wallTs: sourceEvent.wallTs,
+      monoMs: sourceEvent.monoMs,
+      runSessionId: sourceEvent.runSessionId,
+      modelId: sourceEvent.modelId,
+      ...(sourceEvent.dispatchId ? { dispatchId: sourceEvent.dispatchId } : {}),
+      ...(sourceEvent.generationEpoch !== undefined ? { generationEpoch: sourceEvent.generationEpoch } : {}),
+      ...(sourceEvent.tabId !== undefined ? { tabId: sourceEvent.tabId } : {}),
+      producer: { component: 'proof-inference-policy', version: 'proof-policy@1.0.0' },
+      payload: descriptor.payload || {},
+      evidenceRefs: Array.isArray(descriptor.evidenceRefs) ? descriptor.evidenceRefs.slice() : [sourceEvent.eventId]
+    };
+  }
+
   function record(entry = {}, llmName, options = {}) {
     return enqueue((state) => {
       const requestedRunId = resolveRunSessionId(entry, options.runSessionId || state.runSessionId);
@@ -103,7 +134,7 @@
       if (base.events.length >= MAX_EVENTS) return base;
       const event = createEvent(entry, llmName, base, options);
       if (!event) return base;
-      const previous = base.events[base.events.length - 1];
+      const previous = [...base.events].reverse().find((candidate) => candidate?.producer?.component !== 'proof-inference-policy');
       const previousComparable = previous ? {
         eventType: previous.eventType,
         modelId: previous.modelId,
@@ -119,10 +150,24 @@
       if (previousComparable && proof().stableStringify(previousComparable) === proof().stableStringify(nextComparable)) {
         return base;
       }
+      if (event.eventType === 'MODEL_TERMINAL_RECORDED') {
+        const decision = [...base.events].reverse().find((candidate) => (
+          candidate.eventType === 'DECISION_RECORDED'
+          && String(candidate.modelId) === String(event.modelId)
+          && (!candidate.dispatchId || !event.dispatchId || String(candidate.dispatchId) === String(event.dispatchId))
+        ));
+        if (decision) {
+          event.evidenceRefs = Array.from(new Set([...(event.evidenceRefs || []), decision.eventId]));
+          event.payload.metadata.decisionId = decision.eventId;
+        }
+      }
+      const events = [...base.events, event];
+      const companions = root.ProofTelemetryPolicy?.planCompanions?.(event, events) || [];
+      companions.forEach((descriptor) => events.push(createCompanion(descriptor, event, events)));
       return {
         runSessionId: event.runSessionId,
         firstWallTs: base.firstWallTs || event.wallTs,
-        events: [...base.events, event]
+        events
       };
     });
   }
