@@ -1,5 +1,16 @@
 # CHANGELOG — Project
 
+### 2026-07-28 — Offline proof telemetry validator, version 2.81.129
+
+- Добавлен CLI `npm run validate:telemetry -- <all-presets.json>`.
+- Validator проверяет ledger/report refs, hashes, atomic boundary, compatibility,
+  requestIf evaluations, privacy, budget и deterministic decision replay.
+- Поддержано восстановление независимых axes на произвольном `seq`.
+- Temporal replay теперь различает pause, same-length hash mutation, stale/prompt
+  echo/ambiguous candidates, throttling и selector degradation.
+- Добавлена сценарная матрица нормативных normal/anomaly/forced/active/replay
+  случаев спецификации.
+
 ### 2026-07-28 — Post-terminal audit and forensic triggers, version 2.81.128
 
 - Terminal boundary теперь явно отмечает pending post-terminal evidence.

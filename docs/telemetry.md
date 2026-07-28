@@ -1,5 +1,25 @@
 # Telemetry - tab/session diagnostics
 
+## Offline validator v2.81.129 - 2026-07-28
+
+Проверка экспортированного All-presets:
+
+```bash
+npm run validate:telemetry -- /path/to/telemetry.json
+```
+
+Validator проверяет container/schema 5, ledger sequence и evidenceRefs,
+terminal/decision/override lineage, восемь embedded reports, отсутствие
+materialized event copies, evaluated `requestIf`, cross-report boundary,
+section/container SHA-256 hashes, deterministic decision replay, privacy keys и
+фактический byte budget. Функция `reconstructAtSeq()` восстанавливает state axes
+на любой границе `seq`.
+
+Scenario tests охватывают normal completion, temporary pause, same-length hash
+change, stale baseline, prompt echo, multiple candidates, background throttling,
+selector failure, request-not-sent, generation-not-started, forced timeout,
+post-terminal growth, SPA navigation, active-run export и replay mismatch.
+
 ## Post-terminal audit and forensic omissions v2.81.128 - 2026-07-28
 
 `shared/proof-telemetry-audit.js` выполняет аудит наблюдений после terminal

@@ -47,7 +47,46 @@
   function deriveAxes(events, target = events[events.length - 1]) {
     const scoped = scopedEvents(events, target);
     const fallback = root.ProofOrientedTelemetry?.deriveAxes?.(scoped) || {};
-    return { ...fallback, completionEvidenceTier: evidenceTier(scoped, target) };
+    const latest = (pattern) => [...scoped].reverse().find((event) => pattern.test(`${event.eventType} ${sourceType(event)}`));
+    const latestGeneration = latest(/GENERATION_SIGNAL_CHANGED|ANSWER_GENERATING|ANSWER_TEXT_STABLE|ANSWER_COMPLETE_DETECTED|MODEL_TERMINAL_RECORDED|MODEL_FINAL/);
+    const generationSource = latestGeneration ? `${latestGeneration.eventType} ${sourceType(latestGeneration)}` : '';
+    const observedGeneration = /MODEL_TERMINAL|MODEL_FINAL|ANSWER_COMPLETE/.test(generationSource) ? 'inactive'
+      : /ANSWER_TEXT_STABLE/.test(generationSource) ? 'quiescent'
+        : /ANSWER_GENERATING|GENERATION_SIGNAL_CHANGED/.test(generationSource) ? 'active'
+          : fallback.observedGeneration;
+    const identity = has(scoped, /CANDIDATE.*AMBIGUOUS|MULTIPLE_CANDIDATES/) ? 'ambiguous'
+      : has(scoped, /STALE_BASELINE|CANDIDATE.*STALE/) ? 'stale'
+        : has(scoped, /PROMPT_ECHO_REJECTED|CANDIDATE.*REJECTED/) ? 'rejected'
+          : fallback.answerIdentity;
+    const frames = scoped.filter((event) => event.eventType === 'OBSERVATION_FRAME_CAPTURED');
+    const degradedFrame = frames.some((event) => {
+      const meta = event?.payload?.metadata || {};
+      return Number(meta.maximumSignalSkewMs || 0) > 1000
+        || meta.timerThrottlingSuspected === true
+        || meta.contentScriptAvailable === false
+        || meta.tabDiscarded === true;
+    });
+    const observerFailure = has(scoped, /FOCUS_STUCK|SCRIPT_HEALTH_FAIL|OBSERVER.*(FAIL|UNAVAILABLE)|BACKGROUND_THROTTL|SELECTOR.*(FAIL|MISS)/);
+    const textEvents = scoped.filter((event) => /TEXT_STATE_CHANGED|ANSWER_(GENERATING|TEXT_STABLE|LENGTH_DECREASED)|RESPONSE/.test(`${event.eventType} ${sourceType(event)}`));
+    let textEvolution = fallback.textEvolution;
+    if (textEvents.length >= 2) {
+      const previousMeta = textEvents[textEvents.length - 2]?.payload?.metadata || {};
+      const latestMeta = textEvents[textEvents.length - 1]?.payload?.metadata || {};
+      const previousLength = Number(previousMeta.textLength || previousMeta.answerLength || 0);
+      const latestLength = Number(latestMeta.textLength || latestMeta.answerLength || 0);
+      const previousHash = previousMeta.textHash || previousMeta.answerHash || null;
+      const latestHash = latestMeta.textHash || latestMeta.answerHash || null;
+      if (latestLength < previousLength) textEvolution = 'regressed';
+      else if (latestHash && previousHash && latestHash !== previousHash) textEvolution = 'changing';
+    }
+    return {
+      ...fallback,
+      answerIdentity: identity,
+      observedGeneration,
+      textEvolution,
+      observationReliability: degradedFrame || observerFailure ? 'degraded' : fallback.observationReliability,
+      completionEvidenceTier: evidenceTier(scoped, target)
+    };
   }
 
   function evaluateFinalization(events, target) {
