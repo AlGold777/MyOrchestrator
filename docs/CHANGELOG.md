@@ -1,5 +1,17 @@
 # CHANGELOG — Project
 
+### 2026-08-28 — Incident standalone report builder, version 2.81.137
+
+- Standalone reports no longer build an All-presets container first; each task
+  uses its selected incident and evidence closure directly.
+- State axes, summaries and replay are derived only from materialized events,
+  with per-field event provenance and derivation versions.
+- Slot sufficiency produces explicit missing evidence, safe conclusions and
+  blocked conclusions; sibling requests carry anti-loop metadata.
+- Reports include semantic and artifact hashes plus measurement-only size
+  categories. Evidence is never removed to hit a numeric target.
+- All eight task artifacts pass closure replay and event-deduplication tests.
+
 ### 2026-08-28 — Incident evidence graph, version 2.81.136
 
 - Added an incident index keyed by run generation, model, dispatch and

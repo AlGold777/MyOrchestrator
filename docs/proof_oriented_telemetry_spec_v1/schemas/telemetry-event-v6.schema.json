@@ -86,6 +86,12 @@
       "type": "array",
       "items": { "type": "string" },
       "uniqueItems": true
+    },
+    "includedFor": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1,
+      "uniqueItems": true
     }
   },
   "additionalProperties": false

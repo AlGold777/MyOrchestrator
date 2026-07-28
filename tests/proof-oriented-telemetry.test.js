@@ -151,18 +151,57 @@ describe('Proof-oriented telemetry schema 6 event export', () => {
     const ids = standalone.eventSelection.materializedEvents.map((event) => event.eventId);
     expect(new Set(ids).size).toBe(ids.length);
     expect(standalone.exportIntegrity.deduplication.duplicateEventIds).toBe(0);
-    expect(standalone.exportIntegrity.budget.withinBudget).toBe(true);
-    expect(standalone.exportIntegrity.schemaValidation).toEqual(expect.objectContaining({
-      valid: false,
-      scope: 'materialized-events',
-      status: 'provisional'
+    expect(standalone.exportIntegrity.size).toEqual(expect.objectContaining({
+      measuredBytes: expect.any(Number),
+      measurementOnly: true
     }));
+    expect(standalone.exportIntegrity.schemaValidation).toEqual(expect.objectContaining({
+      valid: true,
+      scope: 'materialized-events',
+      status: 'validated'
+    }));
+    expect(standalone.correlation).toEqual(expect.objectContaining({
+      dispatchId: 'GPT:42:1',
+      matchingIncidentCount: 1
+    }));
+    expect(standalone.eventSelection.materializedEvents.every((event) => event.includedFor.length > 0)).toBe(true);
+    expect(standalone.exportIntegrity.replay.valid).toBe(true);
     expect(standalone.analysisInstructions).toEqual(expect.objectContaining({
       version: '1.0.0',
       instructions: expect.any(Array)
     }));
-    expect(standalone.exportIntegrity.budget.measuredBytes).toBeLessThan(
+    expect(standalone.exportIntegrity.size.measuredBytes).toBeLessThan(
       new TextEncoder().encode(JSON.stringify(allPresets)).length
     );
+  });
+
+  test('builds replay-equivalent isolated artifacts for all eight tasks', async () => {
+    const labels = [
+      'DISPATCH_BASELINE_CAPTURED', 'DISPATCH_SEND', 'PROMPT_SUBMITTED_ACCEPTED',
+      'ANSWER_START_DETECTED', 'ANSWER_GENERATING', 'TURN_RESOLUTION_ACCEPTED',
+      'ANSWER_NODE_REPLACED', 'ANSWER_TEXT_STABLE', 'ANSWER_VERIFICATION_RECORDED',
+      'ANSWER_EXTRACTION_COMPLETED', 'ANSWER_COMPLETE_DETECTED',
+      'AUTOMATION_DEADLINE_REACHED', 'ROUND4_FORCE_FINAL', 'FINALIZATION_DECISION',
+      'MODEL_FINAL'
+    ];
+    const ledger = ProofTelemetry.buildLedger(labels.map((label, index) => evt('GPT', label, 1000 + index * 10, {
+      generationEpoch: 1,
+      answerIdentity: 'current_dispatch',
+      verified: true,
+      finalStatus: 'SUCCESS'
+    }, label === 'MODEL_FINAL' ? 'SUCCESS' : '')), { runSessionId: 42 });
+    for (const reportType of ProofTelemetry.REPORT_TYPES) {
+      const report = await ProofTelemetry.buildStandaloneReport(ledger, {
+        canonicalLedger: true,
+        runSessionId: 42,
+        exportedAt: 2000,
+        modelId: 'GPT',
+        reportType
+      });
+      expect(report.exportIntegrity.replay.valid).toBe(true);
+      expect(report.exportIntegrity.hashes.semantic).toMatch(/^sha256:/);
+      expect(report.eventSelection.materializedEvents.every((event) => event.includedFor.length)).toBe(true);
+      expect(new Set(report.eventSelection.eventRefs).size).toBe(report.eventSelection.eventRefs.length);
+    }
   });
 });

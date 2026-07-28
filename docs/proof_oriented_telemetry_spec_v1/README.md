@@ -11,6 +11,9 @@
 
 ## Статус реализации
 
+В версии `2.81.137` standalone reports строятся напрямую из одного incident
+closure; axes/replay имеют field provenance, а размер является measurement-only.
+
 В версии `2.81.136` добавлены incident index, evidence-slot resolver и
 materialized closure с обязательным `includedFor` для каждого события.
 

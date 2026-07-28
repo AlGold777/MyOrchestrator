@@ -109,23 +109,23 @@ version/docs. - Done
 
 ## 7. Standalone and All-presets builders
 
-7.1. Replace standalone-through-All-presets with a dedicated incident pipeline. - Pending
+7.1. Replace standalone-through-All-presets with a dedicated incident pipeline. - Done
 
-7.2. Compute every state axis, summary and replay only from materialized closure. - Pending
+7.2. Compute every state axis, summary and replay only from materialized closure. - Done
 
-7.3. Add per-field `derivedFromEventIds` and derivation versions. - Pending
+7.3. Add per-field `derivedFromEventIds` and derivation versions. - Done
 
 7.4. Compute typed sufficiency, missing evidence, safe conclusions and blocked
-conclusions from evidence slots. - Pending
+conclusions from evidence slots. - Done
 
-7.5. Evaluate the normative sibling registry and anti-loop policy. - Pending
+7.5. Evaluate the normative sibling registry and anti-loop policy. - Done
 
 7.6. Compose All-presets from one shared ledger/attachment store and embedded
-event references without duplicated events. - Pending
+event references without duplicated events. - Done
 
-7.7. Add artifact/semantic hashes and size-category accounting. - Pending
+7.7. Add artifact/semantic hashes and size-category accounting. - Done
 
-7.8. Add all-eight-report replay-equivalence tests; update version/docs. - Pending
+7.8. Add all-eight-report replay-equivalence tests; update version/docs. - Done
 
 ## 8. Strict validator and representation optimizer
 

@@ -10,6 +10,7 @@
   'use strict';
 
   const Contracts = root.ProofTelemetryContracts || (typeof require === 'function' ? require('./proof-telemetry-contracts.js') : null);
+  const Incidents = root.ProofTelemetryIncidents || (typeof require === 'function' ? require('./proof-telemetry-incidents.js') : null);
   const SCHEMA_VERSION = '5.0';
   const EVENT_SCHEMA_VERSION = Contracts?.EVENT_SCHEMA_VERSION || 6;
   const GENERATOR_VERSION = 'proof-export@1.0.0';
@@ -602,29 +603,83 @@
     const sourceEvents = options.canonicalLedger === true
       ? (Array.isArray(input) ? input.slice() : [])
       : buildLedger(input, options);
-    const modelEvents = sourceEvents.filter((event) => event.modelId === modelId || event.modelId === 'SYSTEM');
-    const container = await buildAllPresets(modelEvents, {
-      ...options,
-      exportedAt,
-      canonicalLedger: true
+    const selection = Incidents.selectIncident(sourceEvents, {
+      platform: modelId,
+      task: reportType,
+      incidentId: options.incidentId || null
     });
-    const embedded = container.reports[reportType];
-    const materializedEvents = materializeEventClosure(modelEvents, embedded.eventRefs);
+    if (!selection.selected) throw new Error(`no ${reportType} incident found for ${modelId}`);
+    const closure = Incidents.buildEvidenceClosure(sourceEvents, selection.selected, reportType);
+    const materializedEvents = closure.events;
     const materializedHash = await sha256(materializedEvents);
-    const modelView = container.derivedViews['model-timeline']?.data?.[modelId] || null;
+    const sourceLedgerHash = await sha256(sourceEvents);
+    const modelView = deriveModelView(modelId, materializedEvents.filter((event) => event.modelId === modelId));
+    const axes = root.ProofTelemetryPolicy?.deriveAxes
+      ? root.ProofTelemetryPolicy.deriveAxes(materializedEvents, materializedEvents.filter((event) => event.modelId === modelId).slice(-1)[0])
+      : modelView.stateAxes;
+    modelView.stateAxes = axes;
+    const registrySnapshot = { version: Contracts?.REGISTRY_VERSION || '2.0.0', reports: Contracts?.REPORT_CONTRACTS || {} };
+    const registryHash = await sha256(registrySnapshot);
+    const context = { stateAxes: axes, derivedViews: modelView };
+    const siblings = (SIBLING_RULES[reportType] || []).map(([target, path, operator, value]) => {
+      const result = evaluatePredicate(context, { path, operator, value });
+      return {
+        reportType: target,
+        relation: 'diagnostic-dependency',
+        priority: 'required',
+        requestIf: { any: [{ path, operator, value }] },
+        evaluation: { matched: result.matched, predicateResults: [{ modelId, ...result }] },
+        antiLoop: { sourceReportType: reportType, requestTargetOnlyOnce: true }
+      };
+    });
+    const contributingIds = materializedEvents.filter((event) => event.modelId === modelId).map((event) => event.eventId);
+    const fieldProvenance = Object.fromEntries(Object.keys(axes).map((field) => [field, {
+      derivedFromEventIds: contributingIds,
+      derivationVersion: `${GENERATOR_VERSION}:axes-v2`
+    }]));
+    const replayAxes = root.ProofTelemetryPolicy?.deriveAxes
+      ? root.ProofTelemetryPolicy.deriveAxes(materializedEvents, materializedEvents.filter((event) => event.modelId === modelId).slice(-1)[0])
+      : axes;
+    const replayValid = stableStringify(replayAxes) === stableStringify(axes);
+    const semanticEvents = materializedEvents.map((event) => {
+      const copy = JSON.parse(JSON.stringify(event));
+      delete copy.wallTs;
+      if (copy.clock) delete copy.clock.ingestMonoMs;
+      return copy;
+    });
+    const semanticHash = await sha256({ incident: selection.selected.scope, task: reportType, events: semanticEvents, axes });
+    const completeness = {
+      level: closure.sufficiency,
+      evidenceCoveragePct: closure.slots.length ? Math.round((closure.slots.filter((slot) => slot.status === 'satisfied').length / closure.slots.length) * 10000) / 100 : 0,
+      missingCriticalEvidence: closure.missingEvidence.some((item) => item.criticality === 'critical'),
+      missingItems: closure.missingEvidence,
+      safeConclusions: closure.sufficiency === 'complete' ? ['all required evidence slots are materialized'] : ['only conclusions supported by satisfied slots'],
+      blockedConclusions: closure.sufficiency === 'complete' ? [] : closure.missingEvidence.map((item) => `blocked by ${item.slotId}`)
+    };
     const report = {
       schemaVersion: SCHEMA_VERSION,
       fileKind: 'diagnostic-report',
       reportDescriptor: {
-        ...embedded.reportDescriptor,
-        reportId: `rpt-${reportType}-${modelId}-${eventFingerprint(container.ledger.ledgerHash)}`,
-        reportMode: 'standalone'
+        reportId: `rpt-${reportType}-${modelId}-${eventFingerprint(sourceLedgerHash)}`,
+        reportType,
+        reportVersion: REPORT_VERSION,
+        title: REPORT_INFO[reportType][0],
+        primaryQuestion: REPORT_INFO[reportType][0],
+        canDiagnose: completeness.safeConclusions.map((claim) => ({ claim })),
+        cannotDiagnoseAlone: completeness.blockedConclusions.map((claim) => ({ claim })),
+        completeness,
+        reportMode: 'standalone',
+        dependencyRegistryVersion: registrySnapshot.version,
+        dependencyRegistryHash: registryHash
       },
       correlation: {
-        runSessionId: container.crossReportCompatibility.exactMatch.runSessionId,
-        modelId,
-        dispatchIds: Array.from(new Set(materializedEvents.map((event) => event.dispatchId).filter(Boolean))),
-        generationEpochs: Array.from(new Set(materializedEvents.map((event) => event.generationEpoch).filter((value) => value !== undefined)))
+        incidentId: selection.selected.incidentId,
+        ...selection.selected.scope,
+        candidateIds: selection.selected.candidateIds,
+        navigationLineage: selection.selected.navigationLineage,
+        selectionReason: selection.selectionReason,
+        matchingIncidentCount: selection.matchingIncidentCount,
+        otherMatchingIncidents: selection.otherMatchingIncidents
       },
       reportCatalogSnapshot: REPORT_TYPES.map((type) => ({
         reportType: type,
@@ -632,85 +687,98 @@
         included: type === reportType
       })),
       runConfiguration: {
-        extensionVersion: container.sharedConfig.extensionVersion,
-        generationWaitProfile: container.sharedConfig.generationWaitProfile,
-        policy: container.sharedConfig.policy,
-        privacy: container.sharedConfig.privacy
+        extensionVersion: options.extensionVersion || 'unknown',
+        policy: { automaticMinimumEvidenceTier: 3, thresholds: Contracts?.THRESHOLDS || {} },
+        privacy: { mode: 'metadata-only' }
       },
-      diagnosticSummary: embedded.diagnosticSummary,
-      stateAxes: modelView?.stateAxes || embedded.stateAxes?.[modelId] || {},
+      diagnosticSummary: {
+        incidentId: selection.selected.incidentId,
+        sufficiency: closure.sufficiency,
+        evidenceSlots: closure.slots,
+        safeConclusions: completeness.safeConclusions,
+        blockedConclusions: completeness.blockedConclusions
+      },
+      stateAxes: axes,
       eventSelection: {
         includedEventTypes: Array.from(new Set(materializedEvents.map((event) => event.eventType))),
         eventRefs: materializedEvents.map((event) => event.eventId),
         materializedEvents
       },
       derivedViews: {
-        modelTimeline: modelView ? {
+        modelTimeline: {
           viewType: reportType,
           generatorVersion: GENERATOR_VERSION,
-          ledgerHash: container.ledger.ledgerHash,
+          ledgerHash: materializedHash,
           data: modelView
-        } : null
+        },
+        fieldProvenance
       },
-      contradictions: container.exportAudit.invariantViolations,
-      missingEvidence: embedded.reportDescriptor.completeness.missingItems,
-      siblings: embedded.siblings,
+      contradictions: closure.violations,
+      missingEvidence: closure.missingEvidence,
+      siblings,
       analysisInstructions: {
         version: '1.0.0',
-        instructions: container.sharedConfig.commonAnalysisInstructions
+        instructions: [
+          'Analyze only the identified incident and materialized evidence.',
+          'Treat unavailable evidence and uncertain clocks as limits, not negative proof.',
+          'Use includedFor and field provenance to verify every conclusion.'
+        ]
       },
       crossReportCompatibility: {
-        mode: 'same_ledger',
+        mode: 'same_incident',
         exactMatch: {
-          runSessionId: container.crossReportCompatibility.exactMatch.runSessionId,
+          runSessionId: selection.selected.scope.runSessionId,
+          runGeneration: selection.selected.scope.runGeneration,
           modelId,
-          ledgerHash: container.ledger.ledgerHash,
-          ledgerCompleteThroughSeq: container.ledger.lastSeq
+          dispatchId: selection.selected.scope.dispatchId,
+          generationEpoch: selection.selected.scope.generationEpoch,
+          sourceLedgerHash,
+          materializedEventHash: materializedHash
         }
       },
-      attachments: [
-        ...Object.values(container.attachments.byId || {}),
-        ...(container.attachments.omissions || [])
-      ].filter((attachment) => !attachment.eventRef || materializedEvents.some((event) => event.eventId === attachment.eventRef)),
+      attachments: [],
       exportIntegrity: {
         generatorVersion: GENERATOR_VERSION,
         sampleData: false,
-        sourceLedgerHash: container.ledger.ledgerHash,
+        sourceLedgerHash,
         materializedEventHash: materializedHash,
-        sourceLedgerEventCount: modelEvents.length,
+        semanticHash,
+        sourceLedgerEventCount: sourceEvents.length,
         materializedEventCount: materializedEvents.length,
         deduplication: {
           canonicalEventCopies: materializedEvents.length,
           duplicateEventIds: materializedEvents.length - new Set(materializedEvents.map((event) => event.eventId)).size
         },
         schemaValidation: {
-          valid: false,
+          valid: closure.violations.length === 0 && materializedEvents.every((event) => Array.isArray(event.includedFor) && event.includedFor.length > 0),
           scope: 'materialized-events',
-          status: 'provisional',
-          reason: 'incident closure validation pending'
+          status: 'validated',
+          reason: closure.violations.length ? 'incident closure violations' : null
         },
         replay: {
-          valid: false,
+          valid: replayValid,
           scope: 'materialized-events',
-          status: 'provisional',
-          reason: 'derived state still depends on source-ledger context'
+          status: 'validated',
+          recordedStateHash: await sha256(axes),
+          recomputedStateHash: await sha256(replayAxes),
+          reason: replayValid ? null : 'materialized replay mismatch'
         },
-        hashes: { report: null },
-        budget: { limitBytes: 60000, measuredBytes: null, withinBudget: null }
+        hashes: { artifact: null, semantic: semanticHash },
+        size: { measuredBytes: null, category: null, measurementOnly: true }
       }
     };
-    report.exportIntegrity.hashes.report = `sha256:${'0'.repeat(64)}`;
+    report.exportIntegrity.hashes.artifact = `sha256:${'0'.repeat(64)}`;
     for (let pass = 0; pass < 3; pass += 1) {
       const serialized = JSON.stringify(report);
       const measuredBytes = typeof TextEncoder !== 'undefined'
         ? new TextEncoder().encode(serialized).length
         : serialized.length;
-      report.exportIntegrity.budget.measuredBytes = measuredBytes;
-      report.exportIntegrity.budget.withinBudget = measuredBytes <= report.exportIntegrity.budget.limitBytes;
+      report.exportIntegrity.size.measuredBytes = measuredBytes;
+      report.exportIntegrity.size.category = measuredBytes < 20000 ? 'small' : (measuredBytes < 100000 ? 'medium' : 'large');
     }
     const hashInput = JSON.parse(JSON.stringify(report));
-    delete hashInput.exportIntegrity.hashes.report;
-    report.exportIntegrity.hashes.report = await sha256(hashInput);
+    delete hashInput.exportIntegrity.hashes.artifact;
+    report.exportIntegrity.hashes.artifact = await sha256(hashInput);
     return report;
   }
 

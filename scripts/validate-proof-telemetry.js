@@ -125,12 +125,20 @@ async function validateStandaloneReport(report) {
   const materializedHash = await ProofTelemetry.sha256(events);
   if (report?.exportIntegrity?.materializedEventHash !== materializedHash) addError('HASH_MISMATCH', 'materialized event hash mismatch');
   const hashInput = JSON.parse(JSON.stringify(report));
-  if (hashInput?.exportIntegrity?.hashes) delete hashInput.exportIntegrity.hashes.report;
+  if (hashInput?.exportIntegrity?.hashes) {
+    if ('artifact' in hashInput.exportIntegrity.hashes) delete hashInput.exportIntegrity.hashes.artifact;
+    else delete hashInput.exportIntegrity.hashes.report;
+  }
   const reportHash = await ProofTelemetry.sha256(hashInput);
-  if (report?.exportIntegrity?.hashes?.report !== reportHash) addError('HASH_MISMATCH', 'report hash mismatch');
+  const recordedArtifactHash = report?.exportIntegrity?.hashes?.artifact || report?.exportIntegrity?.hashes?.report;
+  if (recordedArtifactHash !== reportHash) addError('HASH_MISMATCH', 'report hash mismatch');
   const measuredBytes = byteLength(report);
-  if (Number(report?.exportIntegrity?.budget?.measuredBytes || 0) !== measuredBytes) addError('SIZE_MISMATCH', 'recorded measuredBytes differs from serialized size');
-  if (measuredBytes > Number(report?.exportIntegrity?.budget?.limitBytes || 0)) warnings.push({ code: 'SIZE_BUDGET_EXCEEDED', measuredBytes });
+  const recordedSize = report?.exportIntegrity?.size?.measuredBytes ?? report?.exportIntegrity?.budget?.measuredBytes;
+  if (Number(recordedSize || 0) !== measuredBytes) addError('SIZE_MISMATCH', 'recorded measuredBytes differs from serialized size');
+  if (report?.exportIntegrity?.budget?.limitBytes && measuredBytes > Number(report.exportIntegrity.budget.limitBytes)) warnings.push({ code: 'SIZE_BUDGET_EXCEEDED', measuredBytes });
+  events.forEach((event) => {
+    if (!Array.isArray(event.includedFor) || event.includedFor.length === 0) addError('INCLUDED_FOR_MISSING', `event ${event.eventId} has no inclusion reason`);
+  });
   privacyViolations(report).forEach((violation) => addError(violation.code, `forbidden privacy key at ${violation.path}`));
   return { valid: errors.length === 0, errors, warnings, reconstructedAxes: reconstructAtSeq(events, events[events.length - 1]?.seq || 0) };
 }

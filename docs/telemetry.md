@@ -1,5 +1,18 @@
 # Telemetry - tab/session diagnostics
 
+## Incident standalone reports v2.81.137 - 2026-08-28
+
+A selected Task now invokes a dedicated incident builder. It does not create a
+large All-presets artifact as an intermediate representation. Every state axis,
+summary and replay result is rebuilt from the materialized closure in the file;
+field provenance lists its source event IDs and derivation version.
+
+Completeness is evidence-slot based (`complete`, `bounded`, `insufficient`).
+Missing slots state their impact, while safe and blocked conclusions remain
+separate. Artifact and semantic hashes are recorded independently. File size is
+reported as a category for operational visibility, never used to discard core
+evidence. All-presets remains a deduplicated shared-ledger composition.
+
 ## Incident evidence graph v2.81.136 - 2026-08-28
 
 Telemetry analysis is now indexed around one incident scope:
