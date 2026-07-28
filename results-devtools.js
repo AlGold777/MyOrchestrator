@@ -1130,6 +1130,19 @@
             resolve([]);
         }
     });
+    const requestProofTelemetrySnapshot = (runSessionId = null) => new Promise((resolve) => {
+        try {
+            chrome.runtime.sendMessage({ type: 'GET_PROOF_TELEMETRY_SNAPSHOT', runSessionId }, (resp) => {
+                if (chrome.runtime.lastError || !resp?.success || !Array.isArray(resp.events)) {
+                    resolve(null);
+                    return;
+                }
+                resolve(resp);
+            });
+        } catch (_) {
+            resolve(null);
+        }
+    });
     const requestTelemetryRunSummary = () => new Promise((resolve) => {
         try {
             chrome.runtime.sendMessage({ type: 'GET_RUN_OUTCOME_SUMMARY' }, (resp) => {
@@ -1166,6 +1179,7 @@
                 requestTelemetryExportSnapshot(2000),
                 requestTelemetryRunSummary()
             ]);
+            const proofSnapshot = await requestProofTelemetrySnapshot(runOutcomeSummary?.runSessionId || null);
             const completeSnapshot = mergeTelemetrySnapshotEvents(
                 persistedEvents,
                 telemetryCache,
@@ -1213,13 +1227,18 @@
             // the legacy view, then materialize one canonical ledger and eight
             // embedded reports. Legacy groups remain an input adapter only and
             // are deliberately not duplicated in the downloaded container.
+            const nativeLedgerAvailable = Boolean(proofSnapshot?.events?.length);
             const payload = window.ProofOrientedTelemetry?.buildAllPresets
-                ? await window.ProofOrientedTelemetry.buildAllPresets(grouped, {
+                ? await window.ProofOrientedTelemetry.buildAllPresets(
+                    nativeLedgerAvailable ? proofSnapshot.events : grouped,
+                    {
                     runSessionId: resolveCurrentRunSessionId(sourceEvents),
                     exportedAt: Date.now(),
                     extensionVersion: chrome?.runtime?.getManifest?.().version || 'unknown',
-                    legacyExportMeta: exportMeta
-                })
+                    legacyExportMeta: exportMeta,
+                    canonicalLedger: nativeLedgerAvailable
+                    }
+                )
                 : { ...exportMeta, ...grouped };
             // Written without indentation on purpose: this export is read by
             // analysis tooling, not by eye, and pretty-printing a few hundred

@@ -16,6 +16,7 @@ const EXTENSION_VOLATILE_LOCAL_KEYS = [
   'llmTabMap',
   'jobState',
   '__diagnostics_events__',
+  '__proof_telemetry_ledger_v5__',
   'llmComparatorSelectedModelsByView.main',
   'llmComparatorSelectedModelsByView.pipeline',
   'llmComparatorCrossViewUiState'
@@ -193,12 +194,14 @@ importScripts(
   '../shared/visit-policy.js',
   '../shared/pipeline-fsm.js',
   '../shared/telemetry-meta-delta.js',
+  '../shared/proof-oriented-telemetry.js',
   // disput/* модули загружаются только страницами UI (result_new.html,
   // pipeline_panel.html): фоновый слой не знает про Speaker/роли/очерёдность,
   // и это инвариант транспорта (см. docs/graph-mode/AUDIT_REPORT.md).
   'shared-state.js',
   'llm-targets.js',
   'b1-skeleton-collector.js',
+  'proof-telemetry-ledger.js',
   'telemetry-logs.js',
   'human-presence.js',
   'rate-limit.js',

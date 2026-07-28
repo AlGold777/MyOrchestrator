@@ -1,5 +1,28 @@
 # Telemetry - tab/session diagnostics
 
+## Native schema 5 ledger v2.81.126 - 2026-07-28
+
+Background runtime ведёт отдельный append-only ledger в
+`__proof_telemetry_ledger_v5__`. Запись выполняется до legacy sampling и до
+подавления post-terminal noise, поэтому отсутствие строки в старом UI-журнале
+не интерпретируется как отсутствие факта.
+
+- Каждое событие получает immutable envelope schema 5, монотонный `seq`,
+  уникальный `eventId`, `wallTs`, run-relative `monoMs`, correlation IDs,
+  producer и явный layer.
+- Записи сериализованы одной mutation chain; export snapshot ждёт завершения
+  ранее поставленных append-операций и фиксирует единый boundary.
+- При новом run ledger начинается заново; extension update и ручной Clear также
+  очищают persistent ledger.
+- Exact consecutive no-op events подавляются до persistence.
+- Canonical payload проходит metadata-only sanitization до записи.
+- JSON export сначала запрашивает `GET_PROOF_TELEMETRY_SNAPSHOT` и строит
+  All-presets непосредственно из нативных envelopes. Legacy diagnostics
+  используются только как fallback, если native ledger пуст или недоступен.
+
+Для native export `exportAudit.sourceCompatibility.mode` равен
+`native-runtime-ledger`, а `canonicalRuntimeEmissionPending=false`.
+
 ## Telemetry filters v2.81.125 - 2026-07-28
 
 В toolbar вкладки Telemetry оставлены ровно два фильтра:

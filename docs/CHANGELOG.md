@@ -1,5 +1,18 @@
 # CHANGELOG — Project
 
+### 2026-07-28 — Native proof telemetry ledger, version 2.81.126
+
+- Добавлен persistent append-only schema 5 ledger в background service worker.
+- Canonical события записываются до legacy sampling/post-terminal suppression,
+  получают seq/eventId/monoMs/correlation envelope и проходят privacy sanitizer.
+- Storage append и export snapshot используют одну mutation chain; новый run,
+  Clear и extension update очищают ledger по явной границе.
+- All-presets export читает native ledger через
+  `GET_PROOF_TELEMETRY_SNAPSHOT`; legacy runtime adapter оставлен только как
+  fallback для миграционной совместимости.
+- Добавлены тесты persistence, monotonic sequence, no-op suppression, privacy,
+  run rotation и native export source-of-truth.
+
 ### 2026-07-28 — Two-filter Telemetry toolbar, version 2.81.125
 
 - В окне Telemetry оставлены ровно два фильтра: `Platform` и `Tasks`.

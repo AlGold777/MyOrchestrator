@@ -1463,6 +1463,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
                     try {
                         await writeDiagnosticsEventsToStorage([]);
+                        await self.ProofTelemetryLedger?.clear?.(null);
                         clearDiagnosticsRuntimeLogs();
                     } catch (err) {
                         console.warn('[DIAGNOSTICS] new run clear failed', err);
@@ -3377,6 +3378,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                             source: sourceEvent.source || sender?.url || sender?.tab?.url || null,
                             meta
                         });
+                        await self.ProofTelemetryLedger?.record?.(evt, llmName || platform || 'SYSTEM', {
+                            runSessionId: meta.runSessionId || currentRunSessionId || null,
+                            producerComponent: 'content-script-diagnostic'
+                        });
                         const appendEvent = (arr) => {
                             let next = diagTrimDiagnosticsBuffer(
                                 [...arr, evt],
@@ -3490,10 +3495,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 return true;
             }
 
+            case 'GET_PROOF_TELEMETRY_SNAPSHOT': {
+                (async () => {
+                    try {
+                        const snapshot = await self.ProofTelemetryLedger?.snapshot?.({
+                            runSessionId: message?.runSessionId || null
+                        });
+                        if (!snapshot) {
+                            sendResponse({ success: false, error: 'proof_telemetry_ledger_unavailable' });
+                            return;
+                        }
+                        sendResponse({ success: true, ...snapshot });
+                    } catch (err) {
+                        sendResponse({ success: false, error: err?.message || String(err) });
+                    }
+                })();
+                return true;
+            }
+
             case 'CLEAR_DIAG_EVENTS': {
                 (async () => {
                     try {
                         await writeDiagnosticsEventsToStorage([]);
+                        await self.ProofTelemetryLedger?.clear?.(null);
                         const runtimeCleared = clearDiagnosticsRuntimeLogs();
                         sendResponse({ success: true, runtimeCleared });
                     } catch (err) {

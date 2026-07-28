@@ -87,4 +87,20 @@ describe('Proof-oriented telemetry schema 5 export', () => {
       { path: '$.derivedViews.completionEvidenceTier', operator: 'lt', value: 3 }
     )).toEqual(expect.objectContaining({ observedValue: 1, matched: true }));
   });
+
+  test('uses a native canonical ledger without legacy rematerialization', async () => {
+    const ledger = ProofTelemetry.buildLedger([
+      evt('GPT', 'MODEL_FINAL', 1000, { finalStatus: 'SUCCESS' })
+    ], { runSessionId: 42 });
+    const container = await ProofTelemetry.buildAllPresets(ledger, {
+      runSessionId: 42,
+      exportedAt: 2000,
+      canonicalLedger: true
+    });
+    expect(container.ledger.events).toEqual(ledger);
+    expect(container.exportAudit.sourceCompatibility).toEqual({
+      mode: 'native-runtime-ledger',
+      canonicalRuntimeEmissionPending: false
+    });
+  });
 });

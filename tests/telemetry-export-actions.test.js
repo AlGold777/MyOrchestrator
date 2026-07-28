@@ -44,6 +44,8 @@ describe('Telemetry export actions', () => {
     expect(html).toContain('src="shared/proof-oriented-telemetry.js"');
     expect(pipelineHtml).toContain('src="shared/proof-oriented-telemetry.js"');
     expect(devtoolsSource).toContain('window.ProofOrientedTelemetry.buildAllPresets');
+    expect(devtoolsSource).toContain("type: 'GET_PROOF_TELEMETRY_SNAPSHOT'");
+    expect(devtoolsSource).toContain('canonicalLedger: nativeLedgerAvailable');
   });
 
   test('Disput JSON download icon precedes the textual MD export', () => {

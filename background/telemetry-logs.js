@@ -577,6 +577,13 @@ async function persistDiagnosticEvent(llmName, entry = {}, { sender, source } = 
 function dispatchTelemetry(llmName, entry = {}, { sender, source, force = false } = {}) {
   if (!entry) return null;
   const normalized = normalizeTelemetryEntry(entry, llmName);
+  // The schema 5 ledger is the unsampled source of truth. Record before legacy
+  // post-terminal suppression and UI sampling so audits can see late changes
+  // and absence of a legacy row never becomes absence of evidence.
+  self.ProofTelemetryLedger?.record?.(normalized, llmName, {
+    runSessionId: normalized.meta?.runSessionId || jobState?.session?.startTime || null,
+    producerComponent: source || normalized.type || 'background-telemetry'
+  }).catch((err) => console.warn('[proof-telemetry] append failed', err));
   const runEntry = jobState?.llms?.[llmName];
   if (runEntry && self.AnswerVerification?.appendTimeline) {
     const label = String(normalized.label || '').toUpperCase();

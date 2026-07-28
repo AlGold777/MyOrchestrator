@@ -394,7 +394,9 @@
 
   async function buildAllPresets(input, options = {}) {
     const exportedAt = Number(options.exportedAt || Date.now());
-    const ledgerEvents = buildLedger(input, { ...options, exportedAt });
+    const ledgerEvents = options.canonicalLedger === true
+      ? (Array.isArray(input) ? input.slice() : []).sort((left, right) => Number(left?.seq || 0) - Number(right?.seq || 0))
+      : buildLedger(input, { ...options, exportedAt });
     const ledgerHash = await sha256(ledgerEvents);
     const runSessionId = ledgerEvents[0]?.runSessionId || String(options.runSessionId || `export-${exportedAt}`);
     const byModel = {};
@@ -473,7 +475,9 @@
         invariantViolations,
         replay: { valid: invariantViolations.length === 0, recordedDecisionHash: null, recomputedDecisionHash: null },
         budget: { limitBytes: 1000000, measuredBytes: null, withinBudget: null },
-        sourceCompatibility: { mode: 'legacy-runtime-adapter', canonicalRuntimeEmissionPending: true }
+        sourceCompatibility: options.canonicalLedger === true
+          ? { mode: 'native-runtime-ledger', canonicalRuntimeEmissionPending: false }
+          : { mode: 'legacy-runtime-adapter', canonicalRuntimeEmissionPending: true }
       }
     };
     // Stabilize the byte count with a fixed-width hash placeholder. The final
@@ -501,6 +505,10 @@
     REPORT_TYPES,
     stableStringify,
     sha256,
+    canonicalType,
+    layerFor,
+    sanitizeValue,
+    eventFingerprint,
     buildLedger,
     deriveAxes,
     deriveModelView,
