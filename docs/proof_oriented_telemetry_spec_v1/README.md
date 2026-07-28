@@ -11,6 +11,9 @@
 
 ## Статус реализации
 
+В версии `2.81.141` zero-match Task больше не блокирует export: создаётся
+валидный `insufficient` report с incident anchor и explicit missing slots.
+
 Версия `2.81.140` завершает incident cutover: два UI-фильтра, отдельный export
 на каждый matching incident, schema 6 segmented runtime и strict standalone
 validation являются основной системой; legacy proof storage удалён.

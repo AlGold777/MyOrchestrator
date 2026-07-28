@@ -75,7 +75,12 @@
   function selectIncident(events, { platform, task, incidentId = null } = {}) {
     const eventById = new Map((events || []).map((event) => [event.eventId, event]));
     const candidates = indexIncidents(events).filter((incident) => !platform || incident.scope.modelId === platform);
-    const matching = candidates.filter((incident) => taskMatchScore(incident, eventById, task) > 0);
+    // A zero task-specific match is still a valid diagnostic incident. For
+    // absence-oriented tasks (request not sent / generation not started),
+    // requiring the expected event before allowing export would hide the very
+    // failure the report is meant to explain. Rank by available evidence, but
+    // never use evidence absence as an incident-exclusion predicate.
+    const matching = candidates;
     const ranked = matching.slice().sort((left, right) => {
       if (incidentId) {
         if (left.incidentId === incidentId) return -1;
@@ -87,7 +92,7 @@
     });
     return {
       selected: ranked[0] || null,
-      selectionReason: ranked.length ? (incidentId ? 'explicit_incident_then_evidence_rank' : 'evidence_completeness_then_latest') : 'no_matching_incident',
+      selectionReason: ranked.length ? (incidentId ? 'explicit_incident_then_evidence_rank' : 'task_evidence_rank_then_latest_including_zero_match') : 'no_matching_incident',
       otherMatchingIncidents: ranked.slice(1).map((incident) => incident.incidentId),
       matchingIncidentCount: ranked.length
     };
@@ -139,6 +144,10 @@
       reasons.get(eventId).add(reason);
     }
     slotResult.slots.forEach((slot) => slot.eventIds.forEach((id) => include(id, `slot:${slot.slotId}`)));
+    if (!slotResult.slots.some((slot) => slot.eventIds.length)) {
+      const anchorId = incident.eventIds?.[0];
+      if (anchorId) include(anchorId, 'scope:incident-anchor');
+    }
     (events || []).filter((event) => event.modelId === 'SYSTEM'
       && String(event.runSessionId) === String(incident.scope.runSessionId)
       && Number(event.runGeneration || 0) === Number(incident.scope.runGeneration || 0))

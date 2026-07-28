@@ -216,3 +216,14 @@ strong absence or automatic completion proof. - Done
   provenance, missing-observation policy, preserved core evidence and both UI
   surfaces.
 - Final recoverability tag: `gate-proof-telemetry-complete-v2.81.140`.
+
+## 12. Post-cutover corrections
+
+12.1. Allow every Task to export an explicit insufficient report when the
+selected incident has zero matching task event types. - Done
+
+12.2. Populate Platform from the supported catalog plus selected and observed
+Schema 6 platforms instead of restricting it to active models. - Done
+
+12.3. Add zero-evidence task export and complete-platform-list regressions;
+update version/docs. - Done

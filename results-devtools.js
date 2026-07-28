@@ -14,6 +14,7 @@
     const telemetrySummary = document.getElementById('telemetry-summary');
     const telemetrySummaryStatus = document.getElementById('telemetry-summary-status');
     const telemetryRoundsList = document.getElementById('telemetry-rounds');
+    const TELEMETRY_PLATFORM_CATALOG = ['GPT', 'Gemini', 'Claude', 'Grok', 'Le Chat', 'Qwen', 'DeepSeek', 'Perplexity', 'Z.ai'];
     const escapeHtml = (window.ResultsShared && window.ResultsShared.escapeHtml) || ((s = '') => String(s));
     const flashButtonFeedback = window.ResultsShared?.flashButtonFeedback || null;
     const fallbackCopyViaTextarea = window.ResultsShared?.fallbackCopyViaTextarea || null;
@@ -679,13 +680,11 @@
             seen.add(value);
             options.push({ value, label });
         };
-        if (selectedNames.length) {
-            selectedNames.forEach(pushOption);
-        } else {
-            (Array.isArray(events) ? events : []).forEach((event) => {
-                pushOption(event?.platform || event?.llmName);
-            });
-        }
+        TELEMETRY_PLATFORM_CATALOG.forEach(pushOption);
+        selectedNames.forEach(pushOption);
+        (Array.isArray(events) ? events : []).forEach((event) => {
+            pushOption(event?.modelId || event?.platform || event?.llmName);
+        });
         return options;
     };
 

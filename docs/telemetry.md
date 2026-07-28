@@ -1,5 +1,18 @@
 # Telemetry - tab/session diagnostics
 
+## Task export zero-evidence fix v2.81.141 - 2026-08-28
+
+Selecting a Task always creates a report for the selected Platform's incident,
+even when none of that task's expected event types exists. This case is not an
+export error: it is an `insufficient` report containing an incident anchor and
+explicit unavailable evidence slots with their impact. This is especially
+important for `request-not-sent` and `generation-not-started`, where absence of
+the expected transition is the diagnostic subject.
+
+The Platform dropdown is built from the full supported catalog plus selected
+and observed platforms. Schema 6 `modelId` is recognized alongside legacy
+`platform` and `llmName`.
+
 ## Incident cutover v2.81.140 - 2026-08-28
 
 The Telemetry toolbar has exactly two filters: Platform and Tasks. Its existing

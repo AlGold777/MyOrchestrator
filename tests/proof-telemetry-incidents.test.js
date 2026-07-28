@@ -69,4 +69,16 @@ describe('proof telemetry incident index and evidence graph', () => {
   test('registry covers every selectable task', () => {
     expect(Object.keys(Contracts.REPORT_CONTRACTS).every((task) => Incidents.selectIncident([], { platform: 'GPT', task }).selected === null)).toBe(true);
   });
+
+  test('selects an incident even when the chosen task has zero expected event types', () => {
+    const events = [event('event-1', 'GENERATION_SIGNAL_CHANGED')];
+    const selection = Incidents.selectIncident(events, { platform: 'GPT', task: 'request-not-sent' });
+    expect(selection.selected).not.toBeNull();
+    expect(selection.selectionReason).toContain('including_zero_match');
+    const closure = Incidents.buildEvidenceClosure(events, selection.selected, 'request-not-sent');
+    expect(closure.sufficiency).toBe('insufficient');
+    expect(closure.events).toEqual([
+      expect.objectContaining({ eventId: 'event-1', includedFor: ['scope:incident-anchor'] })
+    ]);
+  });
 });

@@ -42,6 +42,12 @@ describe('Telemetry export actions', () => {
     });
   });
 
+  test('Platform options are not restricted to currently selected models', () => {
+    expect(devtoolsSource).toContain('TELEMETRY_PLATFORM_CATALOG.forEach(pushOption)');
+    expect(devtoolsSource).toContain('event?.modelId || event?.platform || event?.llmName');
+    expect(devtoolsSource).not.toContain('if (selectedNames.length) {\n            selectedNames.forEach(pushOption);');
+  });
+
   test('JSON download icon precedes the textual MD export without changing action ids', () => {
     const jsonAt = html.indexOf('id="telemetry-export-json-btn"');
     const mdAt = html.indexOf('id="export-all-logs-md-telemetry"');

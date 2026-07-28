@@ -204,4 +204,20 @@ describe('Proof-oriented telemetry schema 6 event export', () => {
       expect(new Set(report.eventSelection.eventRefs).size).toBe(report.eventSelection.eventRefs.length);
     }
   });
+
+  test('exports an insufficient task report instead of refusing a zero-match incident', async () => {
+    const ledger = ProofTelemetry.buildLedger([
+      evt('GPT', 'ANSWER_GENERATING', 1000, { generationEpoch: 1, textLength: 20 })
+    ], { runSessionId: 42 });
+    const report = await ProofTelemetry.buildStandaloneReport(ledger, {
+      canonicalLedger: true,
+      modelId: 'GPT',
+      reportType: 'request-not-sent'
+    });
+    expect(report.correlation.dispatchId).toBe('GPT:42:1');
+    expect(report.reportDescriptor.completeness.level).toBe('insufficient');
+    expect(report.missingEvidence.length).toBeGreaterThan(0);
+    expect(report.eventSelection.materializedEvents).toHaveLength(1);
+    expect(report.eventSelection.materializedEvents[0].includedFor).toEqual(['scope:incident-anchor']);
+  });
 });

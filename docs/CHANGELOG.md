@@ -1,5 +1,17 @@
 # CHANGELOG — Project
 
+### 2026-08-28 — Task export zero-evidence fix, version 2.81.141
+
+- A selected Task no longer requires an event from its own evidence-slot list
+  before export. Zero-match incidents now produce an explicit `insufficient`
+  standalone report, which is essential for absence-oriented diagnostics.
+- Such reports retain one incident anchor with `includedFor`, enumerate every
+  unavailable critical/required slot and pass independent validation.
+- Platform options are the union of the supported catalog, selected models and
+  observed `modelId/platform/llmName`; the dropdown is no longer truncated to
+  currently active models.
+- Focused regression gate passed 4 suites / 31 tests.
+
 ### 2026-08-28 — Incident telemetry cutover, version 2.81.140
 
 - Telemetry keeps exactly two filters, Platform and Tasks, while the existing
