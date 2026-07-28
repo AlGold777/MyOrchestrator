@@ -1,5 +1,34 @@
 # Telemetry - tab/session diagnostics
 
+## Bounded standalone diagnostic reports v2.81.131 - 2026-07-28
+
+`Tasks` теперь выбирает не дополнительный срез большого All-presets файла, а
+один из восьми самостоятельных proof-oriented отчётов для выбранной Platform:
+`request-not-sent`, `generation-not-started`, `truncation`, `true-completion`,
+`submission-proof`, `extraction-integrity`, `forced-success` или
+`forced-finalization`. При выбранной задаче Platform обязательна; это не даёт
+случайно экспортировать дорогой общий файл.
+
+- Standalone JSON содержит только события отчёта, `RUN_CONFIG_RECORDED` и
+  транзитивное замыкание `evidenceRefs`; событие материализуется ровно один раз.
+- В отчёте есть независимые state axes, diagnostic summary, sibling conditions,
+  correlation, run configuration, hashes, replay/schema results и релевантные
+  attachments/omissions.
+- Лимит standalone-файла — 60 KB; фактический размер и результат проверки
+  записываются в `exportIntegrity.budget`.
+- Offline validator автоматически различает `all-presets` и
+  `diagnostic-report`, проверяя hash, ссылки, privacy, sequence и отсутствие
+  повторяющихся `eventId`.
+- Нормативная таблица event types для Tasks хранится один раз в
+  `ProofOrientedTelemetry.REPORT_EVENT_TYPES` и используется UI напрямую.
+
+Regression gate: 27 suites / 203 tests.
+
+`Only problems` не возвращён: проблемность является вычисляемым результатом
+диагностической задачи, а не независимой осью отбора. Для анализа выбираются
+Platform + конкретный вопрос; режим `All tasks` остаётся осознанным полным
+экспортом.
+
 ## Native-only schema 5 cutover v2.81.130 - 2026-07-28
 
 JSON export больше не зависит от legacy diagnostics, grouped platform payload,
@@ -104,13 +133,12 @@ Background runtime ведёт отдельный append-only ledger в
 В toolbar вкладки Telemetry оставлены ровно два фильтра:
 
 - `Platform` — ограничивает события одной платформой;
-- `Tasks` — ограничивает события выбранной диагностической задачей: DOM
-  Fallback, Pipeline, Streaming, Extraction, Selector, Composer, Send, Error
-  или Timeout.
+- `Tasks` — выбирает одну из восьми proof-oriented диагностических задач,
+  перечисленных в разделе v2.81.131 выше.
 
 Отдельные `Type`, `Presets` и `Only problems` удалены из UI и экспортного
-контура. Выбор `Tasks` использует прежнюю полнотекстовую классификацию события,
-поэтому поведение категорий сохранено без третьего параллельного фильтра.
+контура. Начиная с v2.81.131 Tasks использует каноническую классификацию schema
+5 и создаёт ограниченный самостоятельный отчёт вместо полнотекстового среза.
 
 ## Proof-oriented export v2.81.124 - 2026-07-28
 

@@ -1,5 +1,19 @@
 # CHANGELOG — Project
 
+### 2026-07-28 — Bounded standalone telemetry reports, version 2.81.131
+
+- `Tasks` заменён восемью proof-oriented диагностическими вопросами и при
+  экспорте создаёт самостоятельный отчёт для явно выбранной Platform.
+- Standalone-файл материализует минимальное evidence closure без повторяющихся
+  `eventId`, сохраняет state/replay/hash контекст и ограничен 60 KB.
+- Offline validator поддерживает оба file kinds и проверяет standalone refs,
+  hash, privacy, sequence, budget и отсутствие дублей.
+- Каноническая таблица event types переиспользуется UI; явная Platform больше
+  не конфликтует с состоянием кнопок выбора моделей.
+- `Only problems` не добавлен: конкретная диагностическая задача является
+  более точным и дешёвым входом в анализ.
+- Regression gate прошёл 27 suites / 203 tests.
+
 ### 2026-07-28 — Native-only proof telemetry cutover, version 2.81.130
 
 - Удалена runtime-зависимость JSON export от legacy grouped telemetry и

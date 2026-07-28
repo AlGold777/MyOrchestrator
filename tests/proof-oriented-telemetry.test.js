@@ -121,4 +121,39 @@ describe('Proof-oriented telemetry schema 5 export', () => {
     expect(container.ledger.lastSeq).toBe(3);
     expect(container.exportAudit.exportBoundary.ledgerCompleteThroughSeq).toBe(3);
   });
+
+  test('builds a bounded standalone task report with one materialized event copy', async () => {
+    const ledger = ProofTelemetry.buildLedger([
+      evt('GPT', 'DISPATCH_BASELINE_CAPTURED', 1000),
+      evt('GPT', 'DISPATCH_SEND', 1100),
+      evt('GPT', 'PROMPT_SUBMITTED_ACCEPTED', 1200),
+      evt('GPT', 'ANSWER_START_DETECTED', 1300),
+      evt('GPT', 'ANSWER_GENERATING', 1400, { textLength: 80 }),
+      evt('GPT', 'ANSWER_TEXT_STABLE', 1500, { textLength: 120 })
+    ], { runSessionId: 42 });
+    const allPresets = await ProofTelemetry.buildAllPresets(ledger, {
+      canonicalLedger: true,
+      runSessionId: 42,
+      exportedAt: 2000
+    });
+    const standalone = await ProofTelemetry.buildStandaloneReport(ledger, {
+      canonicalLedger: true,
+      runSessionId: 42,
+      exportedAt: 2000,
+      modelId: 'GPT',
+      reportType: 'submission-proof'
+    });
+    expect(standalone.fileKind).toBe('diagnostic-report');
+    expect(standalone.reportDescriptor).toEqual(expect.objectContaining({
+      reportType: 'submission-proof',
+      reportMode: 'standalone'
+    }));
+    const ids = standalone.eventSelection.materializedEvents.map((event) => event.eventId);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(standalone.exportIntegrity.deduplication.duplicateEventIds).toBe(0);
+    expect(standalone.exportIntegrity.budget.withinBudget).toBe(true);
+    expect(standalone.exportIntegrity.budget.measuredBytes).toBeLessThan(
+      new TextEncoder().encode(JSON.stringify(allPresets)).length
+    );
+  });
 });

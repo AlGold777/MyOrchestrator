@@ -15,6 +15,16 @@ describe('Telemetry export actions', () => {
   });
 
   test('Telemetry exposes exactly the Platform and Tasks filters', () => {
+    const reportTypes = [
+      'request-not-sent',
+      'generation-not-started',
+      'truncation',
+      'true-completion',
+      'submission-proof',
+      'extraction-integrity',
+      'forced-success',
+      'forced-finalization'
+    ];
     [html, pipelineHtml].forEach((page) => {
       const start = page.indexOf('<div class="telemetry-filters">');
       const end = page.indexOf('</div>', start);
@@ -25,6 +35,10 @@ describe('Telemetry export actions', () => {
       expect(filters).not.toContain('telemetry-type-select');
       expect(filters).not.toContain('telemetry-preset-select');
       expect(filters).not.toContain('telemetry-only-problems');
+      const taskStart = filters.indexOf('id="telemetry-task-select"');
+      const taskEnd = filters.indexOf('</select>', taskStart);
+      const taskValues = Array.from(filters.slice(taskStart, taskEnd).matchAll(/<option value="([^"]+)"/g), (match) => match[1]);
+      expect(taskValues).toEqual(['all', ...reportTypes]);
     });
   });
 
@@ -46,6 +60,8 @@ describe('Telemetry export actions', () => {
     expect(html).not.toContain('src="shared/telemetry-export.js"');
     expect(pipelineHtml).not.toContain('src="shared/telemetry-export.js"');
     expect(devtoolsSource).toContain('window.ProofOrientedTelemetry.buildAllPresets');
+    expect(devtoolsSource).toContain('window.ProofOrientedTelemetry.buildStandaloneReport');
+    expect(devtoolsSource).toContain('window.ProofOrientedTelemetry?.REPORT_EVENT_TYPES');
     expect(devtoolsSource).toContain("type: 'GET_PROOF_TELEMETRY_SNAPSHOT'");
     expect(devtoolsSource).toContain('canonicalLedger: true');
     expect(devtoolsSource).not.toContain('nativeLedgerAvailable ? proofSnapshot.events : grouped');

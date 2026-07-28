@@ -1,5 +1,5 @@
 const ProofTelemetry = require('../shared/proof-oriented-telemetry.js');
-const { validateContainer, reconstructAtSeq, privacyViolations } = require('../scripts/validate-proof-telemetry.js');
+const { validateContainer, validateStandaloneReport, reconstructAtSeq, privacyViolations } = require('../scripts/validate-proof-telemetry.js');
 
 const evt = (label, ts, meta = {}) => ({
   ts,
@@ -85,5 +85,19 @@ describe('offline proof telemetry validator', () => {
     expect(result.errors).toEqual(expect.arrayContaining([
       expect.objectContaining({ code: 'REPLAY_MISMATCH' })
     ]));
+  });
+
+  test('validates a standalone task report independently', async () => {
+    const container = await validContainer();
+    const standalone = await ProofTelemetry.buildStandaloneReport(container.ledger.events, {
+      canonicalLedger: true,
+      runSessionId: 42,
+      exportedAt: 2000,
+      modelId: 'GPT',
+      reportType: 'generation-not-started'
+    });
+    const result = await validateStandaloneReport(standalone);
+    expect(result.valid).toBe(true);
+    expect(result.errors).toEqual([]);
   });
 });

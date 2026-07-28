@@ -102,6 +102,45 @@ async function validateContainer(container, { verifyContainerHash = true } = {})
   return { valid: errors.length === 0, errors, warnings, reconstructedAxes };
 }
 
+async function validateStandaloneReport(report) {
+  const errors = [];
+  const warnings = [];
+  const addError = (code, message) => errors.push({ code, message });
+  if (!report || typeof report !== 'object') return { valid: false, errors: [{ code: 'REPORT_INVALID', message: 'report must be an object' }], warnings };
+  if (report.schemaVersion !== '5.0') addError('SCHEMA_VERSION', 'schemaVersion must equal 5.0');
+  if (report.fileKind !== 'diagnostic-report') addError('FILE_KIND', 'fileKind must equal diagnostic-report');
+  if (!REQUIRED_REPORTS.includes(report?.reportDescriptor?.reportType)) addError('REPORT_TYPE', 'unsupported reportType');
+  if (report?.reportDescriptor?.reportMode !== 'standalone') addError('REPORT_MODE', 'reportMode must equal standalone');
+  const events = Array.isArray(report?.eventSelection?.materializedEvents) ? report.eventSelection.materializedEvents : [];
+  ProofTelemetry.validateLedger(events).forEach((violation) => addError(violation.invariantId, violation.message));
+  const ids = events.map((event) => event.eventId);
+  if (new Set(ids).size !== ids.length) addError('EVENT_DUPLICATION', 'standalone report duplicates canonical events');
+  const idSet = new Set(ids);
+  (report?.eventSelection?.eventRefs || []).forEach((eventRef) => {
+    if (!idSet.has(eventRef)) addError('REPORT_EVENT_REF', `missing materialized event ${eventRef}`);
+  });
+  events.forEach((event) => (event.evidenceRefs || []).forEach((evidenceRef) => {
+    if (!idSet.has(evidenceRef)) addError('EVIDENCE_CLOSURE', `missing evidence dependency ${evidenceRef}`);
+  }));
+  const materializedHash = await ProofTelemetry.sha256(events);
+  if (report?.exportIntegrity?.materializedEventHash !== materializedHash) addError('HASH_MISMATCH', 'materialized event hash mismatch');
+  const hashInput = JSON.parse(JSON.stringify(report));
+  if (hashInput?.exportIntegrity?.hashes) delete hashInput.exportIntegrity.hashes.report;
+  const reportHash = await ProofTelemetry.sha256(hashInput);
+  if (report?.exportIntegrity?.hashes?.report !== reportHash) addError('HASH_MISMATCH', 'report hash mismatch');
+  const measuredBytes = byteLength(report);
+  if (Number(report?.exportIntegrity?.budget?.measuredBytes || 0) !== measuredBytes) addError('SIZE_MISMATCH', 'recorded measuredBytes differs from serialized size');
+  if (measuredBytes > Number(report?.exportIntegrity?.budget?.limitBytes || 0)) warnings.push({ code: 'SIZE_BUDGET_EXCEEDED', measuredBytes });
+  privacyViolations(report).forEach((violation) => addError(violation.code, `forbidden privacy key at ${violation.path}`));
+  return { valid: errors.length === 0, errors, warnings, reconstructedAxes: reconstructAtSeq(events, events[events.length - 1]?.seq || 0) };
+}
+
+async function validateArtifact(artifact, options = {}) {
+  return artifact?.fileKind === 'diagnostic-report'
+    ? validateStandaloneReport(artifact, options)
+    : validateContainer(artifact, options);
+}
+
 async function main(argv = process.argv.slice(2)) {
   const filename = argv[0];
   if (!filename) {
@@ -111,12 +150,12 @@ async function main(argv = process.argv.slice(2)) {
   }
   const resolved = path.resolve(filename);
   const container = JSON.parse(fs.readFileSync(resolved, 'utf8'));
-  const result = await validateContainer(container);
+  const result = await validateArtifact(container);
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
   if (!result.valid) process.exitCode = 1;
 }
 
-module.exports = { validateContainer, reconstructAtSeq, privacyViolations };
+module.exports = { validateContainer, validateStandaloneReport, validateArtifact, reconstructAtSeq, privacyViolations };
 if (require.main === module) main().catch((error) => {
   console.error(error?.stack || error);
   process.exitCode = 1;

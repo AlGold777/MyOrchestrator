@@ -34,6 +34,12 @@
     'forced-success': ['Почему система выставила SUCCESS без automatic completion proof?', ['COMPLETION_HYPOTHESIS_EVALUATED', 'FINALIZATION_POLICY_EVALUATED', 'POLICY_OVERRIDE_APPLIED', 'DECISION_RECORDED', 'MODEL_TERMINAL_RECORDED', 'POST_TERMINAL_AUDIT_COMPLETED']],
     'forced-finalization': ['Когда и почему расширение прекратило ожидание по timeout/forced policy?', ['GENERATION_SIGNAL_CHANGED', 'TERMINAL_DEADLINE_REACHED', 'FINALIZATION_POLICY_EVALUATED', 'POLICY_OVERRIDE_APPLIED', 'DECISION_RECORDED', 'MODEL_TERMINAL_RECORDED', 'POST_TERMINAL_AUDIT_COMPLETED']]
   });
+  const REPORT_EVENT_TYPES = Object.freeze(Object.fromEntries(
+    Object.entries(REPORT_INFO).map(([reportType, [, eventTypes]]) => [
+      reportType,
+      Object.freeze(eventTypes.slice())
+    ])
+  ));
 
   const EVENT_MAP = Object.freeze({
     DISPATCH_BASELINE_CAPTURED: 'DISPATCH_BASELINE_CAPTURED',
@@ -428,6 +434,7 @@
     const registryHash = await sha256(registrySnapshot);
     const sharedConfig = {
       extensionVersion: String(options.extensionVersion || 'unknown'),
+      generationWaitProfile: String(options.generationWaitProfile || 'unknown'),
       schemaVersion: SCHEMA_VERSION,
       generatorVersion: GENERATOR_VERSION,
       policy: { policyId: 'proof-default-v1', automaticMinimumEvidenceTier: 3, maximumSignalSkewMs: 1000 },
@@ -551,11 +558,142 @@
     return container;
   }
 
+  function materializeEventClosure(events, eventRefs) {
+    const byId = new Map((Array.isArray(events) ? events : []).map((event) => [event.eventId, event]));
+    const selected = new Set(eventRefs || []);
+    (Array.isArray(events) ? events : []).forEach((event) => {
+      if (event.eventType === 'RUN_CONFIG_RECORDED') selected.add(event.eventId);
+    });
+    let changed = true;
+    while (changed) {
+      changed = false;
+      Array.from(selected).forEach((eventId) => {
+        const event = byId.get(eventId);
+        (event?.evidenceRefs || []).forEach((evidenceRef) => {
+          if (!selected.has(evidenceRef) && byId.has(evidenceRef)) {
+            selected.add(evidenceRef);
+            changed = true;
+          }
+        });
+      });
+    }
+    return (Array.isArray(events) ? events : []).filter((event) => selected.has(event.eventId));
+  }
+
+  async function buildStandaloneReport(input, options = {}) {
+    const reportType = String(options.reportType || '');
+    if (!REPORT_TYPES.includes(reportType)) throw new Error(`unsupported proof telemetry report: ${reportType}`);
+    const modelId = String(options.modelId || '').trim();
+    if (!modelId) throw new Error('standalone proof telemetry report requires modelId');
+    const exportedAt = Number(options.exportedAt || Date.now());
+    const sourceEvents = options.canonicalLedger === true
+      ? (Array.isArray(input) ? input.slice() : [])
+      : buildLedger(input, options);
+    const modelEvents = sourceEvents.filter((event) => event.modelId === modelId || event.modelId === 'SYSTEM');
+    const container = await buildAllPresets(modelEvents, {
+      ...options,
+      exportedAt,
+      canonicalLedger: true
+    });
+    const embedded = container.reports[reportType];
+    const materializedEvents = materializeEventClosure(modelEvents, embedded.eventRefs);
+    const materializedHash = await sha256(materializedEvents);
+    const modelView = container.derivedViews['model-timeline']?.data?.[modelId] || null;
+    const report = {
+      schemaVersion: SCHEMA_VERSION,
+      fileKind: 'diagnostic-report',
+      reportDescriptor: {
+        ...embedded.reportDescriptor,
+        reportId: `rpt-${reportType}-${modelId}-${eventFingerprint(container.ledger.ledgerHash)}`,
+        reportMode: 'standalone'
+      },
+      correlation: {
+        runSessionId: container.crossReportCompatibility.exactMatch.runSessionId,
+        modelId,
+        dispatchIds: Array.from(new Set(materializedEvents.map((event) => event.dispatchId).filter(Boolean))),
+        generationEpochs: Array.from(new Set(materializedEvents.map((event) => event.generationEpoch).filter((value) => value !== undefined)))
+      },
+      reportCatalogSnapshot: REPORT_TYPES.map((type) => ({
+        reportType: type,
+        reportVersion: REPORT_VERSION,
+        included: type === reportType
+      })),
+      runConfiguration: {
+        extensionVersion: container.sharedConfig.extensionVersion,
+        generationWaitProfile: container.sharedConfig.generationWaitProfile,
+        policy: container.sharedConfig.policy,
+        privacy: container.sharedConfig.privacy
+      },
+      diagnosticSummary: embedded.diagnosticSummary,
+      stateAxes: modelView?.stateAxes || embedded.stateAxes?.[modelId] || {},
+      eventSelection: {
+        includedEventTypes: Array.from(new Set(materializedEvents.map((event) => event.eventType))),
+        eventRefs: materializedEvents.map((event) => event.eventId),
+        materializedEvents
+      },
+      derivedViews: {
+        modelTimeline: modelView ? {
+          viewType: reportType,
+          generatorVersion: GENERATOR_VERSION,
+          ledgerHash: container.ledger.ledgerHash,
+          data: modelView
+        } : null
+      },
+      contradictions: container.exportAudit.invariantViolations,
+      missingEvidence: embedded.reportDescriptor.completeness.missingItems,
+      siblings: embedded.siblings,
+      analysisInstructions: container.sharedConfig.commonAnalysisInstructions,
+      crossReportCompatibility: {
+        mode: 'same_ledger',
+        exactMatch: {
+          runSessionId: container.crossReportCompatibility.exactMatch.runSessionId,
+          modelId,
+          ledgerHash: container.ledger.ledgerHash,
+          ledgerCompleteThroughSeq: container.ledger.lastSeq
+        }
+      },
+      attachments: [
+        ...Object.values(container.attachments.byId || {}),
+        ...(container.attachments.omissions || [])
+      ].filter((attachment) => !attachment.eventRef || materializedEvents.some((event) => event.eventId === attachment.eventRef)),
+      exportIntegrity: {
+        generatorVersion: GENERATOR_VERSION,
+        sampleData: false,
+        sourceLedgerHash: container.ledger.ledgerHash,
+        materializedEventHash: materializedHash,
+        sourceLedgerEventCount: modelEvents.length,
+        materializedEventCount: materializedEvents.length,
+        deduplication: {
+          canonicalEventCopies: materializedEvents.length,
+          duplicateEventIds: materializedEvents.length - new Set(materializedEvents.map((event) => event.eventId)).size
+        },
+        schemaValidation: container.exportAudit.schemaValidation,
+        replay: container.exportAudit.replay,
+        hashes: { report: null },
+        budget: { limitBytes: 60000, measuredBytes: null, withinBudget: null }
+      }
+    };
+    report.exportIntegrity.hashes.report = `sha256:${'0'.repeat(64)}`;
+    for (let pass = 0; pass < 3; pass += 1) {
+      const serialized = JSON.stringify(report);
+      const measuredBytes = typeof TextEncoder !== 'undefined'
+        ? new TextEncoder().encode(serialized).length
+        : serialized.length;
+      report.exportIntegrity.budget.measuredBytes = measuredBytes;
+      report.exportIntegrity.budget.withinBudget = measuredBytes <= report.exportIntegrity.budget.limitBytes;
+    }
+    const hashInput = JSON.parse(JSON.stringify(report));
+    delete hashInput.exportIntegrity.hashes.report;
+    report.exportIntegrity.hashes.report = await sha256(hashInput);
+    return report;
+  }
+
   const api = Object.freeze({
     SCHEMA_VERSION,
     EVENT_SCHEMA_VERSION,
     GENERATOR_VERSION,
     REPORT_TYPES,
+    REPORT_EVENT_TYPES,
     stableStringify,
     sha256,
     canonicalType,
@@ -567,7 +705,8 @@
     deriveModelView,
     evaluatePredicate,
     validateLedger,
-    buildAllPresets
+    buildAllPresets,
+    buildStandaloneReport
   });
 
   root.ProofOrientedTelemetry = api;

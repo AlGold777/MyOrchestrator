@@ -55,6 +55,13 @@
             .filter(Boolean);
     };
     const getSelectedLlmSet = () => new Set(resolveSelectedLlmNames().map(normalizePlatformName));
+    const matchesProofTask = (event, taskFilter) => {
+        if (!taskFilter || taskFilter === 'all') return true;
+        const allowed = window.ProofOrientedTelemetry?.REPORT_EVENT_TYPES?.[taskFilter];
+        if (!allowed) return false;
+        const eventType = event?.eventType || window.ProofOrientedTelemetry?.canonicalType?.(event);
+        return allowed.includes(String(eventType || ''));
+    };
     const resolveTelemetryPlatformName = (event) => {
         const raw = event?.platform || event?.llmName || event?.meta?.llmName || event?.meta?.platform || 'unknown';
         const cleaned = String(raw || '').trim();
@@ -703,7 +710,7 @@
             ));
         }
         if (taskFilter && taskFilter !== 'all') {
-            filtered = filtered.filter((event) => JSON.stringify(event).toLowerCase().includes(taskFilter));
+            filtered = filtered.filter((event) => matchesProofTask(event, taskFilter));
         }
         filtered = filtered.slice(-250);
         const effectiveSelection = hasSelection || Boolean(filtered.length);
@@ -768,7 +775,7 @@
         const platformFilter = normalizePlatformName(telemetryPlatformSelect?.value || 'all');
         const taskFilter = (telemetryTaskSelect?.value || 'all').toLowerCase().trim();
         let filtered = list;
-        if (selectedSet.size) {
+        if (platformFilter === 'all' && selectedSet.size) {
             filtered = filtered.filter((event) => selectedSet.has(
                 normalizePlatformName(event?.platform || event?.llmName)
             ));
@@ -779,19 +786,19 @@
             ));
         }
         if (taskFilter && taskFilter !== 'all') {
-            filtered = filtered.filter((event) => JSON.stringify(event).toLowerCase().includes(taskFilter));
+            filtered = filtered.filter((event) => matchesProofTask(event, taskFilter));
         }
         return filtered;
     };
-    const applyActiveProofFilter = (events = []) => {
+    const applyActiveProofFilter = (events = [], { includeTask = true } = {}) => {
         const selectedSet = getSelectedLlmSet();
         const platformFilter = normalizePlatformName(telemetryPlatformSelect?.value || 'all');
         const taskFilter = (telemetryTaskSelect?.value || 'all').toLowerCase().trim();
         return (Array.isArray(events) ? events : []).filter((event) => {
             const modelId = normalizePlatformName(event?.modelId || 'SYSTEM');
-            if (selectedSet.size && !selectedSet.has(modelId)) return false;
+            if (platformFilter === 'all' && selectedSet.size && modelId !== 'system' && !selectedSet.has(modelId)) return false;
             if (platformFilter !== 'all' && modelId !== platformFilter) return false;
-            if (taskFilter && taskFilter !== 'all' && !JSON.stringify(event).toLowerCase().includes(taskFilter)) return false;
+            if (includeTask && !matchesProofTask(event, taskFilter)) return false;
             return true;
         });
     };
@@ -1122,14 +1129,28 @@
                 if (telemetryStatus) telemetryStatus.textContent = 'Native telemetry ledger is empty';
                 return;
             }
-            const canonicalEvents = applyActiveProofFilter(proofSnapshot.events);
+            const task = String(telemetryTaskSelect?.value || 'all');
+            const platform = String(telemetryPlatformSelect?.value || 'all');
+            if (task !== 'all' && platform === 'all') {
+                if (telemetryStatus) telemetryStatus.textContent = 'Select a platform for a standalone task report';
+                return;
+            }
+            const canonicalEvents = applyActiveProofFilter(proofSnapshot.events, { includeTask: false });
             if (!canonicalEvents.length) return;
-            const payload = await window.ProofOrientedTelemetry.buildAllPresets(canonicalEvents, {
+            const buildOptions = {
                 runSessionId: proofSnapshot.runSessionId,
                 exportedAt: Date.now(),
                 extensionVersion: chrome?.runtime?.getManifest?.().version || 'unknown',
+                generationWaitProfile: window.ResultsShared?.getGenerationWaitProfile?.(),
                 canonicalLedger: true
-            });
+            };
+            const payload = task === 'all'
+                ? await window.ProofOrientedTelemetry.buildAllPresets(canonicalEvents, buildOptions)
+                : await window.ProofOrientedTelemetry.buildStandaloneReport(canonicalEvents, {
+                    ...buildOptions,
+                    reportType: task,
+                    modelId: canonicalEvents.find((event) => normalizePlatformName(event.modelId) === normalizePlatformName(platform))?.modelId || platform
+                });
             // Written without indentation on purpose: this export is read by
             // analysis tooling, not by eye, and pretty-printing a few hundred
             // deeply nested events cost 183KB (33%) of a real 551KB export.
@@ -1142,7 +1163,9 @@
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `telemetry-${Date.now()}.json`;
+            a.download = task === 'all'
+                ? `telemetry-all-presets-${Date.now()}.json`
+                : `telemetry-${task}-${platform}-${Date.now()}.json`;
             a.click();
             setTimeout(() => URL.revokeObjectURL(url), 1000);
         } catch (err) {
