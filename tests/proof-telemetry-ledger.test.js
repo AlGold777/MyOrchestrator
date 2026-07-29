@@ -312,7 +312,8 @@ describe('native proof telemetry ledger', () => {
     expect(container.attachments.omissions).toEqual(expect.arrayContaining([
       expect.objectContaining({ anomalyTrigger: 'post_terminal_answer_change' })
     ]));
-    expect(container.derivedViews['model-timeline'].data.GPT).toEqual(expect.objectContaining({
+    const latestIncidentId = container.derivedViews['model-timeline'].data.GPT.latestIncidentId;
+    expect(container.derivedViews['incident-timeline'].data[latestIncidentId]).toEqual(expect.objectContaining({
       postTerminalAuditStatus: 'completed',
       postTerminalAuditConclusion: 'contradicted',
       postTerminalGrowthChars: 25

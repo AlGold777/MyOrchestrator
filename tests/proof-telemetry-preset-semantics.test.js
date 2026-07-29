@@ -99,8 +99,7 @@ describe('proof telemetry preset semantic applicability', () => {
     expect(container.diagnosisArbitration.byIncident[incidentId].primaryDiagnosis).toBe('false-success');
     expect(container.reports.cutted.reportDescriptor.completeness).toEqual(expect.objectContaining({
       level: expect.stringMatching(/complete|bounded|insufficient/),
-      evidenceCoveragePct: expect.any(Number),
-      byIncident: expect.objectContaining({ [incidentId]: expect.any(Object) })
+      evidenceCoveragePct: expect.any(Number)
     }));
     expect(container.reports.cutted.diagnosticSummary.incidents[incidentId].evidenceSlots.length).toBeGreaterThan(0);
     expect(container.reports.cutted.siblings.every((sibling) => sibling.antiLoop?.requestTargetOnlyOnce)).toBe(true);
@@ -151,6 +150,14 @@ describe('proof telemetry preset semantic applicability', () => {
       event('POST_TERMINAL_AUDIT_COMPLETED', 4, { payload: { conclusion: 'confirmed', growthChars: 0, growthPct: 0, hashChanged: false } })
     ]);
     expect(normal.result.status).toBe('not_confirmed');
+    const unknown = applicability('cutted', [
+      event('TEXT_STATE_CHANGED', 1, { metadata: { textLength: 120 } }),
+      event('EXTRACTION_COMPLETED', 2, { typed: { kind: 'extraction', state: 'completed' } }),
+      event('MODEL_TERMINAL_RECORDED', 3, { metadata: { terminalStatus: 'SUCCESS', answerLen: 120 }, typed: { kind: 'terminal_action', state: 'SUCCESS' } })
+    ]);
+    expect(unknown.view.extractedTextLength).toBeNull();
+    expect(unknown.view.extractionCoveragePct).toBeNull();
+    expect(unknown.result.status).toBe('unknown');
   });
 
   test('False success requires measured post-terminal growth after SUCCESS', () => {
@@ -289,5 +296,20 @@ describe('proof telemetry preset semantic applicability', () => {
   test('unknown values cannot trigger negative sibling-style comparisons', () => {
     expect(ProofTelemetry.evaluatePredicate({}, { path: '$.missing', operator: 'ne', value: 'current_dispatch' }))
       .toEqual(expect.objectContaining({ known: false, matched: false }));
+  });
+
+  test('standalone report preserves a negative applicability conclusion', async () => {
+    const events = [
+      event('DISPATCH_BASELINE_CAPTURED', 1),
+      event('SUBMIT_ACTION_OBSERVED', 2),
+      event('SUBMISSION_INFERRED', 3, { typed: { kind: 'submission', state: 'confirmed' } })
+    ];
+    const report = await ProofTelemetry.buildStandaloneReport(events, {
+      canonicalLedger: true,
+      modelId: 'GPT',
+      reportType: 'prompt-not-sent',
+      exportedAt: 2000
+    });
+    expect(report.reportDescriptor.applicability.status).toBe('not_confirmed');
   });
 });

@@ -11,11 +11,16 @@
 
 ## Статус реализации
 
-В версии `2.81.144` slot sufficiency отделена от semantic applicability.
-Каждый preset имеет исполняемые tri-state predicates (`confirmed`,
-`not_confirmed`, `unknown`), validator независимо воспроизводит их, sibling
-rules требуют положительных anomaly facts, а Late end использует только
-сопоставимые monotonic clocks.
+В версии `2.81.149` applicability и sufficiency вычисляются по точному incident
+scope одинаково в embedded и standalone reports. `REPORT_CONTRACTS` является
+единственным источником event types, slots, `requiredIf` и predicates.
+Accepted extraction, submission counter-evidence, audit tri-state и policy wait
+устраняют ложные подтверждения; proof-role compaction сохраняет границы,
+экстремумы и provenance без фиксированного лимита размера.
+
+В версии `2.81.144` slot sufficiency была отделена от semantic applicability и
+введены исполняемые tri-state predicates (`confirmed`, `not_confirmed`,
+`unknown`).
 
 В версии `2.81.143` восемь технически пересекавшихся Tasks заменены шестью
 пользовательскими диагнозами: `Cutted`, `False success`, `Old answer`, `Empty`,

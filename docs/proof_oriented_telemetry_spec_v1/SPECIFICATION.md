@@ -746,13 +746,23 @@ observation нельзя превращать в positive anomaly. Исключ�
 | `cutted` | `terminalOutcome == SUCCESS` и `incompleteCaptureEvidence == true` |
 | `false-success` | `terminalOutcome == SUCCESS`, completed post-terminal audit и `postTerminalGrowthProven == true` |
 | `old-answer` | `oldAnswerEvidence == true` на основании accepted-answer dispatch mismatch |
-| `empty` | `generationTextObserved == true` и `emptyExtractionEvidence == true` |
+| `empty` | `generationTextObserved == true` и `extractionProblemEvidence == true` |
 | `prompt-not-sent` | `promptNotSentEvidence == true` из typed failed submission |
-| `late-end` | comparable monotonic boundaries и `stableToTerminalMs > 0` |
+| `late-end` | `lateEndEvidence == true`: policy решила ждать, clocks сопоставимы и последующей мутации не было |
 
 Sibling rule MUST использовать только positive anomaly fact либо известную
 положительную величину. Предикаты вида `identity != current_dispatch` запрещены,
 поскольку unknown identity не является доказательством старого ответа.
+
+Derived view и applicability MUST вычисляться отдельно для каждого точного
+incident scope `(runSessionId, runGeneration, modelId, dispatchId,
+generationEpoch)`. Platform status является только явной агрегацией incident
+results. Событие другого dispatch не может участвовать в predicates.
+
+Embedded и standalone reports MUST использовать один `REPORT_CONTRACTS` как
+источник event types, evidence slots, `requiredIf` и applicability. Conditional
+slot становится `required` только при выполненном `requiredIf`; иначе его
+отсутствие не уменьшает sufficiency.
 
 `stableToTerminalMs` MUST вычисляться только в общей producer monotonic epoch
 или общей worker ingest epoch. Wall-clock subtraction и замена несопоставимого
@@ -762,9 +772,11 @@ Sibling rule MUST использовать только positive anomaly fact л
 
 **Primary question:** почему зафиксирован `SUCCESS`, а текст явно неполный?
 
-Сопоставляет зафиксированный текст с максимальной наблюдавшейся длиной,
+Сопоставляет зафиксированный текст с максимальной наблюдавшейся длиной только
+до terminal boundary,
 границей extraction, completeness evidence, terminal decision и
-post-terminal audit. Диагностирует обрезку сохранённого ответа, но не подмену
+policy evidence. Длина extraction берётся только из принятого extraction event
+и не подменяется terminal length. Диагностирует обрезку сохранённого ответа, но не подмену
 ответом другого запроса — это задача `old-answer`.
 
 Critical evidence: `MODEL_TERMINAL_RECORDED`, text evolution и explicit
@@ -780,7 +792,8 @@ policy/override, terminal decision и рост текста после terminal.
 
 Critical evidence: SUCCESS terminal и `POST_TERMINAL_AUDIT_COMPLETED` с
 положительным text-length growth. Hash-only mutation и text mutation до
-terminal не подходят.
+terminal не подходят. Отсутствующий/невозможный audit даёт `unknown`, а
+измеренный нулевой growth — `not_confirmed`.
 
 ## 32. `old-answer`
 
@@ -791,7 +804,9 @@ terminal не подходят.
 
 Событие о том, что stale candidate был корректно отклонён, не подтверждает Old
 answer. Нужна identity принятого answer evidence: alternate dispatch ID либо
-explicit `previous_dispatch|stale_accepted` extraction identity.
+explicit `previous_dispatch|stale_accepted` extraction identity. Explicit
+`current_dispatch` имеет приоритет; строковое сравнение разрешено только после
+нормализации обоих известных dispatch identifiers.
 
 ## 33. `empty`
 
@@ -801,8 +816,11 @@ explicit `previous_dispatch|stale_accepted` extraction identity.
 Связывает доказательство начавшейся генерации с candidate selection, text
 boundaries, extraction result, structural verification и observer health.
 
-Наличие успешного extraction event опровергает Empty. Подтверждение требует
-ненулевой наблюдавшейся генерации и failed/zero-length extraction result.
+Анализируется extraction, на который ссылается terminal/decision provenance,
+а не последнее событие по порядку. Подтверждение имеет две явные ветки:
+`empty_result` (failed/zero length) и `wrong_node` (непустой, но rejected,
+ambiguous или stale candidate). Успешный verified current-dispatch extraction
+опровергает Empty; неоднозначный выбор остаётся `unknown`.
 
 ## 34. `prompt-not-sent`
 
@@ -812,8 +830,10 @@ boundaries, extraction result, structural verification и observer health.
 page context и observer health. Отсутствующее acceptance evidence обозначается
 как неизвестное, а не автоматически как доказательство неотправки.
 
-Confirmed submission явно опровергает preset; partial/absent observation даёт
-`unknown`; только typed failed submission подтверждает проблему.
+Confirmed submission, наблюдавшаяся генерация, непустой принятый extraction или
+SUCCESS terminal явно опровергают preset. Partial/absent/unavailable observation
+даёт `unknown`; только typed failed submission без counter-evidence подтверждает
+проблему.
 
 ## 35. `late-end`
 
@@ -821,12 +841,23 @@ Confirmed submission явно опровергает preset; partial/absent obse
 секунд?
 
 Отчёт вычисляет `stableToTerminalMs` между последним подтверждённым
-`STABILITY_INTERVAL_CLOSED` и `MODEL_TERMINAL_RECORDED`, затем показывает
-generation signals, completion policy, deadlines, observer delays и decision
-lineage, объясняющие этот интервал.
+`STABILITY_INTERVAL_CLOSED` и `MODEL_TERMINAL_RECORDED`, но подтверждает preset
+только при явном `DECISION_RECORDED.accepted=false` после stability boundary.
+Любая последующая text mutation или active-generation signal инвалидирует
+интервал. Произвольный глобальный millisecond threshold запрещён: отчёт
+показывает фактическую policy-задержку конкретного incident.
 
 Интервал обязан иметь `stableToTerminalClockBasis=producer_monotonic` либо
 `ingest_monotonic`; при разных epochs значение остаётся `null`.
+
+Связанные диагнозы сохраняют фактически истинную applicability. Registry задаёт
+`primaryDiagnosis`, `causedBy` и `explanationRole`: например, False success
+может быть причиной, а Cutted — последствием. Arbitration MUST NOT превращать
+истинный consequence в `not_confirmed`.
+
+Standalone closure MUST минимизировать повторы по доказательной роли, сохраняя
+первую/последнюю границу, экстремумы измерений, смены typed state и явные
+`evidenceRefs`/causation. Фиксированный лимит числа событий запрещён.
 
 ---
 

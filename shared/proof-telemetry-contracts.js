@@ -4,7 +4,7 @@
 
   const EVENT_SCHEMA_VERSION = 6;
   const CLOCK_CONTRACT_VERSION = '1.0';
-  const REGISTRY_VERSION = '4.0.0';
+  const REGISTRY_VERSION = '5.0.0';
   const THRESHOLDS = Object.freeze({
     generationStartTimeoutMs: 15000,
     minimumExtractionCoveragePct: 98,

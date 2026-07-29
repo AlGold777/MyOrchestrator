@@ -1,5 +1,18 @@
 # Telemetry - tab/session diagnostics
 
+## Preset semantic hardening gate v2.81.149 - 2026-08-28
+
+Registry 5.0.0, report 2.2.0 and generator 1.3.0 formalize the incident-scoped
+contracts for all six Tasks. The regression matrix covers confirmed,
+not-confirmed and unknown outcomes, cross-request isolation, independent
+embedded sufficiency, causal diagnosis roles, accepted-extraction selection,
+legacy limitations and proof-preserving compaction. Generated All tasks and six
+standalone artifacts are independently replayed and validated.
+Embedded projections reference the shared incident timeline and registry and
+store only their status, compact evidence-slot results and event sequence refs.
+The focused telemetry gate passes 13 suites / 99 tests and the complete project
+gate passes 185 suites / 1269 tests.
+
 ## Unified evidence closure v2.81.148 - 2026-08-28
 
 Embedded and standalone Tasks now use the same `REPORT_CONTRACTS` slots and

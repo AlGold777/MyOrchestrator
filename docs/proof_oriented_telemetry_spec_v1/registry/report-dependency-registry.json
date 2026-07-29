@@ -1,7 +1,495 @@
 {
-  "registryVersion": "4.0.0",
+  "registryVersion": "5.0.0",
   "predicateLanguageVersion": "1.0.0",
   "maxEscalationDepth": 2,
+  "reports": {
+    "cutted": {
+      "question": "Почему зафиксирован SUCCESS, а текст явно неполный?",
+      "applicability": {
+        "all": [
+          [
+            "$.derivedViews.terminalOutcome",
+            "eq",
+            "SUCCESS"
+          ],
+          [
+            "$.derivedViews.incompleteCaptureEvidence",
+            "eq",
+            true
+          ]
+        ]
+      },
+      "slots": [
+        [
+          "success_terminal",
+          "critical",
+          [
+            "MODEL_TERMINAL_RECORDED"
+          ]
+        ],
+        [
+          "text_evolution",
+          "critical",
+          [
+            "TEXT_STATE_CHANGED"
+          ]
+        ],
+        [
+          "completeness",
+          "critical",
+          [
+            "ANSWER_COMPLETENESS_EVALUATED",
+            "POST_TERMINAL_AUDIT_COMPLETED"
+          ]
+        ],
+        [
+          "extraction_boundary",
+          "required",
+          [
+            "EXTRACTION_COMPLETED",
+            "STRUCTURAL_VERIFICATION_EVALUATED"
+          ]
+        ],
+        [
+          "candidate_identity",
+          "required",
+          [
+            "CANDIDATE_SET_CHANGED",
+            "CANDIDATE_IDENTITY_INFERRED"
+          ]
+        ],
+        [
+          "decision_lineage",
+          "required",
+          [
+            "DECISION_RECORDED"
+          ]
+        ],
+        [
+          "finalization_policy",
+          "conditional",
+          [
+            "FINALIZATION_POLICY_EVALUATED",
+            "POLICY_OVERRIDE_APPLIED"
+          ],
+          [
+            "$.stateAxes.terminalMode",
+            "in",
+            [
+              "forced",
+              "recovery"
+            ]
+          ]
+        ],
+        [
+          "missing_evidence",
+          "conditional",
+          [
+            "MISSING_EVIDENCE_RECORDED"
+          ]
+        ]
+      ]
+    },
+    "false-success": {
+      "question": "Почему система решила «готово», а ответ продолжил расти?",
+      "applicability": {
+        "all": [
+          [
+            "$.derivedViews.terminalOutcome",
+            "eq",
+            "SUCCESS"
+          ],
+          [
+            "$.derivedViews.postTerminalAuditStatus",
+            "eq",
+            "completed"
+          ],
+          [
+            "$.derivedViews.postTerminalGrowthProven",
+            "eq",
+            true
+          ]
+        ]
+      },
+      "slots": [
+        [
+          "success_terminal",
+          "critical",
+          [
+            "MODEL_TERMINAL_RECORDED"
+          ]
+        ],
+        [
+          "post_terminal_audit",
+          "critical",
+          [
+            "POST_TERMINAL_AUDIT_COMPLETED"
+          ]
+        ],
+        [
+          "terminal_decision",
+          "required",
+          [
+            "DECISION_RECORDED"
+          ]
+        ],
+        [
+          "generation_state",
+          "required",
+          [
+            "GENERATION_SIGNAL_CHANGED",
+            "OBSERVATION_FRAME_CAPTURED"
+          ]
+        ],
+        [
+          "post_terminal_mutation",
+          "required",
+          [
+            "TEXT_STATE_CHANGED"
+          ]
+        ],
+        [
+          "completion_proof",
+          "conditional",
+          [
+            "COMPLETION_HYPOTHESIS_EVALUATED",
+            "ANSWER_COMPLETENESS_EVALUATED"
+          ],
+          [
+            "$.stateAxes.terminalMode",
+            "eq",
+            "automatic"
+          ]
+        ],
+        [
+          "finalization_policy",
+          "conditional",
+          [
+            "TERMINAL_DEADLINE_REACHED",
+            "FINALIZATION_POLICY_EVALUATED",
+            "POLICY_OVERRIDE_APPLIED"
+          ],
+          [
+            "$.stateAxes.terminalMode",
+            "in",
+            [
+              "forced",
+              "recovery"
+            ]
+          ]
+        ],
+        [
+          "missing_evidence",
+          "conditional",
+          [
+            "MISSING_EVIDENCE_RECORDED"
+          ]
+        ]
+      ]
+    },
+    "old-answer": {
+      "question": "Почему принят текст от предыдущего запроса?",
+      "applicability": {
+        "all": [
+          [
+            "$.derivedViews.oldAnswerEvidence",
+            "eq",
+            true
+          ]
+        ]
+      },
+      "slots": [
+        [
+          "dispatch_baseline",
+          "critical",
+          [
+            "DISPATCH_BASELINE_CAPTURED"
+          ]
+        ],
+        [
+          "candidate_identity",
+          "critical",
+          [
+            "CANDIDATE_IDENTITY_INFERRED"
+          ]
+        ],
+        [
+          "extraction_result",
+          "critical",
+          [
+            "EXTRACTION_COMPLETED"
+          ]
+        ],
+        [
+          "accepted_answer_boundary",
+          "critical",
+          [
+            "MODEL_TERMINAL_RECORDED"
+          ]
+        ],
+        [
+          "candidate_lineage",
+          "required",
+          [
+            "CANDIDATE_SET_CHANGED"
+          ]
+        ],
+        [
+          "turn_context",
+          "required",
+          [
+            "PAGE_CONTEXT_OBSERVED",
+            "OBSERVATION_FRAME_CAPTURED"
+          ]
+        ],
+        [
+          "structural_verification",
+          "required",
+          [
+            "STRUCTURAL_VERIFICATION_EVALUATED"
+          ]
+        ],
+        [
+          "text_boundary",
+          "conditional",
+          [
+            "TEXT_STATE_CHANGED"
+          ]
+        ],
+        [
+          "post_terminal_audit",
+          "conditional",
+          [
+            "POST_TERMINAL_AUDIT_COMPLETED",
+            "MISSING_EVIDENCE_RECORDED"
+          ]
+        ]
+      ]
+    },
+    "empty": {
+      "question": "Почему генерация была, но extraction вернул пусто или не тот узел?",
+      "applicability": {
+        "all": [
+          [
+            "$.derivedViews.generationTextObserved",
+            "eq",
+            true
+          ],
+          [
+            "$.derivedViews.extractionProblemEvidence",
+            "eq",
+            true
+          ]
+        ]
+      },
+      "slots": [
+        [
+          "generation_observed",
+          "critical",
+          [
+            "GENERATION_START_EVALUATED",
+            "GENERATION_SIGNAL_CHANGED"
+          ]
+        ],
+        [
+          "extraction_result",
+          "critical",
+          [
+            "EXTRACTION_COMPLETED"
+          ]
+        ],
+        [
+          "candidate_selection",
+          "critical",
+          [
+            "CANDIDATE_SET_CHANGED",
+            "CANDIDATE_IDENTITY_INFERRED"
+          ]
+        ],
+        [
+          "text_boundary",
+          "critical",
+          [
+            "TEXT_STATE_CHANGED",
+            "OBSERVATION_FRAME_CAPTURED"
+          ]
+        ],
+        [
+          "structural_verification",
+          "required",
+          [
+            "STRUCTURAL_VERIFICATION_EVALUATED",
+            "ANSWER_COMPLETENESS_EVALUATED"
+          ]
+        ],
+        [
+          "observer_context",
+          "conditional",
+          [
+            "PAGE_HEALTH_OBSERVED",
+            "OBSERVER_HEALTH_OBSERVED",
+            "OBSERVER_HEALTH_INTERVAL_CLOSED"
+          ],
+          [
+            "$.stateAxes.observationReliability",
+            "in",
+            [
+              "degraded",
+              "stale",
+              "unavailable"
+            ]
+          ]
+        ]
+      ]
+    },
+    "prompt-not-sent": {
+      "question": "Почему модель не получила запрос?",
+      "applicability": {
+        "all": [
+          [
+            "$.derivedViews.promptNotSentEvidence",
+            "eq",
+            true
+          ]
+        ]
+      },
+      "slots": [
+        [
+          "dispatch_baseline",
+          "critical",
+          [
+            "DISPATCH_BASELINE_CAPTURED"
+          ]
+        ],
+        [
+          "submit_action",
+          "critical",
+          [
+            "SUBMIT_ACTION_OBSERVED"
+          ]
+        ],
+        [
+          "acceptance_evidence",
+          "critical",
+          [
+            "SUBMISSION_EVIDENCE_CHANGED",
+            "SUBMISSION_INFERRED"
+          ]
+        ],
+        [
+          "page_context",
+          "required",
+          [
+            "PAGE_CONTEXT_OBSERVED",
+            "PAGE_HEALTH_OBSERVED"
+          ]
+        ],
+        [
+          "observer_context",
+          "conditional",
+          [
+            "OBSERVER_HEALTH_OBSERVED",
+            "OBSERVER_HEALTH_INTERVAL_CLOSED",
+            "OBSERVATION_SLOT_DENIED"
+          ],
+          [
+            "$.stateAxes.observationReliability",
+            "in",
+            [
+              "degraded",
+              "stale",
+              "unavailable"
+            ]
+          ]
+        ]
+      ]
+    },
+    "late-end": {
+      "question": "Текст давно стабилен — почему система ждала ещё N секунд?",
+      "applicability": {
+        "all": [
+          [
+            "$.derivedViews.lateEndEvidence",
+            "eq",
+            true
+          ]
+        ]
+      },
+      "slots": [
+        [
+          "stable_boundary",
+          "critical",
+          [
+            "STABILITY_INTERVAL_CLOSED"
+          ]
+        ],
+        [
+          "terminal_boundary",
+          "critical",
+          [
+            "MODEL_TERMINAL_RECORDED"
+          ]
+        ],
+        [
+          "generation_state",
+          "critical",
+          [
+            "GENERATION_SIGNAL_CHANGED",
+            "OBSERVATION_FRAME_CAPTURED"
+          ]
+        ],
+        [
+          "text_evolution",
+          "required",
+          [
+            "TEXT_STATE_CHANGED"
+          ]
+        ],
+        [
+          "completion_policy",
+          "required",
+          [
+            "COMPLETION_HYPOTHESIS_EVALUATED",
+            "FINALIZATION_POLICY_EVALUATED",
+            "TERMINAL_DEADLINE_REACHED"
+          ]
+        ],
+        [
+          "decision_lineage",
+          "required",
+          [
+            "DECISION_RECORDED"
+          ]
+        ],
+        [
+          "observer_context",
+          "conditional",
+          [
+            "OBSERVER_HEALTH_OBSERVED",
+            "OBSERVER_HEALTH_INTERVAL_CLOSED",
+            "OBSERVATION_SLOT_DENIED"
+          ],
+          [
+            "$.stateAxes.observationReliability",
+            "in",
+            [
+              "degraded",
+              "stale",
+              "unavailable"
+            ]
+          ]
+        ],
+        [
+          "post_terminal_audit",
+          "conditional",
+          [
+            "POST_TERMINAL_AUDIT_COMPLETED",
+            "MISSING_EVIDENCE_RECORDED"
+          ]
+        ]
+      ]
+    }
+  },
   "applicability": {
     "cutted": {
       "all": [
@@ -53,7 +541,7 @@
           "value": true
         },
         {
-          "path": "$.derivedViews.emptyExtractionEvidence",
+          "path": "$.derivedViews.extractionProblemEvidence",
           "operator": "eq",
           "value": true
         }
@@ -71,14 +559,9 @@
     "late-end": {
       "all": [
         {
-          "path": "$.derivedViews.stableToTerminalComparable",
+          "path": "$.derivedViews.lateEndEvidence",
           "operator": "eq",
           "value": true
-        },
-        {
-          "path": "$.derivedViews.stableToTerminalMs",
-          "operator": "gt",
-          "value": 0
         }
       ]
     }
@@ -166,9 +649,9 @@
         "requestIf": {
           "any": [
             {
-              "path": "$.derivedViews.stableToTerminalMs",
-              "operator": "gt",
-              "value": 0
+              "path": "$.derivedViews.lateEndEvidence",
+              "operator": "eq",
+              "value": true
             }
           ]
         },
@@ -272,6 +755,27 @@
         "antiLoop": {
           "sourceReportType": "late-end",
           "requestTargetOnlyOnce": true
+        }
+      }
+    ]
+  },
+  "diagnosisArbitration": {
+    "priority": [
+      "false-success",
+      "old-answer",
+      "prompt-not-sent",
+      "empty",
+      "cutted",
+      "late-end"
+    ],
+    "causalRules": [
+      {
+        "cause": "false-success",
+        "consequence": "cutted",
+        "when": {
+          "path": "$.derivedViews.postTerminalGrowthProven",
+          "operator": "eq",
+          "value": true
         }
       }
     ]

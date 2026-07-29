@@ -1,5 +1,21 @@
 # CHANGELOG — Project
 
+### 2026-08-28 — Preset semantic hardening gate, version 2.81.149
+
+- Completed positive, negative and unknown semantic coverage for all six Tasks,
+  including cross-incident isolation, embedded sufficiency, causal arbitration,
+  standalone negative conclusions and proof-preserving compaction.
+- Dependency registry 5.0.0 is now the exact executable snapshot shared by All
+  tasks, standalone reports, generated documentation and offline validation.
+- Report format 2.2.0 and generator 1.3.0 expose incident applicability,
+  `requiredIf`, diagnosis roles and explicit legacy limitations.
+- Embedded projections reference the single incident timeline and registry;
+  they no longer repeat complete derived views, state axes or slot contracts.
+- Regenerated and independently validated All tasks and all six standalone
+  examples against the updated schemas and registry.
+- Full regression gate passed 185 suites / 1269 tests; focused telemetry gate
+  passed 13 suites / 99 tests.
+
 ### 2026-08-28 — Unified evidence closure, version 2.81.148
 
 - Embedded and standalone reports now resolve the same executable evidence-slot

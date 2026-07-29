@@ -6,7 +6,7 @@ The project is optimized for unstable provider UIs. Its core design assumes sele
 
 ## Status
 
-- Current version: `2.81.144`, synchronized in `manifest.json`, `package.json`
+- Current version: `2.81.149`, synchronized in `manifest.json`, `package.json`
   and the root package entry in `package-lock.json`
 - Extension type: Chrome Manifest V3
 - Package name: `llm-selector-manager`
@@ -404,11 +404,11 @@ at ingress. Derived report sections reference canonical event IDs rather than
 embedding event copies. Restored legacy traces are sanitized before they can be
 rendered or exported.
 
-Both Telemetry and Disput use `shared/problem-context-filter.js` for the
-`Only problems` mode. A problem is retained together with up to ten preceding
-events from the same causal scope (`dispatchId`/run/model tab for Telemetry,
-stage for Disput). The same filtered set is used by the visible event list and
-JSON/Markdown exports; disabling the checkbox restores the complete run export.
+Telemetry exposes exactly two filters: Platform and Tasks. It has no
+`Only problems` mode. A selected Task exports an incident-scoped,
+proof-preserving projection from the single canonical ledger; All tasks exports
+the shared ledger plus all diagnostic projections without parallel recording.
+Disput may use its own problem-context filtering independently.
 
 ## Debate / Disput Pipeline
 

@@ -398,7 +398,12 @@ provenance while preserving every conclusion and replay invariant. - Done
 mere presence of dispatchId. - Done
 
 16.15. Add positive, negative and unknown tests for all six presets plus
-cross-incident isolation, embedded sufficiency, arbitration and compaction. - Pending
+cross-incident isolation, embedded sufficiency, arbitration and compaction. - Done
 
 16.16. Synchronize schemas, registry, examples, documentation and project
-versions; run focused validators and the complete regression gate. - Pending
+versions; run focused validators and the complete regression gate. - Done
+
+Section 16 evidence: registry 5.0.0 is generated from the executable contract;
+All tasks and all six standalone examples validate with zero errors; focused
+telemetry gate passes 13 suites / 99 tests; complete regression gate passes
+185 suites / 1269 tests. Every section 16 task is Done.

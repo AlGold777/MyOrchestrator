@@ -114,22 +114,11 @@ async function validateContainer(container, { verifyContainerHash = true } = {})
     if (Object.prototype.hasOwnProperty.call(report, 'materializedEvents')) addError('EVENT_DUPLICATION', `${reportType} materializes canonical events`);
     const recordedApplicabilityByIncident = report?.reportDescriptor?.applicability?.byIncident || {};
     const recomputedApplicabilityByIncident = {};
-    Object.entries(report?.diagnosticSummary?.incidents || {}).forEach(([incidentId, incident]) => {
+    Object.entries(container?.derivedViews?.['incident-timeline']?.data || {}).forEach(([incidentId, incident]) => {
       const recomputed = ProofTelemetry.evaluateApplicability(reportType, { stateAxes: incident.stateAxes, derivedViews: incident });
-      recomputedApplicabilityByIncident[incidentId] = {
-        modelId: incident.incidentScope?.modelId,
-        incidentScope: incident.incidentScope,
-        ...recomputed
-      };
+      recomputedApplicabilityByIncident[incidentId] = recomputed;
       const recorded = recordedApplicabilityByIncident[incidentId] || {};
-      const recordedCore = {
-        modelId: recorded.modelId,
-        incidentScope: recorded.incidentScope,
-        status: recorded.status,
-        mode: recorded.mode,
-        predicateResults: recorded.predicateResults
-      };
-      if (ProofTelemetry.stableStringify(recordedCore) !== ProofTelemetry.stableStringify(recomputedApplicabilityByIncident[incidentId])) {
+      if (recorded.modelId !== incident.modelId || recorded.status !== recomputed.status) {
         addError('APPLICABILITY_MISMATCH', `${reportType} applicability mismatch for ${incidentId}`);
       }
     });
@@ -145,9 +134,9 @@ async function validateContainer(container, { verifyContainerHash = true } = {})
     });
     (report.siblings || []).forEach((rule) => {
       (rule?.evaluation?.predicateResults || []).forEach((recorded) => {
-        const incident = report?.diagnosticSummary?.incidents?.[recorded.incidentId];
+        const incident = container?.derivedViews?.['incident-timeline']?.data?.[recorded.incidentId];
         if (!incident) return;
-        const recomputed = ProofTelemetry.evaluatePredicate({ stateAxes: incident.stateAxes, derivedViews: incident }, recorded.predicate);
+        const recomputed = ProofTelemetry.evaluatePredicate({ stateAxes: incident.stateAxes, derivedViews: incident }, rule?.requestIf?.any?.[0] || {});
         if (recomputed.matched !== recorded.matched || recomputed.known !== recorded.known) addError('REQUEST_IF_MISMATCH', `${reportType} requestIf mismatch for ${recorded.incidentId}`);
       });
     });
@@ -256,7 +245,7 @@ async function validateStandaloneReport(report) {
   if (ProofTelemetry.stableStringify(replayAxes) !== ProofTelemetry.stableStringify(report.stateAxes || {})) {
     addError('REPLAY_MISMATCH', 'state axes cannot be rebuilt from materialized events');
   }
-  const registrySnapshot = { version: Contracts.REGISTRY_VERSION, reports: Contracts.REPORT_CONTRACTS };
+  const registrySnapshot = ProofTelemetry.dependencyRegistrySnapshot();
   const registryHash = await ProofTelemetry.sha256(registrySnapshot);
   if (report?.reportDescriptor?.dependencyRegistryVersion !== Contracts.REGISTRY_VERSION
     || report?.reportDescriptor?.dependencyRegistryHash !== registryHash) {

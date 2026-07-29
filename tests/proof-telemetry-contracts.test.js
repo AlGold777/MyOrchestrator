@@ -41,6 +41,18 @@ describe('proof telemetry executable contracts', () => {
     });
   });
 
+  test('keeps the generated dependency registry identical to the executable snapshot', () => {
+    const registry = JSON.parse(fs.readFileSync(path.join(
+      __dirname,
+      '..',
+      'docs',
+      'proof_oriented_telemetry_spec_v1',
+      'registry',
+      'report-dependency-registry.json'
+    ), 'utf8'));
+    expect(registry).toEqual(ProofTelemetry.dependencyRegistrySnapshot());
+  });
+
   test('schema 6 validates typed clock evidence', () => {
     const schema = JSON.parse(fs.readFileSync(path.join(
       __dirname,

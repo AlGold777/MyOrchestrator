@@ -14,8 +14,8 @@
   const Clock = root.ProofTelemetryClock || (typeof require === 'function' ? require('./proof-telemetry-clock.js') : null);
   const SCHEMA_VERSION = '5.0';
   const EVENT_SCHEMA_VERSION = Contracts?.EVENT_SCHEMA_VERSION || 6;
-  const GENERATOR_VERSION = 'proof-export@1.2.0';
-  const REPORT_VERSION = '2.1.0';
+  const GENERATOR_VERSION = 'proof-export@1.3.0';
+  const REPORT_VERSION = '2.2.0';
   const REPORT_TYPES = Object.freeze([
     'cutted',
     'false-success',
@@ -639,47 +639,42 @@
       : (statuses.length && statuses.every((status) => status === 'not_confirmed') ? 'not_confirmed' : 'unknown');
   }
 
-  function summarizeModelView(view) {
-    return {
-      incidentId: view.incidentId || null,
-      incidentScope: view.incidentScope || null,
-      stateAxes: view.stateAxes,
-      completionEvidenceTier: view.completionEvidenceTier,
-      acceptedTextLength: view.acceptedTextLength,
-      extractedTextLength: view.extractedTextLength,
-      maxObservedTextLength: view.maxObservedTextLength,
-      extractionCoveragePct: view.extractionCoveragePct,
-      postTerminalGrowthPct: view.postTerminalGrowthPct,
-      postTerminalGrowthProven: view.postTerminalGrowthProven,
-      postTerminalAuditStatus: view.postTerminalAuditStatus,
-      incompleteCaptureEvidence: view.incompleteCaptureEvidence,
-      generationTextObserved: view.generationTextObserved,
-      emptyExtractionEvidence: view.emptyExtractionEvidence,
-      emptyResultEvidence: view.emptyResultEvidence,
-      wrongNodeEvidence: view.wrongNodeEvidence,
-      extractionProblemEvidence: view.extractionProblemEvidence,
-      emptyExtractionBranch: view.emptyExtractionBranch,
-      oldAnswerEvidence: view.oldAnswerEvidence,
-      promptReceivedCounterEvidence: view.promptReceivedCounterEvidence,
-      promptNotSentEvidence: view.promptNotSentEvidence,
-      terminalOutcome: view.terminalOutcome,
-      stableToTerminalMs: view.stableToTerminalMs,
-      stableToTerminalComparable: view.stableToTerminalComparable,
-      stableToTerminalClockBasis: view.stableToTerminalClockBasis,
-      policyWaitObserved: view.policyWaitObserved,
-      postStabilityMutationObserved: view.postStabilityMutationObserved,
-      lateEndEvidence: view.lateEndEvidence
-    };
-  }
-
   const SIBLING_RULES = Object.freeze({
     cutted: [['false-success', '$.derivedViews.postTerminalGrowthProven', 'eq', true], ['old-answer', '$.derivedViews.oldAnswerEvidence', 'eq', true], ['empty', '$.derivedViews.emptyExtractionEvidence', 'eq', true]],
-    'false-success': [['cutted', '$.derivedViews.incompleteCaptureEvidence', 'eq', true], ['late-end', '$.derivedViews.stableToTerminalMs', 'gt', 0]],
+    'false-success': [['cutted', '$.derivedViews.incompleteCaptureEvidence', 'eq', true], ['late-end', '$.derivedViews.lateEndEvidence', 'eq', true]],
     'old-answer': [['empty', '$.derivedViews.emptyExtractionEvidence', 'eq', true], ['cutted', '$.derivedViews.incompleteCaptureEvidence', 'eq', true]],
     empty: [['old-answer', '$.derivedViews.oldAnswerEvidence', 'eq', true], ['cutted', '$.derivedViews.incompleteCaptureEvidence', 'eq', true]],
     'prompt-not-sent': [],
     'late-end': [['false-success', '$.derivedViews.postTerminalGrowthProven', 'eq', true]]
   });
+
+  const DIAGNOSIS_PRIORITY = Object.freeze(['false-success', 'old-answer', 'prompt-not-sent', 'empty', 'cutted', 'late-end']);
+  const DIAGNOSIS_CAUSAL_RULES = Object.freeze([
+    Object.freeze({ cause: 'false-success', consequence: 'cutted', when: { path: '$.derivedViews.postTerminalGrowthProven', operator: 'eq', value: true } })
+  ]);
+
+  function dependencyRegistrySnapshot() {
+    return {
+      registryVersion: Contracts?.REGISTRY_VERSION || '5.0.0',
+      predicateLanguageVersion: '1.0.0',
+      maxEscalationDepth: 2,
+      reports: Contracts?.REPORT_CONTRACTS || {},
+      applicability: Object.fromEntries(REPORT_TYPES.map((reportType) => [reportType, Contracts?.normalizedApplicability?.(reportType) || { all: [] }])),
+      rules: Object.fromEntries(Object.entries(SIBLING_RULES).map(([source, rules]) => [source,
+        rules.map(([reportType, path, operator, value]) => ({
+          reportType,
+          relation: 'diagnostic-dependency',
+          priority: 'required',
+          requestIf: { any: [{ path, operator, value }] },
+          antiLoop: { sourceReportType: source, requestTargetOnlyOnce: true }
+        }))
+      ])),
+      diagnosisArbitration: {
+        priority: DIAGNOSIS_PRIORITY,
+        causalRules: DIAGNOSIS_CAUSAL_RULES
+      }
+    };
+  }
 
   function buildReports(ledger, modelViews, incidentViews, ledgerHash, registryHash) {
     const allViews = Object.values(incidentViews);
@@ -687,9 +682,8 @@
       Object.fromEntries(allViews.map((view) => [view.incidentId,
         evaluateApplicability(reportType, { stateAxes: view.stateAxes, derivedViews: view })]))
     ]));
-    const diagnosisPriority = ['false-success', 'old-answer', 'prompt-not-sent', 'empty', 'cutted', 'late-end'];
     const arbitrationByIncident = Object.fromEntries(allViews.map((view) => {
-      const confirmed = diagnosisPriority.filter((reportType) => rawApplicability[reportType][view.incidentId]?.status === 'confirmed');
+      const confirmed = DIAGNOSIS_PRIORITY.filter((reportType) => rawApplicability[reportType][view.incidentId]?.status === 'confirmed');
       const primaryDiagnosis = confirmed[0] || null;
       const relations = {};
       confirmed.forEach((reportType) => {
@@ -707,8 +701,7 @@
       const relevant = ledger.filter((event) => relevantTypes.includes(event.eventType));
       const applicabilityByIncident = Object.fromEntries(allViews.map((view) => [view.incidentId, {
         modelId: view.modelId,
-        incidentScope: view.incidentScope,
-        ...rawApplicability[reportType][view.incidentId],
+        status: rawApplicability[reportType][view.incidentId].status,
         primaryDiagnosis: arbitrationByIncident[view.incidentId].primaryDiagnosis,
         ...(arbitrationByIncident[view.incidentId].relations[reportType] || { explanationRole: 'not_applicable', causedBy: null })
       }]));
@@ -732,7 +725,13 @@
       const siblingEvaluations = (SIBLING_RULES[reportType] || []).map(([target, path, operator, value]) => {
         const perIncident = allViews.map((view) => {
           const result = evaluatePredicate({ stateAxes: view.stateAxes, derivedViews: view }, { path, operator, value });
-          return { modelId: view.modelId, incidentId: view.incidentId, ...result };
+          return {
+            modelId: view.modelId,
+            incidentId: view.incidentId,
+            observedValue: result.observedValue,
+            known: result.known,
+            matched: result.matched
+          };
         });
         return {
           reportType: target,
@@ -758,13 +757,6 @@
         evidenceCoveragePct,
         missingCriticalEvidence: missingItems.some((item) => item.criticality === 'critical'),
         missingItems,
-        byIncident: Object.fromEntries(Object.entries(slotResults).map(([incidentId, result]) => [incidentId, {
-          level: result.sufficiency,
-          evidenceCoveragePct: result.slots.length
-            ? Math.round((result.slots.filter((slot) => slot.status === 'satisfied').length / result.slots.length) * 10000) / 100
-            : 0,
-          missingItems: result.missingEvidence
-        }])),
         safeConclusions: completenessLevel === 'complete' ? ['all required evidence slots are materialized'] : ['only conclusions supported by satisfied slots'],
         blockedConclusions: completenessLevel === 'complete' ? [] : missingItems.map((item) => `blocked by ${item.incidentId}:${item.slotId}`)
       };
@@ -781,22 +773,26 @@
           completeness,
           diagnosisArbitrationRef: 'diagnosisArbitration.byIncident',
           reportMode: 'embedded-in-all-presets',
-          dependencyRegistryVersion: Contracts?.REGISTRY_VERSION || '4.0.0',
+          dependencyRegistryVersion: Contracts?.REGISTRY_VERSION || '5.0.0',
           dependencyRegistryHash: registryHash
         },
         diagnosticSummary: {
-          models: Object.fromEntries(Object.entries(modelViews).map(([modelId, view]) => [modelId, summarizeModelView(view)])),
           incidents: Object.fromEntries(allViews.map((view) => [view.incidentId, {
-            ...summarizeModelView(view),
-            applicability: applicabilityByIncident[view.incidentId],
+            applicabilityStatus: applicabilityByIncident[view.incidentId].status,
             sufficiency: slotResults[view.incidentId].sufficiency,
-            evidenceSlots: slotResults[view.incidentId].slots,
-            missingEvidence: slotResults[view.incidentId].missingEvidence
+            evidenceSlots: slotResults[view.incidentId].slots.map((slot) => ({
+              slotId: slot.slotId,
+              status: slot.status,
+              effectiveCriticality: slot.effectiveCriticality,
+              requiredIfMatched: slot.requiredIfMatched,
+              eventSeqs: slot.eventIds.map((eventId) => ledger.find((event) => event.eventId === eventId)?.seq).filter((seq) => seq !== undefined),
+              matchedEventCount: slot.matchedEventCount,
+              selectedEventCount: slot.selectedEventCount
+            }))
           }]))
         },
-        stateAxes: Object.fromEntries(Object.entries(modelViews).map(([modelId, view]) => [modelId, view.stateAxes])),
         eventSeqs: relevant.map((event) => event.seq),
-        derivedViewRef: 'model-timeline',
+        derivedViewRef: 'incident-timeline',
         siblings: siblingEvaluations,
         analysisInstructionsRef: 'sharedConfig.commonAnalysisInstructions'
       }];
@@ -878,13 +874,7 @@
       latest.incidentCount = ordered.length;
       return [modelId, latest];
     }));
-    const registrySnapshot = {
-      version: Contracts?.REGISTRY_VERSION || '4.0.0',
-      predicateLanguageVersion: '1.0.0',
-      maxEscalationDepth: 2,
-      applicability: Object.fromEntries(REPORT_TYPES.map((reportType) => [reportType, Contracts?.normalizedApplicability?.(reportType) || { all: [] }])),
-      rules: SIBLING_RULES
-    };
+    const registrySnapshot = dependencyRegistrySnapshot();
     const registryHash = await sha256(registrySnapshot);
     const sharedConfig = {
       extensionVersion: String(options.extensionVersion || 'unknown'),
@@ -909,7 +899,13 @@
         derivedFromEventSeqs: ledgerEvents.map((event) => event.seq),
         generatorVersion: GENERATOR_VERSION,
         ledgerHash,
-        data: modelViews
+        data: Object.fromEntries(Object.entries(modelViews).map(([modelId, view]) => [modelId, {
+          modelId,
+          latestIncidentId: view.incidentId,
+          incidentIds: view.incidentIds,
+          incidentCount: view.incidentCount,
+          stateAxesRef: `incident-timeline.data.${view.incidentId}.stateAxes`
+        }]))
       },
       'incident-timeline': {
         viewType: 'incident-timeline',
@@ -1057,13 +1053,12 @@
       ? root.ProofTelemetryPolicy.deriveAxes(materializedEvents, materializedEvents.filter((event) => event.modelId === modelId).slice(-1)[0])
       : modelView.stateAxes;
     modelView.stateAxes = axes;
-    const registrySnapshot = { version: Contracts?.REGISTRY_VERSION || '4.0.0', reports: Contracts?.REPORT_CONTRACTS || {} };
+    const registrySnapshot = dependencyRegistrySnapshot();
     const registryHash = await sha256(registrySnapshot);
     const context = { stateAxes: axes, derivedViews: modelView };
     const applicability = evaluateApplicability(reportType, context);
     const allApplicability = Object.fromEntries(REPORT_TYPES.map((type) => [type, evaluateApplicability(type, context)]));
-    const diagnosisPriority = ['false-success', 'old-answer', 'prompt-not-sent', 'empty', 'cutted', 'late-end'];
-    const confirmedDiagnoses = diagnosisPriority.filter((type) => allApplicability[type].status === 'confirmed');
+    const confirmedDiagnoses = DIAGNOSIS_PRIORITY.filter((type) => allApplicability[type].status === 'confirmed');
     const primaryDiagnosis = confirmedDiagnoses[0] || null;
     const diagnosisRelation = applicability.status !== 'confirmed'
       ? { explanationRole: 'not_applicable', causedBy: null }
@@ -1122,7 +1117,7 @@
         cannotDiagnoseAlone: completeness.blockedConclusions.map((claim) => ({ claim })),
         completeness,
         reportMode: 'standalone',
-        dependencyRegistryVersion: registrySnapshot.version,
+        dependencyRegistryVersion: registrySnapshot.registryVersion,
         dependencyRegistryHash: registryHash,
         limitations: compatibility.limitations
       },
@@ -1245,6 +1240,9 @@
     REPORT_TYPES,
     REPORT_EVENT_TYPES,
     SIBLING_RULES,
+    DIAGNOSIS_PRIORITY,
+    DIAGNOSIS_CAUSAL_RULES,
+    dependencyRegistrySnapshot,
     stableStringify,
     sha256,
     canonicalType,

@@ -66,7 +66,8 @@ describe('Proof-oriented telemetry schema 6 event export', () => {
       ]
     }, { runSessionId: 42, exportedAt: 2300 });
 
-    const axes = container.derivedViews['model-timeline'].data.Grok.stateAxes;
+    const latestIncidentId = container.derivedViews['model-timeline'].data.Grok.latestIncidentId;
+    const axes = container.derivedViews['incident-timeline'].data[latestIncidentId].stateAxes;
     expect(axes.terminalMode).toBe('forced');
     expect(axes.completionDetection).toBe('inconclusive');
     expect(axes.answerCompleteness).toBe('unknown');
@@ -130,7 +131,8 @@ describe('Proof-oriented telemetry schema 6 event export', () => {
         expect.objectContaining({ code: 'identity_evidence_not_inferred' })
       ])
     }));
-    expect(container.derivedViews['model-timeline'].data.GPT.stateAxes.answerIdentity).toBe('candidate');
+    const latestIncidentId = container.derivedViews['model-timeline'].data.GPT.latestIncidentId;
+    expect(container.derivedViews['incident-timeline'].data[latestIncidentId].stateAxes.answerIdentity).toBe('candidate');
     expect(container.reports['late-end'].reportDescriptor.limitations).toEqual(expect.arrayContaining([
       expect.objectContaining({ code: 'clock_unavailable' })
     ]));

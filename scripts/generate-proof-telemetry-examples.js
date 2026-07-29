@@ -28,7 +28,7 @@ function event(eventType, ts, metadata = {}) {
 
 function ledgerForTypes(types, reportType = null) {
   const uniqueTypes = [...new Set(types)];
-  return ProofTelemetry.buildLedger(uniqueTypes.map((type, index) => event(type, 1000 + index * 500, {
+  let ledger = ProofTelemetry.buildLedger(uniqueTypes.map((type, index) => event(type, 1000 + index * 500, {
     textLength: ['TEXT_STATE_CHANGED', 'STABILITY_INTERVAL_CLOSED', 'EXTRACTION_COMPLETED'].includes(type) ? 120 : undefined,
     answerLength: type === 'MODEL_TERMINAL_RECORDED' ? 120 : undefined,
     finalStatus: ['DECISION_RECORDED', 'MODEL_TERMINAL_RECORDED'].includes(type) ? 'SUCCESS' : undefined,
@@ -51,7 +51,11 @@ function ledgerForTypes(types, reportType = null) {
     }
     if (item.eventType === 'SUBMISSION_EVIDENCE_CHANGED') typed = { kind: 'submission', state: reportType === 'prompt-not-sent' ? 'failed' : 'confirmed' };
     if (reportType === 'false-success' && item.eventType === 'POST_TERMINAL_AUDIT_COMPLETED') {
-      directPayload = { conclusion: 'contradicted', growthChars: 30, growthPct: 25, hashChanged: true };
+      directPayload = { conclusion: 'contradicted', growthChars: 30, growthPct: 25, hashChanged: true, auditPossible: true };
+    }
+    if (reportType === 'late-end' && item.eventType === 'DECISION_RECORDED') {
+      directPayload = { accepted: false, mode: 'automatic', evidenceTier: 2, blockers: ['generation_not_active'] };
+      typed = { kind: 'decision', state: 'rejected' };
     }
     if (reportType === 'old-answer' && item.eventType === 'EXTRACTION_COMPLETED') metadata.answerIdentity = 'previous_dispatch';
     if (reportType === 'old-answer' && item.eventType === 'MODEL_TERMINAL_RECORDED') metadata.answerEvidenceDispatchId = 'synthetic-previous-dispatch';
@@ -65,6 +69,27 @@ function ledgerForTypes(types, reportType = null) {
       payload: { ...item.payload, typed, metadata, ...directPayload }
     };
   });
+  if (reportType === 'late-end') {
+    const order = new Map([
+      ['OBSERVER_HEALTH_OBSERVED', 1],
+      ['GENERATION_SIGNAL_CHANGED', 2],
+      ['TEXT_STATE_CHANGED', 3],
+      ['STABILITY_INTERVAL_CLOSED', 4],
+      ['COMPLETION_HYPOTHESIS_EVALUATED', 5],
+      ['DECISION_RECORDED', 6],
+      ['MODEL_TERMINAL_RECORDED', 7],
+      ['POST_TERMINAL_AUDIT_COMPLETED', 8]
+    ]);
+    ledger = ledger.sort((left, right) => Number(order.get(left.eventType) || 0) - Number(order.get(right.eventType) || 0));
+    ledger.forEach((item, index) => {
+      item.seq = index + 1;
+      item.ingestSeq = index + 1;
+      item.wallTs = 1000 + index * 500;
+      item.clock.observedAtLocalMonoMs = index * 500;
+      item.clock.ingestMonoMs = index + 1;
+    });
+  }
+  return ledger;
 }
 
 async function main() {
@@ -94,31 +119,13 @@ async function main() {
     canonicalLedger: true,
     runSessionId: 'synthetic-run',
     exportedAt: 12000,
-    extensionVersion: '2.81.144',
+    extensionVersion: '2.81.149',
     sampleData: true
   };
   const all = await ProofTelemetry.buildAllPresets(ledger, options);
   fs.writeFileSync(path.join(root, 'all-presets.example.json'), `${JSON.stringify(all, null, 2)}\n`);
 
-  const registry = {
-    registryVersion: '4.0.0',
-    predicateLanguageVersion: '1.0.0',
-    maxEscalationDepth: 2,
-    applicability: Object.fromEntries(ProofTelemetry.REPORT_TYPES.map((reportType) => [
-      reportType,
-      Contracts.normalizedApplicability(reportType)
-    ])),
-    rules: Object.fromEntries(Object.entries(ProofTelemetry.SIBLING_RULES).map(([source, rules]) => [
-      source,
-      rules.map(([reportType, predicatePath, operator, value]) => ({
-        reportType,
-        relation: 'diagnostic-dependency',
-        priority: 'required',
-        requestIf: { any: [{ path: predicatePath, operator, value }] },
-        antiLoop: { sourceReportType: source, requestTargetOnlyOnce: true }
-      }))
-    ]))
-  };
+  const registry = ProofTelemetry.dependencyRegistrySnapshot();
   fs.writeFileSync(path.join(root, 'registry', 'report-dependency-registry.json'), `${JSON.stringify(registry, null, 2)}\n`);
 
   fs.mkdirSync(presetsDir, { recursive: true });
