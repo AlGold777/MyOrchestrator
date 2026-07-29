@@ -484,19 +484,19 @@ extraction, decision, terminal and post-terminal audit. - Done
 
 19.5. Unify exact incident scope, SYSTEM boundaries and identity vocabulary. - Done
 
-19.6. Require candidate continuity for text/extraction measurements. - Pending
+19.6. Require candidate continuity for text/extraction measurements. - Done
 
 19.7. Add explicit refutation predicates for accepted-answer and generation
-counter-evidence. - Pending
+counter-evidence. - Done
 
-19.8. Give Late end a policy-relative threshold and alternative wait evidence. - Pending
+19.8. Give Late end a policy-relative threshold and alternative wait evidence. - Done
 
-19.9. Add a bounded prior-incident evidence lane for Old answer. - Pending
+19.9. Add a bounded prior-incident evidence lane for Old answer. - Done
 
-19.10. Unify post-terminal change semantics and use one configured threshold. - Pending
+19.10. Unify post-terminal change semantics and use one configured threshold. - Done
 
 19.11. Correct effective-slot coverage, enumerated states, conclusions and
-per-field diagnostic provenance. - Pending
+per-field diagnostic provenance. - Done
 
 19.12. Reject unknown explicit incident IDs without fallback. - Done
 

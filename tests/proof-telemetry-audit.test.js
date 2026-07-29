@@ -74,4 +74,23 @@ describe('proof telemetry post-terminal audit', () => {
       })
     ]));
   });
+
+  test('uses the configured post-terminal growth tolerance', () => {
+    const terminal = canonical('MODEL_FINAL', 1000, { answerLength: 1000 });
+    const below = canonical('ANSWER_GENERATING', 1100, { answerLength: 1004 });
+    below.seq = 2;
+    below.ingestSeq = 2;
+    const belowAudit = Audit.planAfterEvent(below, [terminal, below])
+      .find((item) => item.eventType === 'POST_TERMINAL_AUDIT_COMPLETED');
+    expect(belowAudit.payload.growthPct).toBeCloseTo(0.4);
+    expect(belowAudit.payload.conclusion).toBe('confirmed');
+
+    const above = canonical('ANSWER_GENERATING', 1200, { answerLength: 1006 });
+    above.seq = 2;
+    above.ingestSeq = 2;
+    const aboveAudit = Audit.planAfterEvent(above, [terminal, above])
+      .find((item) => item.eventType === 'POST_TERMINAL_AUDIT_COMPLETED');
+    expect(aboveAudit.payload.growthPct).toBeCloseTo(0.6);
+    expect(aboveAudit.payload.conclusion).toBe('contradicted');
+  });
 });

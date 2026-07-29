@@ -326,6 +326,15 @@ Audit после terminal обязан ссылаться на terminal и по�
 closure не сохраняет смысл, материализуется полный incident с явной причиной
 `semantic-verdict-preservation`.
 
+Версия `2.81.155` усиливает смысл отдельных Tasks. Cutted сравнивает длины
+только внутри одной candidate lineage; Old answer требует SUCCESS и найденный
+`priorIncidentRef`, события которого входят в отдельную evidence lane; Prompt
+not sent опровергается самим доказанным стартом генерации. Late end использует
+policy boundary и единый tolerance, а False success остаётся вопросом именно о
+росте, поэтому hash-only замена отмечается audit-контрадикцией, но не считается
+ростом. Conclusions теперь ссылаются на slotId, provenance каждого флага —
+только на участвовавшие eventId.
+
 `Only problems` не возвращён: проблемность является вычисляемым результатом
 диагностической задачи, а не независимой осью отбора. Для анализа выбираются
 конкретный вопрос и при необходимости Platform; режим `All tasks` остаётся

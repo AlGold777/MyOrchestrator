@@ -229,11 +229,13 @@ async function validateStandaloneReport(report) {
   });
   const correlation = report?.correlation || {};
   events.filter((event) => event.modelId !== 'SYSTEM').forEach((event) => {
-    if (String(event.runSessionId) !== String(correlation.runSessionId)
+    const eventIncidentId = `incident:${Incidents.scopeKey(Incidents.scopeOf(event))}`;
+    const inPriorLane = correlation.priorIncidentRef && eventIncidentId === correlation.priorIncidentRef;
+    if (!inPriorLane && (String(event.runSessionId) !== String(correlation.runSessionId)
       || Number(event.runGeneration ?? -1) !== Number(correlation.runGeneration ?? -1)
       || String(event.modelId) !== String(correlation.modelId)
       || String(event.dispatchId) !== String(correlation.dispatchId)
-      || Number(event.generationEpoch ?? -1) !== Number(correlation.generationEpoch ?? -1)) {
+      || Number(event.generationEpoch ?? -1) !== Number(correlation.generationEpoch ?? -1))) {
       addError('INCIDENT_SCOPE', `event ${event.eventId} is outside the declared incident`);
     }
   });
@@ -248,8 +250,9 @@ async function validateStandaloneReport(report) {
       if (!idSet.has(eventId)) addError('DERIVED_REF', `${field} references absent event ${eventId}`);
     });
   });
-  const replayTarget = events.filter((event) => event.modelId === correlation.modelId).slice(-1)[0];
-  const replayAxes = replayTarget ? Policy.deriveAxes(events, replayTarget) : {};
+  const currentIncidentEvents = events.filter((event) => Incidents.exactScope(event, correlation));
+  const replayTarget = currentIncidentEvents.slice(-1)[0];
+  const replayAxes = replayTarget ? Policy.deriveAxes(currentIncidentEvents, replayTarget) : {};
   if (ProofTelemetry.stableStringify(replayAxes) !== ProofTelemetry.stableStringify(report.stateAxes || {})) {
     addError('REPLAY_MISMATCH', 'state axes cannot be rebuilt from materialized events');
   }
@@ -297,7 +300,7 @@ async function validateStandaloneReport(report) {
     addError('VERDICT_COMPACTION_MISMATCH', 'materialized evidence does not preserve the full-incident verdict projection');
   }
   if (preservation.fallbackMaterializedFullIncident === true) {
-    const fullProjection = events.filter((event) => event.modelId === correlation.modelId).map((event) => {
+    const fullProjection = currentIncidentEvents.map((event) => {
       const copy = JSON.parse(JSON.stringify(event));
       delete copy.wallTs;
       delete copy.includedFor;

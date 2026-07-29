@@ -872,6 +872,27 @@ Standalone closure MUST минимизировать повторы по док�
 первую/последнюю границу, экстремумы измерений, смены typed state и явные
 `evidenceRefs`/causation. Фиксированный лимит числа событий запрещён.
 
+## 29. Composite verdict и межинцидентные доказательства
+
+`applicability` отвечает только на вопрос о совпадении наблюдаемых признаков.
+Сильный `diagnosticVerdict=confirmed` разрешён лишь при `complete|bounded`
+sufficiency и отсутствии scope/temporal/causal violations. Arbitration MUST
+использовать `diagnosticVerdict`, а не raw applicability.
+
+Standalone MUST вычислять applicability на полном frozen incident. Materialized
+closure MUST воспроизводить те же state axes и результаты всех Tasks; hashes
+полной и materialized verdict-проекций обязаны совпадать. При расхождении MUST
+быть сохранён полный incident с причиной `semantic-verdict-preservation`.
+
+Length coverage MUST сравнивать значения только одной candidate lineage. При
+неподтверждённой continuity результат остаётся unknown. `Old answer` MUST иметь
+разрешимый `priorIncidentRef`; prior terminal/extraction включаются отдельной
+evidence lane и не смешиваются с derived view текущего incident.
+
+Audit MUST следовать после terminal и ссылаться на terminal и более позднее
+наблюдение. Late end MUST опираться на policy boundary и configured tolerance.
+Hash-only mutation является изменением ответа, но не ростом для False success.
+
 ---
 
 # Часть V. Файлы реализации

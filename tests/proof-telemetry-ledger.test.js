@@ -320,6 +320,33 @@ describe('native proof telemetry ledger', () => {
     }));
   });
 
+  test('links accepted prior-dispatch evidence to an existing prior incident', async () => {
+    await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
+    await global.ProofTelemetryLedger.record({
+      ts: 1000,
+      label: 'EXTRACTION_COMPLETED',
+      proofEventType: 'EXTRACTION_COMPLETED',
+      typed: { kind: 'extraction', state: 'completed' },
+      meta: { runSessionId: 42, dispatchId: 'GPT:42:prior', generationEpoch: 1, length: 100 }
+    }, 'GPT');
+    await global.ProofTelemetryLedger.record({
+      ts: 1100,
+      label: 'MODEL_FINAL',
+      details: 'SUCCESS',
+      meta: {
+        runSessionId: 42,
+        dispatchId: 'GPT:42:current',
+        generationEpoch: 2,
+        finalStatus: 'SUCCESS',
+        answerEvidenceDispatchId: 'GPT:42:prior'
+      }
+    }, 'GPT');
+    const snapshot = await global.ProofTelemetryLedger.snapshot();
+    const terminal = snapshot.events.find((item) => item.eventType === 'MODEL_TERMINAL_RECORDED');
+    expect(terminal.payload.metadata.priorIncidentRef)
+      .toBe('incident:42|1|GPT|GPT:42:prior|1');
+  });
+
   test('materializes an atomic observation frame and candidate inference', async () => {
     await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
     const meta = { runSessionId: 42, dispatchId: 'GPT:42:1', llmName: 'GPT' };

@@ -14,8 +14,8 @@
   const Clock = root.ProofTelemetryClock || (typeof require === 'function' ? require('./proof-telemetry-clock.js') : null);
   const SCHEMA_VERSION = '5.0';
   const EVENT_SCHEMA_VERSION = Contracts?.EVENT_SCHEMA_VERSION || 6;
-  const GENERATOR_VERSION = 'proof-export@1.6.0';
-  const REPORT_VERSION = '2.5.0';
+  const GENERATOR_VERSION = 'proof-export@1.7.0';
+  const REPORT_VERSION = '2.6.0';
   const REPORT_TYPES = Object.freeze([
     'cutted',
     'false-success',
@@ -438,11 +438,21 @@
     const acceptedLength = terminalLengths.length ? terminalLengths[0] : null;
     const acceptedExtraction = resolveAcceptedExtraction(events, terminalEvent);
     const extractionEvent = acceptedExtraction.event;
+    const extractionIdentityHint = String(eventValue(extractionEvent, ['answerIdentity']) || '').toLowerCase() || null;
     const extractionLengths = extractionEvent
       ? numericMeta([extractionEvent], ['extractedTextLength', 'capturedTextLength', 'textLength', 'answerLength', 'answerLen', 'length'])
       : [];
     const extractedTextLength = extractionLengths.length ? extractionLengths[extractionLengths.length - 1] : null;
+    const acceptedCandidateId = extractionEvent?.candidateId || terminalEvent?.candidateId || null;
+    const candidateMatchedObservedEvents = acceptedCandidateId
+      ? preTerminalObservedEvents.filter((event) => event.candidateId === acceptedCandidateId)
+      : (Contracts?.normalizeIdentityState?.(extractionIdentityHint) === 'current' ? preTerminalObservedEvents : []);
+    const candidateMatchedLengths = numericMeta(candidateMatchedObservedEvents, ['textLength', 'answerLength', 'answerLen', 'latestObservedTextLength']);
+    const candidateContinuity = acceptedCandidateId
+      ? (candidateMatchedLengths.length ? 'matched' : 'mismatched')
+      : (Contracts?.normalizeIdentityState?.(extractionIdentityHint) === 'current' ? 'dispatch_proven' : 'unknown');
     const maxObservedLength = preTerminalLengths.length ? Math.max(...preTerminalLengths) : null;
+    const comparableObservedLength = candidateMatchedLengths.length ? Math.max(...candidateMatchedLengths) : null;
     const postTerminalMax = postTerminalLengths.length ? Math.max(...postTerminalLengths) : acceptedLength;
     const latestAudit = [...events].reverse().find((event) => event.eventType === 'POST_TERMINAL_AUDIT_COMPLETED');
     const pendingAudit = events.some((event) => event.eventType === 'MISSING_EVIDENCE_RECORDED'
@@ -473,7 +483,12 @@
     const generationEvents = events.filter((event) => ['GENERATION_START_EVALUATED', 'GENERATION_SIGNAL_CHANGED', 'OBSERVATION_FRAME_CAPTURED', 'TEXT_STATE_CHANGED'].includes(event.eventType));
     const generationLengths = numericMeta(generationEvents, ['textLength', 'answerLength', 'answerLen', 'latestObservedTextLength']);
     const generationTextObserved = generationLengths.length ? Math.max(...generationLengths) > 0 : null;
-    const extractionIdentityRaw = String(eventValue(extractionEvent, ['answerIdentity']) || '').toLowerCase() || null;
+    const generationStarted = generationEvents.some((event) => {
+      const fact = Contracts?.factOf?.(event) || {};
+      return (fact.kind === 'generation_start' && fact.state === 'started')
+        || (fact.kind === 'generation' && ['active', 'started', 'generating'].includes(String(fact.state).toLowerCase()));
+    }) ? true : (generationEvents.length ? null : null);
+    const extractionIdentityRaw = extractionIdentityHint;
     const extractionIdentity = Contracts?.normalizeIdentityState?.(extractionIdentityRaw) || extractionIdentityRaw;
     const extractionVerified = eventBoolean(extractionEvent, ['verified', 'structuralVerified']);
     const extractionVerification = String(eventValue(extractionEvent, ['verification']) || '').toLowerCase() || null;
@@ -502,10 +517,12 @@
     const completenessStates = events
       .filter((event) => event.eventType === 'ANSWER_COMPLETENESS_EVALUATED')
       .map((event) => String(Contracts?.factOf?.(event)?.state || '').toLowerCase());
-    const extractionCoveragePct = maxObservedLength > 0 && extractedTextLength !== null
-      ? Math.min(100, (extractedTextLength / maxObservedLength) * 100) : null;
-    const explicitIncomplete = completenessStates.some((state) => /truncat|partial|incomplete/.test(state));
-    const explicitComplete = completenessStates.some((state) => /verified_complete|probably_complete/.test(state));
+    const extractionCoveragePct = comparableObservedLength > 0 && extractedTextLength !== null
+      ? Math.min(100, (extractedTextLength / comparableObservedLength) * 100) : null;
+    const incompleteStates = new Set(['probably_truncated', 'truncated', 'partial_capture', 'incomplete_capture']);
+    const completeStates = new Set(['verified_complete', 'probably_complete']);
+    const explicitIncomplete = completenessStates.some((state) => incompleteStates.has(state));
+    const explicitComplete = completenessStates.some((state) => completeStates.has(state));
     const incompleteCaptureEvidence = explicitIncomplete
       || (extractionCoveragePct !== null && extractionCoveragePct < Number(Contracts?.THRESHOLDS?.minimumExtractionCoveragePct || 98))
       ? true
@@ -529,6 +546,7 @@
     const submissionFailed = submissionEntries.some(({ fact }) => fact.state === 'failed');
     const submissionConfirmed = submissionEntries.some(({ fact }) => fact.state === 'confirmed');
     const promptReceivedCounterEvidence = submissionConfirmed
+      || generationStarted === true
       || generationTextObserved === true
       || (extractedTextLength !== null && extractedTextLength > 0)
       || terminalOutcome === 'SUCCESS';
@@ -559,12 +577,21 @@
       && Number(event.seq) < terminalBoundarySeq
       && (event.eventType === 'TEXT_STATE_CHANGED'
         || (event.eventType === 'GENERATION_SIGNAL_CHANGED' && Contracts?.factOf?.(event)?.state === 'active')));
-    const policyWaitObserved = blockingDecisions.length ? true : (acceptingDecisions.length ? false : null);
+    const policyBoundaryEvents = events.filter((event) => Number(event.seq) >= lastStableSeq
+      && Number(event.seq) <= terminalBoundarySeq
+      && (event.eventType === 'TERMINAL_DEADLINE_REACHED'
+        || (event.eventType === 'FINALIZATION_POLICY_EVALUATED'
+          && (eventBoolean(event, ['accepted', 'decisionAccepted']) === false
+            || /wait|block|retry|pending|defer/i.test(JSON.stringify(event.payload || {}))))));
+    const policyWaitObserved = blockingDecisions.length || policyBoundaryEvents.length
+      ? true
+      : (acceptingDecisions.length ? false : null);
+    const lateEndToleranceMs = Number(Contracts?.THRESHOLDS?.lateEndPolicyToleranceMs || 1000);
     const lateEndEvidence = !absenceObservationUsable
       ? null
-      : (stableDelay.comparable && stableDelay.durationMs > 0 && policyWaitObserved === true
+      : (stableDelay.comparable && stableDelay.durationMs >= lateEndToleranceMs && policyWaitObserved === true
       ? (invalidatingAfterStable ? false : true)
-      : (policyWaitObserved === false && stableDelay.comparable ? false : null));
+      : (stableDelay.comparable && policyWaitObserved !== null ? false : null));
     return {
       modelId,
       stateAxes: axes,
@@ -584,8 +611,12 @@
         : (impossibleAudit ? 'impossible' : (pendingAudit ? 'pending' : null)),
       postTerminalAuditConclusion: auditConclusion,
       extractionCoveragePct,
+      candidateContinuity,
+      measurementCandidateId: acceptedCandidateId,
+      comparableObservedTextLength: comparableObservedLength,
       incompleteCaptureEvidence,
       generationTextObserved,
+      generationStarted,
       acceptedExtractionEventId: extractionEvent?.eventId || null,
       acceptedExtractionResolution: acceptedExtraction.resolution,
       emptyResultEvidence,
@@ -612,6 +643,8 @@
       stableToTerminalComparable: stableDelay.comparable ? true : null,
       stableToTerminalClockBasis: stableDelay.basis,
       policyWaitObserved,
+      policyWaitEvidenceEventIds: [...blockingDecisions, ...policyBoundaryEvents].map((event) => event.eventId),
+      lateEndPolicyToleranceMs: lateEndToleranceMs,
       postStabilityMutationObserved: invalidatingAfterStable,
       lateEndEvidence
     };
@@ -643,10 +676,14 @@
   function evaluateApplicability(reportType, context) {
     const predicates = (Contracts?.normalizedApplicability?.(reportType)?.all || [])
       .map((predicate) => evaluatePredicate(context, predicate));
-    const status = predicates.some((result) => result.known && !result.matched)
+    const refutationResults = (Contracts?.normalizedRefutation?.(reportType)?.any || [])
+      .map((predicate) => evaluatePredicate(context, predicate));
+    const status = refutationResults.some((result) => result.known && result.matched)
+      ? 'not_confirmed'
+      : predicates.some((result) => result.known && !result.matched)
       ? 'not_confirmed'
       : (predicates.some((result) => !result.known) ? 'unknown' : 'confirmed');
-    return { status, mode: 'all', predicateResults: predicates };
+    return { status, mode: 'all', predicateResults: predicates, refutationResults };
   }
 
   function aggregateApplicability(results) {
@@ -661,6 +698,59 @@
     if (status !== 'confirmed') return status;
     if (sufficiency === 'insufficient' || invariantViolations.length) return 'unknown';
     return 'confirmed';
+  }
+
+  function buildConclusions(reportType, verdict, slots, missingEvidence) {
+    const satisfiedSlotIds = (slots || []).filter((slot) => slot.status === 'satisfied'
+      && ['critical', 'required'].includes(slot.effectiveCriticality)).map((slot) => slot.slotId);
+    const safe = verdict === 'confirmed'
+      ? [{ claim: `${reportType} is supported for this incident`, basedOnSlotIds: satisfiedSlotIds }]
+      : (verdict === 'not_confirmed'
+        ? [{ claim: `${reportType} is refuted by observed counter-evidence`, basedOn: 'applicability.predicates' }]
+        : [{ claim: `Only satisfied evidence slots for ${reportType} may be used`, basedOnSlotIds: satisfiedSlotIds }]);
+    const blocked = (missingEvidence || []).map((item) => ({
+      claim: `${reportType} conclusion blocked by ${item.slotId}`,
+      slotId: item.slotId,
+      criticality: item.criticality
+    }));
+    return { safe, blocked };
+  }
+
+  const PROVENANCE_EVENT_TYPES = Object.freeze({
+    submission: ['SUBMIT_ACTION_OBSERVED', 'SUBMISSION_EVIDENCE_CHANGED', 'SUBMISSION_INFERRED'],
+    generationStart: ['GENERATION_START_EVALUATED', 'GENERATION_SIGNAL_CHANGED'],
+    answerIdentity: ['CANDIDATE_SET_CHANGED', 'CANDIDATE_IDENTITY_INFERRED', 'EXTRACTION_COMPLETED', 'MODEL_TERMINAL_RECORDED'],
+    observedGeneration: ['GENERATION_SIGNAL_CHANGED', 'OBSERVATION_FRAME_CAPTURED'],
+    textEvolution: ['TEXT_STATE_CHANGED', 'STABILITY_INTERVAL_CLOSED'],
+    answerCompleteness: ['ANSWER_COMPLETENESS_EVALUATED', 'EXTRACTION_COMPLETED', 'TEXT_STATE_CHANGED'],
+    extraction: ['EXTRACTION_COMPLETED'],
+    verification: ['STRUCTURAL_VERIFICATION_EVALUATED'],
+    completionDetection: ['COMPLETION_HYPOTHESIS_EVALUATED', 'TERMINAL_DEADLINE_REACHED'],
+    completionEvidenceTier: ['SUBMISSION_INFERRED', 'CANDIDATE_IDENTITY_INFERRED', 'STRUCTURAL_VERIFICATION_EVALUATED', 'COMPLETION_HYPOTHESIS_EVALUATED'],
+    observationReliability: ['OBSERVATION_FRAME_CAPTURED', 'OBSERVER_HEALTH_OBSERVED', 'OBSERVER_HEALTH_INTERVAL_CLOSED', 'MISSING_EVIDENCE_RECORDED'],
+    finalization: ['FINALIZATION_POLICY_EVALUATED', 'DECISION_RECORDED', 'POLICY_OVERRIDE_APPLIED'],
+    terminalMode: ['FINALIZATION_POLICY_EVALUATED', 'DECISION_RECORDED', 'POLICY_OVERRIDE_APPLIED', 'MODEL_TERMINAL_RECORDED'],
+    terminationCause: ['TERMINAL_DEADLINE_REACHED', 'POLICY_OVERRIDE_APPLIED', 'MODEL_TERMINAL_RECORDED'],
+    postTerminalGrowthProven: ['MODEL_TERMINAL_RECORDED', 'TEXT_STATE_CHANGED', 'POST_TERMINAL_AUDIT_COMPLETED'],
+    incompleteCaptureEvidence: ['TEXT_STATE_CHANGED', 'EXTRACTION_COMPLETED', 'ANSWER_COMPLETENESS_EVALUATED', 'CANDIDATE_IDENTITY_INFERRED'],
+    extractionProblemEvidence: ['GENERATION_START_EVALUATED', 'GENERATION_SIGNAL_CHANGED', 'TEXT_STATE_CHANGED', 'EXTRACTION_COMPLETED', 'CANDIDATE_IDENTITY_INFERRED', 'STRUCTURAL_VERIFICATION_EVALUATED'],
+    oldAnswerEvidence: ['CANDIDATE_IDENTITY_INFERRED', 'EXTRACTION_COMPLETED', 'MODEL_TERMINAL_RECORDED'],
+    promptNotSentEvidence: ['SUBMISSION_EVIDENCE_CHANGED', 'SUBMISSION_INFERRED', 'GENERATION_START_EVALUATED', 'GENERATION_SIGNAL_CHANGED', 'TEXT_STATE_CHANGED', 'EXTRACTION_COMPLETED', 'MODEL_TERMINAL_RECORDED'],
+    promptNotInsertedEvidence: ['PROMPT_INSERTION_EVALUATED', 'SUBMISSION_EVIDENCE_CHANGED', 'SUBMISSION_INFERRED', 'GENERATION_START_EVALUATED', 'GENERATION_SIGNAL_CHANGED', 'EXTRACTION_COMPLETED', 'MODEL_TERMINAL_RECORDED'],
+    lateEndEvidence: ['STABILITY_INTERVAL_CLOSED', 'TEXT_STATE_CHANGED', 'GENERATION_SIGNAL_CHANGED', 'DECISION_RECORDED', 'TERMINAL_DEADLINE_REACHED', 'FINALIZATION_POLICY_EVALUATED', 'MODEL_TERMINAL_RECORDED']
+  });
+
+  function buildFieldProvenance(view, events) {
+    const fields = [...Object.keys(view.stateAxes || {}),
+      'postTerminalGrowthProven', 'incompleteCaptureEvidence', 'extractionProblemEvidence',
+      'oldAnswerEvidence', 'promptNotSentEvidence', 'promptNotInsertedEvidence', 'lateEndEvidence'];
+    return Object.fromEntries(fields.map((field) => {
+      const accepted = new Set(PROVENANCE_EVENT_TYPES[field] || []);
+      return [field, {
+        derivedFromEventIds: (events || []).filter((event) => accepted.has(event.eventType)).map((event) => event.eventId),
+        derivationVersion: `${GENERATOR_VERSION}:field-v1`
+      }];
+    }));
   }
 
   const SIBLING_RULES = Object.freeze({
@@ -694,6 +784,7 @@
       maxEscalationDepth: 2,
       reports: Contracts?.REPORT_CONTRACTS || {},
       applicability: Object.fromEntries(REPORT_TYPES.map((reportType) => [reportType, Contracts?.normalizedApplicability?.(reportType) || { all: [] }])),
+      refutations: Object.fromEntries(REPORT_TYPES.map((reportType) => [reportType, Contracts?.normalizedRefutation?.(reportType) || { any: [] }])),
       rules: Object.fromEntries(Object.entries(SIBLING_RULES).map(([source, rules]) => [source,
         rules.map(([reportType, path, operator, value]) => ({
           reportType,
@@ -811,6 +902,7 @@
         safeConclusions: completenessLevel === 'complete' ? ['all required evidence slots are materialized'] : ['only conclusions supported by satisfied slots'],
         blockedConclusions: completenessLevel === 'complete' ? [] : missingItems.map((item) => `blocked by ${item.incidentId}:${item.slotId}`)
       };
+      const conclusions = buildConclusions(reportType, applicabilityStatus, allSlots, missingItems);
       return [reportType, {
         reportDescriptor: {
           reportId: `rpt-${reportType}-${eventFingerprint(ledgerHash)}`,
@@ -819,8 +911,8 @@
           title: primaryQuestion,
           primaryQuestion,
           applicability: { status: applicabilityStatus, byModel: applicabilityByModel, byIncident: applicabilityByIncident },
-          canDiagnose: completeness.safeConclusions.map((claim) => ({ claim })),
-          cannotDiagnoseAlone: completeness.blockedConclusions.map((claim) => ({ claim })),
+          canDiagnose: conclusions.safe,
+          cannotDiagnoseAlone: conclusions.blocked,
           completeness,
           diagnosisArbitrationRef: 'diagnosisArbitration.byIncident',
           reportMode: 'embedded-in-all-presets',
@@ -1102,9 +1194,10 @@
     });
     let materializedEvents = closure.events;
     const deriveCompacted = (events) => {
-      const view = deriveModelView(modelId, events.filter((event) => event.modelId === modelId));
+      const currentIncidentEvents = events.filter((event) => Incidents.exactScope(event, selection.selected.scope));
+      const view = deriveModelView(modelId, currentIncidentEvents);
       const stateAxes = root.ProofTelemetryPolicy?.deriveAxes
-        ? root.ProofTelemetryPolicy.deriveAxes(events, events.filter((event) => event.modelId === modelId).slice(-1)[0])
+        ? root.ProofTelemetryPolicy.deriveAxes(currentIncidentEvents, currentIncidentEvents.slice(-1)[0])
         : view.stateAxes;
       view.stateAxes = stateAxes;
       const context = { stateAxes, derivedViews: view };
@@ -1161,11 +1254,7 @@
         antiLoop: { sourceReportType: reportType, requestTargetOnlyOnce: true }
       };
     });
-    const contributingIds = materializedEvents.filter((event) => event.modelId === modelId).map((event) => event.eventId);
-    const fieldProvenance = Object.fromEntries(Object.keys(axes).map((field) => [field, {
-      derivedFromEventIds: contributingIds,
-      derivationVersion: `${GENERATOR_VERSION}:axes-v2`
-    }]));
+    const fieldProvenance = buildFieldProvenance(modelView, materializedEvents.filter((event) => Incidents.exactScope(event, selection.selected.scope)));
     const replayAxes = root.ProofTelemetryPolicy?.deriveAxes
       ? root.ProofTelemetryPolicy.deriveAxes(materializedEvents, materializedEvents.filter((event) => event.modelId === modelId).slice(-1)[0])
       : axes;
@@ -1195,6 +1284,7 @@
       safeConclusions: closure.sufficiency === 'complete' ? ['all required evidence slots are materialized'] : ['only conclusions supported by satisfied slots'],
       blockedConclusions: closure.sufficiency === 'complete' ? [] : closure.missingEvidence.map((item) => `blocked by ${item.slotId}`)
     };
+    const conclusions = buildConclusions(reportType, verdict, effectiveSlots, closure.missingEvidence);
     const report = {
       schemaVersion: SCHEMA_VERSION,
       fileKind: 'diagnostic-report',
@@ -1207,8 +1297,8 @@
         applicability,
         diagnosticVerdict: verdict,
         diagnosisArbitration: { primaryDiagnosis, confirmedDiagnoses, ...reportDiagnosisRelation },
-        canDiagnose: completeness.safeConclusions.map((claim) => ({ claim })),
-        cannotDiagnoseAlone: completeness.blockedConclusions.map((claim) => ({ claim })),
+        canDiagnose: conclusions.safe,
+        cannotDiagnoseAlone: conclusions.blocked,
         completeness,
         reportMode: 'standalone',
         dependencyRegistryVersion: registrySnapshot.registryVersion,
@@ -1222,7 +1312,8 @@
         navigationLineage: selection.selected.navigationLineage,
         selectionReason: selection.selectionReason,
         matchingIncidentCount: selection.matchingIncidentCount,
-        otherMatchingIncidents: selection.otherMatchingIncidents
+        otherMatchingIncidents: selection.otherMatchingIncidents,
+        priorIncidentRef: closure.priorIncidentRef
       },
       reportCatalogSnapshot: REPORT_TYPES.map((type) => ({
         reportType: type,
@@ -1240,6 +1331,7 @@
         diagnosticVerdict: verdict,
         sufficiency: closure.sufficiency,
         evidenceSlots: closure.slots,
+        evidenceLanes: closure.evidenceLanes,
         safeConclusions: completeness.safeConclusions,
         blockedConclusions: completeness.blockedConclusions
       },
@@ -1247,6 +1339,7 @@
       eventSelection: {
         includedEventTypes: Array.from(new Set(materializedEvents.map((event) => event.eventType))),
         eventRefs: materializedEvents.map((event) => event.eventId),
+        evidenceLanes: closure.evidenceLanes,
         materializedEvents
       },
       derivedViews: {
@@ -1354,12 +1447,15 @@
     layerFor,
     sanitizeValue,
     eventFingerprint,
+    normalizeDispatchIdentity,
     buildLedger,
     deriveAxes,
     deriveModelView,
     evaluatePredicate,
     evaluateApplicability,
     diagnosticVerdict,
+    buildConclusions,
+    buildFieldProvenance,
     validateLedger,
     buildAllPresets,
     buildStandaloneReport

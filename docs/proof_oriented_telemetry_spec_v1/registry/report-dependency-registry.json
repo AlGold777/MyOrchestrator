@@ -1,5 +1,5 @@
 {
-  "registryVersion": "5.3.0",
+  "registryVersion": "5.4.0",
   "predicateLanguageVersion": "1.0.0",
   "maxEscalationDepth": 2,
   "reports": {
@@ -189,8 +189,22 @@
     },
     "old-answer": {
       "question": "Почему принят текст от предыдущего запроса?",
+      "refutation": {
+        "any": [
+          [
+            "$.derivedViews.terminalOutcome",
+            "ne",
+            "SUCCESS"
+          ]
+        ]
+      },
       "applicability": {
         "all": [
+          [
+            "$.derivedViews.terminalOutcome",
+            "eq",
+            "SUCCESS"
+          ],
           [
             "$.derivedViews.oldAnswerEvidence",
             "eq",
@@ -204,6 +218,13 @@
           "critical",
           [
             "DISPATCH_BASELINE_CAPTURED"
+          ]
+        ],
+        [
+          "prior_incident_evidence",
+          "critical",
+          [
+            "MODEL_TERMINAL_RECORDED"
           ]
         ],
         [
@@ -344,6 +365,15 @@
     },
     "prompt-not-inserted": {
       "question": "Почему prompt не вставился в поле ввода?",
+      "refutation": {
+        "any": [
+          [
+            "$.derivedViews.promptInsertedCounterEvidence",
+            "eq",
+            true
+          ]
+        ]
+      },
       "applicability": {
         "all": [
           [
@@ -406,6 +436,15 @@
     },
     "prompt-not-sent": {
       "question": "Почему модель не получила запрос?",
+      "refutation": {
+        "any": [
+          [
+            "$.derivedViews.promptReceivedCounterEvidence",
+            "eq",
+            true
+          ]
+        ]
+      },
       "applicability": {
         "all": [
           [
@@ -589,6 +628,11 @@
     "old-answer": {
       "all": [
         {
+          "path": "$.derivedViews.terminalOutcome",
+          "operator": "eq",
+          "value": "SUCCESS"
+        },
+        {
           "path": "$.derivedViews.oldAnswerEvidence",
           "operator": "eq",
           "value": true
@@ -635,6 +679,47 @@
           "value": true
         }
       ]
+    }
+  },
+  "refutations": {
+    "cutted": {
+      "any": []
+    },
+    "false-success": {
+      "any": []
+    },
+    "old-answer": {
+      "any": [
+        {
+          "path": "$.derivedViews.terminalOutcome",
+          "operator": "ne",
+          "value": "SUCCESS"
+        }
+      ]
+    },
+    "empty": {
+      "any": []
+    },
+    "prompt-not-inserted": {
+      "any": [
+        {
+          "path": "$.derivedViews.promptInsertedCounterEvidence",
+          "operator": "eq",
+          "value": true
+        }
+      ]
+    },
+    "prompt-not-sent": {
+      "any": [
+        {
+          "path": "$.derivedViews.promptReceivedCounterEvidence",
+          "operator": "eq",
+          "value": true
+        }
+      ]
+    },
+    "late-end": {
+      "any": []
     }
   },
   "rules": {

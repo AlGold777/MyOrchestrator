@@ -1,5 +1,24 @@
 # CHANGELOG — Project
 
+### 2026-07-29 — Cross-incident and measurement semantics, version 2.81.155
+
+- Candidate continuity is required before comparing observed and extracted
+  lengths; cross-candidate coverage is unknown rather than a truncation proof.
+- Explicit refutation predicates are executable registry data. Generation start
+  refutes Prompt not sent without requiring a text-length measurement, and Old
+  answer requires an accepted SUCCESS boundary.
+- Late end uses the configured policy tolerance plus rejected decision,
+  deadline or blocking policy evidence; a 1 ms delay is not a diagnosis.
+- Old answer now requires `priorIncidentRef`; runtime resolves it against the
+  actual ledger and standalone closure materializes a separate prior evidence
+  lane. A missing prior incident makes the strong verdict unknown.
+- The post-terminal growth tolerance has one source of truth. Hash-only changes
+  remain audit contradictions but do not satisfy the growth-specific False
+  success question.
+- Coverage excludes inactive conditional slots, completeness states are
+  enumerated, conclusions cite slot IDs, and each diagnostic field has narrow
+  event provenance. Focused gate passes 8 suites / 85 tests.
+
 ### 2026-07-29 — Verdict-preserving compaction, version 2.81.154
 
 - Standalone applicability is frozen from the complete exact incident instead

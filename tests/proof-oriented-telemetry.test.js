@@ -299,4 +299,35 @@ describe('Proof-oriented telemetry schema 6 event export', () => {
     });
     expect(report.derivedViews.modelTimeline.data.stableToTerminalMs).toBe(5000);
   });
+
+  test('exports field-specific diagnostic provenance and slot-bound conclusions', async () => {
+    const ledger = ProofTelemetry.buildLedger({
+      '<GPT>': [
+        evt('GPT', 'DISPATCH_BASELINE_CAPTURED', 1000),
+        evt('GPT', 'DISPATCH_SEND', 1100),
+        evt('GPT', 'PROMPT_SUBMITTED_REJECTED', 1200),
+        evt('GPT', 'PAGE_CONTEXT_OBSERVED', 1300)
+      ]
+    }, { runSessionId: 42, exportedAt: 2000 });
+    const report = await ProofTelemetry.buildStandaloneReport(ledger, {
+      canonicalLedger: true,
+      modelId: 'GPT',
+      reportType: 'prompt-not-sent'
+    });
+    const byId = new Map(report.eventSelection.materializedEvents.map((item) => [item.eventId, item]));
+    const provenance = report.derivedViews.fieldProvenance.promptNotSentEvidence;
+    expect(provenance.derivedFromEventIds.length).toBeGreaterThan(0);
+    expect(provenance.derivedFromEventIds.every((id) => [
+      'SUBMISSION_EVIDENCE_CHANGED', 'SUBMISSION_INFERRED', 'GENERATION_START_EVALUATED',
+      'GENERATION_SIGNAL_CHANGED', 'TEXT_STATE_CHANGED', 'EXTRACTION_COMPLETED', 'MODEL_TERMINAL_RECORDED'
+    ].includes(byId.get(id).eventType))).toBe(true);
+    expect(report.reportDescriptor.canDiagnose[0]).toEqual(expect.objectContaining({
+      claim: expect.stringContaining('prompt-not-sent'),
+      basedOnSlotIds: expect.any(Array)
+    }));
+    expect(report.reportDescriptor.cannotDiagnoseAlone.every((item) => item.slotId)).toBe(true);
+    const effectiveSlots = report.diagnosticSummary.evidenceSlots.filter((slot) => slot.effectiveCriticality !== 'conditional');
+    const expectedCoverage = Math.round((effectiveSlots.filter((slot) => slot.status === 'satisfied').length / effectiveSlots.length) * 10000) / 100;
+    expect(report.reportDescriptor.completeness.evidenceCoveragePct).toBe(expectedCoverage);
+  });
 });

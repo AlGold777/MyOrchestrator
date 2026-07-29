@@ -63,6 +63,7 @@ function ledgerForTypes(types, reportType = null) {
       typed = { kind: 'decision', state: 'rejected' };
     }
     if (reportType === 'old-answer' && item.eventType === 'EXTRACTION_COMPLETED') metadata.answerIdentity = 'previous_dispatch';
+    if (reportType === 'old-answer' && item.eventType === 'CANDIDATE_IDENTITY_INFERRED') typed = { kind: 'candidate_identity', state: 'previous_dispatch' };
     if (reportType === 'old-answer' && item.eventType === 'MODEL_TERMINAL_RECORDED') metadata.answerEvidenceDispatchId = 'synthetic-previous-dispatch';
     return {
       ...item,
@@ -160,7 +161,7 @@ async function main() {
     canonicalLedger: true,
     runSessionId: 'synthetic-run',
     exportedAt: 12000,
-    extensionVersion: '2.81.154',
+    extensionVersion: '2.81.155',
     sampleData: true
   };
   const all = await ProofTelemetry.buildAllPresets(ledger, options);
@@ -174,11 +175,38 @@ async function main() {
     fs.unlinkSync(path.join(presetsDir, filename));
   }
   for (const reportType of ProofTelemetry.REPORT_TYPES) {
-    const reportLedger = ledgerForTypes(Contracts.normalizedSlots(reportType).map((slot) => (
+    let reportLedger = ledgerForTypes(Contracts.normalizedSlots(reportType).map((slot) => (
       reportType !== 'false-success' && slot.eventTypes.includes('MISSING_EVIDENCE_RECORDED')
         ? 'MISSING_EVIDENCE_RECORDED'
         : slot.eventTypes[0]
     )), reportType);
+    if (reportType === 'old-answer') {
+      const priorIncidentRef = 'incident:synthetic-run|1|GPT|synthetic-previous-dispatch|0';
+      const prior = ['EXTRACTION_COMPLETED', 'MODEL_TERMINAL_RECORDED'].map((eventType, index) => {
+        const source = reportLedger.find((item) => item.eventType === eventType);
+        return {
+          ...JSON.parse(JSON.stringify(source)),
+          eventId: `${source.eventId}-prior`,
+          dispatchId: 'synthetic-previous-dispatch',
+          generationEpoch: 0,
+          payload: {
+            ...JSON.parse(JSON.stringify(source.payload)),
+            typed: eventType === 'EXTRACTION_COMPLETED'
+              ? { kind: 'extraction', state: 'completed' }
+              : { kind: 'terminal_action', state: 'SUCCESS' },
+            metadata: { ...source.payload.metadata, answerIdentity: 'current_dispatch', terminalStatus: 'SUCCESS' }
+          },
+          seq: index + 1,
+          ingestSeq: index + 1
+        };
+      });
+      reportLedger.forEach((item, index) => {
+        item.seq = index + 3;
+        item.ingestSeq = index + 3;
+        if (item.eventType === 'MODEL_TERMINAL_RECORDED') item.payload.metadata.priorIncidentRef = priorIncidentRef;
+      });
+      reportLedger = [...prior, ...reportLedger];
+    }
     const report = await ProofTelemetry.buildStandaloneReport(reportLedger, {
       ...options,
       modelId: 'GPT',

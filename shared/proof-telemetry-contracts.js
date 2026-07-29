@@ -4,11 +4,12 @@
 
   const EVENT_SCHEMA_VERSION = 6;
   const CLOCK_CONTRACT_VERSION = '1.0';
-  const REGISTRY_VERSION = '5.3.0';
+  const REGISTRY_VERSION = '5.4.0';
   const THRESHOLDS = Object.freeze({
     generationStartTimeoutMs: 15000,
     minimumExtractionCoveragePct: 98,
     postTerminalGrowthTolerancePct: 0.5,
+    lateEndPolicyToleranceMs: 1000,
     automaticMinimumEvidenceTier: 3,
     maximumSignalSkewMs: 250
   });
@@ -55,13 +56,20 @@
     },
     'old-answer': {
       question: 'Почему принят текст от предыдущего запроса?',
+      refutation: {
+        any: [
+          ['$.derivedViews.terminalOutcome', 'ne', 'SUCCESS']
+        ]
+      },
       applicability: {
         all: [
+          ['$.derivedViews.terminalOutcome', 'eq', 'SUCCESS'],
           ['$.derivedViews.oldAnswerEvidence', 'eq', true]
         ]
       },
       slots: [
         ['dispatch_baseline', 'critical', ['DISPATCH_BASELINE_CAPTURED']],
+        ['prior_incident_evidence', 'critical', ['MODEL_TERMINAL_RECORDED']],
         ['candidate_identity', 'critical', ['CANDIDATE_IDENTITY_INFERRED']],
         ['extraction_result', 'critical', ['EXTRACTION_COMPLETED']],
         ['accepted_answer_boundary', 'critical', ['MODEL_TERMINAL_RECORDED']],
@@ -91,6 +99,11 @@
     },
     'prompt-not-inserted': {
       question: 'Почему prompt не вставился в поле ввода?',
+      refutation: {
+        any: [
+          ['$.derivedViews.promptInsertedCounterEvidence', 'eq', true]
+        ]
+      },
       applicability: {
         all: [
           ['$.derivedViews.promptNotInsertedEvidence', 'eq', true]
@@ -106,6 +119,11 @@
     },
     'prompt-not-sent': {
       question: 'Почему модель не получила запрос?',
+      refutation: {
+        any: [
+          ['$.derivedViews.promptReceivedCounterEvidence', 'eq', true]
+        ]
+      },
       applicability: {
         all: [
           ['$.derivedViews.promptNotSentEvidence', 'eq', true]
@@ -275,6 +293,13 @@
     };
   }
 
+  function normalizedRefutation(reportType) {
+    const contract = REPORT_CONTRACTS[reportType]?.refutation || { any: [] };
+    return {
+      any: (contract.any || []).map(([path, operator, value]) => ({ path, operator, value }))
+    };
+  }
+
   function counterEvidenceTypes(reportType) {
     return (REPORT_COUNTEREVIDENCE_TYPES[reportType] || []).slice();
   }
@@ -294,6 +319,7 @@
     normalizeIdentityState,
     normalizedSlots,
     normalizedApplicability,
+    normalizedRefutation,
     counterEvidenceTypes
   });
   root.ProofTelemetryContracts = api;

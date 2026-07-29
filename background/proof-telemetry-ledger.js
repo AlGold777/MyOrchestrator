@@ -132,7 +132,7 @@
   function compactProofMetadata(metadata) {
     const staticKeys = new Set(['telemetryTaxonomy', 'extVersion', 'schemaVersion', 'event', 'legacyBefore', 'legacyAfter', 'previousState', 'nextState', 'projection', 'modelState']);
     const structuredKeys = new Set(['checkedAtLocalMonoMs']);
-    const proofKey = /(?:hash|length|len|count|status|state|reasons?|mode|tier|coverage|verified|visible|active|discarded|health|mutation|attempt|deadline|timeout|duration|delay|skew|growth|candidate|answerIdentity|finalStatus|terminalStatus|finishReason|decisionAccepted|promotedFromPending|promotedStagingIngestSeq|dispatchId|evidence|source|signal|ms)$/i;
+    const proofKey = /(?:hash|length|len|count|status|state|reasons?|mode|tier|coverage|verified|visible|active|discarded|health|mutation|attempt|deadline|timeout|duration|delay|skew|growth|candidate|answerIdentity|finalStatus|terminalStatus|finishReason|decisionAccepted|promotedFromPending|promotedStagingIngestSeq|dispatchId|answerEvidenceDispatchId|priorIncidentRef|evidence|source|signal|ms)$/i;
     const compact = {};
     Object.entries(metadata || {}).forEach(([key, value]) => {
       if (staticKeys.has(key) || value === undefined || value === null) return;
@@ -382,6 +382,16 @@
     });
     if (rawMetadata.conversationId !== undefined) event.conversationId = rawMetadata.conversationId === null ? null : String(rawMetadata.conversationId);
     if (Array.isArray(entry?.evidenceRefs || rawMetadata.evidenceRefs)) event.evidenceRefs = (entry.evidenceRefs || rawMetadata.evidenceRefs).map(String).slice(0, 50);
+    if (eventType === 'MODEL_TERMINAL_RECORDED' && rawMetadata.answerEvidenceDispatchId) {
+      const acceptedIdentity = api.normalizeDispatchIdentity?.(rawMetadata.answerEvidenceDispatchId, modelId);
+      const prior = [...state.events].reverse().find((candidate) => candidate.modelId === modelId
+        && candidate.dispatchId
+        && api.normalizeDispatchIdentity?.(candidate.dispatchId, modelId) === acceptedIdentity
+        && api.normalizeDispatchIdentity?.(candidate.dispatchId, modelId) !== api.normalizeDispatchIdentity?.(event.dispatchId, modelId));
+      if (prior) {
+        event.payload.metadata.priorIncidentRef = `incident:${prior.runSessionId}|${prior.runGeneration ?? 'none'}|${prior.modelId}|${prior.dispatchId}|${prior.generationEpoch ?? 'none'}`;
+      }
+    }
     if (eventType === 'OBSERVATION_FRAME_CAPTURED') {
       const checks = rawMetadata.checkedAtLocalMonoMs || {};
       const coverage = root.ProofTelemetryClock?.signalCoverage?.(checks, contracts()?.THRESHOLDS?.maximumSignalSkewMs || 250);

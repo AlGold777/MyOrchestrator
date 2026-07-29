@@ -77,7 +77,7 @@
         ? (acceptedLength > 0 ? (growthChars / acceptedLength) * 100 : (growthChars > 0 ? 100 : 0))
         : null;
       const hashChanged = Boolean(acceptedHash && observedHash && acceptedHash !== observedHash);
-      const contradicted = (growthPct !== null && growthPct > 0.5) || hashChanged;
+      const contradicted = (growthPct !== null && growthPct > Number(root.ProofTelemetryContracts?.THRESHOLDS?.postTerminalGrowthTolerancePct ?? 0)) || hashChanged;
       descriptors.push({
         eventType: 'POST_TERMINAL_AUDIT_COMPLETED',
         layer: 'audit',

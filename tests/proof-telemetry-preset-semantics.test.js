@@ -1,6 +1,6 @@
 const ProofTelemetry = require('../shared/proof-oriented-telemetry.js');
 
-function event(eventType, seq, { metadata = {}, typed = { kind: 'unknown', state: 'unknown' }, payload = {}, clock = {}, evidenceRefs = [] } = {}) {
+function event(eventType, seq, { metadata = {}, typed = { kind: 'unknown', state: 'unknown' }, payload = {}, clock = {}, evidenceRefs = [], candidateId = null } = {}) {
   return {
     schemaVersion: 6,
     eventId: `event-${seq}`,
@@ -14,6 +14,7 @@ function event(eventType, seq, { metadata = {}, typed = { kind: 'unknown', state
     modelId: 'GPT',
     dispatchId: 'dispatch-current',
     generationEpoch: 1,
+    ...(candidateId ? { candidateId } : {}),
     evidenceRefs,
     producer: { component: 'semantic-test', version: '1' },
     clock: {
@@ -38,6 +39,55 @@ function applicability(reportType, events) {
 }
 
 describe('proof telemetry preset semantic applicability', () => {
+  test('Old answer requires an accepted SUCCESS boundary', () => {
+    const failure = event('MODEL_TERMINAL_RECORDED', 1, {
+      metadata: { terminalStatus: 'FAILURE', answerIdentity: 'previous_dispatch' },
+      typed: { kind: 'terminal_action', state: 'FAILURE' }
+    });
+    const result = applicability('old-answer', [failure]);
+    expect(result.view.oldAnswerEvidence).toBe(true);
+    expect(result.result.status).toBe('not_confirmed');
+  });
+
+  test('generation start refutes Prompt not sent even without a text length', () => {
+    const failed = event('SUBMISSION_INFERRED', 1, { typed: { kind: 'submission', state: 'failed' } });
+    const active = event('GENERATION_SIGNAL_CHANGED', 2, { typed: { kind: 'generation', state: 'active' } });
+    const result = applicability('prompt-not-sent', [failed, active]);
+    expect(result.view.generationTextObserved).toBeNull();
+    expect(result.view.generationStarted).toBe(true);
+    expect(result.result.status).toBe('not_confirmed');
+  });
+
+  test('candidate mismatch makes extraction coverage incomparable', () => {
+    const mismatched = applicability('cutted', [
+      event('TEXT_STATE_CHANGED', 1, { metadata: { textLength: 1000 }, candidateId: 'candidate-a' }),
+      event('EXTRACTION_COMPLETED', 2, { metadata: { length: 100 }, typed: { kind: 'extraction', state: 'completed' }, candidateId: 'candidate-b' }),
+      event('MODEL_TERMINAL_RECORDED', 3, { metadata: { terminalStatus: 'SUCCESS' }, typed: { kind: 'terminal_action', state: 'SUCCESS' }, candidateId: 'candidate-b' })
+    ]);
+    expect(mismatched.view.candidateContinuity).toBe('mismatched');
+    expect(mismatched.view.extractionCoveragePct).toBeNull();
+    expect(mismatched.result.status).toBe('unknown');
+
+    const matched = applicability('cutted', [
+      event('TEXT_STATE_CHANGED', 1, { metadata: { textLength: 1000 }, candidateId: 'candidate-b' }),
+      event('EXTRACTION_COMPLETED', 2, { metadata: { length: 100 }, typed: { kind: 'extraction', state: 'completed' }, candidateId: 'candidate-b' }),
+      event('MODEL_TERMINAL_RECORDED', 3, { metadata: { terminalStatus: 'SUCCESS' }, typed: { kind: 'terminal_action', state: 'SUCCESS' }, candidateId: 'candidate-b' })
+    ]);
+    expect(matched.view.extractionCoveragePct).toBe(10);
+    expect(matched.result.status).toBe('confirmed');
+  });
+
+  test('enumerated completeness states reject substring false positives', () => {
+    const result = applicability('cutted', [
+      event('TEXT_STATE_CHANGED', 1, { metadata: { textLength: 100 }, candidateId: 'candidate-a' }),
+      event('EXTRACTION_COMPLETED', 2, { metadata: { length: 100 }, typed: { kind: 'extraction', state: 'completed' }, candidateId: 'candidate-a' }),
+      event('ANSWER_COMPLETENESS_EVALUATED', 3, { typed: { kind: 'answer_completeness', state: 'incomplete_pending_retry' } }),
+      event('MODEL_TERMINAL_RECORDED', 4, { metadata: { terminalStatus: 'SUCCESS' }, typed: { kind: 'terminal_action', state: 'SUCCESS' }, candidateId: 'candidate-a' })
+    ]);
+    expect(result.view.incompleteCaptureEvidence).toBe(false);
+    expect(result.result.status).toBe('not_confirmed');
+  });
+
   test('standalone compaction preserves full-incident refutation', async () => {
     const events = [
       event('DISPATCH_BASELINE_CAPTURED', 1),
@@ -205,9 +255,9 @@ describe('proof telemetry preset semantic applicability', () => {
     expect(positive.result.status).toBe('confirmed');
 
     const normal = applicability('cutted', [
-      event('TEXT_STATE_CHANGED', 1, { metadata: { textLength: 120 } }),
-      event('EXTRACTION_COMPLETED', 2, { metadata: { length: 120 }, typed: { kind: 'extraction', state: 'completed' } }),
-      event('MODEL_TERMINAL_RECORDED', 3, { metadata: { terminalStatus: 'SUCCESS', answerLen: 120 }, typed: { kind: 'terminal_action', state: 'SUCCESS' } }),
+      event('TEXT_STATE_CHANGED', 1, { metadata: { textLength: 120 }, candidateId: 'candidate-current' }),
+      event('EXTRACTION_COMPLETED', 2, { metadata: { length: 120 }, typed: { kind: 'extraction', state: 'completed' }, candidateId: 'candidate-current' }),
+      event('MODEL_TERMINAL_RECORDED', 3, { metadata: { terminalStatus: 'SUCCESS', answerLen: 120 }, typed: { kind: 'terminal_action', state: 'SUCCESS' }, candidateId: 'candidate-current' }),
       event('POST_TERMINAL_AUDIT_COMPLETED', 4, { payload: { conclusion: 'confirmed', growthChars: 0, growthPct: 0, hashChanged: false } })
     ]);
     expect(normal.result.status).toBe('not_confirmed');
@@ -266,6 +316,54 @@ describe('proof telemetry preset semantic applicability', () => {
     });
     delete terminalWithoutDispatch.dispatchId;
     expect(applicability('old-answer', [terminalWithoutDispatch]).result.status).toBe('unknown');
+  });
+
+  test('Old answer materializes an explicitly linked prior incident evidence lane', async () => {
+    const priorExtraction = event('EXTRACTION_COMPLETED', 1, {
+      metadata: { length: 100, answerIdentity: 'current_dispatch' },
+      typed: { kind: 'extraction', state: 'completed' }
+    });
+    const priorTerminal = event('MODEL_TERMINAL_RECORDED', 2, {
+      metadata: { terminalStatus: 'SUCCESS' },
+      typed: { kind: 'terminal_action', state: 'SUCCESS' }
+    });
+    [priorExtraction, priorTerminal].forEach((item) => {
+      item.dispatchId = 'dispatch-prior';
+      item.generationEpoch = 0;
+    });
+    const priorIncidentRef = 'incident:run-1|1|GPT|dispatch-prior|0';
+    const currentEvents = [
+      event('DISPATCH_BASELINE_CAPTURED', 3),
+      event('CANDIDATE_IDENTITY_INFERRED', 4, { typed: { kind: 'candidate_identity', state: 'previous_dispatch' } }),
+      event('EXTRACTION_COMPLETED', 5, { metadata: { length: 100, answerIdentity: 'previous_dispatch' }, typed: { kind: 'extraction', state: 'completed' } }),
+      event('MODEL_TERMINAL_RECORDED', 6, {
+        metadata: { terminalStatus: 'SUCCESS', answerEvidenceDispatchId: 'dispatch-prior', priorIncidentRef },
+        typed: { kind: 'terminal_action', state: 'SUCCESS' }
+      })
+    ];
+    const events = [priorExtraction, priorTerminal, ...currentEvents];
+    const currentIncidentId = 'incident:run-1|1|GPT|dispatch-current|1';
+    const report = await ProofTelemetry.buildStandaloneReport(events, {
+      canonicalLedger: true,
+      modelId: 'GPT',
+      reportType: 'old-answer',
+      incidentId: currentIncidentId
+    });
+    expect(report.correlation.priorIncidentRef).toBe(priorIncidentRef);
+    expect(report.reportDescriptor.diagnosticVerdict).toBe('confirmed');
+    expect(report.eventSelection.materializedEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({ dispatchId: 'dispatch-prior', includedFor: expect.arrayContaining([`prior-incident:${priorIncidentRef}`]) })
+    ]));
+
+    const withoutPrior = await ProofTelemetry.buildStandaloneReport(currentEvents.map((item) => {
+      const copy = JSON.parse(JSON.stringify(item));
+      delete copy.payload.metadata.priorIncidentRef;
+      return copy;
+    }), { canonicalLedger: true, modelId: 'GPT', reportType: 'old-answer' });
+    expect(withoutPrior.reportDescriptor.diagnosticVerdict).toBe('unknown');
+    expect(withoutPrior.missingEvidence).toEqual(expect.arrayContaining([
+      expect.objectContaining({ slotId: 'prior_incident_evidence', criticality: 'critical' })
+    ]));
   });
 
   test('Empty requires observed generated text and an empty or failed extraction', () => {
@@ -362,13 +460,29 @@ describe('proof telemetry preset semantic applicability', () => {
   });
 
   test('Late end uses comparable monotonic clocks and preserves incomparable time as unknown', () => {
+    const belowTolerance = applicability('late-end', [
+      event('STABILITY_INTERVAL_CLOSED', 1, { typed: { kind: 'text', state: 'stable' }, clock: { observedAtLocalMonoMs: 1000 } }),
+      event('DECISION_RECORDED', 2, { payload: { accepted: false }, typed: { kind: 'decision', state: 'rejected' }, clock: { observedAtLocalMonoMs: 1000.5 } }),
+      event('MODEL_TERMINAL_RECORDED', 3, { metadata: { terminalStatus: 'SUCCESS' }, typed: { kind: 'terminal_action', state: 'SUCCESS' }, clock: { observedAtLocalMonoMs: 1001 } })
+    ]);
+    expect(belowTolerance.view.lateEndEvidence).toBe(false);
+    expect(belowTolerance.result.status).toBe('not_confirmed');
+
     const positive = applicability('late-end', [
-      event('STABILITY_INTERVAL_CLOSED', 1, { clock: { observedAtLocalMonoMs: 1000 } }),
+      event('STABILITY_INTERVAL_CLOSED', 1, { typed: { kind: 'text', state: 'stable' }, clock: { observedAtLocalMonoMs: 1000 } }),
       event('DECISION_RECORDED', 2, { payload: { accepted: false }, typed: { kind: 'decision', state: 'rejected' }, clock: { observedAtLocalMonoMs: 1100 } }),
-      event('MODEL_TERMINAL_RECORDED', 3, { metadata: { terminalStatus: 'SUCCESS' }, clock: { observedAtLocalMonoMs: 5000 } })
+      event('MODEL_TERMINAL_RECORDED', 3, { metadata: { terminalStatus: 'SUCCESS' }, typed: { kind: 'terminal_action', state: 'SUCCESS' }, clock: { observedAtLocalMonoMs: 5000 } })
     ]);
     expect(positive.view.stableToTerminalMs).toBe(4000);
     expect(positive.result.status).toBe('confirmed');
+
+    const deadlineWait = applicability('late-end', [
+      event('STABILITY_INTERVAL_CLOSED', 1, { typed: { kind: 'text', state: 'stable' }, clock: { observedAtLocalMonoMs: 1000 } }),
+      event('TERMINAL_DEADLINE_REACHED', 2, { typed: { kind: 'deadline', state: 'reached' }, clock: { observedAtLocalMonoMs: 2000 } }),
+      event('MODEL_TERMINAL_RECORDED', 3, { metadata: { terminalStatus: 'SUCCESS' }, typed: { kind: 'terminal_action', state: 'SUCCESS' }, clock: { observedAtLocalMonoMs: 9000 } })
+    ]);
+    expect(deadlineWait.view.policyWaitObserved).toBe(true);
+    expect(deadlineWait.result.status).toBe('confirmed');
 
     const interrupted = applicability('late-end', [
       event('STABILITY_INTERVAL_CLOSED', 1, { clock: { observedAtLocalMonoMs: 1000 } }),
