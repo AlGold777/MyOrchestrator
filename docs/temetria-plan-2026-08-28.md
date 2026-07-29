@@ -354,3 +354,51 @@ hash, replay, registry, slot and applicability validation. Six positive and six
 normal/unknown semantic controls cover the user questions, including old-answer
 dispatch mismatch and incomparable Late end clocks. Full gate passes 185 suites
 / 1258 tests.
+
+## 16. Incident-scoped semantic hardening
+
+16.1. Preserve the independent semantic review and record corrections that
+reject arbitrary size/time targets and false diagnosis exclusivity. - Done
+
+16.2. Compute derived views and applicability per exact incident scope, then
+aggregate them to Platform with explicit incident references. - Pending
+
+16.3. Make post-terminal audit require exact incident scope and known comparable
+length/hash evidence; missing measurement must remain unknown. - Pending
+
+16.4. Correct Old answer identity precedence and normalized dispatch identity. - Pending
+
+16.5. Correct False success tri-state audit semantics and measured zero-growth
+opposition evidence. - Pending
+
+16.6. Separate Cutted boundary coverage from False success post-terminal growth
+and forbid extraction-length substitution. - Pending
+
+16.7. Add counter-evidence and causal ordering to Prompt not sent. - Pending
+
+16.8. Resolve the accepted extraction and implement both Empty branches: empty
+result and wrong-node result. - Pending
+
+16.9. Derive Late end from the effective policy eligibility boundary and prove
+the absence of later relevant mutations. - Pending
+
+16.10. Use REPORT_CONTRACTS as the single source of truth for embedded and
+standalone applicability, evidence slots and sufficiency. - Pending
+
+16.11. Implement executable requiredIf conditions for conditional evidence
+slots and observation-reliability limitations. - Pending
+
+16.12. Add causal diagnosis arbitration without changing factually true
+applicability; expose primaryDiagnosis, causedBy and explanationRole. - Pending
+
+16.13. Minimize standalone evidence by proof role, boundary, extrema and
+provenance while preserving every conclusion and replay invariant. - Pending
+
+16.14. Add explicit legacy limitations and remove identity inference from the
+mere presence of dispatchId. - Pending
+
+16.15. Add positive, negative and unknown tests for all six presets plus
+cross-incident isolation, embedded sufficiency, arbitration and compaction. - Pending
+
+16.16. Synchronize schemas, registry, examples, documentation and project
+versions; run focused validators and the complete regression gate. - Pending

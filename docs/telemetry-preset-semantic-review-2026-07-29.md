@@ -12,6 +12,25 @@
 `evaluateApplicability` + `buildAllPresets`) на позитивных, негативных и
 неопределённых наборах событий; воспроизводящие наборы указаны в §2.
 
+### Независимая перепроверка перед реализацией
+
+Фактические находки приняты с четырьмя уточнениями к плану реализации:
+
+1. Runtime-аудит в штатном порядке загрузки делегирует scope-проверку в
+   `ProofTelemetryPolicy.sameScope`, где уже учитываются `dispatchId` и
+   `generationEpoch`. Опасен fallback только по run+model; его требуется
+   устранить, но он не является штатным поведением runtime.
+2. Для `late-end` нельзя вводить произвольный абсолютный порог. Просрочка должна
+   считаться относительно доказанной policy-границы, после которой конкретный
+   run уже мог быть завершён.
+3. Связанные диагнозы нельзя делать взаимоисключающими ценой ложного
+   `not_confirmed`. Одновременно истинные причина и последствие сохраняют свою
+   applicability, а контейнер явно фиксирует `primaryDiagnosis`, `causedBy` и
+   роль диагноза в объяснении.
+4. Минимизация задаётся семантическими правилами отбора доказательств, а не
+   фиксированным лимитом событий. `All tasks` остаётся общей проекцией одного
+   ledger; incident-минимальность обязательна для standalone preset.
+
 ---
 
 ## 1. Целевые контракты по presets
@@ -156,11 +175,12 @@
   `false-success` и `cutted` = `confirmed`. Диагноз строится на событиях чужого
   запроса. Standalone-путь этой ошибки не имеет (incident closure), то есть два
   пути дают разные ответы на одних данных.
-* **A2. Runtime-audit сравнивает разные incident'ы.** `sameScope` в
-  `shared/proof-telemetry-audit.js:7` сравнивает только `runSessionId` и
-  `modelId`. Первое же наблюдение следующего запроса даёт
-  `POST_TERMINAL_AUDIT_COMPLETED conclusion=contradicted` для предыдущего
-  terminal — то есть A1 воспроизводится и в самих канонических событиях.
+* **A2. Runtime-audit имеет небезопасный fallback scope.** В штатном runtime
+  `sameScope` делегирует проверку в `ProofTelemetryPolicy.sameScope`, где
+  учитываются `dispatchId` и `generationEpoch`. Но fallback в
+  `shared/proof-telemetry-audit.js:7` сравнивает только run+model и способен
+  смешать incident'ы при отдельной загрузке модуля. Fallback должен быть таким
+  же строгим, как основной контракт.
 * **A3. Отсутствующая длина трактуется как 0.** `numberFrom`
   (`shared/proof-telemetry-audit.js:17`) возвращает 0 при отсутствии метаданных,
   далее `growthPct = 100` (строка 69) → `contradicted`. Terminal без
@@ -275,8 +295,11 @@
   `shared/proof-telemetry-incidents.js:143-152` безусловно включает все SYSTEM
   события run и все `DECISION_RECORDED`/`MODEL_TERMINAL_RECORDED`/audit-события
   incident'а независимо от того, нужны ли они слотам preset'а.
-* **F3. Нет усечения по applicability.** Контейнер строит все шесть отчётов и
-  полный ledger даже когда пять из шести `not_confirmed`.
+* **F3. Нет явного разделения режимов минимальности.** `All tasks` обоснованно
+  содержит все шесть projections и единый ledger, включая отрицательные и
+  неопределённые выводы. Но standalone preset должен гарантировать
+  incident-scoped proof-preserving closure, а контейнер — не дублировать
+  материализованные события внутри projections.
 
 ### G. Legacy-путь
 
@@ -348,14 +371,16 @@ embedded пути дают одинаковый статус на одних д�
 `extractionCoveragePct=null`, `cutted=unknown`; extraction 60 при наблюдавшихся
 120 → `confirmed`.
 
-**Задача 6. Порог и причинность `late-end`.**
-Добавить в `THRESHOLDS` `lateEndMinimumDelayMs` (предлагается 2000 мс,
-согласовать с `generationWaitProfile`), требовать отсутствия
-`TEXT_STATE_CHANGED`/активной генерации между границей стабильности и terminal,
-брать границей первую `STABILITY_INTERVAL_CLOSED`, после которой мутаций не было.
-*Приёмка:* 1 мс → `not_confirmed`; рост текста внутри интервала → `not_confirmed`;
-8 с тишины → `confirmed` с `stableToTerminalClockBasis` и указанием слота,
-объясняющего задержку; разные clock epochs → `unknown`.
+**Задача 6. Policy-граница и причинность `late-end`.**
+Вычислять момент, когда evidence впервые удовлетворил действовавшей policy
+финализации, требовать отсутствия последующей релевантной мутации/активной
+генерации и сравнивать terminal именно с этой границей. Числовое окно берётся
+из зафиксированного effective policy конкретного run, а не из произвольного
+глобального порога.
+*Приёмка:* terminal до или на policy-границе → `not_confirmed`; рост текста после
+кандидатной границы инвалидирует её; доказанная тишина после policy-границы до
+terminal → `confirmed` с фактическим `lateByMs`; разные clock epochs или
+неизвестная policy-граница → `unknown`.
 
 **Задача 7. Опровергающие предикаты `prompt-not-sent`.**
 Добавить в applicability отрицательные условия: `generationTextObserved != true`,
@@ -376,14 +401,14 @@ wrong-node: непустой extraction при `verification=rejected` либо
 указанием ветки в отчёте; отсутствие extraction → `unknown`.
 
 **Задача 9. Правила связанных диагнозов.**
-Задать в registry приоритет: доказанный пост-terminal рост ⇒ первичный диагноз
-`false-success`, `cutted` в этом случае помечается `superseded-by`; добавить в
-отчёт поле `primaryDiagnosis` и запрет на два `confirmed` из одного набора
-доказательств без явного правила совместимости; перенести `antiLoop` и в
-embedded siblings.
-*Приёмка:* набор из D1 даёт ровно один `confirmed` (`false-success`) и
-`cutted.applicability.status = not_confirmed|superseded` со ссылкой на правило;
-у embedded siblings присутствует `antiLoop`.
+Задать в registry причинные роли и приоритет объяснения: доказанный
+post-terminal рост делает `false-success` первичной причиной, а доказанную
+неполноту сохранённого текста — последствием `cutted`. Не изменять истинную
+applicability ради арбитража; добавить `primaryDiagnosis`, `causedBy`,
+`explanationRole` и перенести `antiLoop` в embedded siblings.
+*Приёмка:* набор из D1 сохраняет оба фактически истинных статуса, но имеет один
+`primaryDiagnosis=false-success`; `cutted` помечен как consequence со ссылкой
+на причинное правило; у embedded siblings присутствует `antiLoop`.
 
 **Задача 10. Единый контракт доказательств для embedded-отчётов.**
 Удалить `REPORT_INFO`-списки как второй источник истины: строить состав отчёта из
@@ -406,14 +431,14 @@ embedded siblings.
 при `terminalMode=automatic` тот же слот остаётся `not_observed` и не влияет на
 sufficiency.
 
-**Задача 12. Минимизация выборки событий.**
-В `resolveEvidenceSlots` ограничить высокочастотные типы граничной выборкой
-(первое, последнее, экстремумы длины, события из `evidenceRefs`), в
-`buildEvidenceClosure` включать SYSTEM/DECISION/AUDIT события только при наличии
-связи со слотом или `evidenceRefs`.
-*Приёмка:* на потоке из 500 `TEXT_STATE_CHANGED` объём standalone-отчёта не
-превышает N событий на слот (задать N = 8) без изменения applicability и
-sufficiency; тест сравнивает статусы до/после усечения.
+**Задача 12. Proof-preserving минимизация выборки событий.**
+Для высокочастотных типов сохранять семантически необходимые границы, экстремумы,
+смены состояния и события из `evidenceRefs`; SYSTEM/DECISION/AUDIT включать
+только при связи со слотом, причинностью или provenance. Фиксированный лимит
+событий не вводить.
+*Приёмка:* поток повторов сокращается до набора уникальных доказательных ролей;
+applicability, sufficiency, временные границы, экстремумы и replay-инварианты до
+и после минимизации совпадают.
 
 **Задача 13. Учёт деградации наблюдения.**
 Реализовать значения `observationReliability ∈ {reliable, degraded, stale, unavailable}`
