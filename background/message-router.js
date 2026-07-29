@@ -3005,6 +3005,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 });
                 break;
 
+            case 'ANSWER_CARD_RENDER_EVALUATED': {
+                const llmName = String(message.llmName || '');
+                const entry = jobState?.llms?.[llmName];
+                const senderTabId = Number(sender?.tab?.id || 0) || null;
+                const expectedDispatchId = entry?.lastDispatchMeta?.dispatchId || entry?.runIdentity?.dispatchId || null;
+                const incomingDispatchId = message?.meta?.dispatchId || null;
+                if (!entry || (resultsTabId && senderTabId !== resultsTabId)) {
+                    sendResponse({ ok: false, reason: !entry ? 'missing_model_entry' : 'not_results_tab' });
+                    break;
+                }
+                emitTelemetry(llmName, 'ANSWER_CARD_RENDER_EVALUATED', {
+                    level: message?.meta?.outcome === 'matched' ? 'success' : 'warning',
+                    details: message?.meta?.outcome || 'unknown',
+                    meta: {
+                        ...(message.meta || {}),
+                        runSessionId: jobState?.session?.startTime || null,
+                        expectedDispatchId,
+                        dispatchMatches: Boolean(expectedDispatchId && incomingDispatchId === expectedDispatchId)
+                    },
+                    force: true
+                });
+                sendResponse({ ok: true });
+                break;
+            }
+
             case 'LLM_RESPONSE_READY':
                 {
                     const senderGate = validateLifecycleSender(message.llmName, sender, 'LLM_RESPONSE_READY', message.meta || {});

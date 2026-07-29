@@ -44,6 +44,7 @@ function createRouterSandbox() {
         }
       }
     },
+    resultsTabId: 909,
     CompressedStorage: {
       get: jest.fn(() => Promise.resolve([])),
       set: jest.fn(() => Promise.resolve()),
@@ -135,6 +136,7 @@ function createRouterSandbox() {
 const BOUND_SENDER = { tab: { id: 101 } };
 const FOREIGN_SENDER = { tab: { id: 202 } };
 const PAGE_SENDER = {}; // extension pages have no sender.tab
+const RESULTS_SENDER = { tab: { id: 909 } };
 const META = { dispatchId: 'GPT:12345:1', runSessionId: 12345, sessionId: 12345 };
 
 const PPLX_META_1 = { dispatchId: 'Perplexity:12345:1', runSessionId: 12345, sessionId: 12345 };
@@ -383,6 +385,30 @@ describe('lifecycle sender gate', () => {
         })
       })
     ]));
+  });
+
+  test('accepts card render evidence only from the registered results tab', async () => {
+    const { telemetryEvents, sendMessage } = createRouterSandbox();
+    const message = {
+      type: 'ANSWER_CARD_RENDER_EVALUATED',
+      llmName: 'GPT',
+      meta: {
+        dispatchId: META.dispatchId,
+        attemptId: 'render-1',
+        expectedCardId: 'panel-gpt',
+        observedCardId: 'panel-gpt',
+        outcome: 'matched'
+      }
+    };
+    expect((await sendMessage(message, RESULTS_SENDER)).ok).toBe(true);
+    expect(telemetryEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        event: 'ANSWER_CARD_RENDER_EVALUATED',
+        payload: expect.objectContaining({ meta: expect.objectContaining({ dispatchMatches: true }) })
+      })
+    ]));
+
+    expect((await sendMessage(message, FOREIGN_SENDER)).reason).toBe('not_results_tab');
   });
 
   test('ANSWER_SNAPSHOT from a foreign tab is ignored', async () => {

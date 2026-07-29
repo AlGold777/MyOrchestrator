@@ -6522,6 +6522,7 @@ function normalizeEvidenceText(value = '') {
 }
 
 function hashEvidenceText(value = '') {
+  if (self.AnswerProofNormalization?.hashText) return self.AnswerProofNormalization.hashText(value);
   const text = String(value || '');
   let hash = 2166136261;
   for (let i = 0; i < text.length; i += 1) {
@@ -6530,6 +6531,52 @@ function hashEvidenceText(value = '') {
   }
   return (hash >>> 0).toString(16);
 }
+
+function expectedAnswerCardId(llmName = '') {
+  return `panel-${String(llmName || '').toLowerCase().replace(/[^a-z0-9]+/g, '')}`;
+}
+
+function commitAcceptedAnswer(llmName, entry, answerText, answerHtml, context = {}) {
+  if (!entry) return null;
+  const dispatchId = context.dispatchId || entry?.lastDispatchMeta?.dispatchId || null;
+  const attemptId = context.attemptId || context.sourceRevisionId || null;
+  const proof = self.AnswerProofNormalization?.evidence?.(answerText, { dispatchId, attemptId }) || null;
+  const previousProof = self.AnswerProofNormalization?.evidence?.(entry.answer || '', {
+    dispatchId,
+    attemptId: entry.answerCommitEvidence?.attemptId || 'previous'
+  }) || null;
+  const overwrite = Boolean(previousProof?.normalizedHash && proof?.normalizedHash
+    && previousProof.normalizedHash !== proof.normalizedHash);
+  const commitKey = [dispatchId, attemptId, proof?.normalizedHash, context.outcome || 'accepted'].join('|');
+  entry.answer = answerText;
+  entry.answerHtml = answerHtml;
+  const commit = {
+    dispatchId,
+    attemptId,
+    payloadEvidenceId: proof?.payloadEvidenceId || context.payloadEvidenceId || null,
+    normalizationVersion: proof?.normalizationVersion || context.normalizationVersion || null,
+    normalizedLength: proof?.normalizedLength ?? String(answerText || '').length,
+    normalizedHash: proof?.normalizedHash || context.normalizedHash || null,
+    outcome: context.outcome || 'accepted',
+    overwrite,
+    previousNormalizedLength: previousProof?.normalizedLength ?? 0,
+    previousNormalizedHash: previousProof?.normalizedHash || null,
+    expectedCardId: expectedAnswerCardId(llmName),
+    committedAt: Date.now()
+  };
+  entry.answerCommitEvidence = commit;
+  if (entry.lastAnswerCommitTelemetryKey !== commitKey) {
+    entry.lastAnswerCommitTelemetryKey = commitKey;
+    emitTelemetry(llmName, 'ANSWER_COMMIT_EVALUATED', {
+      level: 'success',
+      details: overwrite ? 'overwrite' : 'accepted',
+      meta: commit,
+      force: true
+    });
+  }
+  return commit;
+}
+self.commitAcceptedAnswer = commitAcceptedAnswer;
 
 function isPromptEchoAnswerCandidate(answerText = '', promptText = '') {
   const answer = normalizeEvidenceText(answerText);
@@ -6800,6 +6847,7 @@ function buildFinalizationEvidence(llmName, entry, context = {}) {
     source,
     responseMeta,
     dispatchId,
+    attemptId: responseMeta.attemptId || context.metaObj?.attemptId || context.metaObj?.sourceRevisionId || null,
     tabId: entry?.tabId || null,
     promptConfirmed: context.sendConfirmed,
     minChars: DOM_SNAPSHOT_RECOVERY_MIN_CHARS,
@@ -8106,6 +8154,12 @@ function handleLLMResponse(llmName, answer, error = null, meta = null, answerHtm
     allowTerminalUpgrade
   });
   const finalizationEvidence = answerEvaluation.evidence;
+  const answerAttemptId = finalizationEvidence?.answerEvidence?.attemptId
+    || metaObj?.attemptId || responseMeta?.attemptId || metaObj?.sourceRevisionId || null;
+  const acceptedPayloadProof = self.AnswerProofNormalization?.evidence?.(trimmedAnswer, {
+    dispatchId: incomingDispatchId,
+    attemptId: answerAttemptId
+  }) || null;
   recordModelRunState(llmName, entry, finalizationEvidence);
   if (entry) {
     entry.finalizationEvidence = finalizationEvidence;
@@ -8188,7 +8242,13 @@ function handleLLMResponse(llmName, answer, error = null, meta = null, answerHtm
           completenessState: 'complete',
           reason: finalizationEvidence.contradictions.join(',') || 'insufficient_answer_evidence',
           source: responseSource || null,
-          dispatchId: incomingDispatchId
+          dispatchId: incomingDispatchId,
+          attemptId: answerAttemptId,
+          payloadEvidenceId: acceptedPayloadProof?.payloadEvidenceId || null,
+          normalizationVersion: acceptedPayloadProof?.normalizationVersion || null,
+          normalizedLength: acceptedPayloadProof?.normalizedLength ?? trimmedAnswer.length,
+          normalizedHash: acceptedPayloadProof?.normalizedHash || null,
+          expectedCardId: expectedAnswerCardId(llmName)
         }
       });
     }
@@ -8317,9 +8377,15 @@ function handleLLMResponse(llmName, answer, error = null, meta = null, answerHtm
   // STATUS_UPDATE and a global-state broadcast synchronously; publishing the status
   // first created a durable "green but empty card" state when LLM_PARTIAL_RESPONSE
   // was missed by the results page.
+  let answerCommitEvidence = null;
   if (entry && isSuccess) {
-    entry.answer = normalizedAnswer;
-    entry.answerHtml = normalizedHtml;
+    answerCommitEvidence = commitAcceptedAnswer(llmName, entry, normalizedAnswer, normalizedHtml, {
+      dispatchId: incomingDispatchId,
+      attemptId: answerAttemptId,
+      payloadEvidenceId: acceptedPayloadProof?.payloadEvidenceId || null,
+      normalizationVersion: acceptedPayloadProof?.normalizationVersion || null,
+      normalizedHash: acceptedPayloadProof?.normalizedHash || null
+    });
     delete entry.unverifiedArtifact;
     entry.attributionState = finalizationEvidence?.answerVerified === true ? 'proven' : null;
   }
@@ -8430,7 +8496,14 @@ function handleLLMResponse(llmName, answer, error = null, meta = null, answerHtm
       failureClass: isSuccess ? null : failureClassification?.class || 'unknown',
       failureRecoveryFirst: isSuccess ? null : !!failureClassification?.recoveryFirst,
       terminalRequiresEvidenceMiss: isSuccess ? null : !!failureClassification?.terminalRequiresEvidenceMiss,
-      finalizationEvidence
+      finalizationEvidence,
+      dispatchId,
+      attemptId: answerCommitEvidence?.attemptId || answerAttemptId,
+      payloadEvidenceId: answerCommitEvidence?.payloadEvidenceId || acceptedPayloadProof?.payloadEvidenceId || null,
+      normalizationVersion: answerCommitEvidence?.normalizationVersion || acceptedPayloadProof?.normalizationVersion || null,
+      normalizedLength: answerCommitEvidence?.normalizedLength ?? acceptedPayloadProof?.normalizedLength ?? trimmedAnswer.length,
+      normalizedHash: answerCommitEvidence?.normalizedHash || acceptedPayloadProof?.normalizedHash || null,
+      expectedCardId: answerCommitEvidence?.expectedCardId || expectedAnswerCardId(llmName)
     },
     logs: getLogSnapshot(llmName)
   });

@@ -4,7 +4,7 @@
 
   const EVENT_SCHEMA_VERSION = 6;
   const CLOCK_CONTRACT_VERSION = '1.0';
-  const REGISTRY_VERSION = '5.8.0';
+  const REGISTRY_VERSION = '5.9.0';
   const THRESHOLDS = Object.freeze({
     generationStartTimeoutMs: 15000,
     minimumExtractionCoveragePct: 98,
@@ -284,6 +284,8 @@
       ANSWER_DELIVERY_REJECTED: { kind: 'delivery', state: 'rejected' },
       ANSWER_DELIVERY_ACKNOWLEDGED: { kind: 'delivery', state: payload.outcome || payload.metadata?.outcome || 'accepted' },
       ANSWER_SOURCE_MATERIALIZED: { kind: 'source_answer', state: 'materialized' },
+      ANSWER_COMMIT_EVALUATED: { kind: 'commit', state: payload.outcome || payload.metadata?.outcome || 'unknown' },
+      ANSWER_CARD_RENDER_EVALUATED: { kind: 'render', state: payload.outcome || payload.metadata?.outcome || 'unknown' },
       TERMINAL_DEADLINE_REACHED: { kind: 'deadline', state: 'reached' },
       POLICY_OVERRIDE_APPLIED: { kind: 'policy_override', state: payload.mode || 'forced' },
       DECISION_RECORDED: { kind: 'decision', state: payload.accepted === true ? 'accepted' : 'rejected' },

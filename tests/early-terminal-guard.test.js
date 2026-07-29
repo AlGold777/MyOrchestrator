@@ -5,6 +5,7 @@ const vm = require('vm');
 const JOB_ORCHESTRATOR_PATH = path.join(__dirname, '..', 'background', 'job-orchestrator.js');
 const JOB_ORCHESTRATOR_SOURCE = fs.readFileSync(JOB_ORCHESTRATOR_PATH, 'utf8');
 const STATUS_CONTRACT_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'shared', 'status-contract.js'), 'utf8');
+const ANSWER_PROOF_NORMALIZATION_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'shared', 'answer-proof-normalization.js'), 'utf8');
 const ANSWER_EVIDENCE_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'shared', 'answer-evidence.js'), 'utf8');
 const ANSWER_LENGTH_POLICY_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'shared', 'answer-length-policy.js'), 'utf8');
 const FINALIZATION_CONTROLLER_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'shared', 'finalization-controller.js'), 'utf8');
@@ -119,6 +120,7 @@ function createSandbox() {
 
   vm.createContext(context);
   vm.runInContext(STATUS_CONTRACT_SOURCE, context, { filename: 'shared/status-contract.js' });
+  vm.runInContext(ANSWER_PROOF_NORMALIZATION_SOURCE, context, { filename: 'shared/answer-proof-normalization.js' });
   vm.runInContext(ANSWER_EVIDENCE_SOURCE, context, { filename: 'shared/answer-evidence.js' });
   vm.runInContext(ANSWER_LENGTH_POLICY_SOURCE, context, { filename: 'shared/answer-length-policy.js' });
   vm.runInContext(FINALIZATION_CONTROLLER_SOURCE, context, { filename: 'shared/finalization-controller.js' });
@@ -968,6 +970,7 @@ describe('early terminal success guard', () => {
 
     context.handleLLMResponse('GPT', answer, null, {
       dispatchId: 'dispatch-gpt',
+      attemptId: 'streaming-attempt-1',
       responseMeta: {
         source: 'manual_ping',
         completionReason: 'manual_ping_late_collect',
@@ -980,6 +983,17 @@ describe('early terminal success guard', () => {
 
     expect(entry.finalStatusRecorded).toBe(true);
     expect(entry.finalStatus).toBe('PARTIAL');
+    expect(entry.answerCommitEvidence).toEqual(expect.objectContaining({
+      dispatchId: 'dispatch-gpt',
+      attemptId: 'streaming-attempt-1',
+      payloadEvidenceId: expect.any(String),
+      outcome: 'accepted'
+    }));
+    expect(context.emitTelemetry).toHaveBeenCalledWith(
+      'GPT',
+      'ANSWER_COMMIT_EVALUATED',
+      expect.objectContaining({ meta: expect.objectContaining({ attemptId: 'streaming-attempt-1' }) })
+    );
     expect(partialMessages).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

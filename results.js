@@ -16179,6 +16179,53 @@ document.addEventListener('click', (event) => {
         }
     });
         
+    function emitAnswerCardRenderEvidence(llmName, panel, outputElement, meta = {}) {
+        const expectedCardId = String(meta.expectedCardId || '');
+        const observedCardId = panel?.id || null;
+        const renderedText = outputElement
+            ? String(outputElement.innerText || outputElement.textContent || '').trim()
+            : '';
+        const observed = window.AnswerProofNormalization?.evidence?.(renderedText, {
+            dispatchId: meta.dispatchId || null,
+            attemptId: meta.attemptId || null
+        }) || null;
+        const expected = {
+            normalizationVersion: meta.normalizationVersion || null,
+            normalizedHash: meta.normalizedHash || null
+        };
+        const comparison = window.AnswerProofNormalization?.compare?.(expected, observed || {})
+            || { status: 'incomparable', reason: 'normalization_unavailable' };
+        const outcome = !panel || (expectedCardId && expectedCardId !== observedCardId)
+            ? 'wrong_card'
+            : (!outputElement || !renderedText
+                ? 'empty'
+                : comparison.status);
+        const renderKey = [meta.dispatchId, meta.attemptId, meta.payloadEvidenceId, observedCardId, outcome].join('|');
+        if (outputElement?.dataset?.proofRenderKey === renderKey) return;
+        if (outputElement?.dataset) outputElement.dataset.proofRenderKey = renderKey;
+        try {
+            chrome.runtime.sendMessage({
+                type: 'ANSWER_CARD_RENDER_EVALUATED',
+                llmName,
+                meta: {
+                    dispatchId: meta.dispatchId || null,
+                    attemptId: meta.attemptId || null,
+                    payloadEvidenceId: meta.payloadEvidenceId || null,
+                    expectedCardId: expectedCardId || null,
+                    observedCardId,
+                    outcome,
+                    comparisonReason: comparison.reason || null,
+                    normalizationVersion: observed?.normalizationVersion || null,
+                    normalizedLength: observed?.normalizedLength ?? renderedText.length,
+                    normalizedHash: observed?.normalizedHash || null,
+                    expectedNormalizationVersion: meta.normalizationVersion || null,
+                    expectedNormalizedHash: meta.normalizedHash || null,
+                    contentClass: !renderedText ? 'empty' : (isErrorOutput(renderedText) ? 'technical_message' : 'answer')
+                }
+            });
+        } catch (_) {}
+    }
+
     function updateLLMPanelOutput(llmName, answer, answerHtml = '', meta = {}) {
         const panelId = llmName.toLowerCase().replace(/[^a-z0-9]+/g, '');
         const panel = document.getElementById(`panel-${panelId}`);
@@ -16235,6 +16282,7 @@ document.addEventListener('click', (event) => {
                         });
                     }
                 }
+                emitAnswerCardRenderEvidence(llmName, panel, outputElement, meta);
             }
         } else {
             ingestLogs(llmName, [makeLocalDiagEntry(
@@ -16243,6 +16291,7 @@ document.addEventListener('click', (event) => {
                 'error',
                 'UI'
             )]);
+            emitAnswerCardRenderEvidence(llmName, null, null, meta);
         }
         if (!isErrorOutput(normalizedText)) {
             autoCollapseDiagnostics(llmName, normalizedText);

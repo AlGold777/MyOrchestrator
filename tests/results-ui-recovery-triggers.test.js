@@ -64,9 +64,9 @@ describe('main-page UI recovery triggers', () => {
     const guardAt = ORCHESTRATOR_SRC.indexOf('Persist accepted answer text before publishing SUCCESS');
     const block = ORCHESTRATOR_SRC.slice(guardAt, guardAt + 1000);
     expect(guardAt).toBeGreaterThan(-1);
-    expect(block.indexOf('entry.answer = normalizedAnswer;')).toBeGreaterThan(-1);
+    expect(block.indexOf('commitAcceptedAnswer(llmName, entry, normalizedAnswer, normalizedHtml')).toBeGreaterThan(-1);
     expect(block.indexOf('updateModelState(llmName, finalStatus, {'))
-      .toBeGreaterThan(block.indexOf('entry.answer = normalizedAnswer;'));
+      .toBeGreaterThan(block.indexOf('commitAcceptedAnswer(llmName, entry, normalizedAnswer, normalizedHtml'));
     expect(RESULTS_SRC).toContain("const status = successWithoutAnswer ? 'UNCERTAIN' : rawStatus;");
   });
 

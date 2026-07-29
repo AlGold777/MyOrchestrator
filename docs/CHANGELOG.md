@@ -1,5 +1,17 @@
 # CHANGELOG — Project
 
+### 2026-07-29 — Answer commit and card render boundaries, version 2.81.162
+
+- Accepted answers pass through one commit-evidence owner before SUCCESS is
+  published; overwrite records preserve the previous normalized identity.
+- Final response messages carry dispatch, attempt, payload and expected-card
+  identity to the results page.
+- The results page evaluates the actual expected card as matched, empty,
+  mismatched, incomparable or wrong-card and returns privacy-safe evidence to
+  background; only the registered results tab is accepted.
+- Registry 5.9.0, report 2.11.0 and generator 1.12.0 recognize commit/render
+  proof boundaries.
+
 ### 2026-07-29 — Source and delivery boundaries, version 2.81.161
 
 - Provider completion snapshots now carry attempt-scoped normalized evidence.

@@ -14,8 +14,8 @@
   const Clock = root.ProofTelemetryClock || (typeof require === 'function' ? require('./proof-telemetry-clock.js') : null);
   const SCHEMA_VERSION = '5.0';
   const EVENT_SCHEMA_VERSION = Contracts?.EVENT_SCHEMA_VERSION || 6;
-  const GENERATOR_VERSION = 'proof-export@1.11.0';
-  const REPORT_VERSION = '2.10.0';
+  const GENERATOR_VERSION = 'proof-export@1.12.0';
+  const REPORT_VERSION = '2.11.0';
   const REPORT_TYPES = Object.freeze([
     'cutted',
     'false-success',
@@ -94,7 +94,9 @@
     COMPOSER_NOT_FOUND: 'PAGE_HEALTH_OBSERVED',
     ANSWER_SOURCE_MATERIALIZED: 'ANSWER_SOURCE_MATERIALIZED',
     ANSWER_DELIVERY_ACKNOWLEDGED: 'ANSWER_DELIVERY_ACKNOWLEDGED',
-    ANSWER_DELIVERY_REJECTED: 'ANSWER_DELIVERY_REJECTED'
+    ANSWER_DELIVERY_REJECTED: 'ANSWER_DELIVERY_REJECTED',
+    ANSWER_COMMIT_EVALUATED: 'ANSWER_COMMIT_EVALUATED',
+    ANSWER_CARD_RENDER_EVALUATED: 'ANSWER_CARD_RENDER_EVALUATED'
   });
 
   const RUNTIME_TYPED_FACTS = Object.freeze({
@@ -114,7 +116,9 @@
     COMPOSER_NOT_FOUND: { kind: 'observation', state: 'degraded' },
     ANSWER_SOURCE_MATERIALIZED: { kind: 'source_answer', state: 'materialized' },
     ANSWER_DELIVERY_ACKNOWLEDGED: { kind: 'delivery', state: 'accepted', outcome: 'accepted' },
-    ANSWER_DELIVERY_REJECTED: { kind: 'delivery', state: 'rejected', outcome: 'rejected' }
+    ANSWER_DELIVERY_REJECTED: { kind: 'delivery', state: 'rejected', outcome: 'rejected' },
+    ANSWER_COMMIT_EVALUATED: { kind: 'commit', state: 'accepted', outcome: 'accepted' },
+    ANSWER_CARD_RENDER_EVALUATED: { kind: 'render', state: 'evaluated' }
   });
 
   const OPERATIONAL_EVENT_PATTERN = /^(?:ADAPTIVE_PROBE_TICK|MANUAL_PING(?:_FAIL|_START|_RESULT)?|PING_(?:TRANSPORT_ERROR|RETRY|TICK)|ROUND4_GATE_WAIT|MODEL_RUN_TRANSITION|STATE_PROJECTION_COMMITTED|DETECTOR_TICK|SELECTOR_STATS|RECOVERY_BUDGET_(?:EXHAUSTED|CONSUMED|WAIT)|FOCUS_(?:WAIT|RETRY|CHECK)|LEASE_(?:WAIT|RETRY|CHECK)|POLL(?:ING)?_TICK|WATCHDOG_TICK)$/;

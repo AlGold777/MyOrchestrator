@@ -681,8 +681,8 @@ Standalone No delivery report включает только:
 6. Ввести раннюю attempt/payload identity. — Done
 7. Ввести `ANSWER_SOURCE_MATERIALIZED`. — Done
 8. Инструментировать reception/rejection, включая post-terminal. — Done
-9. Ввести единого владельца commit evidence. — Pending
-10. Инструментировать expected-card render evidence. — Pending
+9. Ввести единого владельца commit evidence. — Done
+10. Инструментировать expected-card render evidence. — Done
 11. Реализовать occurrence contract с evaluation boundary/resolution state. — Pending
 12. Реализовать attempt graph и четыре независимые cause axes. — Pending
 13. Запустить shadow comparison с `Empty`. — Pending

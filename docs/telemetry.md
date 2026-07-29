@@ -1,5 +1,12 @@
 # Telemetry - tab/session diagnostics
 
+## Answer commit and card render boundaries v2.81.162 - 2026-07-29
+
+`ANSWER_COMMIT_EVALUATED` is emitted by the accepted-answer commit owner before
+SUCCESS publication. The results page independently emits
+`ANSWER_CARD_RENDER_EVALUATED` for the expected dispatch-bound card using the
+same normalization contract; results from any other tab are rejected.
+
 ## Source and delivery boundaries v2.81.161 - 2026-07-29
 
 Validated lifecycle snapshots emit separate source-materialization and

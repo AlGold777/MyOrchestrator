@@ -346,6 +346,7 @@ async function loadResultsScript() {
   installDomMocks();
   window.__RESULTS_TEST_DEBUG__ = true;
   window.eval(fs.readFileSync(path.join(__dirname, '..', 'shared', 'status-contract.js'), 'utf8'));
+  window.eval(fs.readFileSync(path.join(__dirname, '..', 'shared', 'answer-proof-normalization.js'), 'utf8'));
   const pipelineRuntime = fs.readFileSync(path.join(__dirname, '..', 'pipeline', 'pipeline-runtime.js'), 'utf8');
   window.eval(pipelineRuntime);
   window.eval(fs.readFileSync(path.join(__dirname, '..', 'shared', 'transport-policy.js'), 'utf8'));
@@ -840,6 +841,28 @@ describe('Pipeline debate favorites view', () => {
     expect(html).toContain('<ul>');
     expect(html).toContain('<strong>bold</strong>');
     expect(html).toContain('<code>code</code>');
+  });
+
+  test('main answer card reports the actually rendered payload identity', () => {
+    const answer = 'Rendered proof answer';
+    const proof = window.AnswerProofNormalization.evidence(answer, {
+      dispatchId: 'Gemini:42:1', attemptId: 'render-attempt-1'
+    });
+    window.__pipelineLifecycleDebug.updateLLMPanelOutput('Gemini', answer, '', {
+      dispatchId: 'Gemini:42:1',
+      attemptId: 'render-attempt-1',
+      expectedCardId: 'panel-gemini',
+      ...proof
+    });
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'ANSWER_CARD_RENDER_EVALUATED',
+      llmName: 'Gemini',
+      meta: expect.objectContaining({
+        observedCardId: 'panel-gemini',
+        outcome: 'matched',
+        payloadEvidenceId: proof.payloadEvidenceId
+      })
+    }));
   });
 
   test('double-clicking empty session-bar space opens and closes the entire debate feed widely', () => {
