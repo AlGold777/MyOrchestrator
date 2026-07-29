@@ -64,6 +64,24 @@
           impact: 'terminal decision is not yet confirmed by a later observation'
         }
       });
+      const extractions = prior.filter((event) => event.eventType === 'EXTRACTION_COMPLETED');
+      const linkedExtractionIds = new Set(sourceEvent.evidenceRefs || []);
+      const explicitlyLinked = extractions.filter((event) => linkedExtractionIds.has(event.eventId));
+      const explicitlyAccepted = extractions.filter((event) => event?.payload?.accepted === true
+        || event?.payload?.metadata?.accepted === true
+        || ['accepted', 'selected'].includes(String(event?.payload?.selectionStatus || event?.payload?.metadata?.selectionStatus || '').toLowerCase()));
+      if (extractions.length > 1 && explicitlyLinked.length !== 1 && explicitlyAccepted.length !== 1) {
+        descriptors.push({
+          eventType: 'MISSING_EVIDENCE_RECORDED',
+          layer: 'decision',
+          evidenceRefs: [sourceEvent.eventId, ...extractions.map((event) => event.eventId)],
+          payload: {
+            missingEvidence: 'extraction_identity_ambiguous',
+            status: 'unavailable',
+            impact: 'multiple pre-terminal extractions exist without a unique accepted-answer identity'
+          }
+        });
+      }
     } else if (terminal && isRelevantPostTerminalObservation(sourceEvent)) {
       const acceptedLength = numberFrom(terminal, ['answerLength', 'answerLen', 'textLength']);
       const observedLength = numberFrom(sourceEvent, ['answerLength', 'answerLen', 'textLength']);

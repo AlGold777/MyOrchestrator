@@ -152,7 +152,7 @@ describe('proof telemetry preset semantic applicability', () => {
       event('DISPATCH_BASELINE_CAPTURED', 1),
       event('SUBMIT_ACTION_OBSERVED', 2, { typed: { kind: 'submission', state: 'attempted' } }),
       event('SUBMISSION_INFERRED', 3, { typed: { kind: 'submission', state: 'failed' } }),
-      event('PAGE_CONTEXT_OBSERVED', 4)
+      event('PAGE_HEALTH_OBSERVED', 4, { typed: { kind: 'observation', state: 'reliable' } })
     ];
     const unrelated = event('MODEL_TERMINAL_RECORDED', 5, {
       metadata: { terminalStatus: 'SUCCESS' },
@@ -201,20 +201,25 @@ describe('proof telemetry preset semantic applicability', () => {
 
   test('embedded reports compute slot sufficiency and preserve causal diagnosis roles', async () => {
     const events = [
-      event('TEXT_STATE_CHANGED', 1, { metadata: { textLength: 130 } }),
-      event('EXTRACTION_COMPLETED', 2, {
+      event('TEXT_STATE_CHANGED', 1, { metadata: { textLength: 130 }, candidateId: 'candidate-current' }),
+      event('GENERATION_SIGNAL_CHANGED', 2, { metadata: { textLength: 130 }, typed: { kind: 'generation', state: 'active' }, candidateId: 'candidate-current' }),
+      event('CANDIDATE_SET_CHANGED', 3, { typed: { kind: 'candidate_identity', state: 'current_dispatch' }, candidateId: 'candidate-current' }),
+      event('CANDIDATE_IDENTITY_INFERRED', 4, { typed: { kind: 'candidate_identity', state: 'current_dispatch' }, candidateId: 'candidate-current' }),
+      event('EXTRACTION_COMPLETED', 5, {
         metadata: { length: 100, verified: true, answerIdentity: 'current_dispatch' },
-        typed: { kind: 'extraction', state: 'completed' }
+        typed: { kind: 'extraction', state: 'completed' }, candidateId: 'candidate-current'
       }),
-      event('ANSWER_COMPLETENESS_EVALUATED', 3, { typed: { kind: 'answer_completeness', state: 'probably_truncated' } }),
-      event('MODEL_TERMINAL_RECORDED', 4, {
+      event('STRUCTURAL_VERIFICATION_EVALUATED', 6, { metadata: { verified: true }, typed: { kind: 'verification', state: 'verified' }, candidateId: 'candidate-current' }),
+      event('ANSWER_COMPLETENESS_EVALUATED', 7, { typed: { kind: 'answer_completeness', state: 'probably_truncated' }, candidateId: 'candidate-current' }),
+      event('DECISION_RECORDED', 8, { payload: { accepted: true }, typed: { kind: 'decision', state: 'accepted' } }),
+      event('MODEL_TERMINAL_RECORDED', 9, {
         metadata: { terminalStatus: 'SUCCESS', answerLen: 100 },
-        typed: { kind: 'terminal_action', state: 'SUCCESS' }
+        typed: { kind: 'terminal_action', state: 'SUCCESS' }, candidateId: 'candidate-current'
       }),
-      event('TEXT_STATE_CHANGED', 5, { metadata: { textLength: 150 } }),
-      event('POST_TERMINAL_AUDIT_COMPLETED', 6, {
+      event('TEXT_STATE_CHANGED', 10, { metadata: { textLength: 150 }, candidateId: 'candidate-current' }),
+      event('POST_TERMINAL_AUDIT_COMPLETED', 11, {
         payload: { conclusion: 'contradicted', growthChars: 50, growthPct: 50, auditPossible: true },
-        evidenceRefs: ['event-4', 'event-5']
+        evidenceRefs: ['event-9', 'event-10'], candidateId: 'candidate-current'
       })
     ];
     const container = await ProofTelemetry.buildAllPresets(events, { canonicalLedger: true, exportedAt: 2000 });
@@ -355,9 +360,12 @@ describe('proof telemetry preset semantic applicability', () => {
     const priorIncidentRef = 'incident:run-1|1|GPT|dispatch-prior|0';
     const currentEvents = [
       event('DISPATCH_BASELINE_CAPTURED', 3),
-      event('CANDIDATE_IDENTITY_INFERRED', 4, { typed: { kind: 'candidate_identity', state: 'previous_dispatch' } }),
-      event('EXTRACTION_COMPLETED', 5, { metadata: { length: 100, answerIdentity: 'previous_dispatch' }, typed: { kind: 'extraction', state: 'completed' } }),
-      event('MODEL_TERMINAL_RECORDED', 6, {
+      event('CANDIDATE_SET_CHANGED', 4, { typed: { kind: 'candidate_identity', state: 'previous_dispatch' } }),
+      event('CANDIDATE_IDENTITY_INFERRED', 5, { typed: { kind: 'candidate_identity', state: 'previous_dispatch' } }),
+      event('PAGE_CONTEXT_OBSERVED', 6),
+      event('EXTRACTION_COMPLETED', 7, { metadata: { length: 100, answerIdentity: 'previous_dispatch' }, typed: { kind: 'extraction', state: 'completed' } }),
+      event('STRUCTURAL_VERIFICATION_EVALUATED', 8, { metadata: { verified: true }, typed: { kind: 'verification', state: 'verified' } }),
+      event('MODEL_TERMINAL_RECORDED', 9, {
         metadata: { terminalStatus: 'SUCCESS', answerEvidenceDispatchId: 'dispatch-prior', priorIncidentRef },
         typed: { kind: 'terminal_action', state: 'SUCCESS' }
       })
@@ -376,14 +384,11 @@ describe('proof telemetry preset semantic applicability', () => {
       expect.objectContaining({ dispatchId: 'dispatch-prior', includedFor: expect.arrayContaining([`prior-incident:${priorIncidentRef}`]) })
     ]));
 
-    const withoutPrior = await ProofTelemetry.buildStandaloneReport(currentEvents.map((item) => {
-      const copy = JSON.parse(JSON.stringify(item));
-      delete copy.payload.metadata.priorIncidentRef;
-      return copy;
-    }), { canonicalLedger: true, modelId: 'GPT', reportType: 'old-answer' });
-    expect(withoutPrior.reportDescriptor.diagnosticVerdict).toBe('unknown');
+    const withoutPrior = await ProofTelemetry.buildStandaloneReport(currentEvents, { canonicalLedger: true, modelId: 'GPT', reportType: 'old-answer' });
+    expect(withoutPrior.reportDescriptor.diagnosticVerdict).toBe('confirmed');
+    expect(withoutPrior.reportDescriptor.completeness.level).toBe('bounded');
     expect(withoutPrior.missingEvidence).toEqual(expect.arrayContaining([
-      expect.objectContaining({ slotId: 'prior_incident_evidence', criticality: 'critical' })
+      expect.objectContaining({ slotId: 'prior_incident_evidence', criticality: 'required', impact: 'prior_incident_outside_export' })
     ]));
   });
 
@@ -426,6 +431,11 @@ describe('proof telemetry preset semantic applicability', () => {
   test('Prompt not sent requires explicit failed submission and treats absence as unknown', () => {
     expect(applicability('prompt-not-sent', [
       event('SUBMISSION_INFERRED', 1, { typed: { kind: 'submission', state: 'failed' } })
+    ]).result.status).toBe('unknown');
+    expect(applicability('prompt-not-sent', [
+      event('DISPATCH_BASELINE_CAPTURED', 1),
+      event('PAGE_HEALTH_OBSERVED', 2, { typed: { kind: 'observation', state: 'reliable' } }),
+      event('SUBMISSION_INFERRED', 3, { typed: { kind: 'submission', state: 'failed' } })
     ]).result.status).toBe('confirmed');
     expect(applicability('prompt-not-sent', [
       event('SUBMISSION_INFERRED', 1, { typed: { kind: 'submission', state: 'confirmed' } })
@@ -452,7 +462,12 @@ describe('proof telemetry preset semantic applicability', () => {
       payload: { insertionState: 'failed' },
       typed: { kind: 'prompt_insertion', state: 'failed' }
     });
-    expect(applicability('prompt-not-inserted', [failed]).result.status).toBe('confirmed');
+    expect(applicability('prompt-not-inserted', [failed]).result.status).toBe('unknown');
+    expect(applicability('prompt-not-inserted', [
+      baseline,
+      failed,
+      event('PAGE_HEALTH_OBSERVED', 3, { typed: { kind: 'observation', state: 'reliable' } })
+    ]).result.status).toBe('confirmed');
     expect(applicability('prompt-not-inserted', []).result.status).toBe('unknown');
     expect(applicability('prompt-not-inserted', [
       failed,
@@ -480,54 +495,37 @@ describe('proof telemetry preset semantic applicability', () => {
       .toEqual(expect.objectContaining({ status: 'confirmed', explanationRole: 'consequence', causedBy: 'prompt-not-inserted' }));
   });
 
-  test('Late end uses comparable monotonic clocks and preserves incomparable time as unknown', () => {
-    const belowTolerance = applicability('late-end', [
-      event('STABILITY_INTERVAL_CLOSED', 1, { typed: { kind: 'text', state: 'stable' }, clock: { observedAtLocalMonoMs: 1000 } }),
-      event('DECISION_RECORDED', 2, { payload: { accepted: false }, typed: { kind: 'decision', state: 'rejected' }, clock: { observedAtLocalMonoMs: 1000.5 } }),
-      event('MODEL_TERMINAL_RECORDED', 3, { metadata: { terminalStatus: 'SUCCESS' }, typed: { kind: 'terminal_action', state: 'SUCCESS' }, clock: { observedAtLocalMonoMs: 1001 } })
-    ]);
-    expect(belowTolerance.view.lateEndEvidence).toBe(false);
-    expect(belowTolerance.result.status).toBe('not_confirmed');
-
-    const atTolerance = applicability('late-end', [
-      event('STABILITY_INTERVAL_CLOSED', 1, { typed: { kind: 'text', state: 'stable' }, clock: { observedAtLocalMonoMs: 1000 } }),
-      event('DECISION_RECORDED', 2, { payload: { accepted: false }, typed: { kind: 'decision', state: 'rejected' }, clock: { observedAtLocalMonoMs: 1500 } }),
-      event('MODEL_TERMINAL_RECORDED', 3, { metadata: { terminalStatus: 'SUCCESS' }, typed: { kind: 'terminal_action', state: 'SUCCESS' }, clock: { observedAtLocalMonoMs: 2000 } })
-    ]);
-    expect(atTolerance.view.stableToTerminalMs).toBe(atTolerance.view.lateEndPolicyToleranceMs);
-    expect(atTolerance.result.status).toBe('confirmed');
-
-    const positive = applicability('late-end', [
-      event('STABILITY_INTERVAL_CLOSED', 1, { typed: { kind: 'text', state: 'stable' }, clock: { observedAtLocalMonoMs: 1000 } }),
-      event('DECISION_RECORDED', 2, { payload: { accepted: false }, typed: { kind: 'decision', state: 'rejected' }, clock: { observedAtLocalMonoMs: 1100 } }),
-      event('MODEL_TERMINAL_RECORDED', 3, { metadata: { terminalStatus: 'SUCCESS' }, typed: { kind: 'terminal_action', state: 'SUCCESS' }, clock: { observedAtLocalMonoMs: 5000 } })
-    ]);
-    expect(positive.view.stableToTerminalMs).toBe(4000);
+  test('Late end uses observation coverage and a policy-relative eligibility boundary', () => {
+    const stable = event('STABILITY_INTERVAL_CLOSED', 1, {
+      metadata: { textLength: 100 }, typed: { kind: 'text', state: 'stable' }, clock: { observedAtLocalMonoMs: 1000 }
+    });
+    const sameLengthObservation = event('TEXT_STATE_CHANGED', 2, { metadata: { textLength: 100 }, clock: { observedAtLocalMonoMs: 2000 } });
+    const reliable = event('PAGE_HEALTH_OBSERVED', 3, { typed: { kind: 'observation', state: 'reliable' }, clock: { observedAtLocalMonoMs: 2100 } });
+    const eligibility = event('DECISION_RECORDED', 4, { payload: { accepted: true }, typed: { kind: 'decision', state: 'accepted' }, clock: { observedAtLocalMonoMs: 3000 } });
+    const terminal = event('MODEL_TERMINAL_RECORDED', 5, { metadata: { terminalStatus: 'SUCCESS' }, typed: { kind: 'terminal_action', state: 'SUCCESS' }, clock: { observedAtLocalMonoMs: 5000 } });
+    const positive = applicability('late-end', [stable, sameLengthObservation, reliable, eligibility, terminal]);
+    expect(positive.view.policyEligibilityEventId).toBe('event-4');
+    expect(positive.view.policyEligibleToTerminalMs).toBe(2000);
+    expect(positive.view.postStabilityMutationObserved).toBe(false);
     expect(positive.result.status).toBe('confirmed');
 
-    const deadlineWait = applicability('late-end', [
-      event('STABILITY_INTERVAL_CLOSED', 1, { typed: { kind: 'text', state: 'stable' }, clock: { observedAtLocalMonoMs: 1000 } }),
-      event('TERMINAL_DEADLINE_REACHED', 2, { typed: { kind: 'deadline', state: 'reached' }, clock: { observedAtLocalMonoMs: 2000 } }),
-      event('MODEL_TERMINAL_RECORDED', 3, { metadata: { terminalStatus: 'SUCCESS' }, typed: { kind: 'terminal_action', state: 'SUCCESS' }, clock: { observedAtLocalMonoMs: 9000 } })
-    ]);
-    expect(deadlineWait.view.policyWaitObserved).toBe(true);
-    expect(deadlineWait.result.status).toBe('confirmed');
+    const noObservation = applicability('late-end', [stable, eligibility, terminal]);
+    expect(noObservation.view.postStabilityMutationObserved).toBeNull();
+    expect(noObservation.result.status).toBe('unknown');
 
-    const interrupted = applicability('late-end', [
-      event('STABILITY_INTERVAL_CLOSED', 1, { clock: { observedAtLocalMonoMs: 1000 } }),
-      event('DECISION_RECORDED', 2, { payload: { accepted: false }, typed: { kind: 'decision', state: 'rejected' } }),
-      event('TEXT_STATE_CHANGED', 3, { metadata: { textLength: 200 } }),
-      event('MODEL_TERMINAL_RECORDED', 4, { metadata: { terminalStatus: 'SUCCESS' }, clock: { observedAtLocalMonoMs: 5000 } })
-    ]);
+    const blocked = applicability('late-end', [stable, sameLengthObservation, reliable,
+      event('DECISION_RECORDED', 4, { payload: { accepted: false }, typed: { kind: 'decision', state: 'rejected' }, clock: { observedAtLocalMonoMs: 3000 } }), terminal]);
+    expect(blocked.result.status).toBe('not_confirmed');
+
+    const interrupted = applicability('late-end', [stable,
+      event('TEXT_STATE_CHANGED', 2, { metadata: { textLength: 200 }, clock: { observedAtLocalMonoMs: 2000 } }),
+      reliable, eligibility, terminal]);
     expect(interrupted.view.postStabilityMutationObserved).toBe(true);
     expect(interrupted.result.status).toBe('not_confirmed');
 
-    const incomparable = applicability('late-end', [
-      event('STABILITY_INTERVAL_CLOSED', 1, { clock: { producerEpochId: 'document-a', ingestEpochId: 'worker-a' } }),
-      event('DECISION_RECORDED', 2, { payload: { accepted: false }, typed: { kind: 'decision', state: 'rejected' } }),
-      event('MODEL_TERMINAL_RECORDED', 3, { clock: { producerEpochId: 'document-b', ingestEpochId: 'worker-b' } })
-    ]);
-    expect(incomparable.view.stableToTerminalMs).toBeNull();
+    const incomparableTerminal = { ...terminal, clock: { ...terminal.clock, producerEpochId: 'other-document', ingestEpochId: 'other-worker' } };
+    const incomparable = applicability('late-end', [stable, sameLengthObservation, reliable, eligibility, incomparableTerminal]);
+    expect(incomparable.view.policyEligibleToTerminalMs).toBeNull();
     expect(incomparable.result.status).toBe('unknown');
   });
 

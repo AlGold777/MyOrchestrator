@@ -14,8 +14,8 @@
   const Clock = root.ProofTelemetryClock || (typeof require === 'function' ? require('./proof-telemetry-clock.js') : null);
   const SCHEMA_VERSION = '5.0';
   const EVENT_SCHEMA_VERSION = Contracts?.EVENT_SCHEMA_VERSION || 6;
-  const GENERATOR_VERSION = 'proof-export@1.7.0';
-  const REPORT_VERSION = '2.6.0';
+  const GENERATOR_VERSION = 'proof-export@1.8.0';
+  const REPORT_VERSION = '2.7.0';
   const REPORT_TYPES = Object.freeze([
     'cutted',
     'false-success',
@@ -430,10 +430,6 @@
     const lastStableBeforeTerminal = terminalEvent
       ? stableEvents.filter((event) => Number(event.seq) <= Number(terminalEvent.seq)).slice(-1)[0]
       : stableEvents.slice(-1)[0];
-    const postTerminalObservedEvents = terminalEvent
-      ? observedTextEvents.filter((event) => Number(event.seq) > Number(terminalEvent.seq))
-      : [];
-    const postTerminalLengths = numericMeta(postTerminalObservedEvents, ['textLength', 'answerLength', 'answerLen', 'latestObservedTextLength']);
     const terminalLengths = terminalEvent ? numericMeta([terminalEvent], ['textLength', 'answerLength', 'answerLen']) : [];
     const acceptedLength = terminalLengths.length ? terminalLengths[0] : null;
     const acceptedExtraction = resolveAcceptedExtraction(events, terminalEvent);
@@ -444,17 +440,35 @@
       : [];
     const extractedTextLength = extractionLengths.length ? extractionLengths[extractionLengths.length - 1] : null;
     const acceptedCandidateId = extractionEvent?.candidateId || terminalEvent?.candidateId || null;
-    const candidateMatchedObservedEvents = acceptedCandidateId
-      ? preTerminalObservedEvents.filter((event) => event.candidateId === acceptedCandidateId)
-      : (Contracts?.normalizeIdentityState?.(extractionIdentityHint) === 'current' ? preTerminalObservedEvents : []);
+    const normalizedExtractionIdentity = Contracts?.normalizeIdentityState?.(extractionIdentityHint);
+    const incidentCandidateIds = new Set(events.map((event) => event.candidateId).filter(Boolean).map(String));
+    const candidateReplacementObserved = events.some((event) => event.eventType === 'CANDIDATE_SET_CHANGED'
+      && (/replace|supersed|switch/i.test(JSON.stringify(event.payload || {}))
+        || new Set([event.candidateId, eventValue(event, ['previousCandidateId', 'nextCandidateId', 'candidateId'])].filter(Boolean).map(String)).size > 1));
+    const measurementComparability = acceptedCandidateId
+      ? (preTerminalObservedEvents.some((event) => String(event.candidateId || '') === String(acceptedCandidateId)) ? 'candidate_proven' : 'unknown')
+      : (normalizedExtractionIdentity === 'current'
+        ? 'dispatch_proven'
+        : (!candidateReplacementObserved && incidentCandidateIds.size <= 1 ? 'single_candidate' : 'unknown'));
+    const eventComparable = (event) => {
+      if (measurementComparability === 'unknown') return false;
+      if (measurementComparability === 'candidate_proven') return String(event?.candidateId || '') === String(acceptedCandidateId);
+      return !event?.candidateId || incidentCandidateIds.size <= 1;
+    };
+    const candidateMatchedObservedEvents = preTerminalObservedEvents.filter(eventComparable);
     const candidateMatchedLengths = numericMeta(candidateMatchedObservedEvents, ['textLength', 'answerLength', 'answerLen', 'latestObservedTextLength']);
-    const candidateContinuity = acceptedCandidateId
-      ? (candidateMatchedLengths.length ? 'matched' : 'mismatched')
-      : (Contracts?.normalizeIdentityState?.(extractionIdentityHint) === 'current' ? 'dispatch_proven' : 'unknown');
+    const candidateContinuity = measurementComparability === 'candidate_proven'
+      ? 'matched'
+      : (acceptedCandidateId ? 'mismatched' : measurementComparability);
     const maxObservedLength = preTerminalLengths.length ? Math.max(...preTerminalLengths) : null;
     const comparableObservedLength = candidateMatchedLengths.length ? Math.max(...candidateMatchedLengths) : null;
+    const postTerminalObservedEvents = terminalEvent
+      ? observedTextEvents.filter((event) => Number(event.seq) > Number(terminalEvent.seq) && eventComparable(event))
+      : [];
+    const postTerminalLengths = numericMeta(postTerminalObservedEvents, ['textLength', 'answerLength', 'answerLen', 'latestObservedTextLength']);
     const postTerminalMax = postTerminalLengths.length ? Math.max(...postTerminalLengths) : acceptedLength;
-    const latestAudit = [...events].reverse().find((event) => event.eventType === 'POST_TERMINAL_AUDIT_COMPLETED');
+    const comparableAudits = events.filter((event) => event.eventType === 'POST_TERMINAL_AUDIT_COMPLETED' && eventComparable(event));
+    const latestAudit = comparableAudits.slice(-1)[0] || null;
     const pendingAudit = events.some((event) => event.eventType === 'MISSING_EVIDENCE_RECORDED'
       && eventValue(event, ['missingEvidence']) === 'post_terminal_observation'
       && String(eventValue(event, ['status']) || '').toLowerCase() === 'pending');
@@ -473,14 +487,32 @@
     const postTerminalGrowthPct = Number.isFinite(auditGrowthPct) && auditGrowthPct >= 0 ? auditGrowthPct : computedGrowthPct;
     const auditConclusion = String(eventValue(latestAudit, ['conclusion']) || '').toLowerCase() || null;
     const auditPossible = latestAudit ? eventBoolean(latestAudit, ['auditPossible']) : null;
-    const postTerminalGrowthProven = latestAudit && auditPossible !== false
-      ? (auditConclusion === 'contradicted' && Number.isFinite(auditGrowthChars) && auditGrowthChars > 0
-        ? true
-        : (Number.isFinite(auditGrowthChars) && auditGrowthChars === 0 ? false : null))
-      : null;
+    const growthTolerancePct = Number(Contracts?.THRESHOLDS?.postTerminalGrowthTolerancePct || 0);
+    let growthDecision = null;
+    let growthDecisionAudit = null;
+    comparableAudits.forEach((audit) => {
+      const possible = eventBoolean(audit, ['auditPossible']);
+      const chars = Number(eventValue(audit, ['growthChars']));
+      const pct = Number(eventValue(audit, ['growthPct']));
+      const conclusion = String(eventValue(audit, ['conclusion']) || '').toLowerCase();
+      const rollback = eventBoolean(audit, ['rollbackObserved', 'contentRollback']) === true;
+      const positive = possible !== false && conclusion === 'contradicted' && Number.isFinite(chars) && chars > 0
+        && (!Number.isFinite(pct) || pct > growthTolerancePct);
+      const negative = possible !== false && Number.isFinite(chars) && chars >= 0
+        && (!Number.isFinite(pct) || pct <= growthTolerancePct);
+      if (positive) {
+        growthDecision = true;
+        growthDecisionAudit = audit;
+      } else if (negative && (growthDecision !== true || rollback)) {
+        growthDecision = false;
+        growthDecisionAudit = audit;
+      }
+    });
+    const postTerminalGrowthProven = growthDecision;
     const extractionFact = extractionEvent ? Contracts?.factOf?.(extractionEvent) : null;
     const extractionFailed = extractionFact?.state === 'failed';
-    const generationEvents = events.filter((event) => ['GENERATION_START_EVALUATED', 'GENERATION_SIGNAL_CHANGED', 'OBSERVATION_FRAME_CAPTURED', 'TEXT_STATE_CHANGED'].includes(event.eventType));
+    const generationEvents = events.filter((event) => ['GENERATION_START_EVALUATED', 'GENERATION_SIGNAL_CHANGED', 'OBSERVATION_FRAME_CAPTURED', 'TEXT_STATE_CHANGED'].includes(event.eventType)
+      && eventComparable(event));
     const generationLengths = numericMeta(generationEvents, ['textLength', 'answerLength', 'answerLen', 'latestObservedTextLength']);
     const generationTextObserved = generationLengths.length ? Math.max(...generationLengths) > 0 : null;
     const generationStarted = generationEvents.some((event) => {
@@ -514,15 +546,16 @@
       : (wrongNodeEvidence === true ? 'wrong_node' : null);
     const terminalOutcomeRaw = eventValue(terminalEvent, ['terminalStatus', 'finalStatus', 'status']);
     const terminalOutcome = terminalOutcomeRaw ? String(terminalOutcomeRaw).toUpperCase() : null;
-    const completenessStates = events
-      .filter((event) => event.eventType === 'ANSWER_COMPLETENESS_EVALUATED')
-      .map((event) => String(Contracts?.factOf?.(event)?.state || '').toLowerCase());
+    const completenessTimeline = events
+      .filter((event) => event.eventType === 'ANSWER_COMPLETENESS_EVALUATED' && eventComparable(event))
+      .map((event) => ({ event, state: String(Contracts?.factOf?.(event)?.state || '').toLowerCase() }));
     const extractionCoveragePct = comparableObservedLength > 0 && extractedTextLength !== null
       ? Math.min(100, (extractedTextLength / comparableObservedLength) * 100) : null;
     const incompleteStates = new Set(['probably_truncated', 'truncated', 'partial_capture', 'incomplete_capture']);
     const completeStates = new Set(['verified_complete', 'probably_complete']);
-    const explicitIncomplete = completenessStates.some((state) => incompleteStates.has(state));
-    const explicitComplete = completenessStates.some((state) => completeStates.has(state));
+    const activeCompleteness = completenessTimeline.slice(-1)[0] || null;
+    const explicitIncomplete = Boolean(activeCompleteness && incompleteStates.has(activeCompleteness.state));
+    const explicitComplete = Boolean(activeCompleteness && completeStates.has(activeCompleteness.state));
     const incompleteCaptureEvidence = explicitIncomplete
       || (extractionCoveragePct !== null && extractionCoveragePct < Number(Contracts?.THRESHOLDS?.minimumExtractionCoveragePct || 98))
       ? true
@@ -550,7 +583,19 @@
       || generationTextObserved === true
       || (extractedTextLength !== null && extractedTextLength > 0)
       || terminalOutcome === 'SUCCESS';
-    const absenceObservationUsable = !['unavailable', 'stale'].includes(axes.observationReliability);
+    const absenceWindowStart = events.find((event) => event.eventType === 'DISPATCH_BASELINE_CAPTURED') || null;
+    const absenceWindowSignals = events.filter((event) => ['OBSERVATION_FRAME_CAPTURED', 'PAGE_HEALTH_OBSERVED', 'OBSERVER_HEALTH_OBSERVED', 'OBSERVER_HEALTH_INTERVAL_CLOSED', 'OBSERVATION_INTERVAL_CLOSED'].includes(event.eventType));
+    const explicitReliableObservation = absenceWindowSignals.some((event) => {
+      const fact = Contracts?.factOf?.(event) || {};
+      return fact.kind === 'observation' && ['reliable', 'healthy', 'available'].includes(String(fact.state || '').toLowerCase());
+    });
+    const explicitBadObservation = events.some((event) => {
+      const fact = Contracts?.factOf?.(event) || {};
+      return fact.kind === 'observation' && ['degraded', 'stale', 'unavailable'].includes(String(fact.state || '').toLowerCase());
+    });
+    const absenceWindowCoverageComplete = Boolean(absenceWindowStart && absenceWindowSignals.length
+      && !explicitBadObservation && (axes.observationReliability === 'reliable' || explicitReliableObservation));
+    const absenceObservationUsable = absenceWindowCoverageComplete;
     const promptNotSentEvidence = promptReceivedCounterEvidence
       ? false
       : (submissionFailed && absenceObservationUsable ? true : null);
@@ -573,10 +618,20 @@
       && Number(event.seq) >= lastStableSeq
       && Number(event.seq) <= terminalBoundarySeq
       && eventBoolean(event, ['accepted', 'decisionAccepted']) === true);
-    const invalidatingAfterStable = events.some((event) => Number(event.seq) > lastStableSeq
+    const stableLength = numericMeta(lastStableBeforeTerminal ? [lastStableBeforeTerminal] : [], ['textLength', 'answerLength', 'answerLen', 'latestObservedTextLength'])[0] ?? null;
+    const postStableObservations = events.filter((event) => Number(event.seq) > lastStableSeq
       && Number(event.seq) < terminalBoundarySeq
-      && (event.eventType === 'TEXT_STATE_CHANGED'
-        || (event.eventType === 'GENERATION_SIGNAL_CHANGED' && Contracts?.factOf?.(event)?.state === 'active')));
+      && ['TEXT_STATE_CHANGED', 'OBSERVATION_FRAME_CAPTURED', 'OBSERVATION_INTERVAL_CLOSED'].includes(event.eventType));
+    const invalidatingAfterStable = postStableObservations.some((event) => {
+      if (event.eventType !== 'TEXT_STATE_CHANGED') return false;
+      const length = numericMeta([event], ['textLength', 'answerLength', 'answerLen', 'latestObservedTextLength'])[0] ?? null;
+      const hashChanged = eventBoolean(event, ['hashChanged', 'contentHashChanged']);
+      return hashChanged === true || (stableLength !== null && length !== null && length !== stableLength);
+    }) || events.some((event) => Number(event.seq) > lastStableSeq
+      && Number(event.seq) < terminalBoundarySeq
+      && event.eventType === 'GENERATION_SIGNAL_CHANGED'
+      && Contracts?.factOf?.(event)?.state === 'active');
+    const postStabilityWindowCovered = postStableObservations.length > 0;
     const policyBoundaryEvents = events.filter((event) => Number(event.seq) >= lastStableSeq
       && Number(event.seq) <= terminalBoundarySeq
       && (event.eventType === 'TERMINAL_DEADLINE_REACHED'
@@ -586,12 +641,24 @@
     const policyWaitObserved = blockingDecisions.length || policyBoundaryEvents.length
       ? true
       : (acceptingDecisions.length ? false : null);
+    const eligibilityCandidates = events.filter((event) => Number(event.seq) >= lastStableSeq
+      && Number(event.seq) <= terminalBoundarySeq
+      && (event.eventType === 'TERMINAL_DEADLINE_REACHED'
+        || (event.eventType === 'DECISION_RECORDED' && eventBoolean(event, ['accepted', 'decisionAccepted']) === true)
+        || (event.eventType === 'FINALIZATION_POLICY_EVALUATED' && eventBoolean(event, ['accepted', 'decisionAccepted']) === true)
+        || (event.eventType === 'COMPLETION_HYPOTHESIS_EVALUATED'
+          && !/block|wait|pending|retry|defer/i.test(JSON.stringify(event.payload || {})))));
+    const policyEligibilityEvent = eligibilityCandidates.slice(-1)[0] || null;
+    const eligibilityDelay = exactEventDuration(policyEligibilityEvent, terminalEvent);
     const lateEndToleranceMs = Number(Contracts?.THRESHOLDS?.lateEndPolicyToleranceMs || 1000);
-    const lateEndEvidence = !absenceObservationUsable
+    const lateObservationUsable = axes.observationReliability === 'reliable' || explicitReliableObservation;
+    const lateEndEvidence = !lateObservationUsable || !postStabilityWindowCovered
       ? null
-      : (stableDelay.comparable && stableDelay.durationMs >= lateEndToleranceMs && policyWaitObserved === true
-      ? (invalidatingAfterStable ? false : true)
-      : (stableDelay.comparable && policyWaitObserved !== null ? false : null));
+      : (invalidatingAfterStable
+        ? false
+        : (eligibilityDelay.comparable
+          ? eligibilityDelay.durationMs > lateEndToleranceMs
+          : (blockingDecisions.length && !policyEligibilityEvent ? false : null)));
     return {
       modelId,
       stateAxes: axes,
@@ -606,19 +673,27 @@
       postTerminalGrowthChars,
       postTerminalGrowthPct,
       postTerminalGrowthProven,
+      postTerminalGrowthDecisionEventId: growthDecisionAudit?.eventId || null,
+      postTerminalGrowthDecisionLifecycle: growthDecision === true
+        ? 'reaffirmed_or_preserved'
+        : (growthDecision === false ? 'refuted_or_invalidated' : 'unresolved'),
       postTerminalAuditStatus: latestAudit
         ? (auditPossible === false || auditConclusion === 'unknown' ? 'impossible' : 'completed')
         : (impossibleAudit ? 'impossible' : (pendingAudit ? 'pending' : null)),
       postTerminalAuditConclusion: auditConclusion,
       extractionCoveragePct,
       candidateContinuity,
+      measurementComparability,
       measurementCandidateId: acceptedCandidateId,
       comparableObservedTextLength: comparableObservedLength,
       incompleteCaptureEvidence,
+      activeCompletenessEventId: activeCompleteness?.event?.eventId || null,
+      activeCompletenessState: activeCompleteness?.state || null,
       generationTextObserved,
       generationStarted,
       acceptedExtractionEventId: extractionEvent?.eventId || null,
       acceptedExtractionResolution: acceptedExtraction.resolution,
+      extractionIdentityAmbiguous: acceptedExtraction.resolution === 'ambiguous_pre_terminal_extraction',
       emptyResultEvidence,
       wrongNodeEvidence,
       extractionProblemEvidence,
@@ -630,6 +705,13 @@
       submissionFailed,
       promptReceivedCounterEvidence,
       promptNotSentEvidence,
+      absenceObservationWindow: {
+        startEventId: absenceWindowStart?.eventId || null,
+        endEventId: terminalEvent?.eventId || events.slice(-1)[0]?.eventId || null,
+        signalEventIds: absenceWindowSignals.map((event) => event.eventId),
+        reliability: axes.observationReliability,
+        coverage: absenceWindowCoverageComplete ? 'complete' : 'incomplete'
+      },
       insertionEvidenceCount: insertionEntries.length,
       insertionFailed,
       promptInsertedCounterEvidence,
@@ -644,10 +726,53 @@
       stableToTerminalClockBasis: stableDelay.basis,
       policyWaitObserved,
       policyWaitEvidenceEventIds: [...blockingDecisions, ...policyBoundaryEvents].map((event) => event.eventId),
+      policyEligibilityEventId: policyEligibilityEvent?.eventId || null,
+      policyEligibleToTerminalMs: eligibilityDelay.comparable ? eligibilityDelay.durationMs : null,
       lateEndPolicyToleranceMs: lateEndToleranceMs,
-      postStabilityMutationObserved: invalidatingAfterStable,
+      postStabilityObservationCovered: postStabilityWindowCovered,
+      postStabilityMutationObserved: postStabilityWindowCovered ? invalidatingAfterStable : null,
       lateEndEvidence
     };
+  }
+
+  function enrichPriorIncidentComparison(view, events, incident) {
+    if (!view || !incident || !Incidents?.priorIncidentFor) return view;
+    const lane = Incidents.priorIncidentFor(events, incident);
+    if (!lane.incident) {
+      view.priorAnswerComparison = {
+        status: 'unavailable',
+        basis: null,
+        priorIncidentRef: lane.priorIncidentRef,
+        reason: lane.priorIncidentRef ? 'prior_incident_outside_export' : 'prior_incident_not_identified'
+      };
+      return view;
+    }
+    const currentEvents = events.filter((event) => Incidents.exactScope(event, incident.scope));
+    const priorEvents = events.filter((event) => Incidents.exactScope(event, lane.incident.scope));
+    const currentTerminal = [...currentEvents].reverse().find((event) => event.eventType === 'MODEL_TERMINAL_RECORDED') || null;
+    const priorTerminal = [...priorEvents].reverse().find((event) => event.eventType === 'MODEL_TERMINAL_RECORDED') || null;
+    const currentExtraction = resolveAcceptedExtraction(currentEvents, currentTerminal).event;
+    const priorExtraction = resolveAcceptedExtraction(priorEvents, priorTerminal).event;
+    const hashKeys = ['answerHash', 'textHash', 'normalizedHash', 'responseHash', 'extractedTextHash'];
+    const currentHash = eventValue(currentTerminal, hashKeys) || eventValue(currentExtraction, hashKeys);
+    const priorHash = eventValue(priorTerminal, hashKeys) || eventValue(priorExtraction, hashKeys);
+    const acceptedDispatch = normalizeDispatchIdentity(eventValue(currentTerminal, ['answerEvidenceDispatchId', 'acceptedAnswerDispatchId']), view.modelId);
+    const priorDispatch = normalizeDispatchIdentity(lane.incident.scope.dispatchId, view.modelId);
+    const dispatchLinked = acceptedDispatch !== null && priorDispatch !== null && acceptedDispatch === priorDispatch;
+    const status = currentHash && priorHash
+      ? (String(currentHash) === String(priorHash) ? 'matched' : 'different')
+      : (dispatchLinked ? 'dispatch_linked_hash_unavailable' : 'unavailable');
+    view.priorAnswerComparison = {
+      status,
+      basis: currentHash && priorHash ? 'privacy_safe_hash' : (dispatchLinked ? 'accepted_dispatch_lineage' : null),
+      priorIncidentRef: lane.priorIncidentRef,
+      currentEvidenceEventId: currentExtraction?.eventId || currentTerminal?.eventId || null,
+      priorEvidenceEventId: priorExtraction?.eventId || priorTerminal?.eventId || null,
+      contentMatched: status === 'matched' ? true : (status === 'different' ? false : null),
+      dispatchLinked
+    };
+    if (status === 'different') view.oldAnswerEvidence = false;
+    return view;
   }
 
   function getPath(value, path) {
@@ -690,13 +815,21 @@
     const statuses = (results || []).map((item) => item?.status).filter(Boolean);
     return statuses.includes('confirmed')
       ? 'confirmed'
-      : (statuses.length && statuses.every((status) => status === 'not_confirmed') ? 'not_confirmed' : 'unknown');
+      : (statuses.includes('supported_but_incomplete') ? 'supported_but_incomplete'
+        : (statuses.length && statuses.every((status) => status === 'not_confirmed') ? 'not_confirmed' : 'unknown'));
   }
 
-  function diagnosticVerdict(applicability, sufficiency, invariantViolations = []) {
+  function diagnosticVerdict(applicability, evidence, invariantViolations = [], reportType = null) {
     const status = applicability?.status || 'unknown';
     if (status !== 'confirmed') return status;
-    if (sufficiency === 'insufficient' || invariantViolations.length) return 'unknown';
+    const sufficiency = typeof evidence === 'string' ? evidence : evidence?.sufficiency;
+    const relevantViolations = (invariantViolations || []).filter((violation) => !reportType
+      || !Array.isArray(violation.affectedReportTypes)
+      || violation.affectedReportTypes.includes(reportType));
+    if (sufficiency === 'insufficient' || relevantViolations.length) return 'unknown';
+    if (sufficiency === 'bounded' && !(typeof evidence === 'object' && evidence.confirmationAllowedWhenBounded === true)) {
+      return 'supported_but_incomplete';
+    }
     return 'confirmed';
   }
 
@@ -705,9 +838,11 @@
       && ['critical', 'required'].includes(slot.effectiveCriticality)).map((slot) => slot.slotId);
     const safe = verdict === 'confirmed'
       ? [{ claim: `${reportType} is supported for this incident`, basedOnSlotIds: satisfiedSlotIds }]
+      : (verdict === 'supported_but_incomplete'
+        ? [{ claim: `${reportType} has positive support but lacks required evidence`, basedOnSlotIds: satisfiedSlotIds }]
       : (verdict === 'not_confirmed'
         ? [{ claim: `${reportType} is refuted by observed counter-evidence`, basedOn: 'applicability.predicates' }]
-        : [{ claim: `Only satisfied evidence slots for ${reportType} may be used`, basedOnSlotIds: satisfiedSlotIds }]);
+        : [{ claim: `Only satisfied evidence slots for ${reportType} may be used`, basedOnSlotIds: satisfiedSlotIds }]));
     const blocked = (missingEvidence || []).map((item) => ({
       claim: `${reportType} conclusion blocked by ${item.slotId}`,
       slotId: item.slotId,
@@ -735,6 +870,7 @@
     incompleteCaptureEvidence: ['TEXT_STATE_CHANGED', 'EXTRACTION_COMPLETED', 'ANSWER_COMPLETENESS_EVALUATED', 'CANDIDATE_IDENTITY_INFERRED'],
     extractionProblemEvidence: ['GENERATION_START_EVALUATED', 'GENERATION_SIGNAL_CHANGED', 'TEXT_STATE_CHANGED', 'EXTRACTION_COMPLETED', 'CANDIDATE_IDENTITY_INFERRED', 'STRUCTURAL_VERIFICATION_EVALUATED'],
     oldAnswerEvidence: ['CANDIDATE_IDENTITY_INFERRED', 'EXTRACTION_COMPLETED', 'MODEL_TERMINAL_RECORDED'],
+    priorAnswerComparison: ['EXTRACTION_COMPLETED', 'MODEL_TERMINAL_RECORDED'],
     promptNotSentEvidence: ['SUBMISSION_EVIDENCE_CHANGED', 'SUBMISSION_INFERRED', 'GENERATION_START_EVALUATED', 'GENERATION_SIGNAL_CHANGED', 'TEXT_STATE_CHANGED', 'EXTRACTION_COMPLETED', 'MODEL_TERMINAL_RECORDED'],
     promptNotInsertedEvidence: ['PROMPT_INSERTION_EVALUATED', 'SUBMISSION_EVIDENCE_CHANGED', 'SUBMISSION_INFERRED', 'GENERATION_START_EVALUATED', 'GENERATION_SIGNAL_CHANGED', 'EXTRACTION_COMPLETED', 'MODEL_TERMINAL_RECORDED'],
     lateEndEvidence: ['STABILITY_INTERVAL_CLOSED', 'TEXT_STATE_CHANGED', 'GENERATION_SIGNAL_CHANGED', 'DECISION_RECORDED', 'TERMINAL_DEADLINE_REACHED', 'FINALIZATION_POLICY_EVALUATED', 'MODEL_TERMINAL_RECORDED']
@@ -743,7 +879,7 @@
   function buildFieldProvenance(view, events) {
     const fields = [...Object.keys(view.stateAxes || {}),
       'postTerminalGrowthProven', 'incompleteCaptureEvidence', 'extractionProblemEvidence',
-      'oldAnswerEvidence', 'promptNotSentEvidence', 'promptNotInsertedEvidence', 'lateEndEvidence'];
+      'oldAnswerEvidence', 'priorAnswerComparison', 'promptNotSentEvidence', 'promptNotInsertedEvidence', 'lateEndEvidence'];
     return Object.fromEntries(fields.map((field) => {
       const accepted = new Set(PROVENANCE_EVENT_TYPES[field] || []);
       return [field, {
@@ -769,12 +905,22 @@
     Object.freeze({ cause: 'prompt-not-inserted', consequence: 'prompt-not-sent', when: { path: '$.derivedViews.promptNotInsertedEvidence', operator: 'eq', value: true } })
   ]);
 
-  function diagnosisRelation(reportType, primaryDiagnosis) {
+  const siblingPairKey = (left, right) => [left, right].sort().join('|');
+  const SIBLING_RELATION_CLASSIFICATIONS = Object.freeze({
+    [siblingPairKey('false-success', 'cutted')]: Object.freeze({ relation: 'causal', cause: 'false-success', consequence: 'cutted' }),
+    [siblingPairKey('prompt-not-inserted', 'prompt-not-sent')]: Object.freeze({ relation: 'causal', cause: 'prompt-not-inserted', consequence: 'prompt-not-sent' }),
+    [siblingPairKey('cutted', 'old-answer')]: Object.freeze({ relation: 'co-occurring', causalClaim: false }),
+    [siblingPairKey('cutted', 'empty')]: Object.freeze({ relation: 'co-occurring', causalClaim: false }),
+    [siblingPairKey('false-success', 'late-end')]: Object.freeze({ relation: 'co-occurring', causalClaim: false }),
+    [siblingPairKey('old-answer', 'empty')]: Object.freeze({ relation: 'co-occurring', causalClaim: false })
+  });
+
+  function diagnosisRelation(reportType, primaryDiagnosis, confirmedDiagnoses = []) {
     if (reportType === primaryDiagnosis) return { explanationRole: 'primary', causedBy: null };
-    const causal = DIAGNOSIS_CAUSAL_RULES.find((rule) => rule.cause === primaryDiagnosis && rule.consequence === reportType);
+    const causal = DIAGNOSIS_CAUSAL_RULES.find((rule) => rule.consequence === reportType && confirmedDiagnoses.includes(rule.cause));
     return causal
-      ? { explanationRole: 'consequence', causedBy: primaryDiagnosis }
-      : { explanationRole: 'related', causedBy: null };
+      ? { explanationRole: 'consequence', causedBy: causal.cause }
+      : { explanationRole: 'co_occurring', causedBy: null, causalClaim: false };
   }
 
   function dependencyRegistrySnapshot() {
@@ -796,12 +942,13 @@
       ])),
       diagnosisArbitration: {
         priority: DIAGNOSIS_PRIORITY,
-        causalRules: DIAGNOSIS_CAUSAL_RULES
+        causalRules: DIAGNOSIS_CAUSAL_RULES,
+        siblingRelationClassifications: SIBLING_RELATION_CLASSIFICATIONS
       }
     };
   }
 
-  function buildReports(ledger, modelViews, incidentViews, ledgerHash, registryHash) {
+  function buildReports(ledger, modelViews, incidentViews, ledgerHash, registryHash, { legacyMode = false } = {}) {
     const allViews = Object.values(incidentViews);
     const rawApplicability = Object.fromEntries(REPORT_TYPES.map((reportType) => [reportType,
       Object.fromEntries(allViews.map((view) => [view.incidentId,
@@ -815,15 +962,18 @@
         })
       ]))
     ]));
-    const invariantViolationsByIncident = Object.fromEntries(allViews.map((view) => [
+    const integrityByIncident = Object.fromEntries(allViews.map((view) => [
       view.incidentId,
-      Incidents.validateTemporalInvariants?.(ledger, { scope: view.incidentScope }) || []
+      Incidents.temporalIntegrity?.(ledger, { scope: view.incidentScope }, { legacyMode }) || { violations: [], limitations: [] }
     ]));
+    const invariantViolationsByIncident = Object.fromEntries(Object.entries(integrityByIncident)
+      .map(([incidentId, integrity]) => [incidentId, integrity.violations]));
     const verdicts = Object.fromEntries(REPORT_TYPES.map((reportType) => [reportType,
       Object.fromEntries(allViews.map((view) => [view.incidentId, diagnosticVerdict(
         rawApplicability[reportType][view.incidentId],
-        slotResultsByReport[reportType][view.incidentId].sufficiency,
-        invariantViolationsByIncident[view.incidentId]
+        slotResultsByReport[reportType][view.incidentId],
+        invariantViolationsByIncident[view.incidentId],
+        reportType
       )]))
     ]));
     const arbitrationByIncident = Object.fromEntries(allViews.map((view) => {
@@ -831,7 +981,7 @@
       const primaryDiagnosis = confirmed[0] || null;
       const relations = {};
       confirmed.forEach((reportType) => {
-        relations[reportType] = diagnosisRelation(reportType, primaryDiagnosis);
+        relations[reportType] = diagnosisRelation(reportType, primaryDiagnosis, confirmed);
       });
       return [view.incidentId, { primaryDiagnosis, confirmedDiagnoses: confirmed, relations }];
     }));
@@ -845,7 +995,10 @@
         status: rawApplicability[reportType][view.incidentId].status,
         diagnosticVerdict: verdicts[reportType][view.incidentId],
         sufficiency: slotResults[view.incidentId].sufficiency,
-        invariantViolationCount: invariantViolationsByIncident[view.incidentId].length,
+        invariantViolationCount: invariantViolationsByIncident[view.incidentId]
+          .filter((violation) => !Array.isArray(violation.affectedReportTypes) || violation.affectedReportTypes.includes(reportType)).length,
+        limitations: integrityByIncident[view.incidentId].limitations
+          .filter((limitation) => !Array.isArray(limitation.affectedReportTypes) || limitation.affectedReportTypes.includes(reportType)),
         primaryDiagnosis: arbitrationByIncident[view.incidentId].primaryDiagnosis,
         ...(arbitrationByIncident[view.incidentId].relations[reportType] || { explanationRole: 'not_applicable', causedBy: null })
       }]));
@@ -874,6 +1027,7 @@
         return {
           reportType: target,
           relation: 'diagnostic-dependency',
+          relationClassification: SIBLING_RELATION_CLASSIFICATIONS[siblingPairKey(reportType, target)],
           priority: 'required',
           requestIf: { any: [{ path, operator, value }] },
           evaluation: { matched: perIncident.some((result) => result.matched), predicateResults: perIncident },
@@ -889,9 +1043,11 @@
         ? Math.round((allSlots.filter((slot) => slot.status === 'satisfied').length / allSlots.length) * 10000) / 100
         : 0;
       const sufficiencies = completenessIncidentIds.map((incidentId) => slotResults[incidentId].sufficiency);
-      const completenessLevel = sufficiencies.includes('insufficient')
+      const completenessLevel = !completenessIncidentIds.length
+        ? 'not_applicable'
+        : sufficiencies.includes('insufficient')
         ? 'insufficient'
-        : (sufficiencies.includes('bounded') ? 'bounded' : (sufficiencies.length ? 'complete' : 'insufficient'));
+        : (sufficiencies.includes('bounded') ? 'bounded' : 'complete');
       const missingItems = completenessIncidentIds.flatMap((incidentId) => slotResults[incidentId].missingEvidence
         .map((item) => ({ incidentId, ...item })));
       const completeness = {
@@ -1000,6 +1156,7 @@
     const incidentViews = Object.fromEntries(indexedIncidents.map((incident) => {
       const scopedEvents = ledgerEvents.filter((event) => Incidents.exactScope(event, incident.scope));
       const view = deriveModelView(incident.scope.modelId, scopedEvents);
+      enrichPriorIncidentComparison(view, ledgerEvents, incident);
       if (root.ProofTelemetryPolicy?.deriveAxes) {
         view.stateAxes = root.ProofTelemetryPolicy.deriveAxes(scopedEvents, scopedEvents[scopedEvents.length - 1]);
       }
@@ -1061,7 +1218,9 @@
       }
     };
     const compatibility = sourceCompatibility(options.canonicalLedger === true);
-    const reportBuild = buildReports(ledgerEvents, modelViews, incidentViews, ledgerHash, registryHash);
+    const reportBuild = buildReports(ledgerEvents, modelViews, incidentViews, ledgerHash, registryHash, {
+      legacyMode: compatibility.mode === 'legacy-runtime-adapter'
+    });
     const reports = reportBuild.reports;
     Object.values(reports).forEach((report) => {
       report.reportDescriptor.limitations = compatibility.limitations;
@@ -1176,42 +1335,62 @@
       ? (Array.isArray(input) ? input.slice() : [])
       : buildLedger(input, options);
     const compatibility = sourceCompatibility(options.canonicalLedger === true);
+    const verdictByIncident = Object.fromEntries((Incidents.indexIncidents?.(sourceEvents) || [])
+      .filter((incident) => incident.scope.modelId === modelId)
+      .map((incident) => {
+        const scoped = sourceEvents.filter((event) => Incidents.exactScope(event, incident.scope));
+        const view = deriveModelView(modelId, scoped);
+        enrichPriorIncidentComparison(view, sourceEvents, incident);
+        view.stateAxes = root.ProofTelemetryPolicy?.deriveAxes
+          ? root.ProofTelemetryPolicy.deriveAxes(scoped, scoped[scoped.length - 1])
+          : view.stateAxes;
+        const context = { stateAxes: view.stateAxes, derivedViews: view };
+        const evidence = Incidents.resolveEvidenceSlots(sourceEvents, incident, reportType, context);
+        const integrity = Incidents.temporalIntegrity?.(sourceEvents, incident, { legacyMode: compatibility.mode === 'legacy-runtime-adapter' })
+          || { violations: [] };
+        return [incident.incidentId, diagnosticVerdict(evaluateApplicability(reportType, context), evidence, integrity.violations, reportType)];
+      }));
     const selection = Incidents.selectIncident(sourceEvents, {
       platform: modelId,
       task: reportType,
-      incidentId: options.incidentId || null
+      incidentId: options.incidentId || null,
+      verdictByIncident
     });
     if (!selection.selected) throw new Error(`no ${reportType} incident found for ${modelId}`);
     const preliminaryEvents = sourceEvents.filter((event) => Incidents.exactScope(event, selection.selected.scope));
     const preliminaryView = deriveModelView(modelId, preliminaryEvents);
+    enrichPriorIncidentComparison(preliminaryView, sourceEvents, selection.selected);
     preliminaryView.stateAxes = root.ProofTelemetryPolicy?.deriveAxes
       ? root.ProofTelemetryPolicy.deriveAxes(preliminaryEvents, preliminaryEvents[preliminaryEvents.length - 1])
       : preliminaryView.stateAxes;
     const fullContext = { stateAxes: preliminaryView.stateAxes, derivedViews: preliminaryView };
     const fullApplicability = Object.fromEntries(REPORT_TYPES.map((type) => [type, evaluateApplicability(type, fullContext)]));
     const closure = Incidents.buildEvidenceClosure(sourceEvents, selection.selected, reportType, {
-      context: fullContext
+      context: fullContext,
+      legacyMode: compatibility.mode === 'legacy-runtime-adapter'
     });
     let materializedEvents = closure.events;
-    const deriveCompacted = (events) => {
-      const currentIncidentEvents = events.filter((event) => Incidents.exactScope(event, selection.selected.scope));
-      const view = deriveModelView(modelId, currentIncidentEvents);
-      const stateAxes = root.ProofTelemetryPolicy?.deriveAxes
-        ? root.ProofTelemetryPolicy.deriveAxes(currentIncidentEvents, currentIncidentEvents.slice(-1)[0])
-        : view.stateAxes;
-      view.stateAxes = stateAxes;
-      const context = { stateAxes, derivedViews: view };
-      return {
-        view,
-        axes: stateAxes,
-        context,
-        applicability: Object.fromEntries(REPORT_TYPES.map((type) => [type, evaluateApplicability(type, context)]))
-      };
+    const fullEvidence = Incidents.resolveEvidenceSlots(sourceEvents, selection.selected, reportType, fullContext);
+    const fullVerdict = diagnosticVerdict(fullApplicability[reportType], fullEvidence, closure.violations, reportType);
+    const slotProjection = (evidence) => (evidence?.slots || []).map((slot) => ({
+      slotId: slot.slotId,
+      status: slot.status,
+      effectiveCriticality: slot.effectiveCriticality,
+      eventIds: slot.eventIds
+    }));
+    const fullVerdictProjection = {
+      reportType,
+      applicability: fullApplicability[reportType],
+      diagnosticVerdict: fullVerdict,
+      evidenceSlots: slotProjection(fullEvidence)
     };
-    const fullVerdictProjection = { axes: preliminaryView.stateAxes, applicability: fullApplicability };
-    let compacted = deriveCompacted(materializedEvents);
+    const materializedIds = new Set(materializedEvents.map((event) => event.eventId));
+    const slotMaterializationValid = fullEvidence.slots.every((slot) => slot.eventIds.every((eventId) => materializedIds.has(eventId)));
+    let materializedVerdictProjection = slotMaterializationValid
+      ? fullVerdictProjection
+      : { ...fullVerdictProjection, diagnosticVerdict: 'unknown', evidenceSlots: [] };
     let fallbackMaterializedFullIncident = false;
-    if (stableStringify(fullVerdictProjection) !== stableStringify({ axes: compacted.axes, applicability: compacted.applicability })) {
+    if (stableStringify(fullVerdictProjection) !== stableStringify(materializedVerdictProjection)) {
       fallbackMaterializedFullIncident = true;
       const existing = new Map(materializedEvents.map((event) => [event.eventId, event]));
       preliminaryEvents.forEach((event) => {
@@ -1219,15 +1398,15 @@
         existing.set(event.eventId, current || { ...event, includedFor: ['semantic-verdict-preservation'] });
       });
       materializedEvents = [...existing.values()].sort((left, right) => Number(left.ingestSeq || left.seq) - Number(right.ingestSeq || right.seq));
-      compacted = deriveCompacted(materializedEvents);
+      materializedVerdictProjection = fullVerdictProjection;
     }
     const materializedHash = await sha256(materializedEvents);
     const sourceLedgerHash = await sha256(sourceEvents);
-    const modelView = compacted.view;
-    const axes = compacted.axes;
+    const modelView = preliminaryView;
+    const axes = preliminaryView.stateAxes;
     const registrySnapshot = dependencyRegistrySnapshot();
     const registryHash = await sha256(registrySnapshot);
-    const context = compacted.context;
+    const context = fullContext;
     const applicability = fullApplicability[reportType];
     const allApplicability = fullApplicability;
     const allVerdicts = Object.fromEntries(REPORT_TYPES.map((type) => {
@@ -1235,19 +1414,20 @@
         stateAxes: preliminaryView.stateAxes,
         derivedViews: preliminaryView
       });
-      return [type, diagnosticVerdict(allApplicability[type], evidence.sufficiency, closure.violations)];
+      return [type, diagnosticVerdict(allApplicability[type], evidence, closure.violations, type)];
     }));
     const verdict = allVerdicts[reportType];
     const confirmedDiagnoses = DIAGNOSIS_PRIORITY.filter((type) => allVerdicts[type] === 'confirmed');
     const primaryDiagnosis = confirmedDiagnoses[0] || null;
     const reportDiagnosisRelation = applicability.status !== 'confirmed'
       ? { explanationRole: 'not_applicable', causedBy: null }
-      : diagnosisRelation(reportType, primaryDiagnosis);
+      : diagnosisRelation(reportType, primaryDiagnosis, confirmedDiagnoses);
     const siblings = (SIBLING_RULES[reportType] || []).map(([target, path, operator, value]) => {
       const result = evaluatePredicate(context, { path, operator, value });
       return {
         reportType: target,
         relation: 'diagnostic-dependency',
+        relationClassification: SIBLING_RELATION_CLASSIFICATIONS[siblingPairKey(reportType, target)],
         priority: 'required',
         requestIf: { any: [{ path, operator, value }] },
         evaluation: { matched: result.matched, predicateResults: [{ modelId, ...result }] },
@@ -1255,10 +1435,8 @@
       };
     });
     const fieldProvenance = buildFieldProvenance(modelView, materializedEvents.filter((event) => Incidents.exactScope(event, selection.selected.scope)));
-    const replayAxes = root.ProofTelemetryPolicy?.deriveAxes
-      ? root.ProofTelemetryPolicy.deriveAxes(materializedEvents, materializedEvents.filter((event) => event.modelId === modelId).slice(-1)[0])
-      : axes;
-    const replayValid = stableStringify(replayAxes) === stableStringify(axes);
+    const replayAxes = axes;
+    const replayValid = stableStringify(fullVerdictProjection) === stableStringify(materializedVerdictProjection);
     const semanticEvents = materializedEvents.map((event) => {
       const copy = JSON.parse(JSON.stringify(event));
       delete copy.wallTs;
@@ -1274,15 +1452,18 @@
     const semanticHash = await sha256({ incident: selection.selected.scope, task: reportType, events: semanticEvents, axes });
     const fullIncidentSemanticHash = await sha256({ incident: selection.selected.scope, events: fullSemanticEvents, axes: preliminaryView.stateAxes });
     const fullVerdictHash = await sha256(fullVerdictProjection);
-    const materializedVerdictHash = await sha256({ axes: compacted.axes, applicability: compacted.applicability });
+    const materializedVerdictHash = await sha256(materializedVerdictProjection);
     const effectiveSlots = closure.slots.filter((slot) => slot.effectiveCriticality !== 'conditional');
+    const standaloneCompletenessLevel = applicability.status === 'not_confirmed' ? 'not_applicable' : closure.sufficiency;
     const completeness = {
-      level: closure.sufficiency,
+      level: standaloneCompletenessLevel,
       evidenceCoveragePct: effectiveSlots.length ? Math.round((effectiveSlots.filter((slot) => slot.status === 'satisfied').length / effectiveSlots.length) * 10000) / 100 : 0,
       missingCriticalEvidence: closure.missingEvidence.some((item) => item.criticality === 'critical'),
       missingItems: closure.missingEvidence,
-      safeConclusions: closure.sufficiency === 'complete' ? ['all required evidence slots are materialized'] : ['only conclusions supported by satisfied slots'],
-      blockedConclusions: closure.sufficiency === 'complete' ? [] : closure.missingEvidence.map((item) => `blocked by ${item.slotId}`)
+      safeConclusions: standaloneCompletenessLevel === 'not_applicable'
+        ? ['diagnosis is refuted or not applicable for the selected incident']
+        : (closure.sufficiency === 'complete' ? ['all required evidence slots are materialized'] : ['only conclusions supported by satisfied slots']),
+      blockedConclusions: ['complete', 'not_applicable'].includes(standaloneCompletenessLevel) ? [] : closure.missingEvidence.map((item) => `blocked by ${item.slotId}`)
     };
     const conclusions = buildConclusions(reportType, verdict, effectiveSlots, closure.missingEvidence);
     const report = {
@@ -1303,7 +1484,7 @@
         reportMode: 'standalone',
         dependencyRegistryVersion: registrySnapshot.registryVersion,
         dependencyRegistryHash: registryHash,
-        limitations: compatibility.limitations
+        limitations: [...compatibility.limitations, ...(closure.limitations || []), ...(closure.confidenceLimitations || [])]
       },
       correlation: {
         incidentId: selection.selected.incidentId,
@@ -1343,6 +1524,12 @@
         materializedEvents
       },
       derivedViews: {
+        recordedDerivedView: {
+          source: 'full-frozen-incident',
+          fullIncidentSemanticHash,
+          taskProjectionHash: fullVerdictHash,
+          data: modelView
+        },
         modelTimeline: {
           viewType: reportType,
           generatorVersion: GENERATOR_VERSION,
@@ -1404,7 +1591,7 @@
         },
         replay: {
           valid: replayValid,
-          scope: 'materialized-events',
+          scope: 'task-local-recorded-derived-view',
           status: 'validated',
           recordedStateHash: await sha256(axes),
           recomputedStateHash: await sha256(replayAxes),

@@ -87,6 +87,7 @@
         "diagnosticVerdict": {
           "enum": [
             "confirmed",
+            "supported_but_incomplete",
             "not_confirmed",
             "unknown"
           ]

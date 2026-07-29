@@ -189,6 +189,49 @@ describe('native proof telemetry ledger', () => {
     expect(source.payload.typed).toEqual(expect.objectContaining({ kind: 'generation', state: 'active' }));
   });
 
+  test('deduplicates within one identity but preserves identical observations from different candidates', async () => {
+    await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
+    const base = { runSessionId: 42, dispatchId: 'GPT:42:1', generationEpoch: 1, textLength: 100 };
+    await global.ProofTelemetryLedger.record({ ts: 1000, label: 'ANSWER_GENERATING', meta: { ...base, candidateId: 'candidate-a' } }, 'GPT');
+    await global.ProofTelemetryLedger.record({ ts: 1010, label: 'ANSWER_GENERATING', meta: { ...base, candidateId: 'candidate-a' } }, 'GPT');
+    await global.ProofTelemetryLedger.record({ ts: 1020, label: 'ANSWER_GENERATING', meta: { ...base, candidateId: 'candidate-b' } }, 'GPT');
+    const observations = (await global.ProofTelemetryLedger.snapshot()).events
+      .filter((event) => event.payload?.sourceEventType === 'ANSWER_GENERATING');
+    expect(observations).toHaveLength(2);
+    expect(observations.map((event) => event.candidateId)).toEqual(['candidate-a', 'candidate-b']);
+  });
+
+  test('companion events inherit source identity and ambiguous extraction is recorded explicitly', async () => {
+    await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
+    const base = {
+      runSessionId: 42,
+      dispatchId: 'GPT:42:1',
+      generationEpoch: 1,
+      candidateId: 'candidate-a',
+      documentInstanceId: 'document-a',
+      turnId: 'turn-a',
+      navigationEpoch: 7
+    };
+    await global.ProofTelemetryLedger.record({ ts: 1000, label: 'PROMPT_SUBMITTED_ACCEPTED', meta: base }, 'GPT');
+    await global.ProofTelemetryLedger.record({ ts: 1100, label: 'ANSWER_EXTRACTION_COMPLETED', meta: { ...base, candidateId: 'candidate-a', length: 10 } }, 'GPT');
+    await global.ProofTelemetryLedger.record({ ts: 1200, label: 'ANSWER_EXTRACTION_COMPLETED', meta: { ...base, candidateId: 'candidate-b', length: 11 } }, 'GPT');
+    await global.ProofTelemetryLedger.record({ ts: 1300, label: 'MODEL_FINAL', details: 'SUCCESS', meta: { ...base, candidateId: null, finalStatus: 'SUCCESS' } }, 'GPT');
+    const events = (await global.ProofTelemetryLedger.snapshot()).events;
+    const companion = events.find((event) => event.eventType === 'SUBMISSION_INFERRED');
+    expect(companion).toEqual(expect.objectContaining({
+      candidateId: 'candidate-a',
+      documentInstanceId: 'document-a',
+      turnId: 'turn-a',
+      navigationEpoch: 7
+    }));
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventType: 'MISSING_EVIDENCE_RECORDED',
+        payload: expect.objectContaining({ missingEvidence: 'extraction_identity_ambiguous', status: 'unavailable' })
+      })
+    ]));
+  });
+
   test('aggregates operational polling, quarantines unknown legacy noise and compacts metadata', async () => {
     await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
     const meta = {

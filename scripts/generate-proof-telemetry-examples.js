@@ -42,6 +42,16 @@ function ledgerForTypes(types, reportType = null) {
       typed = { kind: 'terminal_action', state: 'SUCCESS' };
     }
     if (item.eventType === 'TEXT_STATE_CHANGED' || item.eventType === 'GENERATION_SIGNAL_CHANGED') metadata.textLength = 120;
+    if (item.eventType === 'PAGE_HEALTH_OBSERVED' || item.eventType === 'OBSERVER_HEALTH_OBSERVED') {
+      metadata.pageHealth = 'reliable';
+      typed = { kind: 'observation', state: 'reliable' };
+    }
+    if (item.eventType === 'OBSERVATION_FRAME_CAPTURED') {
+      metadata.observationCoverage = 'complete';
+      metadata.maximumSignalSkewMs = 250;
+      metadata.contentScriptAvailable = true;
+      typed = { kind: 'observation', state: 'reliable' };
+    }
     if (item.eventType === 'EXTRACTION_COMPLETED') {
       metadata.length = reportType === 'cutted' ? 60 : 120;
       typed = { kind: 'extraction', state: reportType === 'empty' ? 'failed' : 'completed' };
@@ -59,8 +69,8 @@ function ledgerForTypes(types, reportType = null) {
       directPayload = { conclusion: 'contradicted', growthChars: 30, growthPct: 25, hashChanged: true, auditPossible: true };
     }
     if (reportType === 'late-end' && item.eventType === 'DECISION_RECORDED') {
-      directPayload = { accepted: false, mode: 'automatic', evidenceTier: 2, blockers: ['generation_not_active'] };
-      typed = { kind: 'decision', state: 'rejected' };
+      directPayload = { accepted: true, mode: 'policy_eligible', evidenceTier: 3, blockers: [] };
+      typed = { kind: 'decision', state: 'accepted' };
     }
     if (reportType === 'old-answer' && item.eventType === 'EXTRACTION_COMPLETED') metadata.answerIdentity = 'previous_dispatch';
     if (reportType === 'old-answer' && item.eventType === 'CANDIDATE_IDENTITY_INFERRED') typed = { kind: 'candidate_identity', state: 'previous_dispatch' };
@@ -107,8 +117,8 @@ function ledgerForTypes(types, reportType = null) {
     const lateEndOrder = new Map([
       ['OBSERVER_HEALTH_OBSERVED', 1],
       ['GENERATION_SIGNAL_CHANGED', 2],
-      ['TEXT_STATE_CHANGED', 3],
-      ['STABILITY_INTERVAL_CLOSED', 4],
+      ['STABILITY_INTERVAL_CLOSED', 3],
+      ['TEXT_STATE_CHANGED', 4],
       ['COMPLETION_HYPOTHESIS_EVALUATED', 5],
       ['DECISION_RECORDED', 6],
       ['MODEL_TERMINAL_RECORDED', 7],
@@ -123,6 +133,10 @@ function ledgerForTypes(types, reportType = null) {
       item.wallTs = 1000 + index * 500;
       item.clock.observedAtLocalMonoMs = index * 500;
       item.clock.ingestMonoMs = index + 1;
+      if (reportType === 'late-end' && item.eventType === 'MODEL_TERMINAL_RECORDED') {
+        item.wallTs += 2000;
+        item.clock.observedAtLocalMonoMs += 2000;
+      }
     });
     const audit = ledger.find((item) => item.eventType === 'POST_TERMINAL_AUDIT_COMPLETED');
     const terminal = ledger.find((item) => item.eventType === 'MODEL_TERMINAL_RECORDED');
@@ -161,7 +175,7 @@ async function main() {
     canonicalLedger: true,
     runSessionId: 'synthetic-run',
     exportedAt: 12000,
-    extensionVersion: '2.81.155',
+    extensionVersion: '2.81.156',
     sampleData: true
   };
   const all = await ProofTelemetry.buildAllPresets(ledger, options);

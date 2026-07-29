@@ -4,7 +4,7 @@
 
   const EVENT_SCHEMA_VERSION = 6;
   const CLOCK_CONTRACT_VERSION = '1.0';
-  const REGISTRY_VERSION = '5.4.0';
+  const REGISTRY_VERSION = '5.5.0';
   const THRESHOLDS = Object.freeze({
     generationStartTimeoutMs: 15000,
     minimumExtractionCoveragePct: 98,
@@ -17,6 +17,11 @@
   const REPORT_CONTRACTS = Object.freeze({
     cutted: {
       question: 'Почему зафиксирован SUCCESS, а текст явно неполный?',
+      refutation: {
+        any: [
+          ['$.derivedViews.incompleteCaptureEvidence', 'eq', false]
+        ]
+      },
       applicability: {
         all: [
           ['$.derivedViews.terminalOutcome', 'eq', 'SUCCESS'],
@@ -36,10 +41,14 @@
     },
     'false-success': {
       question: 'Почему система решила «готово», а ответ продолжил расти?',
+      refutation: {
+        any: [
+          ['$.derivedViews.postTerminalGrowthProven', 'eq', false]
+        ]
+      },
       applicability: {
         all: [
           ['$.derivedViews.terminalOutcome', 'eq', 'SUCCESS'],
-          ['$.derivedViews.postTerminalAuditStatus', 'eq', 'completed'],
           ['$.derivedViews.postTerminalGrowthProven', 'eq', true]
         ]
       },
@@ -69,7 +78,7 @@
       },
       slots: [
         ['dispatch_baseline', 'critical', ['DISPATCH_BASELINE_CAPTURED']],
-        ['prior_incident_evidence', 'critical', ['MODEL_TERMINAL_RECORDED']],
+        ['prior_incident_evidence', 'required', ['MODEL_TERMINAL_RECORDED', 'EXTRACTION_COMPLETED']],
         ['candidate_identity', 'critical', ['CANDIDATE_IDENTITY_INFERRED']],
         ['extraction_result', 'critical', ['EXTRACTION_COMPLETED']],
         ['accepted_answer_boundary', 'critical', ['MODEL_TERMINAL_RECORDED']],
@@ -82,6 +91,11 @@
     },
     empty: {
       question: 'Почему генерация была, но extraction вернул пусто или не тот узел?',
+      refutation: {
+        any: [
+          ['$.derivedViews.extractionProblemEvidence', 'eq', false]
+        ]
+      },
       applicability: {
         all: [
           ['$.derivedViews.generationTextObserved', 'eq', true],
@@ -114,6 +128,7 @@
         ['insertion_outcome', 'critical', ['PROMPT_INSERTION_EVALUATED']],
         ['composer_context', 'required', ['PAGE_HEALTH_OBSERVED', 'OBSERVATION_FRAME_CAPTURED']],
         ['submit_counterevidence', 'required', ['SUBMISSION_EVIDENCE_CHANGED', 'SUBMISSION_INFERRED']],
+        ['absence_observation_window', 'critical', ['OBSERVATION_FRAME_CAPTURED', 'PAGE_HEALTH_OBSERVED', 'OBSERVER_HEALTH_INTERVAL_CLOSED', 'OBSERVATION_INTERVAL_CLOSED']],
         ['observer_context', 'conditional', ['OBSERVER_HEALTH_OBSERVED', 'OBSERVER_HEALTH_INTERVAL_CLOSED', 'OBSERVATION_SLOT_DENIED'], ['$.stateAxes.observationReliability', 'in', ['degraded', 'stale', 'unavailable']]]
       ]
     },
@@ -134,11 +149,17 @@
         ['submit_action', 'critical', ['SUBMIT_ACTION_OBSERVED']],
         ['acceptance_evidence', 'critical', ['SUBMISSION_EVIDENCE_CHANGED', 'SUBMISSION_INFERRED']],
         ['page_context', 'required', ['PAGE_CONTEXT_OBSERVED', 'PAGE_HEALTH_OBSERVED']],
+        ['absence_observation_window', 'critical', ['OBSERVATION_FRAME_CAPTURED', 'PAGE_HEALTH_OBSERVED', 'OBSERVER_HEALTH_INTERVAL_CLOSED', 'OBSERVATION_INTERVAL_CLOSED']],
         ['observer_context', 'conditional', ['OBSERVER_HEALTH_OBSERVED', 'OBSERVER_HEALTH_INTERVAL_CLOSED', 'OBSERVATION_SLOT_DENIED'], ['$.stateAxes.observationReliability', 'in', ['degraded', 'stale', 'unavailable']]]
       ]
     },
     'late-end': {
       question: 'Текст давно стабилен — почему система ждала ещё N секунд?',
+      refutation: {
+        any: [
+          ['$.derivedViews.lateEndEvidence', 'eq', false]
+        ]
+      },
       applicability: {
         all: [
           ['$.derivedViews.lateEndEvidence', 'eq', true]
@@ -148,7 +169,7 @@
         ['stable_boundary', 'critical', ['STABILITY_INTERVAL_CLOSED']],
         ['terminal_boundary', 'critical', ['MODEL_TERMINAL_RECORDED']],
         ['generation_state', 'critical', ['GENERATION_SIGNAL_CHANGED', 'OBSERVATION_FRAME_CAPTURED']],
-        ['text_evolution', 'required', ['TEXT_STATE_CHANGED']],
+        ['text_evolution', 'critical', ['TEXT_STATE_CHANGED', 'OBSERVATION_FRAME_CAPTURED', 'OBSERVATION_INTERVAL_CLOSED']],
         ['completion_policy', 'required', ['COMPLETION_HYPOTHESIS_EVALUATED', 'FINALIZATION_POLICY_EVALUATED', 'TERMINAL_DEADLINE_REACHED']],
         ['decision_lineage', 'required', ['DECISION_RECORDED']],
         ['observer_context', 'conditional', ['OBSERVER_HEALTH_OBSERVED', 'OBSERVER_HEALTH_INTERVAL_CLOSED', 'OBSERVATION_SLOT_DENIED'], ['$.stateAxes.observationReliability', 'in', ['degraded', 'stale', 'unavailable']]],
@@ -172,7 +193,9 @@
     'old-answer.accepted_answer_boundary': { fact: { kind: 'terminal_action', states: ['success'] } },
     'prompt-not-inserted.insertion_outcome': { fact: { kind: 'prompt_insertion', states: ['failed', 'inserted', 'confirmed'] } },
     'prompt-not-sent.acceptance_evidence': { fact: { kind: 'submission', states: ['confirmed', 'failed'] } },
-    'late-end.stable_boundary': { fact: { kind: 'text', states: ['stable'] } },
+    'prompt-not-inserted.absence_observation_window': { fact: { kind: 'observation', states: ['reliable', 'healthy', 'available'] } },
+    'prompt-not-sent.absence_observation_window': { fact: { kind: 'observation', states: ['reliable', 'healthy', 'available'] } },
+    'late-end.stable_boundary': { fact: { kind: 'text', states: ['stable'] }, temporal: { closestBeforeEventType: 'MODEL_TERMINAL_RECORDED' } },
     'late-end.terminal_boundary': { fact: { kind: 'terminal_action', states: ['success', 'failure', 'error', 'timeout'] } }
   });
 
@@ -180,7 +203,7 @@
     cutted: ['TEXT_STATE_CHANGED', 'EXTRACTION_COMPLETED', 'STRUCTURAL_VERIFICATION_EVALUATED', 'MODEL_TERMINAL_RECORDED', 'POST_TERMINAL_AUDIT_COMPLETED'],
     'false-success': ['MODEL_TERMINAL_RECORDED', 'TEXT_STATE_CHANGED', 'GENERATION_SIGNAL_CHANGED', 'POST_TERMINAL_AUDIT_COMPLETED', 'MISSING_EVIDENCE_RECORDED'],
     'old-answer': ['CANDIDATE_IDENTITY_INFERRED', 'EXTRACTION_COMPLETED', 'MODEL_TERMINAL_RECORDED', 'DECISION_RECORDED'],
-    empty: ['GENERATION_START_EVALUATED', 'GENERATION_SIGNAL_CHANGED', 'TEXT_STATE_CHANGED', 'EXTRACTION_COMPLETED', 'CANDIDATE_IDENTITY_INFERRED', 'STRUCTURAL_VERIFICATION_EVALUATED'],
+    empty: ['GENERATION_START_EVALUATED', 'GENERATION_SIGNAL_CHANGED', 'TEXT_STATE_CHANGED', 'EXTRACTION_COMPLETED', 'CANDIDATE_IDENTITY_INFERRED', 'STRUCTURAL_VERIFICATION_EVALUATED', 'MISSING_EVIDENCE_RECORDED'],
     'prompt-not-inserted': ['PROMPT_INSERTION_EVALUATED', 'SUBMISSION_EVIDENCE_CHANGED', 'SUBMISSION_INFERRED', 'GENERATION_START_EVALUATED', 'GENERATION_SIGNAL_CHANGED', 'TEXT_STATE_CHANGED', 'EXTRACTION_COMPLETED', 'MODEL_TERMINAL_RECORDED'],
     'prompt-not-sent': ['SUBMISSION_EVIDENCE_CHANGED', 'SUBMISSION_INFERRED', 'GENERATION_START_EVALUATED', 'GENERATION_SIGNAL_CHANGED', 'TEXT_STATE_CHANGED', 'EXTRACTION_COMPLETED', 'MODEL_TERMINAL_RECORDED'],
     'late-end': ['STABILITY_INTERVAL_CLOSED', 'TEXT_STATE_CHANGED', 'GENERATION_SIGNAL_CHANGED', 'DECISION_RECORDED', 'TERMINAL_DEADLINE_REACHED', 'FINALIZATION_POLICY_EVALUATED', 'MODEL_TERMINAL_RECORDED']
@@ -240,6 +263,8 @@
       POLICY_OVERRIDE_APPLIED: { kind: 'policy_override', state: payload.mode || 'forced' },
       DECISION_RECORDED: { kind: 'decision', state: payload.accepted === true ? 'accepted' : 'rejected' },
       MODEL_TERMINAL_RECORDED: { kind: 'terminal_action', state: payload.metadata?.terminalStatus || payload.status || 'unknown' },
+      PAGE_HEALTH_OBSERVED: { kind: 'observation', state: payload.pageHealth || payload.metadata?.pageHealth || payload.status || payload.metadata?.status || 'unknown' },
+      OBSERVATION_FRAME_CAPTURED: { kind: 'observation', state: payload.observationCoverage === 'complete' || payload.metadata?.observationCoverage === 'complete' ? 'reliable' : (payload.observationCoverage || payload.metadata?.observationCoverage || 'unknown') },
       OBSERVATION_INTERVAL_CLOSED: { kind: 'observation_interval', state: 'closed' }
     })[event?.eventType];
     return canonical || adaptLegacyEvent(event);

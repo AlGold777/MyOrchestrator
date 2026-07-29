@@ -377,6 +377,9 @@
     ['documentInstanceId', 'turnId', 'candidateId', 'captureId', 'causationId', 'correlationId'].forEach((key) => {
       if (rawMetadata[key]) event[key] = String(rawMetadata[key]);
     });
+    if (!event.candidateId && (rawMetadata.answerCandidateId || rawMetadata.selectedCandidateId)) {
+      event.candidateId = String(rawMetadata.answerCandidateId || rawMetadata.selectedCandidateId);
+    }
     ['tabId', 'navigationEpoch'].forEach((key) => {
       if (Number.isFinite(Number(rawMetadata[key]))) event[key] = Number(rawMetadata[key]);
     });
@@ -391,6 +394,14 @@
       if (prior) {
         event.payload.metadata.priorIncidentRef = `incident:${prior.runSessionId}|${prior.runGeneration ?? 'none'}|${prior.modelId}|${prior.dispatchId}|${prior.generationEpoch ?? 'none'}`;
       }
+    }
+    if (eventType === 'MODEL_TERMINAL_RECORDED' && !event.candidateId) {
+      const acceptedExtraction = [...state.events].reverse().find((candidate) => candidate.eventType === 'EXTRACTION_COMPLETED'
+        && candidate.modelId === event.modelId
+        && candidate.dispatchId === event.dispatchId
+        && candidate.generationEpoch === event.generationEpoch
+        && candidate.candidateId);
+      if (acceptedExtraction) event.candidateId = acceptedExtraction.candidateId;
     }
     if (eventType === 'OBSERVATION_FRAME_CAPTURED') {
       const checks = rawMetadata.checkedAtLocalMonoMs || {};
@@ -423,6 +434,12 @@
       modelId: sourceEvent.modelId,
       ...(sourceEvent.dispatchId ? { dispatchId: sourceEvent.dispatchId } : {}),
       ...(sourceEvent.generationEpoch !== undefined ? { generationEpoch: sourceEvent.generationEpoch } : {}),
+      ...(sourceEvent.candidateId ? { candidateId: sourceEvent.candidateId } : {}),
+      ...(sourceEvent.documentInstanceId ? { documentInstanceId: sourceEvent.documentInstanceId } : {}),
+      ...(sourceEvent.turnId ? { turnId: sourceEvent.turnId } : {}),
+      ...(sourceEvent.navigationEpoch !== undefined ? { navigationEpoch: sourceEvent.navigationEpoch } : {}),
+      ...(sourceEvent.causationId ? { causationId: sourceEvent.causationId } : {}),
+      ...(sourceEvent.correlationId ? { correlationId: sourceEvent.correlationId } : {}),
       producer: { component: 'proof-inference-policy', version: 'proof-policy@2.0.0' },
       clock: { ...sourceEvent.clock, ingestMonoMs: Math.max(0, monotonicNow() - WORKER_STARTED_MONO_MS) },
       payload: { typed: contracts()?.factOf?.({ eventType, payload: descriptorPayload }) || { kind: 'inference', state: 'recorded' }, ...descriptorPayload },
@@ -432,7 +449,19 @@
 
   function stateKey(event) {
     const typed = contracts()?.factOf?.(event) || {};
-    return [event.runSessionId, event.modelId, event.dispatchId || 'none', event.generationEpoch ?? 'none', event.layer, typed.kind || event.eventType].join('|');
+    return [
+      event.runSessionId,
+      event.runGeneration ?? 'none',
+      event.modelId,
+      event.dispatchId || 'none',
+      event.generationEpoch ?? 'none',
+      event.candidateId || 'candidate-none',
+      event.documentInstanceId || 'document-none',
+      event.turnId || 'turn-none',
+      event.navigationEpoch ?? 'navigation-none',
+      event.layer,
+      typed.kind || event.eventType
+    ].join('|');
   }
 
   function operationalKey(entry, llmName, state) {
@@ -574,7 +603,18 @@
       state.producerSequences[producerEpochId] = Math.max(Number(previousSequence ?? -1), producerSequence);
     }
     const key = stateKey(event);
-    const comparison = proof().stableStringify({ eventType: event.eventType, payload: event.payload });
+    const comparison = proof().stableStringify({
+      eventType: event.eventType,
+      identity: {
+        candidateId: event.candidateId || null,
+        documentInstanceId: event.documentInstanceId || null,
+        turnId: event.turnId || null,
+        navigationEpoch: event.navigationEpoch ?? null,
+        causationId: event.causationId || null,
+        correlationId: event.correlationId || null
+      },
+      payload: event.payload
+    });
     if (state.signalStates[key] === comparison) {
       state.nextIngestSeq -= 1;
       state.noopCounts[key] = Number(state.noopCounts[key] || 0) + 1;

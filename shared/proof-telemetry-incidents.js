@@ -73,7 +73,7 @@
     return incident.eventIds.reduce((score, id) => score + (allowed.has(eventById.get(id)?.eventType) ? 1 : 0), 0);
   }
 
-  function selectIncident(events, { platform, task, incidentId = null } = {}) {
+  function selectIncident(events, { platform, task, incidentId = null, verdictByIncident = null } = {}) {
     const eventById = new Map((events || []).map((event) => [event.eventId, event]));
     const candidates = indexIncidents(events).filter((incident) => !platform || incident.scope.modelId === platform);
     if (incidentId && !candidates.some((incident) => incident.incidentId === incidentId)) {
@@ -90,14 +90,17 @@
     // failure the report is meant to explain. Rank by available evidence, but
     // never use evidence absence as an incident-exclusion predicate.
     const matching = incidentId ? candidates.filter((incident) => incident.incidentId === incidentId) : candidates;
+    const verdictRank = { confirmed: 4, supported_but_incomplete: 3, unknown: 2, not_confirmed: 1 };
     const ranked = matching.slice().sort((left, right) => {
+      const leftVerdict = verdictRank[verdictByIncident?.[left.incidentId]] || 0;
+      const rightVerdict = verdictRank[verdictByIncident?.[right.incidentId]] || 0;
       const leftScore = taskMatchScore(left, eventById, task) + (left.contradiction ? 4 : 0) + (left.terminal ? 1 : 0);
       const rightScore = taskMatchScore(right, eventById, task) + (right.contradiction ? 4 : 0) + (right.terminal ? 1 : 0);
-      return rightScore - leftScore || right.lastIngestSeq - left.lastIngestSeq || left.incidentId.localeCompare(right.incidentId);
+      return rightVerdict - leftVerdict || rightScore - leftScore || right.lastIngestSeq - left.lastIngestSeq || left.incidentId.localeCompare(right.incidentId);
     });
     return {
       selected: ranked[0] || null,
-      selectionReason: ranked.length ? (incidentId ? 'explicit_incident_then_evidence_rank' : 'task_evidence_rank_then_latest_including_zero_match') : 'no_matching_incident',
+      selectionReason: ranked.length ? (incidentId ? 'explicit_incident_then_evidence_rank' : (verdictByIncident ? 'diagnostic_verdict_then_task_evidence_then_latest' : 'task_evidence_rank_then_latest_including_zero_match')) : 'no_matching_incident',
       otherMatchingIncidents: ranked.slice(1).map((incident) => incident.incidentId),
       matchingIncidentCount: ranked.length
     };
@@ -198,25 +201,34 @@
     }
     if (rule.temporal) {
       const eventById = new Map(scoped.map((candidate) => [candidate.eventId, candidate]));
-      const boundary = [...scoped].reverse().find((candidate) => candidate.eventType === rule.temporal.afterEventType
-        && Number(candidate.seq) < Number(event.seq));
-      if (!boundary) return false;
-      const referenced = (event.evidenceRefs || []).map((id) => eventById.get(id)).filter(Boolean);
-      if ((rule.temporal.requiresEvidenceRefTypes || []).some((eventType) => !referenced.some((candidate) => candidate.eventType === eventType))) return false;
-      if (rule.temporal.requiresPostBoundaryEvidenceRef
-        && !referenced.some((candidate) => candidate.eventId !== boundary.eventId && Number(candidate.seq) > Number(boundary.seq) && Number(candidate.seq) < Number(event.seq))) return false;
+      if (rule.temporal.afterEventType) {
+        const boundary = [...scoped].reverse().find((candidate) => candidate.eventType === rule.temporal.afterEventType
+          && Number(candidate.seq) < Number(event.seq));
+        if (!boundary) return false;
+        const referenced = (event.evidenceRefs || []).map((id) => eventById.get(id)).filter(Boolean);
+        if ((rule.temporal.requiresEvidenceRefTypes || []).some((eventType) => !referenced.some((candidate) => candidate.eventType === eventType))) return false;
+        if (rule.temporal.requiresPostBoundaryEvidenceRef
+          && !referenced.some((candidate) => candidate.eventId !== boundary.eventId && Number(candidate.seq) > Number(boundary.seq) && Number(candidate.seq) < Number(event.seq))) return false;
+      }
+      if (rule.temporal.closestBeforeEventType) {
+        const terminal = [...scoped].reverse().find((candidate) => candidate.eventType === rule.temporal.closestBeforeEventType);
+        const closest = terminal && [...scoped].reverse().find((candidate) => candidate.eventType === event.eventType
+          && Number(candidate.seq) <= Number(terminal.seq));
+        if (!closest || closest.eventId !== event.eventId) return false;
+      }
     }
     return true;
   }
 
-  function validateTemporalInvariants(events, incident) {
+  function temporalIntegrity(events, incident, { legacyMode = false } = {}) {
     const scoped = (events || []).filter((event) => exactScope(event, incident.scope));
     const byId = new Map(scoped.map((event) => [event.eventId, event]));
     const violations = [];
+    const limitations = [];
     scoped.filter((event) => event.eventType === 'POST_TERMINAL_AUDIT_COMPLETED').forEach((audit) => {
       const terminal = [...scoped].reverse().find((event) => event.eventType === 'MODEL_TERMINAL_RECORDED' && Number(event.seq) < Number(audit.seq));
       if (!terminal) {
-        violations.push({ invariantId: 'TEMPORAL_AUDIT_ORDER', eventId: audit.eventId, message: 'post-terminal audit precedes terminal boundary' });
+        violations.push({ invariantId: 'TEMPORAL_AUDIT_ORDER', eventId: audit.eventId, affectedReportTypes: ['false-success'], affectedSlotIds: ['post_terminal_audit'], affectedFields: ['postTerminalGrowthProven'], message: 'post-terminal audit precedes terminal boundary' });
         return;
       }
       const referenced = (audit.evidenceRefs || []).map((id) => byId.get(id)).filter(Boolean);
@@ -224,7 +236,9 @@
       const observationLinked = referenced.some((event) => event.eventId !== terminal.eventId
         && Number(event.seq) > Number(terminal.seq) && Number(event.seq) < Number(audit.seq));
       if (!terminalLinked || !observationLinked) {
-        violations.push({ invariantId: 'CAUSAL_AUDIT_LINEAGE', eventId: audit.eventId, message: 'post-terminal audit lacks terminal and later-observation evidenceRefs' });
+        const item = { code: 'audit_lineage_unavailable', eventId: audit.eventId, affectedReportTypes: ['false-success'], affectedSlotIds: ['post_terminal_audit'], affectedFields: ['postTerminalGrowthProven'], impact: 'post-terminal audit cannot prove growth without terminal and later-observation lineage' };
+        if (legacyMode) limitations.push(item);
+        else violations.push({ invariantId: 'CAUSAL_AUDIT_LINEAGE', ...item, message: item.impact });
       }
     });
     scoped.filter((event) => event.eventType === 'EXTRACTION_COMPLETED').forEach((extraction) => {
@@ -233,9 +247,13 @@
       const recoveryLinked = (extraction.evidenceRefs || []).map((id) => byId.get(id)).filter(Boolean)
         .some((event) => ['POLICY_OVERRIDE_APPLIED', 'FINALIZATION_POLICY_EVALUATED'].includes(event.eventType)
           && /recovery|retry|repair/i.test(JSON.stringify(event.payload || {})));
-      if (!recoveryLinked) violations.push({ invariantId: 'TEMPORAL_EXTRACTION_AFTER_TERMINAL', eventId: extraction.eventId, message: 'post-terminal extraction lacks explicit recovery lineage' });
+      if (!recoveryLinked) violations.push({ invariantId: 'TEMPORAL_EXTRACTION_AFTER_TERMINAL', eventId: extraction.eventId, affectedReportTypes: ['empty', 'old-answer', 'cutted'], affectedSlotIds: ['extraction_result', 'extraction_boundary'], affectedFields: ['extractionProblemEvidence', 'oldAnswerEvidence', 'incompleteCaptureEvidence'], message: 'post-terminal extraction lacks explicit recovery lineage' });
     });
-    return violations;
+    return { violations, limitations };
+  }
+
+  function validateTemporalInvariants(events, incident, options = {}) {
+    return temporalIntegrity(events, incident, options).violations;
   }
 
   function priorIncidentFor(events, incident) {
@@ -255,11 +273,17 @@
     const priorLane = task === 'old-answer' ? priorIncidentFor(events, incident) : { priorIncidentRef: null, incident: null, terminal: null };
     const slots = (contracts()?.normalizedSlots?.(task) || []).map((contract) => {
       const typeMatched = contract.slotId === 'prior_incident_evidence'
-        ? (priorLane.terminal ? [priorLane.terminal] : [])
+        ? (priorLane.incident ? (events || []).filter((event) => exactScope(event, priorLane.incident.scope)
+          && contract.eventTypes.includes(event.eventType)) : [])
         : scoped.filter((event) => contract.eventTypes.includes(event.eventType));
       const allMatched = contract.slotId === 'prior_incident_evidence'
-        ? (priorLane.incident ? typeMatched : [])
-        : typeMatched.filter((event) => eventMatchesSlot(event, contract, scoped));
+        ? typeMatched
+        : typeMatched.filter((event) => {
+          if (!eventMatchesSlot(event, contract, scoped)) return false;
+          const candidateBoundSlot = ['extraction_boundary', 'extraction_result', 'structural_verification', 'post_terminal_mutation'].includes(contract.slotId);
+          const expectedCandidateId = context?.derivedViews?.measurementCandidateId;
+          return !(candidateBoundSlot && expectedCandidateId && event.candidateId && String(event.candidateId) !== String(expectedCandidateId));
+        });
       const matched = selectProofEvents(allMatched, scoped);
       const rejected = selectProofEvents(typeMatched.filter((event) => !allMatched.includes(event)), scoped);
       const conditionRequired = contract.criticality === 'conditional' && conditionMatches(context, contract.requiredIf);
@@ -279,14 +303,28 @@
         matchedEventCount: allMatched.length,
         rejectedEventCount: typeMatched.length - allMatched.length,
         selectedEventCount: matched.length,
-        impact: matched.length ? null : `${effectiveCriticality}_evidence_not_available`
+        impact: matched.length ? null : (contract.slotId === 'prior_incident_evidence' && priorLane.priorIncidentRef && !priorLane.incident
+          ? 'prior_incident_outside_export'
+          : `${effectiveCriticality}_evidence_not_available`)
       };
     });
     const criticalMissing = slots.filter((slot) => slot.effectiveCriticality === 'critical' && slot.status !== 'satisfied');
     const requiredMissing = slots.filter((slot) => slot.effectiveCriticality === 'required' && slot.status !== 'satisfied');
+    const confidenceLimitations = [];
+    if (task === 'cutted' && context?.derivedViews?.measurementComparability === 'single_candidate') {
+      confidenceLimitations.push({ code: 'single_candidate_comparability', impact: 'measurement continuity is inferred from a single-candidate incident' });
+    }
+    const ordinaryRequiredMissing = requiredMissing.filter((slot) => slot.impact !== 'prior_incident_outside_export');
+    const externalPriorMissing = requiredMissing.some((slot) => slot.impact === 'prior_incident_outside_export');
+    const sufficiency = criticalMissing.length
+      ? 'insufficient'
+      : (ordinaryRequiredMissing.length || externalPriorMissing || confidenceLimitations.length ? 'bounded' : 'complete');
     return {
       slots,
-      sufficiency: criticalMissing.length ? 'insufficient' : (requiredMissing.length ? 'bounded' : 'complete'),
+      sufficiency,
+      missingRequiredSlotCount: ordinaryRequiredMissing.length,
+      confirmationAllowedWhenBounded: ordinaryRequiredMissing.length === 0 && criticalMissing.length === 0,
+      confidenceLimitations,
       missingEvidence: [...criticalMissing, ...requiredMissing].map((slot) => ({
         slotId: slot.slotId,
         criticality: slot.effectiveCriticality,
@@ -297,13 +335,14 @@
     };
   }
 
-  function buildEvidenceClosure(events, incident, task, { context = {} } = {}) {
+  function buildEvidenceClosure(events, incident, task, { context = {}, legacyMode = false } = {}) {
     if (!incident) return { events: [], slots: [], sufficiency: 'insufficient', missingEvidence: [{ slotId: 'incident', criticality: 'critical', impact: 'no_matching_incident' }], violations: [] };
     const eventById = new Map((events || []).map((event) => [event.eventId, event]));
     const slotResult = resolveEvidenceSlots(events, incident, task, context);
     const priorLane = task === 'old-answer' ? priorIncidentFor(events, incident) : { priorIncidentRef: null, incident: null };
     const reasons = new Map();
-    const violations = validateTemporalInvariants(events, incident);
+    const integrity = temporalIntegrity(events, incident, { legacyMode });
+    const violations = integrity.violations;
     const queue = [];
     function include(eventId, reason) {
       const event = eventById.get(eventId);
@@ -356,12 +395,13 @@
       ...slotResult,
       events: materialized,
       violations,
+      limitations: integrity.limitations,
       priorIncidentRef: priorLane.priorIncidentRef,
       evidenceLanes: priorLane.incident ? { currentIncident: incident.incidentId || null, priorIncident: priorLane.incident.incidentId } : { currentIncident: incident.incidentId || null }
     };
   }
 
-  const api = Object.freeze({ scopeOf, scopeKey, exactScope, sameRunScope, indexIncidents, selectIncident, selectIncidentReports, selectProofEvents, eventMatchesSlot, validateTemporalInvariants, priorIncidentFor, resolveEvidenceSlots, buildEvidenceClosure });
+  const api = Object.freeze({ scopeOf, scopeKey, exactScope, sameRunScope, indexIncidents, selectIncident, selectIncidentReports, selectProofEvents, eventMatchesSlot, temporalIntegrity, validateTemporalInvariants, priorIncidentFor, resolveEvidenceSlots, buildEvidenceClosure });
   root.ProofTelemetryIncidents = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

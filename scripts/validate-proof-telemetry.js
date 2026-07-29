@@ -38,6 +38,7 @@ function privacyViolations(value, currentPath = '$', violations = []) {
   Object.entries(value).forEach(([key, child]) => {
     const normalized = key.toLowerCase();
     const safeMetric = ProofTelemetry.REPORT_TYPES.includes(key)
+      || key.split('|').every((part) => ProofTelemetry.REPORT_TYPES.includes(part))
       || /(hash|length|len|count|id|status|state|reason|source|mode|tier|version|type|ref|exported|policy|report|preset|task)/.test(normalized);
     if (!safeMetric && /(prompt|answertext|html|token|cookie|secret|credential|authorization|api.?key|rawdom|fulltext)/.test(normalized)) {
       violations.push({ code: 'PRIVACY_FORBIDDEN_KEY', path: `${currentPath}.${key}` });
@@ -104,6 +105,7 @@ async function validateContainer(container, { verifyContainerHash = true } = {})
 
   const ids = new Set(events.map((event) => event.eventId));
   const seqs = new Set(events.map((event) => event.seq));
+  const legacyMode = container?.exportAudit?.sourceCompatibility?.mode === 'legacy-runtime-adapter';
   REQUIRED_REPORTS.forEach((reportType) => {
     const report = container?.reports?.[reportType];
     if (!report) {
@@ -118,22 +120,25 @@ async function validateContainer(container, { verifyContainerHash = true } = {})
       const recomputed = ProofTelemetry.evaluateApplicability(reportType, { stateAxes: incident.stateAxes, derivedViews: incident });
       const scope = { scope: incident.incidentScope };
       const evidence = Incidents.resolveEvidenceSlots(events, scope, reportType, { stateAxes: incident.stateAxes, derivedViews: incident });
-      const invariantViolations = Incidents.validateTemporalInvariants(events, scope);
-      const verdict = ProofTelemetry.diagnosticVerdict(recomputed, evidence.sufficiency, invariantViolations);
+      const invariantViolations = Incidents.validateTemporalInvariants(events, scope, { legacyMode });
+      const verdict = ProofTelemetry.diagnosticVerdict(recomputed, evidence, invariantViolations, reportType);
       recomputedApplicabilityByIncident[incidentId] = { ...recomputed, diagnosticVerdict: verdict };
       const recorded = recordedApplicabilityByIncident[incidentId] || {};
       if (recorded.modelId !== incident.modelId || recorded.status !== recomputed.status) {
         addError('APPLICABILITY_MISMATCH', `${reportType} applicability mismatch for ${incidentId}`);
       }
       if (recorded.diagnosticVerdict !== verdict || recorded.sufficiency !== evidence.sufficiency
-        || Number(recorded.invariantViolationCount || 0) !== invariantViolations.length) {
+        || Number(recorded.invariantViolationCount || 0) !== invariantViolations
+          .filter((violation) => !Array.isArray(violation.affectedReportTypes) || violation.affectedReportTypes.includes(reportType)).length) {
         addError('VERDICT_MISMATCH', `${reportType} diagnostic verdict mismatch for ${incidentId}`);
       }
     });
     const applicabilityStatuses = Object.values(recomputedApplicabilityByIncident).map((item) => item.diagnosticVerdict);
     const expectedApplicabilityStatus = applicabilityStatuses.includes('confirmed')
       ? 'confirmed'
-      : (applicabilityStatuses.length && applicabilityStatuses.every((status) => status === 'not_confirmed') ? 'not_confirmed' : 'unknown');
+      : (applicabilityStatuses.includes('supported_but_incomplete')
+        ? 'supported_but_incomplete'
+        : (applicabilityStatuses.length && applicabilityStatuses.every((status) => status === 'not_confirmed') ? 'not_confirmed' : 'unknown'));
     if (report?.reportDescriptor?.applicability?.status !== expectedApplicabilityStatus) {
       addError('APPLICABILITY_MISMATCH', `${reportType} aggregate applicability mismatch`);
     }
@@ -251,10 +256,12 @@ async function validateStandaloneReport(report) {
     });
   });
   const currentIncidentEvents = events.filter((event) => Incidents.exactScope(event, correlation));
-  const replayTarget = currentIncidentEvents.slice(-1)[0];
-  const replayAxes = replayTarget ? Policy.deriveAxes(currentIncidentEvents, replayTarget) : {};
-  if (ProofTelemetry.stableStringify(replayAxes) !== ProofTelemetry.stableStringify(report.stateAxes || {})) {
-    addError('REPLAY_MISMATCH', 'state axes cannot be rebuilt from materialized events');
+  const recordedView = report?.derivedViews?.recordedDerivedView?.data || report?.derivedViews?.modelTimeline?.data;
+  if (!recordedView || ProofTelemetry.stableStringify(recordedView) !== ProofTelemetry.stableStringify(report?.derivedViews?.modelTimeline?.data)) {
+    addError('RECORDED_DERIVED_VIEW_MISMATCH', 'recorded full-incident view is absent or differs from the exported model timeline');
+  }
+  if (ProofTelemetry.stableStringify(recordedView?.stateAxes || {}) !== ProofTelemetry.stableStringify(report.stateAxes || {})) {
+    addError('REPLAY_MISMATCH', 'recorded full-incident axes differ from report state axes');
   }
   const registrySnapshot = ProofTelemetry.dependencyRegistrySnapshot();
   const registryHash = await ProofTelemetry.sha256(registrySnapshot);
@@ -265,37 +272,44 @@ async function validateStandaloneReport(report) {
   const incident = { scope: Incidents.scopeOf(correlation) };
   const resolved = Incidents.resolveEvidenceSlots(events, incident, report?.reportDescriptor?.reportType, {
     stateAxes: report.stateAxes,
-    derivedViews: report.derivedViews?.modelTimeline?.data
+    derivedViews: recordedView
   });
   const recordedSlots = report?.diagnosticSummary?.evidenceSlots || [];
-  if (ProofTelemetry.stableStringify(resolved.slots) !== ProofTelemetry.stableStringify(recordedSlots)) addError('EVIDENCE_SLOT_MISMATCH', 'evidence slots cannot be rebuilt');
-  const temporalViolations = Incidents.validateTemporalInvariants(events, incident);
+  const slotProjection = (slots) => (slots || []).map((slot) => ({
+    slotId: slot.slotId,
+    status: slot.status,
+    effectiveCriticality: slot.effectiveCriticality,
+    eventIds: slot.eventIds
+  }));
+  if (ProofTelemetry.stableStringify(slotProjection(resolved.slots)) !== ProofTelemetry.stableStringify(slotProjection(recordedSlots))) addError('EVIDENCE_SLOT_MISMATCH', 'materialized slot facts differ from the recorded full-incident projection');
+  const legacyMode = report?.exportIntegrity?.sourceCompatibility?.mode === 'legacy-runtime-adapter';
+  const temporalViolations = Incidents.validateTemporalInvariants(events, incident, { legacyMode });
   temporalViolations.forEach((violation) => addError(violation.invariantId, violation.message));
   const recomputedApplicability = ProofTelemetry.evaluateApplicability(report?.reportDescriptor?.reportType, {
     stateAxes: report.stateAxes,
-    derivedViews: report.derivedViews?.modelTimeline?.data
+    derivedViews: recordedView
   });
   if (ProofTelemetry.stableStringify(recomputedApplicability) !== ProofTelemetry.stableStringify(report?.reportDescriptor?.applicability)
     || ProofTelemetry.stableStringify(recomputedApplicability) !== ProofTelemetry.stableStringify(report?.diagnosticSummary?.applicability)) {
     addError('APPLICABILITY_MISMATCH', 'standalone applicability does not replay');
   }
-  const recomputedVerdict = ProofTelemetry.diagnosticVerdict(recomputedApplicability, resolved.sufficiency, temporalViolations);
+  const recomputedVerdict = ProofTelemetry.diagnosticVerdict(recomputedApplicability, resolved, temporalViolations, report?.reportDescriptor?.reportType);
   if (report?.reportDescriptor?.diagnosticVerdict !== recomputedVerdict
     || report?.diagnosticSummary?.diagnosticVerdict !== recomputedVerdict) {
     addError('VERDICT_MISMATCH', 'standalone diagnostic verdict does not replay');
   }
-  const recomputedAllApplicability = Object.fromEntries(REQUIRED_REPORTS.map((reportType) => [
-    reportType,
-    ProofTelemetry.evaluateApplicability(reportType, {
-      stateAxes: report.stateAxes,
-      derivedViews: report.derivedViews?.modelTimeline?.data
-    })
-  ]));
-  const materializedVerdictHash = await ProofTelemetry.sha256({ axes: report.stateAxes, applicability: recomputedAllApplicability });
+  const taskProjection = {
+    reportType: report?.reportDescriptor?.reportType,
+    applicability: recomputedApplicability,
+    diagnosticVerdict: recomputedVerdict,
+    evidenceSlots: slotProjection(recordedSlots)
+  };
+  const materializedVerdictHash = await ProofTelemetry.sha256(taskProjection);
   const preservation = report?.exportIntegrity?.verdictPreservation || {};
   if (report?.exportIntegrity?.applicabilitySource !== 'full-frozen-incident'
     || preservation.materializedVerdictHash !== materializedVerdictHash
     || preservation.fullVerdictHash !== materializedVerdictHash
+    || report?.derivedViews?.recordedDerivedView?.taskProjectionHash !== materializedVerdictHash
     || preservation.equivalent !== true) {
     addError('VERDICT_COMPACTION_MISMATCH', 'materialized evidence does not preserve the full-incident verdict projection');
   }
