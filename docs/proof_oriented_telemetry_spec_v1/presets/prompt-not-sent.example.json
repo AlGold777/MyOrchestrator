@@ -2,9 +2,9 @@
   "schemaVersion": "5.0",
   "fileKind": "diagnostic-report",
   "reportDescriptor": {
-    "reportId": "rpt-prompt-not-sent-GPT-b5da0889",
+    "reportId": "rpt-prompt-not-sent-GPT-f8aeaef9",
     "reportType": "prompt-not-sent",
-    "reportVersion": "2.3.0",
+    "reportVersion": "2.4.0",
     "title": "Почему модель не получила запрос?",
     "primaryQuestion": "Почему модель не получила запрос?",
     "applicability": {
@@ -23,6 +23,7 @@
         }
       ]
     },
+    "diagnosticVerdict": "confirmed",
     "diagnosisArbitration": {
       "primaryDiagnosis": "prompt-not-sent",
       "confirmedDiagnoses": [
@@ -48,8 +49,8 @@
       "blockedConclusions": []
     },
     "reportMode": "standalone",
-    "dependencyRegistryVersion": "5.1.0",
-    "dependencyRegistryHash": "sha256:537ecb83ba679af14fc6c4cd1d36c9ebad9a9171f3e27c1b54452f7c0c64b3dd",
+    "dependencyRegistryVersion": "5.2.0",
+    "dependencyRegistryHash": "sha256:aadab7732bf4813eda14abae3774f9e50f2bccf858ac6eb1474081f3329a20c0",
     "limitations": []
   },
   "correlation": {
@@ -68,42 +69,42 @@
   "reportCatalogSnapshot": [
     {
       "reportType": "cutted",
-      "reportVersion": "2.3.0",
+      "reportVersion": "2.4.0",
       "included": false
     },
     {
       "reportType": "false-success",
-      "reportVersion": "2.3.0",
+      "reportVersion": "2.4.0",
       "included": false
     },
     {
       "reportType": "old-answer",
-      "reportVersion": "2.3.0",
+      "reportVersion": "2.4.0",
       "included": false
     },
     {
       "reportType": "empty",
-      "reportVersion": "2.3.0",
+      "reportVersion": "2.4.0",
       "included": false
     },
     {
       "reportType": "prompt-not-inserted",
-      "reportVersion": "2.3.0",
+      "reportVersion": "2.4.0",
       "included": false
     },
     {
       "reportType": "prompt-not-sent",
-      "reportVersion": "2.3.0",
+      "reportVersion": "2.4.0",
       "included": true
     },
     {
       "reportType": "late-end",
-      "reportVersion": "2.3.0",
+      "reportVersion": "2.4.0",
       "included": false
     }
   ],
   "runConfiguration": {
-    "extensionVersion": "2.81.152",
+    "extensionVersion": "2.81.153",
     "policy": {
       "automaticMinimumEvidenceTier": 3,
       "thresholds": {
@@ -136,6 +137,7 @@
         }
       ]
     },
+    "diagnosticVerdict": "confirmed",
     "sufficiency": "complete",
     "evidenceSlots": [
       {
@@ -147,11 +149,14 @@
         "acceptedEventTypes": [
           "DISPATCH_BASELINE_CAPTURED"
         ],
+        "matchRule": null,
         "status": "satisfied",
         "eventIds": [
           "event-5548e30c-3db5470a"
         ],
+        "rejectedEventIds": [],
         "matchedEventCount": 1,
+        "rejectedEventCount": 0,
         "selectedEventCount": 1,
         "impact": null
       },
@@ -164,11 +169,14 @@
         "acceptedEventTypes": [
           "SUBMIT_ACTION_OBSERVED"
         ],
+        "matchRule": null,
         "status": "satisfied",
         "eventIds": [
           "event-c8829cbb-018c5743"
         ],
+        "rejectedEventIds": [],
         "matchedEventCount": 1,
+        "rejectedEventCount": 0,
         "selectedEventCount": 1,
         "impact": null
       },
@@ -182,11 +190,22 @@
           "SUBMISSION_EVIDENCE_CHANGED",
           "SUBMISSION_INFERRED"
         ],
+        "matchRule": {
+          "fact": {
+            "kind": "submission",
+            "states": [
+              "confirmed",
+              "failed"
+            ]
+          }
+        },
         "status": "satisfied",
         "eventIds": [
           "event-269d0103-a314b14b"
         ],
+        "rejectedEventIds": [],
         "matchedEventCount": 1,
+        "rejectedEventCount": 0,
         "selectedEventCount": 1,
         "impact": null
       },
@@ -200,11 +219,14 @@
           "PAGE_CONTEXT_OBSERVED",
           "PAGE_HEALTH_OBSERVED"
         ],
+        "matchRule": null,
         "status": "satisfied",
         "eventIds": [
           "event-01444778-44c01b30"
         ],
+        "rejectedEventIds": [],
         "matchedEventCount": 1,
+        "rejectedEventCount": 0,
         "selectedEventCount": 1,
         "impact": null
       },
@@ -227,11 +249,14 @@
           "OBSERVER_HEALTH_INTERVAL_CLOSED",
           "OBSERVATION_SLOT_DENIED"
         ],
+        "matchRule": null,
         "status": "satisfied",
         "eventIds": [
           "event-795e0945-b7b93d61"
         ],
+        "rejectedEventIds": [],
         "matchedEventCount": 1,
+        "rejectedEventCount": 0,
         "selectedEventCount": 1,
         "impact": null
       }
@@ -286,7 +311,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.4.0"
+          "version": "proof-export@1.5.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -332,7 +357,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.4.0"
+          "version": "proof-export@1.5.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -378,7 +403,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.4.0"
+          "version": "proof-export@1.5.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -424,7 +449,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.4.0"
+          "version": "proof-export@1.5.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -470,7 +495,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.4.0"
+          "version": "proof-export@1.5.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -508,8 +533,8 @@
   "derivedViews": {
     "modelTimeline": {
       "viewType": "prompt-not-sent",
-      "generatorVersion": "proof-export@1.4.0",
-      "ledgerHash": "sha256:4962ac7d50bd5fade9dbd95404bd7dd9e73a80e2b651c07f94f98bc69d556e71",
+      "generatorVersion": "proof-export@1.5.0",
+      "ledgerHash": "sha256:259a6f5046a714b1bd1ff049e8953547b70c7870c34f62e708871070bd879edb",
       "data": {
         "modelId": "GPT",
         "stateAxes": {
@@ -589,7 +614,7 @@
           "event-01444778-44c01b30",
           "event-795e0945-b7b93d61"
         ],
-        "derivationVersion": "proof-export@1.4.0:axes-v2"
+        "derivationVersion": "proof-export@1.5.0:axes-v2"
       },
       "generationStart": {
         "derivedFromEventIds": [
@@ -599,7 +624,7 @@
           "event-01444778-44c01b30",
           "event-795e0945-b7b93d61"
         ],
-        "derivationVersion": "proof-export@1.4.0:axes-v2"
+        "derivationVersion": "proof-export@1.5.0:axes-v2"
       },
       "answerIdentity": {
         "derivedFromEventIds": [
@@ -609,7 +634,7 @@
           "event-01444778-44c01b30",
           "event-795e0945-b7b93d61"
         ],
-        "derivationVersion": "proof-export@1.4.0:axes-v2"
+        "derivationVersion": "proof-export@1.5.0:axes-v2"
       },
       "observedGeneration": {
         "derivedFromEventIds": [
@@ -619,7 +644,7 @@
           "event-01444778-44c01b30",
           "event-795e0945-b7b93d61"
         ],
-        "derivationVersion": "proof-export@1.4.0:axes-v2"
+        "derivationVersion": "proof-export@1.5.0:axes-v2"
       },
       "textEvolution": {
         "derivedFromEventIds": [
@@ -629,7 +654,7 @@
           "event-01444778-44c01b30",
           "event-795e0945-b7b93d61"
         ],
-        "derivationVersion": "proof-export@1.4.0:axes-v2"
+        "derivationVersion": "proof-export@1.5.0:axes-v2"
       },
       "answerCompleteness": {
         "derivedFromEventIds": [
@@ -639,7 +664,7 @@
           "event-01444778-44c01b30",
           "event-795e0945-b7b93d61"
         ],
-        "derivationVersion": "proof-export@1.4.0:axes-v2"
+        "derivationVersion": "proof-export@1.5.0:axes-v2"
       },
       "extraction": {
         "derivedFromEventIds": [
@@ -649,7 +674,7 @@
           "event-01444778-44c01b30",
           "event-795e0945-b7b93d61"
         ],
-        "derivationVersion": "proof-export@1.4.0:axes-v2"
+        "derivationVersion": "proof-export@1.5.0:axes-v2"
       },
       "verification": {
         "derivedFromEventIds": [
@@ -659,7 +684,7 @@
           "event-01444778-44c01b30",
           "event-795e0945-b7b93d61"
         ],
-        "derivationVersion": "proof-export@1.4.0:axes-v2"
+        "derivationVersion": "proof-export@1.5.0:axes-v2"
       },
       "completionDetection": {
         "derivedFromEventIds": [
@@ -669,7 +694,7 @@
           "event-01444778-44c01b30",
           "event-795e0945-b7b93d61"
         ],
-        "derivationVersion": "proof-export@1.4.0:axes-v2"
+        "derivationVersion": "proof-export@1.5.0:axes-v2"
       },
       "completionEvidenceTier": {
         "derivedFromEventIds": [
@@ -679,7 +704,7 @@
           "event-01444778-44c01b30",
           "event-795e0945-b7b93d61"
         ],
-        "derivationVersion": "proof-export@1.4.0:axes-v2"
+        "derivationVersion": "proof-export@1.5.0:axes-v2"
       },
       "observationReliability": {
         "derivedFromEventIds": [
@@ -689,7 +714,7 @@
           "event-01444778-44c01b30",
           "event-795e0945-b7b93d61"
         ],
-        "derivationVersion": "proof-export@1.4.0:axes-v2"
+        "derivationVersion": "proof-export@1.5.0:axes-v2"
       },
       "finalization": {
         "derivedFromEventIds": [
@@ -699,7 +724,7 @@
           "event-01444778-44c01b30",
           "event-795e0945-b7b93d61"
         ],
-        "derivationVersion": "proof-export@1.4.0:axes-v2"
+        "derivationVersion": "proof-export@1.5.0:axes-v2"
       },
       "terminalMode": {
         "derivedFromEventIds": [
@@ -709,7 +734,7 @@
           "event-01444778-44c01b30",
           "event-795e0945-b7b93d61"
         ],
-        "derivationVersion": "proof-export@1.4.0:axes-v2"
+        "derivationVersion": "proof-export@1.5.0:axes-v2"
       },
       "terminationCause": {
         "derivedFromEventIds": [
@@ -719,7 +744,7 @@
           "event-01444778-44c01b30",
           "event-795e0945-b7b93d61"
         ],
-        "derivationVersion": "proof-export@1.4.0:axes-v2"
+        "derivationVersion": "proof-export@1.5.0:axes-v2"
       }
     }
   },
@@ -777,17 +802,17 @@
       "modelId": "GPT",
       "dispatchId": "synthetic-dispatch",
       "generationEpoch": 1,
-      "sourceLedgerHash": "sha256:b9ced89eb152ed7cbb161f769066888efac7da179b35d8ac4278d7eecad9c810",
-      "materializedEventHash": "sha256:4962ac7d50bd5fade9dbd95404bd7dd9e73a80e2b651c07f94f98bc69d556e71"
+      "sourceLedgerHash": "sha256:af3d77fe6740acd567fc6e5112e86554b0effca84bb26f7acf9a0985dee1cfcf",
+      "materializedEventHash": "sha256:259a6f5046a714b1bd1ff049e8953547b70c7870c34f62e708871070bd879edb"
     }
   },
   "attachments": [],
   "exportIntegrity": {
-    "generatorVersion": "proof-export@1.4.0",
+    "generatorVersion": "proof-export@1.5.0",
     "sampleData": true,
-    "sourceLedgerHash": "sha256:b9ced89eb152ed7cbb161f769066888efac7da179b35d8ac4278d7eecad9c810",
-    "materializedEventHash": "sha256:4962ac7d50bd5fade9dbd95404bd7dd9e73a80e2b651c07f94f98bc69d556e71",
-    "semanticHash": "sha256:d8465bf04b036adac6324339c5ca3aea1dc7118877be110791e7717a14973233",
+    "sourceLedgerHash": "sha256:af3d77fe6740acd567fc6e5112e86554b0effca84bb26f7acf9a0985dee1cfcf",
+    "materializedEventHash": "sha256:259a6f5046a714b1bd1ff049e8953547b70c7870c34f62e708871070bd879edb",
+    "semanticHash": "sha256:b6b5f5c3c4e5966fdd206c0c555cc80fd61faf6a970fa859a7df01a510639734",
     "sourceLedgerEventCount": 5,
     "materializedEventCount": 5,
     "deduplication": {
@@ -809,11 +834,11 @@
       "reason": null
     },
     "hashes": {
-      "artifact": "sha256:d2d05438a7242c9f2c3a50c90f75782d67347d72abd1881dc6f30e498f944ed6",
-      "semantic": "sha256:d8465bf04b036adac6324339c5ca3aea1dc7118877be110791e7717a14973233"
+      "artifact": "sha256:1414f5be3cb014ec22b5b1092181c1b329ab8075562d54a7836710c17560c72c",
+      "semantic": "sha256:b6b5f5c3c4e5966fdd206c0c555cc80fd61faf6a970fa859a7df01a510639734"
     },
     "size": {
-      "measuredBytes": 17168,
+      "measuredBytes": 17600,
       "category": "small",
       "measurementOnly": true
     },

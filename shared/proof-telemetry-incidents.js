@@ -180,11 +180,71 @@
     return [...selected.values()].sort((left, right) => Number(left.ingestSeq || left.seq) - Number(right.ingestSeq || right.seq));
   }
 
+  function eventMatchesSlot(event, contract, scoped) {
+    const rule = contract.matchRule;
+    if (!rule) return true;
+    if (rule.fact) {
+      const fact = contracts()?.factOf?.(event) || {};
+      if (rule.fact.kind && fact.kind !== rule.fact.kind) return false;
+      let state = String(fact.state || '').toLowerCase();
+      if (fact.kind === 'candidate_identity') state = contracts()?.normalizeIdentityState?.(state) || state;
+      const allowedStates = (rule.fact.states || []).map((value) => {
+        const normalized = String(value).toLowerCase();
+        return fact.kind === 'candidate_identity'
+          ? (contracts()?.normalizeIdentityState?.(normalized) || normalized)
+          : normalized;
+      });
+      if (allowedStates.length && !allowedStates.includes(state)) return false;
+    }
+    if (rule.temporal) {
+      const eventById = new Map(scoped.map((candidate) => [candidate.eventId, candidate]));
+      const boundary = [...scoped].reverse().find((candidate) => candidate.eventType === rule.temporal.afterEventType
+        && Number(candidate.seq) < Number(event.seq));
+      if (!boundary) return false;
+      const referenced = (event.evidenceRefs || []).map((id) => eventById.get(id)).filter(Boolean);
+      if ((rule.temporal.requiresEvidenceRefTypes || []).some((eventType) => !referenced.some((candidate) => candidate.eventType === eventType))) return false;
+      if (rule.temporal.requiresPostBoundaryEvidenceRef
+        && !referenced.some((candidate) => candidate.eventId !== boundary.eventId && Number(candidate.seq) > Number(boundary.seq) && Number(candidate.seq) < Number(event.seq))) return false;
+    }
+    return true;
+  }
+
+  function validateTemporalInvariants(events, incident) {
+    const scoped = (events || []).filter((event) => exactScope(event, incident.scope));
+    const byId = new Map(scoped.map((event) => [event.eventId, event]));
+    const violations = [];
+    scoped.filter((event) => event.eventType === 'POST_TERMINAL_AUDIT_COMPLETED').forEach((audit) => {
+      const terminal = [...scoped].reverse().find((event) => event.eventType === 'MODEL_TERMINAL_RECORDED' && Number(event.seq) < Number(audit.seq));
+      if (!terminal) {
+        violations.push({ invariantId: 'TEMPORAL_AUDIT_ORDER', eventId: audit.eventId, message: 'post-terminal audit precedes terminal boundary' });
+        return;
+      }
+      const referenced = (audit.evidenceRefs || []).map((id) => byId.get(id)).filter(Boolean);
+      const terminalLinked = referenced.some((event) => event.eventId === terminal.eventId);
+      const observationLinked = referenced.some((event) => event.eventId !== terminal.eventId
+        && Number(event.seq) > Number(terminal.seq) && Number(event.seq) < Number(audit.seq));
+      if (!terminalLinked || !observationLinked) {
+        violations.push({ invariantId: 'CAUSAL_AUDIT_LINEAGE', eventId: audit.eventId, message: 'post-terminal audit lacks terminal and later-observation evidenceRefs' });
+      }
+    });
+    scoped.filter((event) => event.eventType === 'EXTRACTION_COMPLETED').forEach((extraction) => {
+      const terminal = [...scoped].reverse().find((event) => event.eventType === 'MODEL_TERMINAL_RECORDED' && Number(event.seq) < Number(extraction.seq));
+      if (!terminal) return;
+      const recoveryLinked = (extraction.evidenceRefs || []).map((id) => byId.get(id)).filter(Boolean)
+        .some((event) => ['POLICY_OVERRIDE_APPLIED', 'FINALIZATION_POLICY_EVALUATED'].includes(event.eventType)
+          && /recovery|retry|repair/i.test(JSON.stringify(event.payload || {})));
+      if (!recoveryLinked) violations.push({ invariantId: 'TEMPORAL_EXTRACTION_AFTER_TERMINAL', eventId: extraction.eventId, message: 'post-terminal extraction lacks explicit recovery lineage' });
+    });
+    return violations;
+  }
+
   function resolveEvidenceSlots(events, incident, task, context = {}) {
     const scoped = (events || []).filter((event) => exactScope(event, incident.scope));
     const slots = (contracts()?.normalizedSlots?.(task) || []).map((contract) => {
-      const allMatched = scoped.filter((event) => contract.eventTypes.includes(event.eventType));
+      const typeMatched = scoped.filter((event) => contract.eventTypes.includes(event.eventType));
+      const allMatched = typeMatched.filter((event) => eventMatchesSlot(event, contract, scoped));
       const matched = selectProofEvents(allMatched, scoped);
+      const rejected = selectProofEvents(typeMatched.filter((event) => !allMatched.includes(event)), scoped);
       const conditionRequired = contract.criticality === 'conditional' && conditionMatches(context, contract.requiredIf);
       const effectiveCriticality = conditionRequired ? 'required' : contract.criticality;
       return {
@@ -194,9 +254,12 @@
         requiredIf: contract.requiredIf,
         requiredIfMatched: conditionRequired,
         acceptedEventTypes: contract.eventTypes,
+        matchRule: contract.matchRule,
         status: matched.length ? 'satisfied' : (effectiveCriticality === 'conditional' ? 'not_observed' : 'unavailable'),
         eventIds: matched.map((event) => event.eventId),
+        rejectedEventIds: rejected.map((event) => event.eventId),
         matchedEventCount: allMatched.length,
+        rejectedEventCount: typeMatched.length - allMatched.length,
         selectedEventCount: matched.length,
         impact: matched.length ? null : `${effectiveCriticality}_evidence_not_available`
       };
@@ -221,7 +284,7 @@
     const eventById = new Map((events || []).map((event) => [event.eventId, event]));
     const slotResult = resolveEvidenceSlots(events, incident, task, context);
     const reasons = new Map();
-    const violations = [];
+    const violations = validateTemporalInvariants(events, incident);
     const queue = [];
     function include(eventId, reason) {
       const event = eventById.get(eventId);
@@ -241,6 +304,7 @@
       reasons.get(eventId).add(reason);
     }
     slotResult.slots.forEach((slot) => slot.eventIds.forEach((id) => include(id, `slot:${slot.slotId}`)));
+    slotResult.slots.forEach((slot) => slot.rejectedEventIds.forEach((id) => include(id, `slot-rejected:${slot.slotId}`)));
     if (!slotResult.slots.some((slot) => slot.eventIds.length)) {
       const anchorId = incident.eventIds?.[0];
       if (anchorId) include(anchorId, 'scope:incident-anchor');
@@ -261,7 +325,7 @@
     return { ...slotResult, events: materialized, violations };
   }
 
-  const api = Object.freeze({ scopeOf, scopeKey, exactScope, sameRunScope, indexIncidents, selectIncident, selectIncidentReports, selectProofEvents, resolveEvidenceSlots, buildEvidenceClosure });
+  const api = Object.freeze({ scopeOf, scopeKey, exactScope, sameRunScope, indexIncidents, selectIncident, selectIncidentReports, selectProofEvents, eventMatchesSlot, validateTemporalInvariants, resolveEvidenceSlots, buildEvidenceClosure });
   root.ProofTelemetryIncidents = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

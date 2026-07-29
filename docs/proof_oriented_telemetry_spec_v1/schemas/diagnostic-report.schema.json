@@ -33,6 +33,7 @@
         "title",
         "primaryQuestion",
         "applicability",
+        "diagnosticVerdict",
         "canDiagnose",
         "cannotDiagnoseAlone",
         "completeness",
@@ -79,6 +80,13 @@
             }
           },
           "additionalProperties": false
+        },
+        "diagnosticVerdict": {
+          "enum": [
+            "confirmed",
+            "not_confirmed",
+            "unknown"
+          ]
         },
         "canDiagnose": {
           "type": "array",

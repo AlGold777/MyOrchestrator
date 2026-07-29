@@ -474,13 +474,13 @@ gate passes 186 suites / 1273 tests. Every section 18 task is Done.
 record a verifiable full-incident semantic hash. - Pending
 
 19.2. Introduce a composite diagnostic verdict based on applicability,
-sufficiency and invariant violations; arbitrate only strong verdicts. - Pending
+sufficiency and invariant violations; arbitrate only strong verdicts. - Done
 
 19.3. Replace event-type-only slot matching with fact, payload, identity and
-temporal predicates. - Pending
+temporal predicates. - Done
 
 19.4. Enforce temporal and causal ordering across submission, generation,
-extraction, decision, terminal and post-terminal audit. - Pending
+extraction, decision, terminal and post-terminal audit. - Done
 
 19.5. Unify exact incident scope, SYSTEM boundaries and identity vocabulary. - Done
 

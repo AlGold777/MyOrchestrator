@@ -4,7 +4,7 @@
 
   const EVENT_SCHEMA_VERSION = 6;
   const CLOCK_CONTRACT_VERSION = '1.0';
-  const REGISTRY_VERSION = '5.1.0';
+  const REGISTRY_VERSION = '5.2.0';
   const THRESHOLDS = Object.freeze({
     generationStartTimeoutMs: 15000,
     minimumExtractionCoveragePct: 98,
@@ -139,6 +139,25 @@
     }
   });
 
+  const SLOT_MATCH_RULES = Object.freeze({
+    'cutted.success_terminal': { fact: { kind: 'terminal_action', states: ['success'] } },
+    'false-success.success_terminal': { fact: { kind: 'terminal_action', states: ['success'] } },
+    'false-success.post_terminal_audit': {
+      temporal: {
+        afterEventType: 'MODEL_TERMINAL_RECORDED',
+        requiresEvidenceRefTypes: ['MODEL_TERMINAL_RECORDED'],
+        requiresPostBoundaryEvidenceRef: true
+      }
+    },
+    'old-answer.candidate_identity': { fact: { kind: 'candidate_identity', states: ['previous', 'previous_dispatch', 'stale', 'stale_accepted'] } },
+    'old-answer.extraction_result': { fact: { kind: 'extraction', states: ['completed'] } },
+    'old-answer.accepted_answer_boundary': { fact: { kind: 'terminal_action', states: ['success'] } },
+    'prompt-not-inserted.insertion_outcome': { fact: { kind: 'prompt_insertion', states: ['failed', 'inserted', 'confirmed'] } },
+    'prompt-not-sent.acceptance_evidence': { fact: { kind: 'submission', states: ['confirmed', 'failed'] } },
+    'late-end.stable_boundary': { fact: { kind: 'text', states: ['stable'] } },
+    'late-end.terminal_boundary': { fact: { kind: 'terminal_action', states: ['success', 'failure', 'error', 'timeout'] } }
+  });
+
   function sourceType(event) {
     return String(event?.payload?.sourceEventType || event?.payload?.metadata?.sourceEventType || '').toUpperCase();
   }
@@ -201,15 +220,19 @@
   function sameIncidentScope(left, right, { allowSystem = false } = {}) {
     if (!left || !right) return false;
     if (String(left.runSessionId) !== String(right.runSessionId)) return false;
-    if (left.runGeneration !== undefined || right.runGeneration !== undefined) {
-      if (left.runGeneration === undefined || right.runGeneration === undefined) return false;
+    const leftRunGenerationKnown = left.runGeneration !== undefined && left.runGeneration !== null;
+    const rightRunGenerationKnown = right.runGeneration !== undefined && right.runGeneration !== null;
+    if (leftRunGenerationKnown || rightRunGenerationKnown) {
+      if (!leftRunGenerationKnown || !rightRunGenerationKnown) return false;
       if (Number(left.runGeneration) !== Number(right.runGeneration)) return false;
     }
     if (allowSystem && (left.modelId === 'SYSTEM' || right.modelId === 'SYSTEM')) return true;
     if (String(left.modelId) !== String(right.modelId)) return false;
     if (!left.dispatchId || !right.dispatchId || String(left.dispatchId) !== String(right.dispatchId)) return false;
-    if (left.generationEpoch !== undefined || right.generationEpoch !== undefined) {
-      if (left.generationEpoch === undefined || right.generationEpoch === undefined) return false;
+    const leftGenerationKnown = left.generationEpoch !== undefined && left.generationEpoch !== null;
+    const rightGenerationKnown = right.generationEpoch !== undefined && right.generationEpoch !== null;
+    if (leftGenerationKnown || rightGenerationKnown) {
+      if (!leftGenerationKnown || !rightGenerationKnown) return false;
       if (Number(left.generationEpoch) !== Number(right.generationEpoch)) return false;
     }
     return true;
@@ -230,7 +253,8 @@
       slotId,
       criticality,
       eventTypes: eventTypes.slice(),
-      requiredIf: requiredIf ? { path: requiredIf[0], operator: requiredIf[1], value: requiredIf[2] } : null
+      requiredIf: requiredIf ? { path: requiredIf[0], operator: requiredIf[1], value: requiredIf[2] } : null,
+      matchRule: SLOT_MATCH_RULES[`${reportType}.${slotId}`] || null
     }));
   }
 
@@ -247,6 +271,7 @@
     REGISTRY_VERSION,
     THRESHOLDS,
     REPORT_CONTRACTS,
+    SLOT_MATCH_RULES,
     sourceType,
     adaptLegacyEvent,
     factOf,

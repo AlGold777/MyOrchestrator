@@ -74,8 +74,36 @@ function ledgerForTypes(types, reportType = null) {
       payload: { ...item.payload, typed, metadata, ...directPayload }
     };
   });
-  if (reportType === 'late-end') {
-    const order = new Map([
+  if (reportType) {
+    if (reportType !== 'false-success') ledger = ledger.filter((item) => item.eventType !== 'POST_TERMINAL_AUDIT_COMPLETED');
+    const baseOrder = new Map([
+      ['DISPATCH_BASELINE_CAPTURED', 10],
+      ['SUBMIT_ACTION_OBSERVED', 20],
+      ['SUBMISSION_EVIDENCE_CHANGED', 30],
+      ['PROMPT_INSERTION_EVALUATED', 35],
+      ['PAGE_CONTEXT_OBSERVED', 40],
+      ['PAGE_HEALTH_OBSERVED', 41],
+      ['OBSERVER_HEALTH_OBSERVED', 42],
+      ['GENERATION_START_EVALUATED', 50],
+      ['GENERATION_SIGNAL_CHANGED', 51],
+      ['OBSERVATION_FRAME_CAPTURED', 52],
+      ['CANDIDATE_SET_CHANGED', 55],
+      ['CANDIDATE_IDENTITY_INFERRED', 56],
+      ['TEXT_STATE_CHANGED', 60],
+      ['STABILITY_INTERVAL_CLOSED', 61],
+      ['EXTRACTION_COMPLETED', 65],
+      ['STRUCTURAL_VERIFICATION_EVALUATED', 66],
+      ['ANSWER_COMPLETENESS_EVALUATED', 67],
+      ['COMPLETION_HYPOTHESIS_EVALUATED', 70],
+      ['TERMINAL_DEADLINE_REACHED', 72],
+      ['FINALIZATION_POLICY_EVALUATED', 73],
+      ['POLICY_OVERRIDE_APPLIED', 74],
+      ['DECISION_RECORDED', 75],
+      ['MODEL_TERMINAL_RECORDED', 80],
+      ['MISSING_EVIDENCE_RECORDED', 90],
+      ['POST_TERMINAL_AUDIT_COMPLETED', 100]
+    ]);
+    const lateEndOrder = new Map([
       ['OBSERVER_HEALTH_OBSERVED', 1],
       ['GENERATION_SIGNAL_CHANGED', 2],
       ['TEXT_STATE_CHANGED', 3],
@@ -85,7 +113,9 @@ function ledgerForTypes(types, reportType = null) {
       ['MODEL_TERMINAL_RECORDED', 7],
       ['POST_TERMINAL_AUDIT_COMPLETED', 8]
     ]);
-    ledger = ledger.sort((left, right) => Number(order.get(left.eventType) || 0) - Number(order.get(right.eventType) || 0));
+    const order = reportType === 'late-end' ? lateEndOrder : baseOrder;
+    if (reportType === 'false-success') order.set('TEXT_STATE_CHANGED', 90);
+    ledger = ledger.sort((left, right) => Number(order.get(left.eventType) || 85) - Number(order.get(right.eventType) || 85));
     ledger.forEach((item, index) => {
       item.seq = index + 1;
       item.ingestSeq = index + 1;
@@ -93,6 +123,11 @@ function ledgerForTypes(types, reportType = null) {
       item.clock.observedAtLocalMonoMs = index * 500;
       item.clock.ingestMonoMs = index + 1;
     });
+    const audit = ledger.find((item) => item.eventType === 'POST_TERMINAL_AUDIT_COMPLETED');
+    const terminal = ledger.find((item) => item.eventType === 'MODEL_TERMINAL_RECORDED');
+    const laterObservation = ledger.find((item) => terminal && Number(item.seq) > Number(terminal.seq)
+      && Number(item.seq) < Number(audit?.seq) && item.eventType !== 'MISSING_EVIDENCE_RECORDED');
+    if (audit && terminal && laterObservation) audit.evidenceRefs = [terminal.eventId, laterObservation.eventId];
   }
   return ledger;
 }
@@ -125,7 +160,7 @@ async function main() {
     canonicalLedger: true,
     runSessionId: 'synthetic-run',
     exportedAt: 12000,
-    extensionVersion: '2.81.152',
+    extensionVersion: '2.81.153',
     sampleData: true
   };
   const all = await ProofTelemetry.buildAllPresets(ledger, options);
@@ -139,7 +174,11 @@ async function main() {
     fs.unlinkSync(path.join(presetsDir, filename));
   }
   for (const reportType of ProofTelemetry.REPORT_TYPES) {
-    const reportLedger = ledgerForTypes(Contracts.normalizedSlots(reportType).map((slot) => slot.eventTypes[0]), reportType);
+    const reportLedger = ledgerForTypes(Contracts.normalizedSlots(reportType).map((slot) => (
+      reportType !== 'false-success' && slot.eventTypes.includes('MISSING_EVIDENCE_RECORDED')
+        ? 'MISSING_EVIDENCE_RECORDED'
+        : slot.eventTypes[0]
+    )), reportType);
     const report = await ProofTelemetry.buildStandaloneReport(reportLedger, {
       ...options,
       modelId: 'GPT',

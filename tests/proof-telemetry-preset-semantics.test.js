@@ -1,6 +1,6 @@
 const ProofTelemetry = require('../shared/proof-oriented-telemetry.js');
 
-function event(eventType, seq, { metadata = {}, typed = { kind: 'unknown', state: 'unknown' }, payload = {}, clock = {} } = {}) {
+function event(eventType, seq, { metadata = {}, typed = { kind: 'unknown', state: 'unknown' }, payload = {}, clock = {}, evidenceRefs = [] } = {}) {
   return {
     schemaVersion: 6,
     eventId: `event-${seq}`,
@@ -14,6 +14,7 @@ function event(eventType, seq, { metadata = {}, typed = { kind: 'unknown', state
     modelId: 'GPT',
     dispatchId: 'dispatch-current',
     generationEpoch: 1,
+    evidenceRefs,
     producer: { component: 'semantic-test', version: '1' },
     clock: {
       contractVersion: '1.0',
@@ -37,6 +38,39 @@ function applicability(reportType, events) {
 }
 
 describe('proof telemetry preset semantic applicability', () => {
+  test('composite verdict blocks arbitration when confirmed applicability lacks proof', async () => {
+    const terminal = event('MODEL_TERMINAL_RECORDED', 1, {
+      metadata: { terminalStatus: 'SUCCESS', answerIdentity: 'previous_dispatch' },
+      typed: { kind: 'terminal_action', state: 'SUCCESS' }
+    });
+    const container = await ProofTelemetry.buildAllPresets([terminal], { canonicalLedger: true, exportedAt: 2000 });
+    const incidentId = Object.keys(container.diagnosisArbitration.byIncident)[0];
+    expect(container.reports['old-answer'].reportDescriptor.applicability.byIncident[incidentId]).toEqual(expect.objectContaining({
+      status: 'confirmed',
+      diagnosticVerdict: 'unknown',
+      sufficiency: 'insufficient'
+    }));
+    expect(container.diagnosisArbitration.byIncident[incidentId].primaryDiagnosis).toBeNull();
+  });
+
+  test('audit before terminal cannot produce a strong false-success verdict', async () => {
+    const audit = event('POST_TERMINAL_AUDIT_COMPLETED', 1, {
+      payload: { conclusion: 'contradicted', growthChars: 50, growthPct: 50, auditPossible: true }
+    });
+    const terminal = event('MODEL_TERMINAL_RECORDED', 2, {
+      metadata: { terminalStatus: 'SUCCESS', answerLen: 100 },
+      typed: { kind: 'terminal_action', state: 'SUCCESS' }
+    });
+    const container = await ProofTelemetry.buildAllPresets([audit, terminal], { canonicalLedger: true, exportedAt: 2000 });
+    const incidentId = Object.keys(container.diagnosisArbitration.byIncident)[0];
+    expect(container.reports['false-success'].reportDescriptor.applicability.byIncident[incidentId]).toEqual(expect.objectContaining({
+      status: 'confirmed',
+      diagnosticVerdict: 'unknown',
+      invariantViolationCount: 1
+    }));
+    expect(container.diagnosisArbitration.byIncident[incidentId].primaryDiagnosis).toBeNull();
+  });
+
   test('All tasks derives applicability independently for every incident', async () => {
     const firstTerminal = event('MODEL_TERMINAL_RECORDED', 1, {
       metadata: { terminalStatus: 'SUCCESS', answerLen: 100 },
@@ -82,7 +116,8 @@ describe('proof telemetry preset semantic applicability', () => {
       }),
       event('TEXT_STATE_CHANGED', 5, { metadata: { textLength: 150 } }),
       event('POST_TERMINAL_AUDIT_COMPLETED', 6, {
-        payload: { conclusion: 'contradicted', growthChars: 50, growthPct: 50, auditPossible: true }
+        payload: { conclusion: 'contradicted', growthChars: 50, growthPct: 50, auditPossible: true },
+        evidenceRefs: ['event-4', 'event-5']
       })
     ];
     const container = await ProofTelemetry.buildAllPresets(events, { canonicalLedger: true, exportedAt: 2000 });
@@ -267,7 +302,8 @@ describe('proof telemetry preset semantic applicability', () => {
   });
 
   test('Prompt not inserted requires an explicit insertion failure and is refuted by received-request evidence', async () => {
-    const failed = event('PROMPT_INSERTION_EVALUATED', 1, {
+    const baseline = event('DISPATCH_BASELINE_CAPTURED', 1);
+    const failed = event('PROMPT_INSERTION_EVALUATED', 2, {
       payload: { insertionState: 'failed' },
       typed: { kind: 'prompt_insertion', state: 'failed' }
     });
@@ -286,8 +322,10 @@ describe('proof telemetry preset semantic applicability', () => {
       event('OBSERVER_HEALTH_OBSERVED', 2, { typed: { kind: 'observation', state: 'unavailable' } })
     ]).result.status).toBe('unknown');
 
-    const alsoNotSent = event('SUBMISSION_INFERRED', 2, { typed: { kind: 'submission', state: 'failed' } });
-    const container = await ProofTelemetry.buildAllPresets([failed, alsoNotSent], {
+    const submitAction = event('SUBMIT_ACTION_OBSERVED', 3, { typed: { kind: 'submission', state: 'attempted' } });
+    const alsoNotSent = event('SUBMISSION_INFERRED', 4, { typed: { kind: 'submission', state: 'failed' } });
+    const pageContext = event('PAGE_HEALTH_OBSERVED', 5, { typed: { kind: 'observation', state: 'reliable' } });
+    const container = await ProofTelemetry.buildAllPresets([baseline, failed, submitAction, alsoNotSent, pageContext], {
       canonicalLedger: true,
       exportedAt: 2000
     });

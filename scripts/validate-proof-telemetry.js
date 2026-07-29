@@ -116,13 +116,21 @@ async function validateContainer(container, { verifyContainerHash = true } = {})
     const recomputedApplicabilityByIncident = {};
     Object.entries(container?.derivedViews?.['incident-timeline']?.data || {}).forEach(([incidentId, incident]) => {
       const recomputed = ProofTelemetry.evaluateApplicability(reportType, { stateAxes: incident.stateAxes, derivedViews: incident });
-      recomputedApplicabilityByIncident[incidentId] = recomputed;
+      const scope = { scope: incident.incidentScope };
+      const evidence = Incidents.resolveEvidenceSlots(events, scope, reportType, { stateAxes: incident.stateAxes, derivedViews: incident });
+      const invariantViolations = Incidents.validateTemporalInvariants(events, scope);
+      const verdict = ProofTelemetry.diagnosticVerdict(recomputed, evidence.sufficiency, invariantViolations);
+      recomputedApplicabilityByIncident[incidentId] = { ...recomputed, diagnosticVerdict: verdict };
       const recorded = recordedApplicabilityByIncident[incidentId] || {};
       if (recorded.modelId !== incident.modelId || recorded.status !== recomputed.status) {
         addError('APPLICABILITY_MISMATCH', `${reportType} applicability mismatch for ${incidentId}`);
       }
+      if (recorded.diagnosticVerdict !== verdict || recorded.sufficiency !== evidence.sufficiency
+        || Number(recorded.invariantViolationCount || 0) !== invariantViolations.length) {
+        addError('VERDICT_MISMATCH', `${reportType} diagnostic verdict mismatch for ${incidentId}`);
+      }
     });
-    const applicabilityStatuses = Object.values(recomputedApplicabilityByIncident).map((item) => item.status);
+    const applicabilityStatuses = Object.values(recomputedApplicabilityByIncident).map((item) => item.diagnosticVerdict);
     const expectedApplicabilityStatus = applicabilityStatuses.includes('confirmed')
       ? 'confirmed'
       : (applicabilityStatuses.length && applicabilityStatuses.every((status) => status === 'not_confirmed') ? 'not_confirmed' : 'unknown');
@@ -258,6 +266,8 @@ async function validateStandaloneReport(report) {
   });
   const recordedSlots = report?.diagnosticSummary?.evidenceSlots || [];
   if (ProofTelemetry.stableStringify(resolved.slots) !== ProofTelemetry.stableStringify(recordedSlots)) addError('EVIDENCE_SLOT_MISMATCH', 'evidence slots cannot be rebuilt');
+  const temporalViolations = Incidents.validateTemporalInvariants(events, incident);
+  temporalViolations.forEach((violation) => addError(violation.invariantId, violation.message));
   const recomputedApplicability = ProofTelemetry.evaluateApplicability(report?.reportDescriptor?.reportType, {
     stateAxes: report.stateAxes,
     derivedViews: report.derivedViews?.modelTimeline?.data
@@ -265,6 +275,11 @@ async function validateStandaloneReport(report) {
   if (ProofTelemetry.stableStringify(recomputedApplicability) !== ProofTelemetry.stableStringify(report?.reportDescriptor?.applicability)
     || ProofTelemetry.stableStringify(recomputedApplicability) !== ProofTelemetry.stableStringify(report?.diagnosticSummary?.applicability)) {
     addError('APPLICABILITY_MISMATCH', 'standalone applicability does not replay');
+  }
+  const recomputedVerdict = ProofTelemetry.diagnosticVerdict(recomputedApplicability, resolved.sufficiency, temporalViolations);
+  if (report?.reportDescriptor?.diagnosticVerdict !== recomputedVerdict
+    || report?.diagnosticSummary?.diagnosticVerdict !== recomputedVerdict) {
+    addError('VERDICT_MISMATCH', 'standalone diagnostic verdict does not replay');
   }
   const semanticEvents = events.map((event) => {
     const copy = JSON.parse(JSON.stringify(event));

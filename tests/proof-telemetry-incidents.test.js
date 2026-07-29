@@ -71,6 +71,32 @@ describe('proof telemetry incident index and evidence graph', () => {
     expect(result.missingEvidence.some((slot) => slot.slotId === 'terminal_decision')).toBe(true);
   });
 
+  test('does not satisfy a success slot with a FAILURE terminal fact', () => {
+    const failure = event('event-1', 'MODEL_TERMINAL_RECORDED', {
+      payload: { typed: { kind: 'terminal_action', state: 'FAILURE' } }
+    });
+    const incident = Incidents.indexIncidents([failure])[0];
+    const result = Incidents.resolveEvidenceSlots([failure], incident, 'cutted');
+    expect(result.slots.find((slot) => slot.slotId === 'success_terminal')).toEqual(expect.objectContaining({
+      status: 'unavailable',
+      matchedEventCount: 0,
+      rejectedEventCount: 1
+    }));
+  });
+
+  test('requires post-terminal audit order and causal evidence references', () => {
+    const auditBefore = event('event-1', 'POST_TERMINAL_AUDIT_COMPLETED');
+    const terminal = event('event-2', 'MODEL_TERMINAL_RECORDED', {
+      payload: { typed: { kind: 'terminal_action', state: 'SUCCESS' } }
+    });
+    const incident = Incidents.indexIncidents([auditBefore, terminal])[0];
+    expect(Incidents.validateTemporalInvariants([auditBefore, terminal], incident)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ invariantId: 'TEMPORAL_AUDIT_ORDER', eventId: 'event-1' })
+    ]));
+    const slots = Incidents.resolveEvidenceSlots([auditBefore, terminal], incident, 'false-success');
+    expect(slots.slots.find((slot) => slot.slotId === 'post_terminal_audit').status).toBe('unavailable');
+  });
+
   test('builds recursive closure without unrelated run-wide SYSTEM context', () => {
     const events = [
       event('event-1', 'RUN_CONFIG_RECORDED', { modelId: 'SYSTEM', dispatchId: undefined }),
@@ -78,7 +104,10 @@ describe('proof telemetry incident index and evidence graph', () => {
       event('event-3', 'CANDIDATE_IDENTITY_INFERRED'),
       event('event-4', 'OBSERVATION_FRAME_CAPTURED', { evidenceRefs: ['event-2'] }),
       event('event-5', 'DECISION_RECORDED', { evidenceRefs: ['event-4'] }),
-      event('event-6', 'MODEL_TERMINAL_RECORDED', { evidenceRefs: ['event-5'] })
+      event('event-6', 'MODEL_TERMINAL_RECORDED', {
+        evidenceRefs: ['event-5'],
+        payload: { typed: { kind: 'terminal_action', state: 'SUCCESS' } }
+      })
     ];
     const incident = Incidents.indexIncidents(events)[0];
     const result = Incidents.buildEvidenceClosure(events, incident, 'false-success');

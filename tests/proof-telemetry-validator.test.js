@@ -64,18 +64,21 @@ describe('offline proof telemetry validator', () => {
     ], { runSessionId: 42 });
     const policyEvent = ledger[0];
     ledger.push({
-      schemaVersion: 5,
-      eventId: 'ev-2-decision',
+      schemaVersion: 6,
+      eventId: 'event-decision-000002',
       eventType: 'DECISION_RECORDED',
       layer: 'decision',
       seq: 2,
+      ingestSeq: 2,
+      runGeneration: policyEvent.runGeneration,
       wallTs: 1000,
-      monoMs: 0,
       runSessionId: '42',
       modelId: 'GPT',
       dispatchId: 'GPT:42:1',
+      ...(policyEvent.generationEpoch !== undefined ? { generationEpoch: policyEvent.generationEpoch } : {}),
       producer: { component: 'test', version: '1' },
-      payload: { accepted: true, mode: 'automatic', evidenceTier: 0, blockers: [] },
+      clock: { ...policyEvent.clock, ingestMonoMs: Number(policyEvent.clock?.ingestMonoMs || 0) + 1 },
+      payload: { typed: { kind: 'decision', state: 'accepted' }, accepted: true, mode: 'automatic', evidenceTier: 0, blockers: [] },
       evidenceRefs: [policyEvent.eventId]
     });
     const container = await ProofTelemetry.buildAllPresets(ledger, {

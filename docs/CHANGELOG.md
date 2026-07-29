@@ -1,5 +1,19 @@
 # CHANGELOG — Project
 
+### 2026-07-29 — Fact-level evidence and composite verdict, version 2.81.153
+
+- Added executable fact and temporal matching rules to registry 5.2.0; presence
+  of an event type alone no longer satisfies protected evidence slots.
+- SUCCESS slots reject FAILURE terminal facts. Post-terminal audit evidence must
+  occur after terminal and cite terminal plus a later observation.
+- Added `diagnosticVerdict`: confirmed applicability becomes unknown when proof
+  is insufficient or temporal/causal invariants are violated.
+- Diagnosis arbitration now uses the composite verdict, and embedded
+  completeness ignores unrelated not-confirmed incidents and inactive
+  conditional slots.
+- Offline validation independently replays slots, invariants and verdicts.
+- Focused semantic/validator gate passes 5 suites / 55 tests.
+
 ### 2026-07-29 — Strict incident identity boundaries, version 2.81.152
 
 - Unified policy, audit and evidence-closure scope comparison, including

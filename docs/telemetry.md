@@ -312,6 +312,13 @@ run, `runGeneration`, model, dispatch и generation epoch. SYSTEM-доказат
 `incidentId` завершается без fallback, а состояния identity приводятся к
 единому словарю `current|previous|ambiguous|rejected|unknown`.
 
+Версия `2.81.153` разделяет применимость вопроса и силу доказанного диагноза.
+`applicability.status=confirmed` означает, что наблюдаемые признаки совпали;
+`diagnosticVerdict=confirmed` возможен только при достаточных fact-level слотах
+и без temporal/causal violations. Арбитраж использует только второй статус.
+Audit после terminal обязан ссылаться на terminal и последующее наблюдение;
+одно лишь совпадение eventType слот больше не удовлетворяет.
+
 `Only problems` не возвращён: проблемность является вычисляемым результатом
 диагностической задачи, а не независимой осью отбора. Для анализа выбираются
 конкретный вопрос и при необходимости Platform; режим `All tasks` остаётся
