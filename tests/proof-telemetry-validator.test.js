@@ -97,7 +97,7 @@ describe('offline proof telemetry validator', () => {
       runSessionId: 42,
       exportedAt: 2000,
       modelId: 'GPT',
-      reportType: 'generation-not-started'
+      reportType: 'prompt-not-sent'
     });
     const result = await validateStandaloneReport(standalone);
     expect(result.valid).toBe(true);
@@ -117,7 +117,7 @@ describe('offline proof telemetry validator', () => {
   test('detects includedFor, provenance and semantic tampering', async () => {
     const container = await validContainer();
     const standalone = await ProofTelemetry.buildStandaloneReport(container.ledger.events, {
-      canonicalLedger: true, modelId: 'GPT', reportType: 'generation-not-started'
+      canonicalLedger: true, modelId: 'GPT', reportType: 'prompt-not-sent'
     });
     standalone.eventSelection.materializedEvents[0].includedFor = [];
     standalone.derivedViews.fieldProvenance.submission.derivedFromEventIds.push('missing-event');
@@ -133,11 +133,11 @@ describe('offline proof telemetry validator', () => {
   test('semantic hash ignores wallTs while artifact hash changes', async () => {
     const container = await validContainer();
     const first = await ProofTelemetry.buildStandaloneReport(container.ledger.events, {
-      canonicalLedger: true, modelId: 'GPT', reportType: 'generation-not-started'
+      canonicalLedger: true, modelId: 'GPT', reportType: 'prompt-not-sent'
     });
     const shifted = container.ledger.events.map((event) => ({ ...event, wallTs: event.wallTs + 999999 }));
     const second = await ProofTelemetry.buildStandaloneReport(shifted, {
-      canonicalLedger: true, modelId: 'GPT', reportType: 'generation-not-started'
+      canonicalLedger: true, modelId: 'GPT', reportType: 'prompt-not-sent'
     });
     expect(second.exportIntegrity.hashes.semantic).toBe(first.exportIntegrity.hashes.semantic);
     expect(second.exportIntegrity.hashes.artifact).not.toBe(first.exportIntegrity.hashes.artifact);
@@ -146,7 +146,7 @@ describe('offline proof telemetry validator', () => {
   test('optimizer preserves every core event and reports unavoidable overflow', async () => {
     const container = await validContainer();
     const standalone = await ProofTelemetry.buildStandaloneReport(container.ledger.events, {
-      canonicalLedger: true, modelId: 'GPT', reportType: 'generation-not-started'
+      canonicalLedger: true, modelId: 'GPT', reportType: 'prompt-not-sent'
     });
     standalone.reportDescriptor.completeness.level = 'bounded';
     const optimized = await optimizeRepresentation(standalone, { transportLimitBytes: 1 });

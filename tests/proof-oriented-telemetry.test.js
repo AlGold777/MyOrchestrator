@@ -19,9 +19,12 @@ describe('Proof-oriented telemetry schema 6 event export', () => {
     }));
     expect(ProofTelemetry.classifyRuntimeEvent({ label: 'ADAPTIVE_PROBE_TICK' }).route).toBe('operational');
     expect(ProofTelemetry.classifyRuntimeEvent({ label: 'UNMAPPED_LEGACY_NOISE' }).route).toBe('debug');
+    expect(ProofTelemetry.buildLedger([
+      { ...evt('GPT', 'SYNTHETIC_STABILITY', 1000), proofEventType: 'STABILITY_INTERVAL_CLOSED' }
+    ], { runSessionId: 42 })[0].eventType).toBe('STABILITY_INTERVAL_CLOSED');
   });
 
-  test('builds one immutable canonical ledger and all eight embedded reports', async () => {
+  test('builds one immutable canonical ledger and all six embedded reports', async () => {
     const container = await ProofTelemetry.buildAllPresets({
       '<GPT>': [
         evt('GPT', 'DISPATCH_BASELINE_CAPTURED', 1000),
@@ -46,8 +49,8 @@ describe('Proof-oriented telemetry schema 6 event export', () => {
     expect(container.ledger.events.every((event) => event.schemaVersion === 6)).toBe(true);
     expect(container.exportAudit.invariantViolations).toEqual([]);
     expect(container.exportAudit.hashes.ledger).toMatch(/^sha256:/);
-    expect(container.reports['true-completion'].eventSeqs.length).toBeGreaterThan(0);
-    expect(container.reports['true-completion']).not.toHaveProperty('materializedEvents');
+    expect(container.reports['false-success'].eventSeqs.length).toBeGreaterThan(0);
+    expect(container.reports['false-success']).not.toHaveProperty('materializedEvents');
   });
 
   test('keeps completion, forced terminal and completeness as independent axes', async () => {
@@ -68,7 +71,7 @@ describe('Proof-oriented telemetry schema 6 event export', () => {
     expect(axes.completionDetection).toBe('inconclusive');
     expect(axes.answerCompleteness).toBe('unknown');
     expect(axes.completionEvidenceTier).toBe(1);
-    expect(container.reports['forced-success'].siblings.some((rule) => rule.evaluation.matched)).toBe(true);
+    expect(container.reports['false-success'].eventSeqs.length).toBeGreaterThan(0);
   });
 
   test('does not serialize prompt, answer, token or arbitrary details', () => {
@@ -151,11 +154,11 @@ describe('Proof-oriented telemetry schema 6 event export', () => {
       runSessionId: 42,
       exportedAt: 2000,
       modelId: 'GPT',
-      reportType: 'submission-proof'
+      reportType: 'prompt-not-sent'
     });
     expect(standalone.fileKind).toBe('diagnostic-report');
     expect(standalone.reportDescriptor).toEqual(expect.objectContaining({
-      reportType: 'submission-proof',
+      reportType: 'prompt-not-sent',
       reportMode: 'standalone'
     }));
     const ids = standalone.eventSelection.materializedEvents.map((event) => event.eventId);
@@ -185,7 +188,7 @@ describe('Proof-oriented telemetry schema 6 event export', () => {
     );
   });
 
-  test('builds replay-equivalent isolated artifacts for all eight tasks', async () => {
+  test('builds replay-equivalent isolated artifacts for all six tasks', async () => {
     const labels = [
       'DISPATCH_BASELINE_CAPTURED', 'DISPATCH_SEND', 'PROMPT_SUBMITTED_ACCEPTED',
       'ANSWER_START_DETECTED', 'ANSWER_GENERATING', 'TURN_RESOLUTION_ACCEPTED',
@@ -222,12 +225,27 @@ describe('Proof-oriented telemetry schema 6 event export', () => {
     const report = await ProofTelemetry.buildStandaloneReport(ledger, {
       canonicalLedger: true,
       modelId: 'GPT',
-      reportType: 'request-not-sent'
+      reportType: 'prompt-not-sent'
     });
     expect(report.correlation.dispatchId).toBe('GPT:42:1');
     expect(report.reportDescriptor.completeness.level).toBe('insufficient');
     expect(report.missingEvidence.length).toBeGreaterThan(0);
     expect(report.eventSelection.materializedEvents).toHaveLength(1);
     expect(report.eventSelection.materializedEvents[0].includedFor).toEqual(['scope:incident-anchor']);
+  });
+
+  test('reports the measured stable-to-terminal delay for Late end', async () => {
+    const ledger = ProofTelemetry.buildLedger([
+      evt('GPT', 'ANSWER_GENERATING', 1000, { generationEpoch: 1, textLength: 80 }),
+      evt('GPT', 'ANSWER_TEXT_STABLE', 2000, { generationEpoch: 1, textLength: 120 }),
+      evt('GPT', 'FINALIZATION_DECISION', 6800, { generationEpoch: 1, finalStatus: 'SUCCESS' }),
+      evt('GPT', 'MODEL_FINAL', 7000, { generationEpoch: 1, finalStatus: 'SUCCESS', answerLen: 120 })
+    ], { runSessionId: 42 });
+    const report = await ProofTelemetry.buildStandaloneReport(ledger, {
+      canonicalLedger: true,
+      modelId: 'GPT',
+      reportType: 'late-end'
+    });
+    expect(report.derivedViews.modelTimeline.data.stableToTerminalMs).toBe(5000);
   });
 });

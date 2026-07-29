@@ -25,7 +25,7 @@ describe('proof telemetry incident index and evidence graph', () => {
       event('event-2', 'MODEL_TERMINAL_RECORDED'),
       event('event-3', 'GENERATION_SIGNAL_CHANGED', { dispatchId: 'dispatch-2', ingestSeq: 3, seq: 3 })
     ];
-    const result = Incidents.selectIncident(events, { platform: 'GPT', task: 'true-completion' });
+    const result = Incidents.selectIncident(events, { platform: 'GPT', task: 'false-success' });
     expect(result.selected.scope.dispatchId).toBe('dispatch-1');
     expect(result.matchingIncidentCount).toBe(2);
     expect(result.otherMatchingIncidents).toHaveLength(1);
@@ -33,10 +33,10 @@ describe('proof telemetry incident index and evidence graph', () => {
 
   test('resolves typed evidence slots and marks missing evidence explicitly', () => {
     const incident = Incidents.indexIncidents([event('event-1', 'GENERATION_SIGNAL_CHANGED')])[0];
-    const result = Incidents.resolveEvidenceSlots([event('event-1', 'GENERATION_SIGNAL_CHANGED')], incident, 'true-completion');
+    const result = Incidents.resolveEvidenceSlots([event('event-1', 'GENERATION_SIGNAL_CHANGED')], incident, 'false-success');
     expect(result.sufficiency).toBe('insufficient');
-    expect(result.slots.find((slot) => slot.slotId === 'generation_transition').status).toBe('satisfied');
-    expect(result.missingEvidence.some((slot) => slot.slotId === 'candidate_identity')).toBe(true);
+    expect(result.slots.find((slot) => slot.slotId === 'generation_state').status).toBe('satisfied');
+    expect(result.missingEvidence.some((slot) => slot.slotId === 'terminal_decision')).toBe(true);
   });
 
   test('builds recursive closure with includedFor and run SYSTEM context', () => {
@@ -49,8 +49,8 @@ describe('proof telemetry incident index and evidence graph', () => {
       event('event-6', 'MODEL_TERMINAL_RECORDED', { evidenceRefs: ['event-5'] })
     ];
     const incident = Incidents.indexIncidents(events)[0];
-    const result = Incidents.buildEvidenceClosure(events, incident, 'true-completion');
-    expect(result.events.map((item) => item.eventId)).toEqual(['event-1', 'event-2', 'event-3', 'event-4', 'event-5', 'event-6']);
+    const result = Incidents.buildEvidenceClosure(events, incident, 'false-success');
+    expect(result.events.map((item) => item.eventId)).toEqual(['event-1', 'event-2', 'event-4', 'event-5', 'event-6']);
     expect(result.events.every((item) => item.includedFor.length > 0)).toBe(true);
     expect(result.violations).toEqual([]);
   });
@@ -61,7 +61,7 @@ describe('proof telemetry incident index and evidence graph', () => {
       event('event-2', 'CANDIDATE_IDENTITY_INFERRED', { dispatchId: 'dispatch-2', generationEpoch: 2 })
     ];
     const incident = Incidents.indexIncidents(events).find((item) => item.scope.dispatchId === 'dispatch-1');
-    const result = Incidents.buildEvidenceClosure(events, incident, 'true-completion');
+    const result = Incidents.buildEvidenceClosure(events, incident, 'false-success');
     expect(result.violations).toEqual(expect.arrayContaining([expect.objectContaining({ invariantId: 'SCOPE', eventId: 'event-2' })]));
     expect(result.events.some((item) => item.eventId === 'event-2')).toBe(false);
   });
@@ -72,10 +72,10 @@ describe('proof telemetry incident index and evidence graph', () => {
 
   test('selects an incident even when the chosen task has zero expected event types', () => {
     const events = [event('event-1', 'GENERATION_SIGNAL_CHANGED')];
-    const selection = Incidents.selectIncident(events, { platform: 'GPT', task: 'request-not-sent' });
+    const selection = Incidents.selectIncident(events, { platform: 'GPT', task: 'prompt-not-sent' });
     expect(selection.selected).not.toBeNull();
     expect(selection.selectionReason).toContain('including_zero_match');
-    const closure = Incidents.buildEvidenceClosure(events, selection.selected, 'request-not-sent');
+    const closure = Incidents.buildEvidenceClosure(events, selection.selected, 'prompt-not-sent');
     expect(closure.sufficiency).toBe('insufficient');
     expect(closure.events).toEqual([
       expect.objectContaining({ eventId: 'event-1', includedFor: ['scope:incident-anchor'] })

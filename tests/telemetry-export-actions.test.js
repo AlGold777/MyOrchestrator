@@ -16,14 +16,12 @@ describe('Telemetry export actions', () => {
 
   test('Telemetry exposes exactly the Platform and Tasks filters', () => {
     const reportTypes = [
-      'request-not-sent',
-      'generation-not-started',
-      'truncation',
-      'true-completion',
-      'submission-proof',
-      'extraction-integrity',
-      'forced-success',
-      'forced-finalization'
+      'cutted',
+      'false-success',
+      'old-answer',
+      'empty',
+      'prompt-not-sent',
+      'late-end'
     ];
     [html, pipelineHtml].forEach((page) => {
       const start = page.indexOf('<div class="telemetry-filters">');

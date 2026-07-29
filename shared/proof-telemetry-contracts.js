@@ -4,7 +4,7 @@
 
   const EVENT_SCHEMA_VERSION = 6;
   const CLOCK_CONTRACT_VERSION = '1.0';
-  const REGISTRY_VERSION = '2.0.0';
+  const REGISTRY_VERSION = '3.0.0';
   const THRESHOLDS = Object.freeze({
     generationStartTimeoutMs: 15000,
     minimumExtractionCoveragePct: 98,
@@ -14,8 +14,54 @@
   });
 
   const REPORT_CONTRACTS = Object.freeze({
-    'request-not-sent': {
-      question: 'Почему запрос не был принят платформой?',
+    cutted: {
+      question: 'Почему зафиксирован SUCCESS, а текст явно неполный?',
+      slots: [
+        ['success_decision', 'critical', ['DECISION_RECORDED', 'MODEL_TERMINAL_RECORDED']],
+        ['text_evolution', 'critical', ['TEXT_STATE_CHANGED']],
+        ['completeness', 'critical', ['ANSWER_COMPLETENESS_EVALUATED', 'POST_TERMINAL_AUDIT_COMPLETED']],
+        ['extraction_boundary', 'required', ['EXTRACTION_COMPLETED', 'STRUCTURAL_VERIFICATION_EVALUATED']],
+        ['candidate_identity', 'required', ['CANDIDATE_SET_CHANGED', 'CANDIDATE_IDENTITY_INFERRED']],
+        ['decision_lineage', 'required', ['FINALIZATION_POLICY_EVALUATED', 'POLICY_OVERRIDE_APPLIED', 'DECISION_RECORDED']],
+        ['missing_evidence', 'conditional', ['MISSING_EVIDENCE_RECORDED']]
+      ]
+    },
+    'false-success': {
+      question: 'Почему система решила «готово», а ответ продолжил расти?',
+      slots: [
+        ['terminal_decision', 'critical', ['DECISION_RECORDED', 'MODEL_TERMINAL_RECORDED']],
+        ['generation_state', 'critical', ['GENERATION_SIGNAL_CHANGED', 'OBSERVATION_FRAME_CAPTURED']],
+        ['post_terminal_growth', 'critical', ['TEXT_STATE_CHANGED', 'POST_TERMINAL_AUDIT_COMPLETED']],
+        ['completion_proof', 'required', ['COMPLETION_HYPOTHESIS_EVALUATED', 'ANSWER_COMPLETENESS_EVALUATED']],
+        ['finalization_policy', 'required', ['TERMINAL_DEADLINE_REACHED', 'FINALIZATION_POLICY_EVALUATED', 'POLICY_OVERRIDE_APPLIED']],
+        ['missing_evidence', 'conditional', ['MISSING_EVIDENCE_RECORDED']]
+      ]
+    },
+    'old-answer': {
+      question: 'Почему принят текст от предыдущего запроса?',
+      slots: [
+        ['dispatch_baseline', 'critical', ['DISPATCH_BASELINE_CAPTURED']],
+        ['candidate_lineage', 'critical', ['CANDIDATE_SET_CHANGED']],
+        ['candidate_identity', 'critical', ['CANDIDATE_IDENTITY_INFERRED']],
+        ['extraction_result', 'critical', ['EXTRACTION_COMPLETED']],
+        ['turn_context', 'required', ['PAGE_CONTEXT_OBSERVED', 'OBSERVATION_FRAME_CAPTURED']],
+        ['structural_verification', 'required', ['STRUCTURAL_VERIFICATION_EVALUATED']],
+        ['text_boundary', 'conditional', ['TEXT_STATE_CHANGED']]
+      ]
+    },
+    empty: {
+      question: 'Почему генерация была, но extraction вернул пусто или не тот узел?',
+      slots: [
+        ['generation_observed', 'critical', ['GENERATION_START_EVALUATED', 'GENERATION_SIGNAL_CHANGED']],
+        ['extraction_result', 'critical', ['EXTRACTION_COMPLETED']],
+        ['candidate_selection', 'critical', ['CANDIDATE_SET_CHANGED', 'CANDIDATE_IDENTITY_INFERRED']],
+        ['text_boundary', 'required', ['TEXT_STATE_CHANGED']],
+        ['structural_verification', 'required', ['STRUCTURAL_VERIFICATION_EVALUATED', 'ANSWER_COMPLETENESS_EVALUATED']],
+        ['observer_context', 'conditional', ['PAGE_HEALTH_OBSERVED', 'OBSERVER_HEALTH_OBSERVED', 'OBSERVER_HEALTH_INTERVAL_CLOSED']]
+      ]
+    },
+    'prompt-not-sent': {
+      question: 'Почему модель не получила запрос?',
       slots: [
         ['dispatch_baseline', 'critical', ['DISPATCH_BASELINE_CAPTURED']],
         ['submit_action', 'critical', ['SUBMIT_ACTION_OBSERVED']],
@@ -24,77 +70,16 @@
         ['observer_context', 'conditional', ['OBSERVER_HEALTH_OBSERVED', 'OBSERVER_HEALTH_INTERVAL_CLOSED', 'OBSERVATION_SLOT_DENIED']]
       ]
     },
-    'generation-not-started': {
-      question: 'Почему после dispatch не появились признаки начала генерации?',
+    'late-end': {
+      question: 'Текст давно стабилен — почему система ждала ещё N секунд?',
       slots: [
-        ['submission_proof', 'critical', ['SUBMISSION_EVIDENCE_CHANGED', 'SUBMISSION_INFERRED']],
-        ['generation_start', 'critical', ['GENERATION_START_EVALUATED']],
-        ['first_candidate_or_signal', 'required', ['CANDIDATE_SET_CHANGED', 'GENERATION_SIGNAL_CHANGED', 'TEXT_STATE_CHANGED']],
-        ['observer_context', 'required', ['PAGE_HEALTH_OBSERVED', 'OBSERVER_HEALTH_OBSERVED', 'OBSERVER_HEALTH_INTERVAL_CLOSED', 'OBSERVATION_SLOT_DENIED']]
-      ]
-    },
-    truncation: {
-      question: 'Почему сохранённый ответ короче фактически доступного текста?',
-      slots: [
+        ['stable_boundary', 'critical', ['STABILITY_INTERVAL_CLOSED']],
         ['terminal_boundary', 'critical', ['MODEL_TERMINAL_RECORDED']],
-        ['text_evolution', 'critical', ['TEXT_STATE_CHANGED']],
-        ['candidate_identity', 'critical', ['CANDIDATE_SET_CHANGED', 'CANDIDATE_IDENTITY_INFERRED']],
-        ['extraction_boundary', 'required', ['EXTRACTION_COMPLETED', 'STRUCTURAL_VERIFICATION_EVALUATED']],
-        ['completion_proof', 'required', ['COMPLETION_HYPOTHESIS_EVALUATED', 'ANSWER_COMPLETENESS_EVALUATED']],
-        ['decision_lineage', 'required', ['FINALIZATION_POLICY_EVALUATED', 'POLICY_OVERRIDE_APPLIED', 'DECISION_RECORDED']],
-        ['post_terminal_audit', 'conditional', ['POST_TERMINAL_AUDIT_COMPLETED', 'MISSING_EVIDENCE_RECORDED']]
-      ]
-    },
-    'true-completion': {
-      question: 'Действительно ли генерация закончилась в terminal moment?',
-      slots: [
-        ['generation_transition', 'critical', ['GENERATION_SIGNAL_CHANGED']],
-        ['candidate_identity', 'critical', ['CANDIDATE_IDENTITY_INFERRED']],
-        ['observation_frame', 'critical', ['OBSERVATION_FRAME_CAPTURED']],
-        ['completion_hypothesis', 'required', ['COMPLETION_HYPOTHESIS_EVALUATED']],
-        ['terminal_lineage', 'required', ['DECISION_RECORDED', 'MODEL_TERMINAL_RECORDED']],
-        ['post_terminal_audit', 'conditional', ['POST_TERMINAL_AUDIT_COMPLETED', 'MISSING_EVIDENCE_RECORDED']]
-      ]
-    },
-    'submission-proof': {
-      question: 'Какие внешние признаки доказывают принятие запроса?',
-      slots: [
-        ['dispatch_baseline', 'critical', ['DISPATCH_BASELINE_CAPTURED']],
-        ['submit_action', 'critical', ['SUBMIT_ACTION_OBSERVED']],
-        ['acceptance_evidence', 'critical', ['SUBMISSION_EVIDENCE_CHANGED']],
-        ['submission_inference', 'required', ['SUBMISSION_INFERRED']],
-        ['navigation_context', 'conditional', ['PAGE_CONTEXT_OBSERVED']]
-      ]
-    },
-    'extraction-integrity': {
-      question: 'Захвачен ли весь релевантный текст?',
-      slots: [
-        ['candidate_lineage', 'critical', ['CANDIDATE_SET_CHANGED', 'CANDIDATE_IDENTITY_INFERRED']],
-        ['text_boundary', 'critical', ['TEXT_STATE_CHANGED']],
-        ['extraction_result', 'critical', ['EXTRACTION_COMPLETED']],
-        ['completeness', 'required', ['ANSWER_COMPLETENESS_EVALUATED']],
-        ['structural_verification', 'required', ['STRUCTURAL_VERIFICATION_EVALUATED']]
-      ]
-    },
-    'forced-success': {
-      question: 'Почему SUCCESS выставлен без automatic completion proof?',
-      slots: [
-        ['completion_proof', 'critical', ['COMPLETION_HYPOTHESIS_EVALUATED']],
-        ['policy_evaluation', 'critical', ['FINALIZATION_POLICY_EVALUATED']],
-        ['override', 'critical', ['POLICY_OVERRIDE_APPLIED']],
-        ['decision_terminal_lineage', 'critical', ['DECISION_RECORDED', 'MODEL_TERMINAL_RECORDED']],
-        ['accepted_extraction', 'required', ['EXTRACTION_COMPLETED', 'STRUCTURAL_VERIFICATION_EVALUATED']],
-        ['post_terminal_audit', 'conditional', ['POST_TERMINAL_AUDIT_COMPLETED', 'MISSING_EVIDENCE_RECORDED']]
-      ]
-    },
-    'forced-finalization': {
-      question: 'Когда и почему расширение прекратило ожидание?',
-      slots: [
-        ['deadline', 'critical', ['TERMINAL_DEADLINE_REACHED']],
-        ['last_generation_state', 'critical', ['GENERATION_SIGNAL_CHANGED', 'OBSERVATION_FRAME_CAPTURED']],
-        ['policy_evaluation', 'critical', ['FINALIZATION_POLICY_EVALUATED']],
-        ['override', 'critical', ['POLICY_OVERRIDE_APPLIED']],
-        ['decision_terminal_lineage', 'critical', ['DECISION_RECORDED', 'MODEL_TERMINAL_RECORDED']],
+        ['generation_state', 'critical', ['GENERATION_SIGNAL_CHANGED', 'OBSERVATION_FRAME_CAPTURED']],
+        ['text_evolution', 'required', ['TEXT_STATE_CHANGED']],
+        ['completion_policy', 'required', ['COMPLETION_HYPOTHESIS_EVALUATED', 'FINALIZATION_POLICY_EVALUATED', 'TERMINAL_DEADLINE_REACHED']],
+        ['decision_lineage', 'required', ['DECISION_RECORDED']],
+        ['observer_context', 'conditional', ['OBSERVER_HEALTH_OBSERVED', 'OBSERVER_HEALTH_INTERVAL_CLOSED', 'OBSERVATION_SLOT_DENIED']],
         ['post_terminal_audit', 'conditional', ['POST_TERMINAL_AUDIT_COMPLETED', 'MISSING_EVIDENCE_RECORDED']]
       ]
     }

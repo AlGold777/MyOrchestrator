@@ -13,28 +13,24 @@
   const Incidents = root.ProofTelemetryIncidents || (typeof require === 'function' ? require('./proof-telemetry-incidents.js') : null);
   const SCHEMA_VERSION = '5.0';
   const EVENT_SCHEMA_VERSION = Contracts?.EVENT_SCHEMA_VERSION || 6;
-  const GENERATOR_VERSION = 'proof-export@1.0.0';
-  const REPORT_VERSION = '1.0.0';
+  const GENERATOR_VERSION = 'proof-export@1.1.0';
+  const REPORT_VERSION = '2.0.0';
   const REPORT_TYPES = Object.freeze([
-    'request-not-sent',
-    'generation-not-started',
-    'truncation',
-    'true-completion',
-    'submission-proof',
-    'extraction-integrity',
-    'forced-success',
-    'forced-finalization'
+    'cutted',
+    'false-success',
+    'old-answer',
+    'empty',
+    'prompt-not-sent',
+    'late-end'
   ]);
 
   const REPORT_INFO = Object.freeze({
-    'request-not-sent': ['Почему запрос не был принят платформой?', ['DISPATCH_BASELINE_CAPTURED', 'SUBMIT_ACTION_OBSERVED', 'SUBMISSION_EVIDENCE_CHANGED', 'SUBMISSION_INFERRED', 'PAGE_CONTEXT_OBSERVED', 'PAGE_HEALTH_OBSERVED']],
-    'generation-not-started': ['Почему после dispatch не появились признаки начала генерации?', ['SUBMISSION_INFERRED', 'GENERATION_START_EVALUATED', 'CANDIDATE_SET_CHANGED', 'GENERATION_SIGNAL_CHANGED', 'PAGE_HEALTH_OBSERVED', 'OBSERVER_HEALTH_OBSERVED']],
-    truncation: ['Почему сохранённый ответ короче фактически сгенерированного или позднее доступного текста?', ['CANDIDATE_SET_CHANGED', 'CANDIDATE_IDENTITY_INFERRED', 'TEXT_STATE_CHANGED', 'EXTRACTION_COMPLETED', 'ANSWER_COMPLETENESS_EVALUATED', 'COMPLETION_HYPOTHESIS_EVALUATED', 'DECISION_RECORDED', 'MODEL_TERMINAL_RECORDED', 'POST_TERMINAL_AUDIT_COMPLETED']],
-    'true-completion': ['Действительно ли генерация закончилась в recorded terminal moment?', ['GENERATION_SIGNAL_CHANGED', 'TEXT_STATE_CHANGED', 'STABILITY_INTERVAL_CLOSED', 'ANSWER_COMPLETENESS_EVALUATED', 'COMPLETION_HYPOTHESIS_EVALUATED', 'DECISION_RECORDED', 'MODEL_TERMINAL_RECORDED', 'POST_TERMINAL_AUDIT_COMPLETED']],
-    'submission-proof': ['Какие внешние признаки доказывают принятие запроса платформой?', ['DISPATCH_BASELINE_CAPTURED', 'SUBMIT_ACTION_OBSERVED', 'SUBMISSION_EVIDENCE_CHANGED', 'SUBMISSION_INFERRED', 'PAGE_CONTEXT_OBSERVED']],
-    'extraction-integrity': ['Захвачен ли весь релевантный текст из DOM?', ['CANDIDATE_SET_CHANGED', 'CANDIDATE_IDENTITY_INFERRED', 'TEXT_STATE_CHANGED', 'EXTRACTION_COMPLETED', 'ANSWER_COMPLETENESS_EVALUATED', 'STRUCTURAL_VERIFICATION_EVALUATED']],
-    'forced-success': ['Почему система выставила SUCCESS без automatic completion proof?', ['COMPLETION_HYPOTHESIS_EVALUATED', 'FINALIZATION_POLICY_EVALUATED', 'POLICY_OVERRIDE_APPLIED', 'DECISION_RECORDED', 'MODEL_TERMINAL_RECORDED', 'POST_TERMINAL_AUDIT_COMPLETED']],
-    'forced-finalization': ['Когда и почему расширение прекратило ожидание по timeout/forced policy?', ['GENERATION_SIGNAL_CHANGED', 'TERMINAL_DEADLINE_REACHED', 'FINALIZATION_POLICY_EVALUATED', 'POLICY_OVERRIDE_APPLIED', 'DECISION_RECORDED', 'MODEL_TERMINAL_RECORDED', 'POST_TERMINAL_AUDIT_COMPLETED']]
+    cutted: ['Почему зафиксирован SUCCESS, а текст явно неполный?', ['CANDIDATE_SET_CHANGED', 'CANDIDATE_IDENTITY_INFERRED', 'TEXT_STATE_CHANGED', 'EXTRACTION_COMPLETED', 'ANSWER_COMPLETENESS_EVALUATED', 'STRUCTURAL_VERIFICATION_EVALUATED', 'FINALIZATION_POLICY_EVALUATED', 'POLICY_OVERRIDE_APPLIED', 'DECISION_RECORDED', 'MODEL_TERMINAL_RECORDED', 'POST_TERMINAL_AUDIT_COMPLETED']],
+    'false-success': ['Почему система решила «готово», а ответ продолжил расти?', ['GENERATION_SIGNAL_CHANGED', 'OBSERVATION_FRAME_CAPTURED', 'TEXT_STATE_CHANGED', 'ANSWER_COMPLETENESS_EVALUATED', 'COMPLETION_HYPOTHESIS_EVALUATED', 'TERMINAL_DEADLINE_REACHED', 'FINALIZATION_POLICY_EVALUATED', 'POLICY_OVERRIDE_APPLIED', 'DECISION_RECORDED', 'MODEL_TERMINAL_RECORDED', 'POST_TERMINAL_AUDIT_COMPLETED']],
+    'old-answer': ['Почему принят текст от предыдущего запроса?', ['DISPATCH_BASELINE_CAPTURED', 'CANDIDATE_SET_CHANGED', 'CANDIDATE_IDENTITY_INFERRED', 'EXTRACTION_COMPLETED', 'PAGE_CONTEXT_OBSERVED', 'OBSERVATION_FRAME_CAPTURED', 'STRUCTURAL_VERIFICATION_EVALUATED', 'TEXT_STATE_CHANGED']],
+    empty: ['Почему генерация была, но extraction вернул пусто или не тот узел?', ['GENERATION_START_EVALUATED', 'GENERATION_SIGNAL_CHANGED', 'CANDIDATE_SET_CHANGED', 'CANDIDATE_IDENTITY_INFERRED', 'TEXT_STATE_CHANGED', 'EXTRACTION_COMPLETED', 'STRUCTURAL_VERIFICATION_EVALUATED', 'ANSWER_COMPLETENESS_EVALUATED', 'PAGE_HEALTH_OBSERVED', 'OBSERVER_HEALTH_OBSERVED']],
+    'prompt-not-sent': ['Почему модель не получила запрос?', ['DISPATCH_BASELINE_CAPTURED', 'SUBMIT_ACTION_OBSERVED', 'SUBMISSION_EVIDENCE_CHANGED', 'SUBMISSION_INFERRED', 'PAGE_CONTEXT_OBSERVED', 'PAGE_HEALTH_OBSERVED', 'OBSERVER_HEALTH_OBSERVED']],
+    'late-end': ['Текст давно стабилен — почему система ждала ещё N секунд?', ['STABILITY_INTERVAL_CLOSED', 'GENERATION_SIGNAL_CHANGED', 'OBSERVATION_FRAME_CAPTURED', 'TEXT_STATE_CHANGED', 'COMPLETION_HYPOTHESIS_EVALUATED', 'FINALIZATION_POLICY_EVALUATED', 'TERMINAL_DEADLINE_REACHED', 'DECISION_RECORDED', 'MODEL_TERMINAL_RECORDED', 'OBSERVER_HEALTH_OBSERVED', 'POST_TERMINAL_AUDIT_COMPLETED', 'MISSING_EVIDENCE_RECORDED']]
   });
   const REPORT_EVENT_TYPES = Object.freeze(Object.fromEntries(
     Object.entries(REPORT_INFO).map(([reportType, [, eventTypes]]) => [
@@ -138,6 +134,8 @@
   }
 
   function canonicalType(event) {
+    const explicitType = event?.proofEventType || event?.meta?.proofEventType;
+    if (explicitType) return String(explicitType).trim().toUpperCase();
     const label = normalizeLabel(event);
     if (EVENT_MAP[label]) return EVENT_MAP[label];
     if (/FINAL|TERMINAL/.test(label)) return 'FINALIZATION_POLICY_EVALUATED';
@@ -333,6 +331,10 @@
     const axes = deriveAxes(events);
     const lengths = numericMeta(events, ['textLength', 'answerLength', 'answerLen', 'latestObservedTextLength']);
     const terminalEvent = events.find((event) => event.eventType === 'MODEL_TERMINAL_RECORDED');
+    const stableEvents = events.filter((event) => event.eventType === 'STABILITY_INTERVAL_CLOSED');
+    const lastStableBeforeTerminal = terminalEvent
+      ? stableEvents.filter((event) => Number(event.seq) <= Number(terminalEvent.seq)).slice(-1)[0]
+      : stableEvents.slice(-1)[0];
     const postTerminalLengths = terminalEvent ? numericMeta(events.filter((event) => event.seq > terminalEvent.seq), ['textLength', 'answerLength', 'answerLen']) : [];
     const acceptedLength = terminalEvent
       ? (numericMeta([terminalEvent], ['textLength', 'answerLength', 'answerLen'])[0] || 0)
@@ -360,7 +362,10 @@
       candidateCount: new Set(events.map((event) => event.candidateId).filter(Boolean)).size,
       captureBeforeTerminal: false,
       terminalBeforeLastRelevantMutation: Boolean(terminalEvent && events.some((event) => event.seq > terminalEvent.seq && event.eventType === 'TEXT_STATE_CHANGED')),
-      terminalOutcome: terminalEvent?.payload?.metadata?.finalStatus || terminalEvent?.payload?.metadata?.status || null
+      terminalOutcome: terminalEvent?.payload?.metadata?.finalStatus || terminalEvent?.payload?.metadata?.status || null,
+      stableToTerminalMs: terminalEvent && lastStableBeforeTerminal
+        ? Math.max(0, Number(terminalEvent.wallTs || 0) - Number(lastStableBeforeTerminal.wallTs || 0))
+        : null
     };
   }
 
@@ -387,14 +392,12 @@
   }
 
   const SIBLING_RULES = Object.freeze({
-    'request-not-sent': [['submission-proof', '$.stateAxes.submission', 'in', ['evidence_partial', 'unknown']], ['generation-not-started', '$.stateAxes.submission', 'eq', 'confirmed']],
-    'generation-not-started': [['submission-proof', '$.stateAxes.submission', 'ne', 'confirmed'], ['request-not-sent', '$.stateAxes.submission', 'in', ['failed', 'evidence_partial', 'unknown']]],
-    truncation: [['true-completion', '$.derivedViews.completionEvidenceTier', 'lt', 3], ['extraction-integrity', '$.derivedViews.extractionCoveragePct', 'lt', 98], ['forced-finalization', '$.stateAxes.terminalMode', 'eq', 'forced'], ['forced-success', '$.derivedViews.terminalOutcome', 'eq', 'SUCCESS']],
-    'true-completion': [['truncation', '$.derivedViews.postTerminalGrowthPct', 'gt', 0.5], ['extraction-integrity', '$.derivedViews.extractionCoveragePct', 'lt', 98], ['forced-finalization', '$.stateAxes.terminalMode', 'eq', 'forced'], ['forced-success', '$.derivedViews.completionEvidenceTier', 'lt', 3]],
-    'submission-proof': [['request-not-sent', '$.stateAxes.submission', 'eq', 'failed'], ['generation-not-started', '$.stateAxes.generationStart', 'eq', 'not_started']],
-    'extraction-integrity': [['truncation', '$.derivedViews.extractionCoveragePct', 'lt', 98], ['true-completion', '$.derivedViews.completionEvidenceTier', 'lt', 3], ['forced-finalization', '$.stateAxes.terminalMode', 'eq', 'forced']],
-    'forced-success': [['true-completion', '$.derivedViews.completionEvidenceTier', 'lt', 3], ['forced-finalization', '$.stateAxes.terminalMode', 'eq', 'forced'], ['extraction-integrity', '$.stateAxes.extraction', 'in', ['fallback', 'ambiguous']], ['truncation', '$.derivedViews.extractionCoveragePct', 'lt', 98]],
-    'forced-finalization': [['forced-success', '$.derivedViews.terminalOutcome', 'eq', 'SUCCESS'], ['true-completion', '$.derivedViews.completionEvidenceTier', 'lt', 3], ['generation-not-started', '$.stateAxes.generationStart', 'eq', 'not_started'], ['truncation', '$.derivedViews.postTerminalGrowthPct', 'gt', 0.5]]
+    cutted: [['false-success', '$.derivedViews.postTerminalGrowthPct', 'gt', 0.5], ['old-answer', '$.stateAxes.answerIdentity', 'ne', 'current_dispatch'], ['empty', '$.derivedViews.acceptedTextLength', 'eq', 0]],
+    'false-success': [['cutted', '$.derivedViews.extractionCoveragePct', 'lt', 98], ['late-end', '$.derivedViews.stableToTerminalMs', 'gt', 0]],
+    'old-answer': [['empty', '$.derivedViews.acceptedTextLength', 'eq', 0], ['cutted', '$.derivedViews.extractionCoveragePct', 'lt', 98]],
+    empty: [['old-answer', '$.stateAxes.answerIdentity', 'ne', 'current_dispatch'], ['cutted', '$.derivedViews.maxObservedTextLength', 'gt', 0]],
+    'prompt-not-sent': [],
+    'late-end': [['false-success', '$.derivedViews.postTerminalGrowthPct', 'gt', 0.5]]
   });
 
   function buildReports(ledger, modelViews, ledgerHash, registryHash) {
@@ -441,8 +444,11 @@
           models: Object.fromEntries(allViews.map((view) => [view.modelId, {
             stateAxes: view.stateAxes,
             completionEvidenceTier: view.completionEvidenceTier,
+            acceptedTextLength: view.acceptedTextLength,
+            maxObservedTextLength: view.maxObservedTextLength,
             extractionCoveragePct: view.extractionCoveragePct,
-            postTerminalGrowthPct: view.postTerminalGrowthPct
+            postTerminalGrowthPct: view.postTerminalGrowthPct,
+            stableToTerminalMs: view.stableToTerminalMs
           }]))
         },
         stateAxes: Object.fromEntries(allViews.map((view) => [view.modelId, view.stateAxes])),
@@ -493,7 +499,7 @@
       if (replayResult?.models?.[modelId]?.stateAxes) view.stateAxes = replayResult.models[modelId].stateAxes;
       return [modelId, view];
     }));
-    const registrySnapshot = { version: '1.0.0', predicateLanguageVersion: '1.0.0', maxEscalationDepth: 2, rules: SIBLING_RULES };
+    const registrySnapshot = { version: Contracts?.REGISTRY_VERSION || '3.0.0', predicateLanguageVersion: '1.0.0', maxEscalationDepth: 2, rules: SIBLING_RULES };
     const registryHash = await sha256(registrySnapshot);
     const sharedConfig = {
       extensionVersion: String(options.extensionVersion || 'unknown'),
@@ -588,6 +594,7 @@
       reports,
       attachments,
       exportAudit: {
+        sampleData: options.sampleData === true,
         exportBoundary: { runSessionId, ledgerCompleteThroughSeq, frozenAt: exportedAt },
         hashes: { ledger: ledgerHash, sharedConfig: sharedConfigHash, derivedViews: viewsHash, reports: reportsHash, attachments: await sha256(attachments) },
         schemaValidation: { valid: invariantViolations.length === 0, schemaVersion: SCHEMA_VERSION },
@@ -767,7 +774,7 @@
       attachments: [],
       exportIntegrity: {
         generatorVersion: GENERATOR_VERSION,
-        sampleData: false,
+        sampleData: options.sampleData === true,
         sourceLedgerHash,
         materializedEventHash: materializedHash,
         semanticHash,
@@ -816,6 +823,7 @@
     GENERATOR_VERSION,
     REPORT_TYPES,
     REPORT_EVENT_TYPES,
+    SIBLING_RULES,
     stableStringify,
     sha256,
     canonicalType,

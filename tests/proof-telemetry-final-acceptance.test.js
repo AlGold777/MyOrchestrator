@@ -21,7 +21,7 @@ describe('proof telemetry final acceptance metrics', () => {
       evt('LIFECYCLE_SNAPSHOT_REJECTED', 1040)
     ], { runSessionId: 42 });
     const report = await ProofTelemetry.buildStandaloneReport(ledger, {
-      canonicalLedger: true, modelId: 'GPT', reportType: 'submission-proof'
+      canonicalLedger: true, modelId: 'GPT', reportType: 'prompt-not-sent'
     });
     const ids = new Set(report.eventSelection.eventRefs);
     expect(report.correlation).toEqual(expect.objectContaining({
@@ -45,7 +45,7 @@ describe('proof telemetry final acceptance metrics', () => {
     const ledger = ProofTelemetry.buildLedger([
       evt('DISPATCH_BASELINE_CAPTURED', 1000), evt('DISPATCH_SEND', 1010), evt('PROMPT_SUBMITTED_ACCEPTED', 1020)
     ], { runSessionId: 42 });
-    const report = await ProofTelemetry.buildStandaloneReport(ledger, { canonicalLedger: true, modelId: 'GPT', reportType: 'submission-proof' });
+    const report = await ProofTelemetry.buildStandaloneReport(ledger, { canonicalLedger: true, modelId: 'GPT', reportType: 'prompt-not-sent' });
     const optimized = await optimizeRepresentation(report, { transportLimitBytes: 1 });
     expect(optimized.eventSelection.materializedEvents).toEqual(report.eventSelection.materializedEvents);
   });

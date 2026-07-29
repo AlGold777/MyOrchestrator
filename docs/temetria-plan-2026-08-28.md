@@ -253,3 +253,38 @@ indexes while preserving standalone event IDs. - Done
 Section 13 evidence: 635 operational/debug inputs produce fewer than 20
 canonical events and a sub-100 KB proof snapshot; full gate passes 184 suites /
 1249 tests.
+
+## 14. User-question preset catalog
+
+14.1. Replace the eight implementation-oriented Tasks with the six approved
+user diagnoses: Cutted, False success, Old answer, Empty, Prompt not sent and
+Late end. - Done
+
+14.2. Merge true-completion, forced-success and forced-finalization evidence
+into one False success contract without removing their proof-bearing event
+families. - Done
+
+14.3. Split extraction diagnosis into Old answer for wrong-turn identity and
+Empty for empty/wrong-node extraction. - Done
+
+14.4. Narrow Cutted to SUCCESS with incomplete captured text and rename request
+not sent to Prompt not sent. - Done
+
+14.5. Add Late end evidence slots and the derived `stableToTerminalMs` interval
+from the last stability boundary to terminal recording. - Done
+
+14.6. Replace the Task catalog in both Telemetry surfaces while retaining
+exactly Platform and Tasks filters. - Done
+
+14.7. Synchronize the executable registry, sibling rules, offline validator,
+schemas/examples generator and six validated standalone examples. - Done
+
+14.8. Update manifest/package version and the existing project, telemetry,
+specification, changelog and plan documentation. - Done
+
+14.9. Run focused artifact validation and the complete regression gate. - Done
+
+Section 14 evidence: All tasks and all six generated standalone examples pass
+the offline validator; full gate passes 184 suites / 1250 tests. Runtime writes
+remain a single canonical segmented ledger, with All tasks and standalone Tasks
+implemented as export projections.

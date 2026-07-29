@@ -4,16 +4,14 @@ const Ajv2020 = require('ajv/dist/2020');
 const Contracts = require('../shared/proof-telemetry-contracts.js');
 
 describe('proof telemetry executable contracts', () => {
-  test('defines evidence-slot contracts for all eight reports', () => {
+  test('defines evidence-slot contracts for the six user diagnostic questions', () => {
     expect(Object.keys(Contracts.REPORT_CONTRACTS)).toEqual([
-      'request-not-sent',
-      'generation-not-started',
-      'truncation',
-      'true-completion',
-      'submission-proof',
-      'extraction-integrity',
-      'forced-success',
-      'forced-finalization'
+      'cutted',
+      'false-success',
+      'old-answer',
+      'empty',
+      'prompt-not-sent',
+      'late-end'
     ]);
     Object.keys(Contracts.REPORT_CONTRACTS).forEach((reportType) => {
       const slots = Contracts.normalizedSlots(reportType);

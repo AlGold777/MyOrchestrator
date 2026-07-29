@@ -1,222 +1,12 @@
 {
-  "registryVersion": "1.0.0",
-  "predicateLanguageVersion": "1.0",
-  "thresholds": {
-    "generationStartTimeoutMs": 15000,
-    "stableWindowMs": 4500,
-    "requiredStableSamples": 5,
-    "maximumSignalAgeMs": 3000,
-    "maximumObservationGapMs": 5000,
-    "postTerminalAuditMs": 7000,
-    "minimumExtractionCoveragePct": 98.0,
-    "postTerminalGrowthTolerancePct": 0.5,
-    "automaticMinimumEvidenceTier": 3,
-    "maximumSignalSkewMs": 250
-  },
-  "operators": [
-    "eq",
-    "ne",
-    "in",
-    "not_in",
-    "lt",
-    "lte",
-    "gt",
-    "gte",
-    "exists",
-    "missing"
-  ],
+  "registryVersion": "3.0.0",
+  "predicateLanguageVersion": "1.0.0",
+  "maxEscalationDepth": 2,
   "rules": {
-    "request-not-sent": [
+    "cutted": [
       {
-        "reportType": "submission-proof",
-        "relation": "same-evidence-chain",
-        "priority": "required",
-        "requestIf": {
-          "any": [
-            {
-              "path": "$.stateAxes.submission",
-              "operator": "in",
-              "value": [
-                "evidence_partial",
-                "unknown"
-              ]
-            },
-            {
-              "path": "$.reportDescriptor.completeness.evidenceCoveragePct",
-              "operator": "lt",
-              "value": 80
-            }
-          ]
-        },
-        "requestPurpose": "Отделить неудачу action dispatch от отсутствия platform acceptance."
-      },
-      {
-        "reportType": "generation-not-started",
-        "relation": "next-stage",
-        "priority": "required",
-        "requestIf": {
-          "all": [
-            {
-              "path": "$.derivedViews.userMessageAppeared",
-              "operator": "eq",
-              "value": true
-            },
-            {
-              "path": "$.derivedViews.firstGenerationSignalDelayMs",
-              "operator": "gte",
-              "value": 15000
-            }
-          ]
-        },
-        "requestPurpose": "Проверить, был ли запрос принят, но генерация не стартовала."
-      }
-    ],
-    "generation-not-started": [
-      {
-        "reportType": "submission-proof",
-        "relation": "prerequisite",
-        "priority": "required",
-        "requestIf": {
-          "any": [
-            {
-              "path": "$.stateAxes.submission",
-              "operator": "ne",
-              "value": "confirmed"
-            },
-            {
-              "path": "$.derivedViews.submissionEvidenceTier",
-              "operator": "lt",
-              "value": 3
-            }
-          ]
-        },
-        "requestPurpose": "Подтвердить, что ожидание генерации началось после принятого запроса."
-      },
-      {
-        "reportType": "request-not-sent",
-        "relation": "alternative-cause",
-        "priority": "required",
-        "requestIf": {
-          "all": [
-            {
-              "path": "$.derivedViews.firstGenerationSignalDelayMs",
-              "operator": "gte",
-              "value": 15000
-            },
-            {
-              "path": "$.derivedViews.assistantCandidateCount",
-              "operator": "eq",
-              "value": 0
-            },
-            {
-              "path": "$.stateAxes.submission",
-              "operator": "in",
-              "value": [
-                "failed",
-                "evidence_partial",
-                "unknown"
-              ]
-            }
-          ]
-        },
-        "requestPurpose": "Проверить альтернативу: запрос не был принят платформой."
-      }
-    ],
-    "truncation": [
-      {
-        "reportType": "true-completion",
-        "relation": "cause",
-        "priority": "required",
-        "requestIf": {
-          "any": [
-            {
-              "path": "$.derivedViews.completionEvidenceTier",
-              "operator": "lt",
-              "value": 3
-            },
-            {
-              "path": "$.stateAxes.terminalMode",
-              "operator": "in",
-              "value": [
-                "forced",
-                "recovery",
-                "manual"
-              ]
-            }
-          ]
-        },
-        "requestPurpose": "Отличить реальное окончание модели от преждевременной финализации."
-      },
-      {
-        "reportType": "extraction-integrity",
-        "relation": "alternative-cause",
-        "priority": "required",
-        "requestIf": {
-          "any": [
-            {
-              "path": "$.derivedViews.extractionCoveragePct",
-              "operator": "lt",
-              "value": 98.0
-            },
-            {
-              "path": "$.derivedViews.relevantCandidateCount",
-              "operator": "gt",
-              "value": 1
-            },
-            {
-              "path": "$.derivedViews.hiddenRelevantNodeCount",
-              "operator": "gt",
-              "value": 0
-            }
-          ]
-        },
-        "requestPurpose": "Проверить, осталась ли часть текста в другом или невидимом DOM-кандидате."
-      },
-      {
-        "reportType": "forced-finalization",
-        "relation": "mechanism",
-        "priority": "required",
-        "requestIf": {
-          "any": [
-            {
-              "path": "$.stateAxes.terminalMode",
-              "operator": "eq",
-              "value": "forced"
-            },
-            {
-              "path": "$.derivedViews.deadlineExceeded",
-              "operator": "eq",
-              "value": true
-            }
-          ]
-        },
-        "requestPurpose": "Установить, остановило ли расширение ожидание по таймауту."
-      },
-      {
-        "reportType": "forced-success",
-        "relation": "status-projection",
-        "priority": "required",
-        "requestIf": {
-          "all": [
-            {
-              "path": "$.derivedViews.terminalOutcome",
-              "operator": "eq",
-              "value": "SUCCESS"
-            },
-            {
-              "path": "$.derivedViews.automaticEvidenceSatisfied",
-              "operator": "eq",
-              "value": false
-            }
-          ]
-        },
-        "requestPurpose": "Объяснить, почему неполный ответ был спроецирован как SUCCESS."
-      }
-    ],
-    "true-completion": [
-      {
-        "reportType": "truncation",
-        "relation": "audit-result",
+        "reportType": "false-success",
+        "relation": "diagnostic-dependency",
         "priority": "required",
         "requestIf": {
           "any": [
@@ -224,255 +14,170 @@
               "path": "$.derivedViews.postTerminalGrowthPct",
               "operator": "gt",
               "value": 0.5
-            },
-            {
-              "path": "$.derivedViews.postTerminalHashChanged",
-              "operator": "eq",
-              "value": true
             }
           ]
         },
-        "requestPurpose": "Классифицировать продолжение ответа после terminal decision как возможную обрезку."
+        "antiLoop": {
+          "sourceReportType": "cutted",
+          "requestTargetOnlyOnce": true
+        }
       },
       {
-        "reportType": "extraction-integrity",
-        "relation": "identity-dependency",
+        "reportType": "old-answer",
+        "relation": "diagnostic-dependency",
         "priority": "required",
         "requestIf": {
           "any": [
             {
               "path": "$.stateAxes.answerIdentity",
-              "operator": "in",
-              "value": [
-                "ambiguous",
-                "stale",
-                "rejected"
-              ]
-            },
-            {
-              "path": "$.derivedViews.extractionCoveragePct",
-              "operator": "lt",
-              "value": 98.0
+              "operator": "ne",
+              "value": "current_dispatch"
             }
           ]
         },
-        "requestPurpose": "Проверить, что completion оценивался по правильному и полному кандидату."
+        "antiLoop": {
+          "sourceReportType": "cutted",
+          "requestTargetOnlyOnce": true
+        }
       },
       {
-        "reportType": "forced-finalization",
-        "relation": "alternative-terminal",
-        "priority": "required",
-        "requestIf": {
-          "all": [
-            {
-              "path": "$.stateAxes.completionDetection",
-              "operator": "in",
-              "value": [
-                "inconclusive",
-                "probably_complete"
-              ]
-            },
-            {
-              "path": "$.stateAxes.terminalMode",
-              "operator": "eq",
-              "value": "forced"
-            }
-          ]
-        },
-        "requestPurpose": "Разделить detected completion и прекращение ожидания по policy."
-      },
-      {
-        "reportType": "forced-success",
-        "relation": "projection-audit",
-        "priority": "required",
-        "requestIf": {
-          "all": [
-            {
-              "path": "$.derivedViews.terminalOutcome",
-              "operator": "eq",
-              "value": "SUCCESS"
-            },
-            {
-              "path": "$.derivedViews.completionEvidenceTier",
-              "operator": "lt",
-              "value": 3
-            }
-          ]
-        },
-        "requestPurpose": "Проверить SUCCESS при недостаточном evidence tier."
-      }
-    ],
-    "submission-proof": [
-      {
-        "reportType": "request-not-sent",
-        "relation": "negative-outcome",
+        "reportType": "empty",
+        "relation": "diagnostic-dependency",
         "priority": "required",
         "requestIf": {
           "any": [
             {
-              "path": "$.stateAxes.submission",
-              "operator": "eq",
-              "value": "failed"
-            },
-            {
-              "path": "$.derivedViews.confirmedAcceptanceEvidenceCount",
+              "path": "$.derivedViews.acceptedTextLength",
               "operator": "eq",
               "value": 0
             }
           ]
         },
-        "requestPurpose": "Диагностировать отрицательный исход той же dispatch evidence chain."
-      },
-      {
-        "reportType": "generation-not-started",
-        "relation": "next-stage",
-        "priority": "required",
-        "requestIf": {
-          "all": [
-            {
-              "path": "$.stateAxes.submission",
-              "operator": "eq",
-              "value": "confirmed"
-            },
-            {
-              "path": "$.derivedViews.firstGenerationSignalDelayMs",
-              "operator": "gte",
-              "value": 15000
-            }
-          ]
-        },
-        "requestPurpose": "Проверить, почему после подтверждённой отправки не началась генерация."
+        "antiLoop": {
+          "sourceReportType": "cutted",
+          "requestTargetOnlyOnce": true
+        }
       }
     ],
-    "extraction-integrity": [
+    "false-success": [
       {
-        "reportType": "truncation",
-        "relation": "symptom",
+        "reportType": "cutted",
+        "relation": "diagnostic-dependency",
         "priority": "required",
         "requestIf": {
           "any": [
             {
               "path": "$.derivedViews.extractionCoveragePct",
               "operator": "lt",
-              "value": 98.0
-            },
+              "value": 98
+            }
+          ]
+        },
+        "antiLoop": {
+          "sourceReportType": "false-success",
+          "requestTargetOnlyOnce": true
+        }
+      },
+      {
+        "reportType": "late-end",
+        "relation": "diagnostic-dependency",
+        "priority": "required",
+        "requestIf": {
+          "any": [
             {
-              "path": "$.derivedViews.hiddenRelevantTextLength",
+              "path": "$.derivedViews.stableToTerminalMs",
               "operator": "gt",
               "value": 0
             }
           ]
         },
-        "requestPurpose": "Оценить влияние неполного извлечения на итоговый ответ."
-      },
-      {
-        "reportType": "true-completion",
-        "relation": "temporal-dependency",
-        "priority": "required",
-        "requestIf": {
-          "any": [
-            {
-              "path": "$.derivedViews.captureBeforeTerminal",
-              "operator": "eq",
-              "value": true
-            },
-            {
-              "path": "$.derivedViews.completionEvidenceTier",
-              "operator": "lt",
-              "value": 3
-            }
-          ]
-        },
-        "requestPurpose": "Проверить, не извлекался ли текст до истинного окончания генерации."
-      },
-      {
-        "reportType": "forced-finalization",
-        "relation": "temporal-cause",
-        "priority": "required",
-        "requestIf": {
-          "any": [
-            {
-              "path": "$.stateAxes.terminalMode",
-              "operator": "eq",
-              "value": "forced"
-            },
-            {
-              "path": "$.derivedViews.terminalBeforeLastRelevantMutation",
-              "operator": "eq",
-              "value": true
-            }
-          ]
-        },
-        "requestPurpose": "Проверить, прекратило ли расширение ожидание до завершения DOM-эволюции."
+        "antiLoop": {
+          "sourceReportType": "false-success",
+          "requestTargetOnlyOnce": true
+        }
       }
     ],
-    "forced-success": [
+    "old-answer": [
       {
-        "reportType": "true-completion",
-        "relation": "evidence-gap",
-        "priority": "required",
-        "requestIf": {
-          "all": [
-            {
-              "path": "$.derivedViews.terminalOutcome",
-              "operator": "eq",
-              "value": "SUCCESS"
-            },
-            {
-              "path": "$.derivedViews.completionEvidenceTier",
-              "operator": "lt",
-              "value": 3
-            }
-          ]
-        },
-        "requestPurpose": "Установить, завершилась ли модель фактически."
-      },
-      {
-        "reportType": "forced-finalization",
-        "relation": "mechanism",
+        "reportType": "empty",
+        "relation": "diagnostic-dependency",
         "priority": "required",
         "requestIf": {
           "any": [
             {
-              "path": "$.stateAxes.terminalMode",
+              "path": "$.derivedViews.acceptedTextLength",
               "operator": "eq",
-              "value": "forced"
-            },
-            {
-              "path": "$.derivedViews.timeoutTriggerObserved",
-              "operator": "eq",
-              "value": true
+              "value": 0
             }
           ]
         },
-        "requestPurpose": "Проверить конкретный механизм принудительной финализации."
+        "antiLoop": {
+          "sourceReportType": "old-answer",
+          "requestTargetOnlyOnce": true
+        }
       },
       {
-        "reportType": "extraction-integrity",
-        "relation": "accepted-answer-quality",
+        "reportType": "cutted",
+        "relation": "diagnostic-dependency",
         "priority": "required",
         "requestIf": {
           "any": [
-            {
-              "path": "$.stateAxes.extraction",
-              "operator": "in",
-              "value": [
-                "fallback",
-                "ambiguous"
-              ]
-            },
             {
               "path": "$.derivedViews.extractionCoveragePct",
               "operator": "lt",
-              "value": 98.0
+              "value": 98
             }
           ]
         },
-        "requestPurpose": "Проверить качество текста, принятого forced-веткой."
+        "antiLoop": {
+          "sourceReportType": "old-answer",
+          "requestTargetOnlyOnce": true
+        }
+      }
+    ],
+    "empty": [
+      {
+        "reportType": "old-answer",
+        "relation": "diagnostic-dependency",
+        "priority": "required",
+        "requestIf": {
+          "any": [
+            {
+              "path": "$.stateAxes.answerIdentity",
+              "operator": "ne",
+              "value": "current_dispatch"
+            }
+          ]
+        },
+        "antiLoop": {
+          "sourceReportType": "empty",
+          "requestTargetOnlyOnce": true
+        }
       },
       {
-        "reportType": "truncation",
-        "relation": "consequence",
+        "reportType": "cutted",
+        "relation": "diagnostic-dependency",
+        "priority": "required",
+        "requestIf": {
+          "any": [
+            {
+              "path": "$.derivedViews.maxObservedTextLength",
+              "operator": "gt",
+              "value": 0
+            }
+          ]
+        },
+        "antiLoop": {
+          "sourceReportType": "empty",
+          "requestTargetOnlyOnce": true
+        }
+      }
+    ],
+    "prompt-not-sent": [],
+    "late-end": [
+      {
+        "reportType": "false-success",
+        "relation": "diagnostic-dependency",
         "priority": "required",
         "requestIf": {
           "any": [
@@ -480,100 +185,14 @@
               "path": "$.derivedViews.postTerminalGrowthPct",
               "operator": "gt",
               "value": 0.5
-            },
-            {
-              "path": "$.derivedViews.extractionCoveragePct",
-              "operator": "lt",
-              "value": 98.0
             }
           ]
         },
-        "requestPurpose": "Проверить, привёл ли forced SUCCESS к обрезанному ответу."
-      }
-    ],
-    "forced-finalization": [
-      {
-        "reportType": "forced-success",
-        "relation": "status-projection",
-        "priority": "required",
-        "requestIf": {
-          "any": [
-            {
-              "path": "$.derivedViews.terminalOutcome",
-              "operator": "eq",
-              "value": "SUCCESS"
-            }
-          ]
-        },
-        "requestPurpose": "Проверить, был ли forced terminal спроецирован как SUCCESS."
-      },
-      {
-        "reportType": "true-completion",
-        "relation": "counterfactual",
-        "priority": "required",
-        "requestIf": {
-          "any": [
-            {
-              "path": "$.derivedViews.completionEvidenceTier",
-              "operator": "lt",
-              "value": 3
-            },
-            {
-              "path": "$.derivedViews.activeSignalAtForce",
-              "operator": "eq",
-              "value": true
-            }
-          ]
-        },
-        "requestPurpose": "Установить, завершилась ли модель до принудительного прекращения ожидания."
-      },
-      {
-        "reportType": "generation-not-started",
-        "relation": "pre-start-timeout",
-        "priority": "required",
-        "requestIf": {
-          "all": [
-            {
-              "path": "$.stateAxes.observedGeneration",
-              "operator": "eq",
-              "value": "not_started"
-            },
-            {
-              "path": "$.derivedViews.answerLengthAtForce",
-              "operator": "eq",
-              "value": 0
-            }
-          ]
-        },
-        "requestPurpose": "Отличить timeout ожидания старта от timeout активной генерации."
-      },
-      {
-        "reportType": "truncation",
-        "relation": "post-force-consequence",
-        "priority": "required",
-        "requestIf": {
-          "all": [
-            {
-              "path": "$.derivedViews.answerLengthAtForce",
-              "operator": "gt",
-              "value": 0
-            },
-            {
-              "path": "$.derivedViews.postTerminalGrowthPct",
-              "operator": "gt",
-              "value": 0.5
-            }
-          ]
-        },
-        "requestPurpose": "Проверить, была ли сохранена неполная версия ответа."
+        "antiLoop": {
+          "sourceReportType": "late-end",
+          "requestTargetOnlyOnce": true
+        }
       }
     ]
-  },
-  "antiLoopPolicy": {
-    "maxEscalationDepth": 2,
-    "doNotRequestAlreadyProvided": true,
-    "doNotRequestAlreadyRequested": true,
-    "requireNewQuestionToResolve": true
-  },
-  "registryHash": "sha256:ee727e80bbeb45cfc7b8c736f532219ffc65696d7cc4143707775b8ed46babbd"
+  }
 }

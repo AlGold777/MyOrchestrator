@@ -1,1601 +1,1155 @@
 {
   "schemaVersion": "5.0",
   "containerType": "all-presets",
-  "exportId": "export-run-trunc-20260728-115400",
+  "exportId": "export-synthetic-run-12000",
   "manifest": {
-    "createdAt": "2026-07-28T11:54:20+02:00",
-    "containerFormat": "json",
-    "canonicalSerialization": "sorted-keys-utf8",
+    "createdAt": "1970-01-01T00:00:12.000Z",
+    "encoding": "inline-json",
     "contentIndex": {
-      "ledger": "$.ledger.events",
-      "sharedConfig": "$.sharedConfig",
-      "reports": "$.reports",
-      "derivedViews": "$.derivedViews",
-      "attachments": "$.attachments"
+      "reportTypes": [
+        "cutted",
+        "false-success",
+        "old-answer",
+        "empty",
+        "prompt-not-sent",
+        "late-end"
+      ],
+      "modelIds": [
+        "GPT"
+      ],
+      "eventCount": 19
     },
-    "reportTypes": [
-      "request-not-sent",
-      "generation-not-started",
-      "truncation",
-      "true-completion",
-      "submission-proof",
-      "extraction-integrity",
-      "forced-success",
-      "forced-finalization"
+    "reportSchemas": {
+      "cutted": "2.0.0",
+      "false-success": "2.0.0",
+      "old-answer": "2.0.0",
+      "empty": "2.0.0",
+      "prompt-not-sent": "2.0.0",
+      "late-end": "2.0.0"
+    },
+    "deduplication": {
+      "canonicalEventsStoredOnce": true,
+      "embeddedReportsContainEventSeqsOnly": true
+    },
+    "privacyMode": "metadata-only",
+    "sizeBudgetBytes": 1000000,
+    "overflowPolicy": [
+      "drop-rebuildable-derived-detail",
+      "externalize-optional-attachments",
+      "aggregate-repeated-checks",
+      "preserve-canonical-proof-events"
     ],
-    "deduplicationRules": [
-      "ledger events stored once",
-      "shared config stored once",
-      "attachments keyed by content hash",
-      "reports reference eventIds and derived view ids"
-    ],
-    "sizeBudget": {
-      "normalRunTargetMinifiedBytes": 350000,
-      "normalRunTargetGzipBytes": 120000,
-      "hardContainerBytes": 1000000,
-      "coreLedgerPerModelTargetBytes": 40000,
-      "allDerivedViewsTargetBytes": 80000,
-      "attachmentPerAnomalyMaxBytes": 50000,
-      "attachmentsTotalDefaultMaxBytes": 200000,
-      "overflowPolicy": "preserve core ledger; externalize or omit optional forensic attachments with explicit omission records"
-    }
+    "omissions": []
   },
   "crossReportCompatibility": {
-    "correlation": {
-      "exportId": "export-run-trunc-20260728-115400",
-      "runSessionId": "run-trunc-20260728-115400",
-      "modelId": "GPT",
-      "dispatchId": "gpt-trunc-001",
-      "tabId": 101,
-      "documentInstanceId": "doc-gpt-trunc-001",
-      "navigationEpoch": 1,
-      "conversationId": "conv-gpt-trunc-001",
-      "generationEpoch": 1,
-      "ledgerHash": "sha256:2100cfb4ef1f904297eeda2a3c680f78e91961050a9cb76e17aea1340e38575f",
-      "exportBoundary": {
-        "ledgerCompleteThroughSeq": 9,
-        "pendingWritersFlushed": true
-      }
-    },
-    "compatibilityKeyHash": "sha256:dc13cb7bf5c25836da32600a19d4e1d55402e9215788088e172c5355d66868b5",
-    "rules": {
-      "exactMatch": [
-        "runSessionId",
-        "modelId",
-        "dispatchId",
-        "generationEpoch",
-        "ledgerHash",
-        "exportBoundary.ledgerCompleteThroughSeq"
-      ],
-      "conditionalMatch": [
-        "documentInstanceId",
-        "navigationEpoch only across recorded navigation transition"
-      ],
-      "incompatibleIf": [
-        "ledgerHash mismatch",
-        "dispatchId mismatch",
-        "generationEpoch mismatch",
-        "different export boundary without superset proof"
-      ]
+    "mode": "same_export",
+    "exactMatch": {
+      "runSessionId": "synthetic-run",
+      "ledgerHash": "sha256:cf61ad87db67de9abc0cbe0d3981aefa53840eab7f52c0d0324e78e1b4e1bee3",
+      "ledgerCompleteThroughSeq": 19
     }
   },
   "sharedConfig": {
-    "extensionVersion": "5.0.0",
+    "extensionVersion": "2.81.143",
+    "generationWaitProfile": "unknown",
     "schemaVersion": "5.0",
-    "decisionEngineVersion": "completion-engine@5",
-    "summaryBuilderVersion": "summary-builder@5",
-    "replayEngineVersion": "replay@5",
+    "generatorVersion": "proof-export@1.1.0",
     "policy": {
-      "policyId": "completion-policy@5",
-      "policyHash": "sha256:policy5",
-      "generationStartTimeoutMs": 15000,
-      "stableWindowMs": 4500,
-      "requiredStableSamples": 5,
-      "maximumSignalAgeMs": 3000,
-      "maximumObservationGapMs": 5000,
-      "postTerminalAuditMs": 7000,
-      "minimumExtractionCoveragePct": 98.0,
-      "postTerminalGrowthTolerancePct": 0.5,
+      "policyId": "proof-default-v1",
       "automaticMinimumEvidenceTier": 3,
       "maximumSignalSkewMs": 250
     },
-    "platformAdapterVersions": {
-      "GPT": "chatgpt@18"
-    },
-    "selectorPacks": {
-      "GPT": "chatgpt-selectors@13"
-    },
-    "capabilities": {
-      "domObservation": true,
-      "networkObservation": false,
-      "providerTerminalSignal": false
-    },
     "privacy": {
-      "fullPromptExported": false,
-      "fullAnswerExported": false,
-      "urlRedaction": true,
-      "domAllowlist": true
+      "mode": "metadata-only",
+      "rawPromptAnswerExported": false,
+      "urlMode": "hash-only"
     },
-    "analysisInstructions": {
-      "treatReportAsPartialView": true,
-      "doNotAssumeMissingSignalsAreAbsent": true,
-      "distinguishFactsInferencesDecisionsActionsAudits": true,
-      "citeEventIdsForEveryTechnicalConclusion": true,
-      "stateObservationReliability": true,
-      "evaluateAllRequestIfRules": true,
-      "requestMatchedRequiredReportsBeforeFinalCausalVerdict": true,
-      "mayProvideEstablishedFactsBeforeEscalation": true,
-      "doNotMergeIncompatibleReports": true,
-      "outputContract": {
-        "sections": [
-          "Established facts",
-          "Bounded diagnosis",
-          "Contradictions",
-          "Missing evidence",
-          "Required additional reports",
-          "Final causal verdict"
+    "dependencyRegistry": {
+      "version": "3.0.0",
+      "predicateLanguageVersion": "1.0.0",
+      "maxEscalationDepth": 2,
+      "rules": {
+        "cutted": [
+          [
+            "false-success",
+            "$.derivedViews.postTerminalGrowthPct",
+            "gt",
+            0.5
+          ],
+          [
+            "old-answer",
+            "$.stateAxes.answerIdentity",
+            "ne",
+            "current_dispatch"
+          ],
+          [
+            "empty",
+            "$.derivedViews.acceptedTextLength",
+            "eq",
+            0
+          ]
         ],
-        "finalCausalVerdictAllowedWhen": "completeness.level == complete AND requiredAdditionalReports is empty",
-        "additionalReportRequestTemplate": "Для однозначного вывода нужен файл {reportType}: {requestPurpose}. Сработавшее условие: {matchedPredicate}."
+        "false-success": [
+          [
+            "cutted",
+            "$.derivedViews.extractionCoveragePct",
+            "lt",
+            98
+          ],
+          [
+            "late-end",
+            "$.derivedViews.stableToTerminalMs",
+            "gt",
+            0
+          ]
+        ],
+        "old-answer": [
+          [
+            "empty",
+            "$.derivedViews.acceptedTextLength",
+            "eq",
+            0
+          ],
+          [
+            "cutted",
+            "$.derivedViews.extractionCoveragePct",
+            "lt",
+            98
+          ]
+        ],
+        "empty": [
+          [
+            "old-answer",
+            "$.stateAxes.answerIdentity",
+            "ne",
+            "current_dispatch"
+          ],
+          [
+            "cutted",
+            "$.derivedViews.maxObservedTextLength",
+            "gt",
+            0
+          ]
+        ],
+        "prompt-not-sent": [],
+        "late-end": [
+          [
+            "false-success",
+            "$.derivedViews.postTerminalGrowthPct",
+            "gt",
+            0.5
+          ]
+        ]
       }
     },
-    "dependencyRegistrySnapshot": {
-      "registryVersion": "1.0.0",
-      "predicateLanguageVersion": "1.0",
-      "thresholds": {
-        "generationStartTimeoutMs": 15000,
-        "stableWindowMs": 4500,
-        "requiredStableSamples": 5,
-        "maximumSignalAgeMs": 3000,
-        "maximumObservationGapMs": 5000,
-        "postTerminalAuditMs": 7000,
-        "minimumExtractionCoveragePct": 98.0,
-        "postTerminalGrowthTolerancePct": 0.5,
-        "automaticMinimumEvidenceTier": 3,
-        "maximumSignalSkewMs": 250
-      },
-      "operators": [
-        "eq",
-        "ne",
-        "in",
-        "not_in",
-        "lt",
-        "lte",
-        "gt",
-        "gte",
-        "exists",
-        "missing"
-      ],
-      "rules": {
-        "request-not-sent": [
-          {
-            "reportType": "submission-proof",
-            "relation": "same-evidence-chain",
-            "priority": "required",
-            "requestIf": {
-              "any": [
-                {
-                  "path": "$.stateAxes.submission",
-                  "operator": "in",
-                  "value": [
-                    "evidence_partial",
-                    "unknown"
-                  ]
-                },
-                {
-                  "path": "$.reportDescriptor.completeness.evidenceCoveragePct",
-                  "operator": "lt",
-                  "value": 80
-                }
-              ]
-            },
-            "requestPurpose": "Отделить неудачу action dispatch от отсутствия platform acceptance."
-          },
-          {
-            "reportType": "generation-not-started",
-            "relation": "next-stage",
-            "priority": "required",
-            "requestIf": {
-              "all": [
-                {
-                  "path": "$.derivedViews.userMessageAppeared",
-                  "operator": "eq",
-                  "value": true
-                },
-                {
-                  "path": "$.derivedViews.firstGenerationSignalDelayMs",
-                  "operator": "gte",
-                  "value": 15000
-                }
-              ]
-            },
-            "requestPurpose": "Проверить, был ли запрос принят, но генерация не стартовала."
-          }
-        ],
-        "generation-not-started": [
-          {
-            "reportType": "submission-proof",
-            "relation": "prerequisite",
-            "priority": "required",
-            "requestIf": {
-              "any": [
-                {
-                  "path": "$.stateAxes.submission",
-                  "operator": "ne",
-                  "value": "confirmed"
-                },
-                {
-                  "path": "$.derivedViews.submissionEvidenceTier",
-                  "operator": "lt",
-                  "value": 3
-                }
-              ]
-            },
-            "requestPurpose": "Подтвердить, что ожидание генерации началось после принятого запроса."
-          },
-          {
-            "reportType": "request-not-sent",
-            "relation": "alternative-cause",
-            "priority": "required",
-            "requestIf": {
-              "all": [
-                {
-                  "path": "$.derivedViews.firstGenerationSignalDelayMs",
-                  "operator": "gte",
-                  "value": 15000
-                },
-                {
-                  "path": "$.derivedViews.assistantCandidateCount",
-                  "operator": "eq",
-                  "value": 0
-                },
-                {
-                  "path": "$.stateAxes.submission",
-                  "operator": "in",
-                  "value": [
-                    "failed",
-                    "evidence_partial",
-                    "unknown"
-                  ]
-                }
-              ]
-            },
-            "requestPurpose": "Проверить альтернативу: запрос не был принят платформой."
-          }
-        ],
-        "truncation": [
-          {
-            "reportType": "true-completion",
-            "relation": "cause",
-            "priority": "required",
-            "requestIf": {
-              "any": [
-                {
-                  "path": "$.derivedViews.completionEvidenceTier",
-                  "operator": "lt",
-                  "value": 3
-                },
-                {
-                  "path": "$.stateAxes.terminalMode",
-                  "operator": "in",
-                  "value": [
-                    "forced",
-                    "recovery",
-                    "manual"
-                  ]
-                }
-              ]
-            },
-            "requestPurpose": "Отличить реальное окончание модели от преждевременной финализации."
-          },
-          {
-            "reportType": "extraction-integrity",
-            "relation": "alternative-cause",
-            "priority": "required",
-            "requestIf": {
-              "any": [
-                {
-                  "path": "$.derivedViews.extractionCoveragePct",
-                  "operator": "lt",
-                  "value": 98.0
-                },
-                {
-                  "path": "$.derivedViews.relevantCandidateCount",
-                  "operator": "gt",
-                  "value": 1
-                },
-                {
-                  "path": "$.derivedViews.hiddenRelevantNodeCount",
-                  "operator": "gt",
-                  "value": 0
-                }
-              ]
-            },
-            "requestPurpose": "Проверить, осталась ли часть текста в другом или невидимом DOM-кандидате."
-          },
-          {
-            "reportType": "forced-finalization",
-            "relation": "mechanism",
-            "priority": "required",
-            "requestIf": {
-              "any": [
-                {
-                  "path": "$.stateAxes.terminalMode",
-                  "operator": "eq",
-                  "value": "forced"
-                },
-                {
-                  "path": "$.derivedViews.deadlineExceeded",
-                  "operator": "eq",
-                  "value": true
-                }
-              ]
-            },
-            "requestPurpose": "Установить, остановило ли расширение ожидание по таймауту."
-          },
-          {
-            "reportType": "forced-success",
-            "relation": "status-projection",
-            "priority": "required",
-            "requestIf": {
-              "all": [
-                {
-                  "path": "$.derivedViews.terminalOutcome",
-                  "operator": "eq",
-                  "value": "SUCCESS"
-                },
-                {
-                  "path": "$.derivedViews.automaticEvidenceSatisfied",
-                  "operator": "eq",
-                  "value": false
-                }
-              ]
-            },
-            "requestPurpose": "Объяснить, почему неполный ответ был спроецирован как SUCCESS."
-          }
-        ],
-        "true-completion": [
-          {
-            "reportType": "truncation",
-            "relation": "audit-result",
-            "priority": "required",
-            "requestIf": {
-              "any": [
-                {
-                  "path": "$.derivedViews.postTerminalGrowthPct",
-                  "operator": "gt",
-                  "value": 0.5
-                },
-                {
-                  "path": "$.derivedViews.postTerminalHashChanged",
-                  "operator": "eq",
-                  "value": true
-                }
-              ]
-            },
-            "requestPurpose": "Классифицировать продолжение ответа после terminal decision как возможную обрезку."
-          },
-          {
-            "reportType": "extraction-integrity",
-            "relation": "identity-dependency",
-            "priority": "required",
-            "requestIf": {
-              "any": [
-                {
-                  "path": "$.stateAxes.answerIdentity",
-                  "operator": "in",
-                  "value": [
-                    "ambiguous",
-                    "stale",
-                    "rejected"
-                  ]
-                },
-                {
-                  "path": "$.derivedViews.extractionCoveragePct",
-                  "operator": "lt",
-                  "value": 98.0
-                }
-              ]
-            },
-            "requestPurpose": "Проверить, что completion оценивался по правильному и полному кандидату."
-          },
-          {
-            "reportType": "forced-finalization",
-            "relation": "alternative-terminal",
-            "priority": "required",
-            "requestIf": {
-              "all": [
-                {
-                  "path": "$.stateAxes.completionDetection",
-                  "operator": "in",
-                  "value": [
-                    "inconclusive",
-                    "probably_complete"
-                  ]
-                },
-                {
-                  "path": "$.stateAxes.terminalMode",
-                  "operator": "eq",
-                  "value": "forced"
-                }
-              ]
-            },
-            "requestPurpose": "Разделить detected completion и прекращение ожидания по policy."
-          },
-          {
-            "reportType": "forced-success",
-            "relation": "projection-audit",
-            "priority": "required",
-            "requestIf": {
-              "all": [
-                {
-                  "path": "$.derivedViews.terminalOutcome",
-                  "operator": "eq",
-                  "value": "SUCCESS"
-                },
-                {
-                  "path": "$.derivedViews.completionEvidenceTier",
-                  "operator": "lt",
-                  "value": 3
-                }
-              ]
-            },
-            "requestPurpose": "Проверить SUCCESS при недостаточном evidence tier."
-          }
-        ],
-        "submission-proof": [
-          {
-            "reportType": "request-not-sent",
-            "relation": "negative-outcome",
-            "priority": "required",
-            "requestIf": {
-              "any": [
-                {
-                  "path": "$.stateAxes.submission",
-                  "operator": "eq",
-                  "value": "failed"
-                },
-                {
-                  "path": "$.derivedViews.confirmedAcceptanceEvidenceCount",
-                  "operator": "eq",
-                  "value": 0
-                }
-              ]
-            },
-            "requestPurpose": "Диагностировать отрицательный исход той же dispatch evidence chain."
-          },
-          {
-            "reportType": "generation-not-started",
-            "relation": "next-stage",
-            "priority": "required",
-            "requestIf": {
-              "all": [
-                {
-                  "path": "$.stateAxes.submission",
-                  "operator": "eq",
-                  "value": "confirmed"
-                },
-                {
-                  "path": "$.derivedViews.firstGenerationSignalDelayMs",
-                  "operator": "gte",
-                  "value": 15000
-                }
-              ]
-            },
-            "requestPurpose": "Проверить, почему после подтверждённой отправки не началась генерация."
-          }
-        ],
-        "extraction-integrity": [
-          {
-            "reportType": "truncation",
-            "relation": "symptom",
-            "priority": "required",
-            "requestIf": {
-              "any": [
-                {
-                  "path": "$.derivedViews.extractionCoveragePct",
-                  "operator": "lt",
-                  "value": 98.0
-                },
-                {
-                  "path": "$.derivedViews.hiddenRelevantTextLength",
-                  "operator": "gt",
-                  "value": 0
-                }
-              ]
-            },
-            "requestPurpose": "Оценить влияние неполного извлечения на итоговый ответ."
-          },
-          {
-            "reportType": "true-completion",
-            "relation": "temporal-dependency",
-            "priority": "required",
-            "requestIf": {
-              "any": [
-                {
-                  "path": "$.derivedViews.captureBeforeTerminal",
-                  "operator": "eq",
-                  "value": true
-                },
-                {
-                  "path": "$.derivedViews.completionEvidenceTier",
-                  "operator": "lt",
-                  "value": 3
-                }
-              ]
-            },
-            "requestPurpose": "Проверить, не извлекался ли текст до истинного окончания генерации."
-          },
-          {
-            "reportType": "forced-finalization",
-            "relation": "temporal-cause",
-            "priority": "required",
-            "requestIf": {
-              "any": [
-                {
-                  "path": "$.stateAxes.terminalMode",
-                  "operator": "eq",
-                  "value": "forced"
-                },
-                {
-                  "path": "$.derivedViews.terminalBeforeLastRelevantMutation",
-                  "operator": "eq",
-                  "value": true
-                }
-              ]
-            },
-            "requestPurpose": "Проверить, прекратило ли расширение ожидание до завершения DOM-эволюции."
-          }
-        ],
-        "forced-success": [
-          {
-            "reportType": "true-completion",
-            "relation": "evidence-gap",
-            "priority": "required",
-            "requestIf": {
-              "all": [
-                {
-                  "path": "$.derivedViews.terminalOutcome",
-                  "operator": "eq",
-                  "value": "SUCCESS"
-                },
-                {
-                  "path": "$.derivedViews.completionEvidenceTier",
-                  "operator": "lt",
-                  "value": 3
-                }
-              ]
-            },
-            "requestPurpose": "Установить, завершилась ли модель фактически."
-          },
-          {
-            "reportType": "forced-finalization",
-            "relation": "mechanism",
-            "priority": "required",
-            "requestIf": {
-              "any": [
-                {
-                  "path": "$.stateAxes.terminalMode",
-                  "operator": "eq",
-                  "value": "forced"
-                },
-                {
-                  "path": "$.derivedViews.timeoutTriggerObserved",
-                  "operator": "eq",
-                  "value": true
-                }
-              ]
-            },
-            "requestPurpose": "Проверить конкретный механизм принудительной финализации."
-          },
-          {
-            "reportType": "extraction-integrity",
-            "relation": "accepted-answer-quality",
-            "priority": "required",
-            "requestIf": {
-              "any": [
-                {
-                  "path": "$.stateAxes.extraction",
-                  "operator": "in",
-                  "value": [
-                    "fallback",
-                    "ambiguous"
-                  ]
-                },
-                {
-                  "path": "$.derivedViews.extractionCoveragePct",
-                  "operator": "lt",
-                  "value": 98.0
-                }
-              ]
-            },
-            "requestPurpose": "Проверить качество текста, принятого forced-веткой."
-          },
-          {
-            "reportType": "truncation",
-            "relation": "consequence",
-            "priority": "required",
-            "requestIf": {
-              "any": [
-                {
-                  "path": "$.derivedViews.postTerminalGrowthPct",
-                  "operator": "gt",
-                  "value": 0.5
-                },
-                {
-                  "path": "$.derivedViews.extractionCoveragePct",
-                  "operator": "lt",
-                  "value": 98.0
-                }
-              ]
-            },
-            "requestPurpose": "Проверить, привёл ли forced SUCCESS к обрезанному ответу."
-          }
-        ],
-        "forced-finalization": [
-          {
-            "reportType": "forced-success",
-            "relation": "status-projection",
-            "priority": "required",
-            "requestIf": {
-              "any": [
-                {
-                  "path": "$.derivedViews.terminalOutcome",
-                  "operator": "eq",
-                  "value": "SUCCESS"
-                }
-              ]
-            },
-            "requestPurpose": "Проверить, был ли forced terminal спроецирован как SUCCESS."
-          },
-          {
-            "reportType": "true-completion",
-            "relation": "counterfactual",
-            "priority": "required",
-            "requestIf": {
-              "any": [
-                {
-                  "path": "$.derivedViews.completionEvidenceTier",
-                  "operator": "lt",
-                  "value": 3
-                },
-                {
-                  "path": "$.derivedViews.activeSignalAtForce",
-                  "operator": "eq",
-                  "value": true
-                }
-              ]
-            },
-            "requestPurpose": "Установить, завершилась ли модель до принудительного прекращения ожидания."
-          },
-          {
-            "reportType": "generation-not-started",
-            "relation": "pre-start-timeout",
-            "priority": "required",
-            "requestIf": {
-              "all": [
-                {
-                  "path": "$.stateAxes.observedGeneration",
-                  "operator": "eq",
-                  "value": "not_started"
-                },
-                {
-                  "path": "$.derivedViews.answerLengthAtForce",
-                  "operator": "eq",
-                  "value": 0
-                }
-              ]
-            },
-            "requestPurpose": "Отличить timeout ожидания старта от timeout активной генерации."
-          },
-          {
-            "reportType": "truncation",
-            "relation": "post-force-consequence",
-            "priority": "required",
-            "requestIf": {
-              "all": [
-                {
-                  "path": "$.derivedViews.answerLengthAtForce",
-                  "operator": "gt",
-                  "value": 0
-                },
-                {
-                  "path": "$.derivedViews.postTerminalGrowthPct",
-                  "operator": "gt",
-                  "value": 0.5
-                }
-              ]
-            },
-            "requestPurpose": "Проверить, была ли сохранена неполная версия ответа."
-          }
-        ]
-      },
-      "antiLoopPolicy": {
-        "maxEscalationDepth": 2,
-        "doNotRequestAlreadyProvided": true,
-        "doNotRequestAlreadyRequested": true,
-        "requireNewQuestionToResolve": true
-      },
-      "registryHash": "sha256:ee727e80bbeb45cfc7b8c736f532219ffc65696d7cc4143707775b8ed46babbd"
-    }
+    "commonAnalysisInstructions": [
+      "Treat each report as a partial view.",
+      "Missing signal is unknown, not absent.",
+      "Separate FACT, INFERENCE, DECISION, ACTION and AUDIT.",
+      "Cite eventId for technical conclusions.",
+      "Evaluate sibling requestIf rules before a final causal verdict."
+    ]
   },
   "ledger": {
     "encoding": "inline-json",
-    "appendOnly": true,
     "firstSeq": 1,
-    "lastSeq": 9,
-    "eventCount": 9,
-    "ledgerHash": "sha256:2100cfb4ef1f904297eeda2a3c680f78e91961050a9cb76e17aea1340e38575f",
+    "lastSeq": 19,
+    "eventCount": 19,
+    "ledgerHash": "sha256:cf61ad87db67de9abc0cbe0d3981aefa53840eab7f52c0d0324e78e1b4e1bee3",
     "events": [
       {
-        "schemaVersion": 5,
-        "eventId": "ev-gpt-trunc-001-1",
-        "eventType": "SUBMISSION_INFERRED",
-        "layer": "inference",
+        "schemaVersion": 6,
+        "eventId": "event-5548e30c-3db5470a",
+        "eventType": "DISPATCH_BASELINE_CAPTURED",
+        "layer": "fact",
         "seq": 1,
-        "wallTs": 1785230000800,
-        "monoMs": 800,
-        "runSessionId": "run-trunc-20260728-115400",
+        "ingestSeq": 1,
+        "runGeneration": 1,
+        "wallTs": 1000,
+        "runSessionId": "synthetic-run",
         "modelId": "GPT",
-        "dispatchId": "gpt-trunc-001",
-        "generationEpoch": 1,
         "producer": {
-          "component": "telemetry-core",
-          "version": "5.0.0"
+          "component": "legacy-telemetry-adapter",
+          "version": "proof-export@1.1.0"
+        },
+        "clock": {
+          "contractVersion": "1.0",
+          "producerEpochId": "legacy-clockless",
+          "producerSequence": null,
+          "observedAtLocalMonoMs": null,
+          "sentAtLocalMonoMs": null,
+          "originKind": "unknown",
+          "ingestEpochId": "legacy-adapter",
+          "ingestMonoMs": 1
         },
         "payload": {
-          "state": "confirmed",
-          "confidence": "high"
-        }
+          "typed": {
+            "kind": "submission",
+            "state": "attempted"
+          },
+          "sourceEventType": "DISPATCH_BASELINE_CAPTURED",
+          "sourceLevel": "info",
+          "detailsLength": 0,
+          "metadata": {
+            "dispatchId": "synthetic-dispatch",
+            "generationEpoch": 1,
+            "runGeneration": 1,
+            "runSessionId": "synthetic-run"
+          }
+        },
+        "dispatchId": "synthetic-dispatch",
+        "generationEpoch": 1
       },
       {
-        "schemaVersion": 5,
-        "eventId": "ev-gpt-trunc-001-2",
-        "eventType": "CANDIDATE_SET_CHANGED",
+        "schemaVersion": 6,
+        "eventId": "event-c8829cbb-018c5743",
+        "eventType": "SUBMIT_ACTION_OBSERVED",
         "layer": "fact",
         "seq": 2,
-        "wallTs": 1785230002300,
-        "monoMs": 2300,
-        "runSessionId": "run-trunc-20260728-115400",
+        "ingestSeq": 2,
+        "runGeneration": 1,
+        "wallTs": 1500,
+        "runSessionId": "synthetic-run",
         "modelId": "GPT",
-        "dispatchId": "gpt-trunc-001",
-        "generationEpoch": 1,
         "producer": {
-          "component": "telemetry-core",
-          "version": "5.0.0"
+          "component": "legacy-telemetry-adapter",
+          "version": "proof-export@1.1.0"
+        },
+        "clock": {
+          "contractVersion": "1.0",
+          "producerEpochId": "legacy-clockless",
+          "producerSequence": null,
+          "observedAtLocalMonoMs": null,
+          "sentAtLocalMonoMs": null,
+          "originKind": "unknown",
+          "ingestEpochId": "legacy-adapter",
+          "ingestMonoMs": 2
         },
         "payload": {
-          "candidateCount": 2,
-          "maxCandidateTextLength": 2198,
-          "hiddenRelevantNodeCount": 1
-        }
+          "typed": {
+            "kind": "submission",
+            "state": "attempted"
+          },
+          "sourceEventType": "SUBMIT_ACTION_OBSERVED",
+          "sourceLevel": "info",
+          "detailsLength": 0,
+          "metadata": {
+            "dispatchId": "synthetic-dispatch",
+            "generationEpoch": 1,
+            "runGeneration": 1,
+            "runSessionId": "synthetic-run"
+          }
+        },
+        "dispatchId": "synthetic-dispatch",
+        "generationEpoch": 1
       },
       {
-        "schemaVersion": 5,
-        "eventId": "ev-gpt-trunc-001-3",
-        "eventType": "TEXT_STATE_CHANGED",
+        "schemaVersion": 6,
+        "eventId": "event-269d0103-a314b14b",
+        "eventType": "SUBMISSION_EVIDENCE_CHANGED",
         "layer": "fact",
         "seq": 3,
-        "wallTs": 1785230050000,
-        "monoMs": 50000,
-        "runSessionId": "run-trunc-20260728-115400",
+        "ingestSeq": 3,
+        "runGeneration": 1,
+        "wallTs": 2000,
+        "runSessionId": "synthetic-run",
         "modelId": "GPT",
-        "dispatchId": "gpt-trunc-001",
-        "generationEpoch": 1,
         "producer": {
-          "component": "telemetry-core",
-          "version": "5.0.0"
+          "component": "legacy-telemetry-adapter",
+          "version": "proof-export@1.1.0"
+        },
+        "clock": {
+          "contractVersion": "1.0",
+          "producerEpochId": "legacy-clockless",
+          "producerSequence": null,
+          "observedAtLocalMonoMs": null,
+          "sentAtLocalMonoMs": null,
+          "originKind": "unknown",
+          "ingestEpochId": "legacy-adapter",
+          "ingestMonoMs": 3
         },
         "payload": {
-          "candidateId": "cand-a",
-          "textLength": 1840,
-          "textHash": "sha256:h1840",
-          "change": "growth"
+          "typed": {
+            "kind": "unknown",
+            "state": "unknown"
+          },
+          "sourceEventType": "SUBMISSION_EVIDENCE_CHANGED",
+          "sourceLevel": "info",
+          "detailsLength": 0,
+          "metadata": {
+            "dispatchId": "synthetic-dispatch",
+            "generationEpoch": 1,
+            "runGeneration": 1,
+            "runSessionId": "synthetic-run"
+          }
         },
-        "candidateId": "cand-a"
+        "dispatchId": "synthetic-dispatch",
+        "generationEpoch": 1
       },
       {
-        "schemaVersion": 5,
-        "eventId": "ev-gpt-trunc-001-4",
-        "eventType": "COMPLETION_HYPOTHESIS_EVALUATED",
-        "layer": "inference",
+        "schemaVersion": 6,
+        "eventId": "event-01444778-44c01b30",
+        "eventType": "PAGE_CONTEXT_OBSERVED",
+        "layer": "fact",
         "seq": 4,
-        "wallTs": 1785230056000,
-        "monoMs": 56000,
-        "runSessionId": "run-trunc-20260728-115400",
+        "ingestSeq": 4,
+        "runGeneration": 1,
+        "wallTs": 2500,
+        "runSessionId": "synthetic-run",
         "modelId": "GPT",
-        "dispatchId": "gpt-trunc-001",
-        "generationEpoch": 1,
         "producer": {
-          "component": "telemetry-core",
-          "version": "5.0.0"
+          "component": "legacy-telemetry-adapter",
+          "version": "proof-export@1.1.0"
+        },
+        "clock": {
+          "contractVersion": "1.0",
+          "producerEpochId": "legacy-clockless",
+          "producerSequence": null,
+          "observedAtLocalMonoMs": null,
+          "sentAtLocalMonoMs": null,
+          "originKind": "unknown",
+          "ingestEpochId": "legacy-adapter",
+          "ingestMonoMs": 4
         },
         "payload": {
-          "state": "probably_complete",
-          "confidence": "low",
-          "evidenceTier": 1
-        }
+          "typed": {
+            "kind": "unknown",
+            "state": "unknown"
+          },
+          "sourceEventType": "PAGE_CONTEXT_OBSERVED",
+          "sourceLevel": "info",
+          "detailsLength": 0,
+          "metadata": {
+            "dispatchId": "synthetic-dispatch",
+            "generationEpoch": 1,
+            "runGeneration": 1,
+            "runSessionId": "synthetic-run"
+          }
+        },
+        "dispatchId": "synthetic-dispatch",
+        "generationEpoch": 1
       },
       {
-        "schemaVersion": 5,
-        "eventId": "ev-gpt-trunc-001-5",
-        "eventType": "POLICY_OVERRIDE_APPLIED",
-        "layer": "decision",
+        "schemaVersion": 6,
+        "eventId": "event-3e443012-6d8b70d0",
+        "eventType": "PAGE_HEALTH_OBSERVED",
+        "layer": "fact",
         "seq": 5,
-        "wallTs": 1785230060000,
-        "monoMs": 60000,
-        "runSessionId": "run-trunc-20260728-115400",
+        "ingestSeq": 5,
+        "runGeneration": 1,
+        "wallTs": 3000,
+        "runSessionId": "synthetic-run",
         "modelId": "GPT",
-        "dispatchId": "gpt-trunc-001",
-        "generationEpoch": 1,
         "producer": {
-          "component": "telemetry-core",
-          "version": "5.0.0"
+          "component": "legacy-telemetry-adapter",
+          "version": "proof-export@1.1.0"
+        },
+        "clock": {
+          "contractVersion": "1.0",
+          "producerEpochId": "legacy-clockless",
+          "producerSequence": null,
+          "observedAtLocalMonoMs": null,
+          "sentAtLocalMonoMs": null,
+          "originKind": "unknown",
+          "ingestEpochId": "legacy-adapter",
+          "ingestMonoMs": 5
         },
         "payload": {
-          "mode": "forced",
-          "reasonCode": "terminal_timeout",
-          "waivedRules": [
-            "automatic_completion_required"
-          ]
-        }
+          "typed": {
+            "kind": "unknown",
+            "state": "unknown"
+          },
+          "sourceEventType": "PAGE_HEALTH_OBSERVED",
+          "sourceLevel": "info",
+          "detailsLength": 0,
+          "metadata": {
+            "dispatchId": "synthetic-dispatch",
+            "generationEpoch": 1,
+            "runGeneration": 1,
+            "runSessionId": "synthetic-run"
+          }
+        },
+        "dispatchId": "synthetic-dispatch",
+        "generationEpoch": 1
       },
       {
-        "schemaVersion": 5,
-        "eventId": "ev-gpt-trunc-001-6",
-        "eventType": "DECISION_RECORDED",
-        "layer": "decision",
+        "schemaVersion": 6,
+        "eventId": "event-b7b212dc-4ba913de",
+        "eventType": "GENERATION_START_EVALUATED",
+        "layer": "inference",
         "seq": 6,
-        "wallTs": 1785230060010,
-        "monoMs": 60010,
-        "runSessionId": "run-trunc-20260728-115400",
+        "ingestSeq": 6,
+        "runGeneration": 1,
+        "wallTs": 3500,
+        "runSessionId": "synthetic-run",
         "modelId": "GPT",
-        "dispatchId": "gpt-trunc-001",
-        "generationEpoch": 1,
         "producer": {
-          "component": "telemetry-core",
-          "version": "5.0.0"
+          "component": "legacy-telemetry-adapter",
+          "version": "proof-export@1.1.0"
+        },
+        "clock": {
+          "contractVersion": "1.0",
+          "producerEpochId": "legacy-clockless",
+          "producerSequence": null,
+          "observedAtLocalMonoMs": null,
+          "sentAtLocalMonoMs": null,
+          "originKind": "unknown",
+          "ingestEpochId": "legacy-adapter",
+          "ingestMonoMs": 6
         },
         "payload": {
-          "decisionId": "dec-trunc-1",
-          "completionDetectionOutcome": "probably_complete",
-          "terminalMode": "forced",
-          "terminalOutcome": "SUCCESS",
-          "answerLength": 1840
-        }
+          "typed": {
+            "kind": "unknown",
+            "state": "unknown"
+          },
+          "sourceEventType": "GENERATION_START_EVALUATED",
+          "sourceLevel": "info",
+          "detailsLength": 0,
+          "metadata": {
+            "dispatchId": "synthetic-dispatch",
+            "generationEpoch": 1,
+            "runGeneration": 1,
+            "runSessionId": "synthetic-run"
+          }
+        },
+        "dispatchId": "synthetic-dispatch",
+        "generationEpoch": 1
       },
       {
-        "schemaVersion": 5,
-        "eventId": "ev-gpt-trunc-001-7",
-        "eventType": "MODEL_TERMINAL_RECORDED",
-        "layer": "action",
+        "schemaVersion": 6,
+        "eventId": "event-1d941130-9364195c",
+        "eventType": "GENERATION_SIGNAL_CHANGED",
+        "layer": "fact",
         "seq": 7,
-        "wallTs": 1785230060020,
-        "monoMs": 60020,
-        "runSessionId": "run-trunc-20260728-115400",
+        "ingestSeq": 7,
+        "runGeneration": 1,
+        "wallTs": 4000,
+        "runSessionId": "synthetic-run",
         "modelId": "GPT",
-        "dispatchId": "gpt-trunc-001",
-        "generationEpoch": 1,
         "producer": {
-          "component": "telemetry-core",
-          "version": "5.0.0"
+          "component": "legacy-telemetry-adapter",
+          "version": "proof-export@1.1.0"
+        },
+        "clock": {
+          "contractVersion": "1.0",
+          "producerEpochId": "legacy-clockless",
+          "producerSequence": null,
+          "observedAtLocalMonoMs": null,
+          "sentAtLocalMonoMs": null,
+          "originKind": "unknown",
+          "ingestEpochId": "legacy-adapter",
+          "ingestMonoMs": 7
         },
         "payload": {
-          "decisionId": "dec-trunc-1",
-          "status": "SUCCESS",
-          "mode": "forced",
-          "answerLength": 1840
-        }
+          "typed": {
+            "kind": "unknown",
+            "state": "unknown"
+          },
+          "sourceEventType": "GENERATION_SIGNAL_CHANGED",
+          "sourceLevel": "info",
+          "detailsLength": 0,
+          "metadata": {
+            "dispatchId": "synthetic-dispatch",
+            "generationEpoch": 1,
+            "runGeneration": 1,
+            "runSessionId": "synthetic-run"
+          }
+        },
+        "dispatchId": "synthetic-dispatch",
+        "generationEpoch": 1
       },
       {
-        "schemaVersion": 5,
-        "eventId": "ev-gpt-trunc-001-8",
-        "eventType": "TEXT_STATE_CHANGED",
+        "schemaVersion": 6,
+        "eventId": "event-d1e36c0d-26a4e04d",
+        "eventType": "OBSERVATION_FRAME_CAPTURED",
         "layer": "fact",
         "seq": 8,
-        "wallTs": 1785230063200,
-        "monoMs": 63200,
-        "runSessionId": "run-trunc-20260728-115400",
+        "ingestSeq": 8,
+        "runGeneration": 1,
+        "wallTs": 4500,
+        "runSessionId": "synthetic-run",
         "modelId": "GPT",
-        "dispatchId": "gpt-trunc-001",
-        "generationEpoch": 1,
         "producer": {
-          "component": "telemetry-core",
-          "version": "5.0.0"
+          "component": "legacy-telemetry-adapter",
+          "version": "proof-export@1.1.0"
+        },
+        "clock": {
+          "contractVersion": "1.0",
+          "producerEpochId": "legacy-clockless",
+          "producerSequence": null,
+          "observedAtLocalMonoMs": null,
+          "sentAtLocalMonoMs": null,
+          "originKind": "unknown",
+          "ingestEpochId": "legacy-adapter",
+          "ingestMonoMs": 8
         },
         "payload": {
-          "candidateId": "cand-b",
-          "textLength": 2198,
-          "textHash": "sha256:h2198",
-          "change": "post_terminal_growth"
+          "typed": {
+            "kind": "unknown",
+            "state": "unknown"
+          },
+          "sourceEventType": "OBSERVATION_FRAME_CAPTURED",
+          "sourceLevel": "info",
+          "detailsLength": 0,
+          "metadata": {
+            "dispatchId": "synthetic-dispatch",
+            "generationEpoch": 1,
+            "runGeneration": 1,
+            "runSessionId": "synthetic-run"
+          }
         },
-        "candidateId": "cand-b"
+        "dispatchId": "synthetic-dispatch",
+        "generationEpoch": 1
       },
       {
-        "schemaVersion": 5,
-        "eventId": "ev-gpt-trunc-001-9",
-        "eventType": "POST_TERMINAL_AUDIT_COMPLETED",
-        "layer": "audit",
+        "schemaVersion": 6,
+        "eventId": "event-f98ad754-5917a6b4",
+        "eventType": "CANDIDATE_SET_CHANGED",
+        "layer": "fact",
         "seq": 9,
-        "wallTs": 1785230067020,
-        "monoMs": 67020,
-        "runSessionId": "run-trunc-20260728-115400",
+        "ingestSeq": 9,
+        "runGeneration": 1,
+        "wallTs": 5000,
+        "runSessionId": "synthetic-run",
         "modelId": "GPT",
-        "dispatchId": "gpt-trunc-001",
-        "generationEpoch": 1,
         "producer": {
-          "component": "telemetry-core",
-          "version": "5.0.0"
+          "component": "legacy-telemetry-adapter",
+          "version": "proof-export@1.1.0"
+        },
+        "clock": {
+          "contractVersion": "1.0",
+          "producerEpochId": "legacy-clockless",
+          "producerSequence": null,
+          "observedAtLocalMonoMs": null,
+          "sentAtLocalMonoMs": null,
+          "originKind": "unknown",
+          "ingestEpochId": "legacy-adapter",
+          "ingestMonoMs": 9
         },
         "payload": {
-          "decisionId": "dec-trunc-1",
-          "result": "premature_completion_detected",
-          "lengthAtDecision": 1840,
-          "lengthAfterAudit": 2198,
-          "postTerminalGrowthPct": 19.46
-        }
+          "typed": {
+            "kind": "unknown",
+            "state": "unknown"
+          },
+          "sourceEventType": "CANDIDATE_SET_CHANGED",
+          "sourceLevel": "info",
+          "detailsLength": 0,
+          "metadata": {
+            "dispatchId": "synthetic-dispatch",
+            "generationEpoch": 1,
+            "runGeneration": 1,
+            "runSessionId": "synthetic-run"
+          }
+        },
+        "dispatchId": "synthetic-dispatch",
+        "generationEpoch": 1
+      },
+      {
+        "schemaVersion": 6,
+        "eventId": "event-b1992cf2-36296598",
+        "eventType": "CANDIDATE_IDENTITY_INFERRED",
+        "layer": "inference",
+        "seq": 10,
+        "ingestSeq": 10,
+        "runGeneration": 1,
+        "wallTs": 5500,
+        "runSessionId": "synthetic-run",
+        "modelId": "GPT",
+        "producer": {
+          "component": "legacy-telemetry-adapter",
+          "version": "proof-export@1.1.0"
+        },
+        "clock": {
+          "contractVersion": "1.0",
+          "producerEpochId": "legacy-clockless",
+          "producerSequence": null,
+          "observedAtLocalMonoMs": null,
+          "sentAtLocalMonoMs": null,
+          "originKind": "unknown",
+          "ingestEpochId": "legacy-adapter",
+          "ingestMonoMs": 10
+        },
+        "payload": {
+          "typed": {
+            "kind": "candidate_identity",
+            "state": "current_dispatch"
+          },
+          "sourceEventType": "CANDIDATE_IDENTITY_INFERRED",
+          "sourceLevel": "info",
+          "detailsLength": 0,
+          "metadata": {
+            "answerIdentity": "current_dispatch",
+            "dispatchId": "synthetic-dispatch",
+            "generationEpoch": 1,
+            "runGeneration": 1,
+            "runSessionId": "synthetic-run"
+          }
+        },
+        "dispatchId": "synthetic-dispatch",
+        "generationEpoch": 1
+      },
+      {
+        "schemaVersion": 6,
+        "eventId": "event-be1c7def-b6ecc3df",
+        "eventType": "TEXT_STATE_CHANGED",
+        "layer": "fact",
+        "seq": 11,
+        "ingestSeq": 11,
+        "runGeneration": 1,
+        "wallTs": 6000,
+        "runSessionId": "synthetic-run",
+        "modelId": "GPT",
+        "producer": {
+          "component": "legacy-telemetry-adapter",
+          "version": "proof-export@1.1.0"
+        },
+        "clock": {
+          "contractVersion": "1.0",
+          "producerEpochId": "legacy-clockless",
+          "producerSequence": null,
+          "observedAtLocalMonoMs": null,
+          "sentAtLocalMonoMs": null,
+          "originKind": "unknown",
+          "ingestEpochId": "legacy-adapter",
+          "ingestMonoMs": 11
+        },
+        "payload": {
+          "typed": {
+            "kind": "unknown",
+            "state": "unknown"
+          },
+          "sourceEventType": "TEXT_STATE_CHANGED",
+          "sourceLevel": "info",
+          "detailsLength": 0,
+          "metadata": {
+            "dispatchId": "synthetic-dispatch",
+            "generationEpoch": 1,
+            "runGeneration": 1,
+            "runSessionId": "synthetic-run",
+            "textLength": 120
+          }
+        },
+        "dispatchId": "synthetic-dispatch",
+        "generationEpoch": 1
+      },
+      {
+        "schemaVersion": 6,
+        "eventId": "event-b6003d81-01269b15",
+        "eventType": "STABILITY_INTERVAL_CLOSED",
+        "layer": "fact",
+        "seq": 12,
+        "ingestSeq": 12,
+        "runGeneration": 1,
+        "wallTs": 6500,
+        "runSessionId": "synthetic-run",
+        "modelId": "GPT",
+        "producer": {
+          "component": "legacy-telemetry-adapter",
+          "version": "proof-export@1.1.0"
+        },
+        "clock": {
+          "contractVersion": "1.0",
+          "producerEpochId": "legacy-clockless",
+          "producerSequence": null,
+          "observedAtLocalMonoMs": null,
+          "sentAtLocalMonoMs": null,
+          "originKind": "unknown",
+          "ingestEpochId": "legacy-adapter",
+          "ingestMonoMs": 12
+        },
+        "payload": {
+          "typed": {
+            "kind": "text",
+            "state": "stable"
+          },
+          "sourceEventType": "STABILITY_INTERVAL_CLOSED",
+          "sourceLevel": "info",
+          "detailsLength": 0,
+          "metadata": {
+            "dispatchId": "synthetic-dispatch",
+            "generationEpoch": 1,
+            "runGeneration": 1,
+            "runSessionId": "synthetic-run",
+            "textLength": 120
+          }
+        },
+        "dispatchId": "synthetic-dispatch",
+        "generationEpoch": 1
+      },
+      {
+        "schemaVersion": 6,
+        "eventId": "event-2c98a753-fdbc9f33",
+        "eventType": "EXTRACTION_COMPLETED",
+        "layer": "fact",
+        "seq": 13,
+        "ingestSeq": 13,
+        "runGeneration": 1,
+        "wallTs": 7000,
+        "runSessionId": "synthetic-run",
+        "modelId": "GPT",
+        "producer": {
+          "component": "legacy-telemetry-adapter",
+          "version": "proof-export@1.1.0"
+        },
+        "clock": {
+          "contractVersion": "1.0",
+          "producerEpochId": "legacy-clockless",
+          "producerSequence": null,
+          "observedAtLocalMonoMs": null,
+          "sentAtLocalMonoMs": null,
+          "originKind": "unknown",
+          "ingestEpochId": "legacy-adapter",
+          "ingestMonoMs": 13
+        },
+        "payload": {
+          "typed": {
+            "kind": "unknown",
+            "state": "unknown"
+          },
+          "sourceEventType": "EXTRACTION_COMPLETED",
+          "sourceLevel": "info",
+          "detailsLength": 0,
+          "metadata": {
+            "dispatchId": "synthetic-dispatch",
+            "generationEpoch": 1,
+            "runGeneration": 1,
+            "runSessionId": "synthetic-run",
+            "textLength": 120
+          }
+        },
+        "dispatchId": "synthetic-dispatch",
+        "generationEpoch": 1
+      },
+      {
+        "schemaVersion": 6,
+        "eventId": "event-d3e2adff-37659fa7",
+        "eventType": "STRUCTURAL_VERIFICATION_EVALUATED",
+        "layer": "inference",
+        "seq": 14,
+        "ingestSeq": 14,
+        "runGeneration": 1,
+        "wallTs": 7500,
+        "runSessionId": "synthetic-run",
+        "modelId": "GPT",
+        "producer": {
+          "component": "legacy-telemetry-adapter",
+          "version": "proof-export@1.1.0"
+        },
+        "clock": {
+          "contractVersion": "1.0",
+          "producerEpochId": "legacy-clockless",
+          "producerSequence": null,
+          "observedAtLocalMonoMs": null,
+          "sentAtLocalMonoMs": null,
+          "originKind": "unknown",
+          "ingestEpochId": "legacy-adapter",
+          "ingestMonoMs": 14
+        },
+        "payload": {
+          "typed": {
+            "kind": "verification",
+            "state": "verified"
+          },
+          "sourceEventType": "STRUCTURAL_VERIFICATION_EVALUATED",
+          "sourceLevel": "info",
+          "detailsLength": 0,
+          "metadata": {
+            "dispatchId": "synthetic-dispatch",
+            "generationEpoch": 1,
+            "runGeneration": 1,
+            "runSessionId": "synthetic-run"
+          }
+        },
+        "dispatchId": "synthetic-dispatch",
+        "generationEpoch": 1
+      },
+      {
+        "schemaVersion": 6,
+        "eventId": "event-6b047e40-fb15fba6",
+        "eventType": "ANSWER_COMPLETENESS_EVALUATED",
+        "layer": "inference",
+        "seq": 15,
+        "ingestSeq": 15,
+        "runGeneration": 1,
+        "wallTs": 8000,
+        "runSessionId": "synthetic-run",
+        "modelId": "GPT",
+        "producer": {
+          "component": "legacy-telemetry-adapter",
+          "version": "proof-export@1.1.0"
+        },
+        "clock": {
+          "contractVersion": "1.0",
+          "producerEpochId": "legacy-clockless",
+          "producerSequence": null,
+          "observedAtLocalMonoMs": null,
+          "sentAtLocalMonoMs": null,
+          "originKind": "unknown",
+          "ingestEpochId": "legacy-adapter",
+          "ingestMonoMs": 15
+        },
+        "payload": {
+          "typed": {
+            "kind": "unknown",
+            "state": "unknown"
+          },
+          "sourceEventType": "ANSWER_COMPLETENESS_EVALUATED",
+          "sourceLevel": "info",
+          "detailsLength": 0,
+          "metadata": {
+            "dispatchId": "synthetic-dispatch",
+            "generationEpoch": 1,
+            "runGeneration": 1,
+            "runSessionId": "synthetic-run"
+          }
+        },
+        "dispatchId": "synthetic-dispatch",
+        "generationEpoch": 1
+      },
+      {
+        "schemaVersion": 6,
+        "eventId": "event-0e6a122e-83819b64",
+        "eventType": "COMPLETION_HYPOTHESIS_EVALUATED",
+        "layer": "inference",
+        "seq": 16,
+        "ingestSeq": 16,
+        "runGeneration": 1,
+        "wallTs": 8500,
+        "runSessionId": "synthetic-run",
+        "modelId": "GPT",
+        "producer": {
+          "component": "legacy-telemetry-adapter",
+          "version": "proof-export@1.1.0"
+        },
+        "clock": {
+          "contractVersion": "1.0",
+          "producerEpochId": "legacy-clockless",
+          "producerSequence": null,
+          "observedAtLocalMonoMs": null,
+          "sentAtLocalMonoMs": null,
+          "originKind": "unknown",
+          "ingestEpochId": "legacy-adapter",
+          "ingestMonoMs": 16
+        },
+        "payload": {
+          "typed": {
+            "kind": "unknown",
+            "state": "unknown"
+          },
+          "sourceEventType": "COMPLETION_HYPOTHESIS_EVALUATED",
+          "sourceLevel": "info",
+          "detailsLength": 0,
+          "metadata": {
+            "dispatchId": "synthetic-dispatch",
+            "generationEpoch": 1,
+            "runGeneration": 1,
+            "runSessionId": "synthetic-run"
+          }
+        },
+        "dispatchId": "synthetic-dispatch",
+        "generationEpoch": 1
+      },
+      {
+        "schemaVersion": 6,
+        "eventId": "event-4b627344-9e3206a2",
+        "eventType": "TERMINAL_DEADLINE_REACHED",
+        "layer": "fact",
+        "seq": 17,
+        "ingestSeq": 17,
+        "runGeneration": 1,
+        "wallTs": 9000,
+        "runSessionId": "synthetic-run",
+        "modelId": "GPT",
+        "producer": {
+          "component": "legacy-telemetry-adapter",
+          "version": "proof-export@1.1.0"
+        },
+        "clock": {
+          "contractVersion": "1.0",
+          "producerEpochId": "legacy-clockless",
+          "producerSequence": null,
+          "observedAtLocalMonoMs": null,
+          "sentAtLocalMonoMs": null,
+          "originKind": "unknown",
+          "ingestEpochId": "legacy-adapter",
+          "ingestMonoMs": 17
+        },
+        "payload": {
+          "typed": {
+            "kind": "deadline",
+            "state": "reached"
+          },
+          "sourceEventType": "TERMINAL_DEADLINE_REACHED",
+          "sourceLevel": "info",
+          "detailsLength": 0,
+          "metadata": {
+            "dispatchId": "synthetic-dispatch",
+            "generationEpoch": 1,
+            "runGeneration": 1,
+            "runSessionId": "synthetic-run"
+          }
+        },
+        "dispatchId": "synthetic-dispatch",
+        "generationEpoch": 1
+      },
+      {
+        "schemaVersion": 6,
+        "eventId": "event-3585a0b5-4c81ec59",
+        "eventType": "FINALIZATION_POLICY_EVALUATED",
+        "layer": "decision",
+        "seq": 18,
+        "ingestSeq": 18,
+        "runGeneration": 1,
+        "wallTs": 9500,
+        "runSessionId": "synthetic-run",
+        "modelId": "GPT",
+        "producer": {
+          "component": "legacy-telemetry-adapter",
+          "version": "proof-export@1.1.0"
+        },
+        "clock": {
+          "contractVersion": "1.0",
+          "producerEpochId": "legacy-clockless",
+          "producerSequence": null,
+          "observedAtLocalMonoMs": null,
+          "sentAtLocalMonoMs": null,
+          "originKind": "unknown",
+          "ingestEpochId": "legacy-adapter",
+          "ingestMonoMs": 18
+        },
+        "payload": {
+          "typed": {
+            "kind": "unknown",
+            "state": "unknown"
+          },
+          "sourceEventType": "FINALIZATION_POLICY_EVALUATED",
+          "sourceLevel": "info",
+          "detailsLength": 0,
+          "metadata": {
+            "dispatchId": "synthetic-dispatch",
+            "generationEpoch": 1,
+            "runGeneration": 1,
+            "runSessionId": "synthetic-run"
+          }
+        },
+        "dispatchId": "synthetic-dispatch",
+        "generationEpoch": 1
+      },
+      {
+        "schemaVersion": 6,
+        "eventId": "event-903994cd-106e1fc5",
+        "eventType": "POLICY_OVERRIDE_APPLIED",
+        "layer": "decision",
+        "seq": 19,
+        "ingestSeq": 19,
+        "runGeneration": 1,
+        "wallTs": 10000,
+        "runSessionId": "synthetic-run",
+        "modelId": "GPT",
+        "producer": {
+          "component": "legacy-telemetry-adapter",
+          "version": "proof-export@1.1.0"
+        },
+        "clock": {
+          "contractVersion": "1.0",
+          "producerEpochId": "legacy-clockless",
+          "producerSequence": null,
+          "observedAtLocalMonoMs": null,
+          "sentAtLocalMonoMs": null,
+          "originKind": "unknown",
+          "ingestEpochId": "legacy-adapter",
+          "ingestMonoMs": 19
+        },
+        "payload": {
+          "typed": {
+            "kind": "unknown",
+            "state": "unknown"
+          },
+          "sourceEventType": "POLICY_OVERRIDE_APPLIED",
+          "sourceLevel": "info",
+          "detailsLength": 0,
+          "metadata": {
+            "dispatchId": "synthetic-dispatch",
+            "generationEpoch": 1,
+            "runGeneration": 1,
+            "runSessionId": "synthetic-run"
+          }
+        },
+        "dispatchId": "synthetic-dispatch",
+        "generationEpoch": 1
       }
     ]
   },
   "derivedViews": {
-    "derived:truncation": {
-      "viewType": "truncation",
-      "derivedFromEventRefs": [
-        "ev-gpt-trunc-001-1",
-        "ev-gpt-trunc-001-2",
-        "ev-gpt-trunc-001-3",
-        "ev-gpt-trunc-001-4",
-        "ev-gpt-trunc-001-5",
-        "ev-gpt-trunc-001-6",
-        "ev-gpt-trunc-001-7",
-        "ev-gpt-trunc-001-8",
-        "ev-gpt-trunc-001-9"
-      ],
-      "generatorVersion": "summary-builder@5",
-      "ledgerHash": "sha256:2100cfb4ef1f904297eeda2a3c680f78e91961050a9cb76e17aea1340e38575f",
-      "data": {
-        "completionEvidenceTier": 1,
-        "extractionCoveragePct": 83.71,
-        "relevantCandidateCount": 2,
-        "hiddenRelevantNodeCount": 1,
-        "deadlineExceeded": true,
-        "terminalOutcome": "SUCCESS",
-        "automaticEvidenceSatisfied": false,
-        "postTerminalGrowthPct": 19.46,
-        "postTerminalHashChanged": true
-      }
-    },
-    "derived:model-timeline": {
+    "model-timeline": {
       "viewType": "model-timeline",
-      "derivedFromSeq": {
-        "first": 1,
-        "last": 9
-      },
-      "generatorVersion": "summary-builder@5",
-      "ledgerHash": "sha256:2100cfb4ef1f904297eeda2a3c680f78e91961050a9cb76e17aea1340e38575f",
-      "data": [
-        {
-          "monoMs": 50000,
-          "state": "text-changing",
-          "length": 1840
-        },
-        {
-          "monoMs": 60020,
-          "state": "terminal-forced",
-          "length": 1840
-        },
-        {
-          "monoMs": 63200,
-          "state": "post-terminal-growth",
-          "length": 2198
+      "derivedFromEventSeqs": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "generatorVersion": "proof-export@1.1.0",
+      "ledgerHash": "sha256:cf61ad87db67de9abc0cbe0d3981aefa53840eab7f52c0d0324e78e1b4e1bee3",
+      "data": {
+        "GPT": {
+          "modelId": "GPT",
+          "stateAxes": {
+            "submission": "evidence_partial",
+            "generationStart": "not_evaluated",
+            "answerIdentity": "current_dispatch",
+            "observedGeneration": "quiescent",
+            "textEvolution": "stable",
+            "answerCompleteness": "not_evaluated",
+            "extraction": "none",
+            "verification": "verified",
+            "completionDetection": "not_evaluated",
+            "completionEvidenceTier": 1,
+            "observationReliability": "degraded",
+            "finalization": "retry_scheduled",
+            "terminalMode": "none",
+            "terminationCause": "unknown"
+          },
+          "eventSeqs": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19
+          ],
+          "firstSeq": 1,
+          "lastSeq": 19,
+          "submissionEvidenceCount": 2,
+          "completionEvidenceTier": 1,
+          "acceptedTextLength": 120,
+          "maxObservedTextLength": 120,
+          "postTerminalGrowthChars": 0,
+          "postTerminalGrowthPct": 0,
+          "postTerminalAuditStatus": "not_applicable",
+          "postTerminalAuditConclusion": null,
+          "extractionCoveragePct": 100,
+          "hiddenRelevantTextLength": 0,
+          "candidateCount": 0,
+          "captureBeforeTerminal": false,
+          "terminalBeforeLastRelevantMutation": false,
+          "terminalOutcome": null,
+          "stableToTerminalMs": null
         }
-      ]
+      }
     }
   },
   "reports": {
-    "request-not-sent": {
+    "cutted": {
       "reportDescriptor": {
-        "reportType": "request-not-sent",
-        "reportVersion": "1.0.0",
-        "title": "Диагностика отсутствия фактической отправки или принятия запроса",
-        "primaryQuestion": "Диагностика отсутствия фактической отправки или принятия запроса",
+        "reportId": "rpt-cutted-625f210c",
+        "reportType": "cutted",
+        "reportVersion": "2.0.0",
+        "title": "Почему зафиксирован SUCCESS, а текст явно неполный?",
+        "primaryQuestion": "Почему зафиксирован SUCCESS, а текст явно неполный?",
         "canDiagnose": [],
         "cannotDiagnoseAlone": [],
-        "completeness": {
-          "level": "not_generated",
-          "evidenceCoveragePct": 0,
-          "missingCriticalEvidence": true,
-          "missingItems": [
-            "preset not selected for this example"
-          ],
-          "safeConclusions": [],
-          "blockedConclusions": [
-            "all"
-          ]
-        },
-        "reportMode": "embedded-in-all-presets",
-        "dependencyRegistryVersion": "1.0.0",
-        "dependencyRegistryHash": "sha256:ee727e80bbeb45cfc7b8c736f532219ffc65696d7cc4143707775b8ed46babbd"
-      },
-      "diagnosticSummary": {
-        "factsEstablished": [],
-        "preliminaryFindings": [],
-        "causalVerdict": "not_evaluated",
-        "confidence": "none",
-        "requiredAdditionalReports": []
-      },
-      "stateAxes": {},
-      "eventRefs": [],
-      "derivedViewRef": null,
-      "siblings": [
-        {
-          "reportType": "submission-proof",
-          "relation": "same-evidence-chain",
-          "priority": "required",
-          "requestIf": {
-            "any": [
-              {
-                "path": "$.stateAxes.submission",
-                "operator": "in",
-                "value": [
-                  "evidence_partial",
-                  "unknown"
-                ]
-              },
-              {
-                "path": "$.reportDescriptor.completeness.evidenceCoveragePct",
-                "operator": "lt",
-                "value": 80
-              }
-            ]
-          },
-          "requestPurpose": "Отделить неудачу action dispatch от отсутствия platform acceptance."
-        },
-        {
-          "reportType": "generation-not-started",
-          "relation": "next-stage",
-          "priority": "required",
-          "requestIf": {
-            "all": [
-              {
-                "path": "$.derivedViews.userMessageAppeared",
-                "operator": "eq",
-                "value": true
-              },
-              {
-                "path": "$.derivedViews.firstGenerationSignalDelayMs",
-                "operator": "gte",
-                "value": 15000
-              }
-            ]
-          },
-          "requestPurpose": "Проверить, был ли запрос принят, но генерация не стартовала."
-        }
-      ],
-      "analysisInstructionsRef": "shared:analysisInstructions"
-    },
-    "generation-not-started": {
-      "reportDescriptor": {
-        "reportType": "generation-not-started",
-        "reportVersion": "1.0.0",
-        "title": "Диагностика отсутствия признаков начала генерации после dispatch",
-        "primaryQuestion": "Диагностика отсутствия признаков начала генерации после dispatch",
-        "canDiagnose": [],
-        "cannotDiagnoseAlone": [],
-        "completeness": {
-          "level": "not_generated",
-          "evidenceCoveragePct": 0,
-          "missingCriticalEvidence": true,
-          "missingItems": [
-            "preset not selected for this example"
-          ],
-          "safeConclusions": [],
-          "blockedConclusions": [
-            "all"
-          ]
-        },
-        "reportMode": "embedded-in-all-presets",
-        "dependencyRegistryVersion": "1.0.0",
-        "dependencyRegistryHash": "sha256:ee727e80bbeb45cfc7b8c736f532219ffc65696d7cc4143707775b8ed46babbd"
-      },
-      "diagnosticSummary": {
-        "factsEstablished": [],
-        "preliminaryFindings": [],
-        "causalVerdict": "not_evaluated",
-        "confidence": "none",
-        "requiredAdditionalReports": []
-      },
-      "stateAxes": {},
-      "eventRefs": [],
-      "derivedViewRef": null,
-      "siblings": [
-        {
-          "reportType": "submission-proof",
-          "relation": "prerequisite",
-          "priority": "required",
-          "requestIf": {
-            "any": [
-              {
-                "path": "$.stateAxes.submission",
-                "operator": "ne",
-                "value": "confirmed"
-              },
-              {
-                "path": "$.derivedViews.submissionEvidenceTier",
-                "operator": "lt",
-                "value": 3
-              }
-            ]
-          },
-          "requestPurpose": "Подтвердить, что ожидание генерации началось после принятого запроса."
-        },
-        {
-          "reportType": "request-not-sent",
-          "relation": "alternative-cause",
-          "priority": "required",
-          "requestIf": {
-            "all": [
-              {
-                "path": "$.derivedViews.firstGenerationSignalDelayMs",
-                "operator": "gte",
-                "value": 15000
-              },
-              {
-                "path": "$.derivedViews.assistantCandidateCount",
-                "operator": "eq",
-                "value": 0
-              },
-              {
-                "path": "$.stateAxes.submission",
-                "operator": "in",
-                "value": [
-                  "failed",
-                  "evidence_partial",
-                  "unknown"
-                ]
-              }
-            ]
-          },
-          "requestPurpose": "Проверить альтернативу: запрос не был принят платформой."
-        }
-      ],
-      "analysisInstructionsRef": "shared:analysisInstructions"
-    },
-    "truncation": {
-      "reportDescriptor": {
-        "reportId": "rpt-trunc-001",
-        "reportType": "truncation",
-        "reportVersion": "1.0.0",
-        "title": "Диагностика обрезанного ответа",
-        "primaryQuestion": "Почему сохранённый ответ короче текста, доступного после финализации?",
-        "canDiagnose": [
-          {
-            "code": "PREMATURE_TERMINAL",
-            "statement": "Определяет рост текста после terminal decision"
-          },
-          {
-            "code": "EXTRACTION_GAP",
-            "statement": "Сравнивает сохранённый текст с максимальным релевантным кандидатом"
-          },
-          {
-            "code": "CANDIDATE_SWITCH",
-            "statement": "Фиксирует смену answer candidate"
-          }
-        ],
-        "cannotDiagnoseAlone": [
-          {
-            "code": "PROVIDER_END",
-            "question": "Завершил ли provider генерацию штатно",
-            "reason": "Completion evidence tier ниже T3",
-            "requiredReport": "true-completion"
-          }
-        ],
         "completeness": {
           "level": "partial",
-          "evidenceCoveragePct": 84,
-          "missingCriticalEvidence": true,
-          "missingItems": [
-            "provider terminal evidence",
-            "full DOM forensic snapshot"
-          ],
-          "safeConclusions": [
-            "После SUCCESS текст вырос с 1840 до 2198 символов",
-            "Terminal mode был forced"
-          ],
-          "blockedConclusions": [
-            "Точная доля текста в невидимом узле без DOM attachment"
-          ]
+          "evidenceCoveragePct": 42.11,
+          "missingCriticalEvidence": false,
+          "missingItems": [],
+          "safeConclusions": [],
+          "blockedConclusions": []
         },
         "reportMode": "embedded-in-all-presets",
         "dependencyRegistryVersion": "1.0.0",
-        "dependencyRegistryHash": "sha256:ee727e80bbeb45cfc7b8c736f532219ffc65696d7cc4143707775b8ed46babbd"
+        "dependencyRegistryHash": "sha256:b0e80779a69713e47171c678f6d7874be4b80e4f31fdca403059f5d3111d86ea"
       },
       "diagnosticSummary": {
-        "factsEstablished": [
-          "В terminal сохранено 1840 символов",
-          "Через 3180 мс доступно 2198 символов",
-          "Forced override предшествовал SUCCESS"
-        ],
-        "preliminaryFindings": [
-          "Имеется доказанная post-terminal потеря 358 символов"
-        ],
-        "causalVerdict": null,
-        "confidence": "high",
-        "requiredAdditionalReports": [
-          {
-            "reportType": "true-completion",
-            "requestPurpose": "Отличить реальное окончание модели от преждевременной финализации.",
-            "matchedPredicates": [
-              {
-                "predicate": {
-                  "path": "$.derivedViews.completionEvidenceTier",
-                  "operator": "lt",
-                  "value": 3
-                },
-                "observedValue": 1,
-                "matched": true
-              },
-              {
-                "predicate": {
-                  "path": "$.stateAxes.terminalMode",
-                  "operator": "in",
-                  "value": [
-                    "forced",
-                    "recovery",
-                    "manual"
-                  ]
-                },
-                "observedValue": "forced",
-                "matched": true
-              }
-            ]
-          },
-          {
-            "reportType": "extraction-integrity",
-            "requestPurpose": "Проверить, осталась ли часть текста в другом или невидимом DOM-кандидате.",
-            "matchedPredicates": [
-              {
-                "predicate": {
-                  "path": "$.derivedViews.extractionCoveragePct",
-                  "operator": "lt",
-                  "value": 98.0
-                },
-                "observedValue": 83.71,
-                "matched": true
-              },
-              {
-                "predicate": {
-                  "path": "$.derivedViews.relevantCandidateCount",
-                  "operator": "gt",
-                  "value": 1
-                },
-                "observedValue": 2,
-                "matched": true
-              },
-              {
-                "predicate": {
-                  "path": "$.derivedViews.hiddenRelevantNodeCount",
-                  "operator": "gt",
-                  "value": 0
-                },
-                "observedValue": 1,
-                "matched": true
-              }
-            ]
-          },
-          {
-            "reportType": "forced-finalization",
-            "requestPurpose": "Установить, остановило ли расширение ожидание по таймауту.",
-            "matchedPredicates": [
-              {
-                "predicate": {
-                  "path": "$.stateAxes.terminalMode",
-                  "operator": "eq",
-                  "value": "forced"
-                },
-                "observedValue": "forced",
-                "matched": true
-              },
-              {
-                "predicate": {
-                  "path": "$.derivedViews.deadlineExceeded",
-                  "operator": "eq",
-                  "value": true
-                },
-                "observedValue": true,
-                "matched": true
-              }
-            ]
-          },
-          {
-            "reportType": "forced-success",
-            "requestPurpose": "Объяснить, почему неполный ответ был спроецирован как SUCCESS.",
-            "matchedPredicates": [
-              {
-                "predicate": {
-                  "path": "$.derivedViews.terminalOutcome",
-                  "operator": "eq",
-                  "value": "SUCCESS"
-                },
-                "observedValue": "SUCCESS",
-                "matched": true
-              },
-              {
-                "predicate": {
-                  "path": "$.derivedViews.automaticEvidenceSatisfied",
-                  "operator": "eq",
-                  "value": false
-                },
-                "observedValue": false,
-                "matched": true
-              }
-            ]
-          }
-        ],
-        "finalCausalVerdictAvailable": false,
-        "boundedDiagnosis": "premature forced finalization caused a truncated saved answer"
-      },
-      "stateAxes": {
-        "submission": "confirmed",
-        "answerIdentity": "ambiguous",
-        "observedGeneration": "quiescent",
-        "completionDetection": "probably_complete",
-        "textEvolution": "restarted",
-        "answerCompleteness": "probably_truncated",
-        "extraction": "fallback",
-        "verification": "unknown",
-        "observationReliability": "reliable",
-        "finalization": "accepted",
-        "terminalMode": "forced"
-      },
-      "eventRefs": [
-        "ev-gpt-trunc-001-1",
-        "ev-gpt-trunc-001-2",
-        "ev-gpt-trunc-001-3",
-        "ev-gpt-trunc-001-4",
-        "ev-gpt-trunc-001-5",
-        "ev-gpt-trunc-001-6",
-        "ev-gpt-trunc-001-7",
-        "ev-gpt-trunc-001-8",
-        "ev-gpt-trunc-001-9"
-      ],
-      "derivedViewRef": "derived:truncation",
-      "siblings": [
-        {
-          "reportType": "true-completion",
-          "relation": "cause",
-          "priority": "required",
-          "requestIf": {
-            "any": [
-              {
-                "path": "$.derivedViews.completionEvidenceTier",
-                "operator": "lt",
-                "value": 3
-              },
-              {
-                "path": "$.stateAxes.terminalMode",
-                "operator": "in",
-                "value": [
-                  "forced",
-                  "recovery",
-                  "manual"
-                ]
-              }
-            ]
-          },
-          "requestPurpose": "Отличить реальное окончание модели от преждевременной финализации.",
-          "evaluation": {
-            "matched": true,
-            "predicateResults": [
-              {
-                "predicate": {
-                  "path": "$.derivedViews.completionEvidenceTier",
-                  "operator": "lt",
-                  "value": 3
-                },
-                "observedValue": 1,
-                "matched": true
-              },
-              {
-                "predicate": {
-                  "path": "$.stateAxes.terminalMode",
-                  "operator": "in",
-                  "value": [
-                    "forced",
-                    "recovery",
-                    "manual"
-                  ]
-                },
-                "observedValue": "forced",
-                "matched": true
-              }
-            ]
-          }
-        },
-        {
-          "reportType": "extraction-integrity",
-          "relation": "alternative-cause",
-          "priority": "required",
-          "requestIf": {
-            "any": [
-              {
-                "path": "$.derivedViews.extractionCoveragePct",
-                "operator": "lt",
-                "value": 98.0
-              },
-              {
-                "path": "$.derivedViews.relevantCandidateCount",
-                "operator": "gt",
-                "value": 1
-              },
-              {
-                "path": "$.derivedViews.hiddenRelevantNodeCount",
-                "operator": "gt",
-                "value": 0
-              }
-            ]
-          },
-          "requestPurpose": "Проверить, осталась ли часть текста в другом или невидимом DOM-кандидате.",
-          "evaluation": {
-            "matched": true,
-            "predicateResults": [
-              {
-                "predicate": {
-                  "path": "$.derivedViews.extractionCoveragePct",
-                  "operator": "lt",
-                  "value": 98.0
-                },
-                "observedValue": 83.71,
-                "matched": true
-              },
-              {
-                "predicate": {
-                  "path": "$.derivedViews.relevantCandidateCount",
-                  "operator": "gt",
-                  "value": 1
-                },
-                "observedValue": 2,
-                "matched": true
-              },
-              {
-                "predicate": {
-                  "path": "$.derivedViews.hiddenRelevantNodeCount",
-                  "operator": "gt",
-                  "value": 0
-                },
-                "observedValue": 1,
-                "matched": true
-              }
-            ]
-          }
-        },
-        {
-          "reportType": "forced-finalization",
-          "relation": "mechanism",
-          "priority": "required",
-          "requestIf": {
-            "any": [
-              {
-                "path": "$.stateAxes.terminalMode",
-                "operator": "eq",
-                "value": "forced"
-              },
-              {
-                "path": "$.derivedViews.deadlineExceeded",
-                "operator": "eq",
-                "value": true
-              }
-            ]
-          },
-          "requestPurpose": "Установить, остановило ли расширение ожидание по таймауту.",
-          "evaluation": {
-            "matched": true,
-            "predicateResults": [
-              {
-                "predicate": {
-                  "path": "$.stateAxes.terminalMode",
-                  "operator": "eq",
-                  "value": "forced"
-                },
-                "observedValue": "forced",
-                "matched": true
-              },
-              {
-                "predicate": {
-                  "path": "$.derivedViews.deadlineExceeded",
-                  "operator": "eq",
-                  "value": true
-                },
-                "observedValue": true,
-                "matched": true
-              }
-            ]
-          }
-        },
-        {
-          "reportType": "forced-success",
-          "relation": "status-projection",
-          "priority": "required",
-          "requestIf": {
-            "all": [
-              {
-                "path": "$.derivedViews.terminalOutcome",
-                "operator": "eq",
-                "value": "SUCCESS"
-              },
-              {
-                "path": "$.derivedViews.automaticEvidenceSatisfied",
-                "operator": "eq",
-                "value": false
-              }
-            ]
-          },
-          "requestPurpose": "Объяснить, почему неполный ответ был спроецирован как SUCCESS.",
-          "evaluation": {
-            "matched": true,
-            "predicateResults": [
-              {
-                "predicate": {
-                  "path": "$.derivedViews.terminalOutcome",
-                  "operator": "eq",
-                  "value": "SUCCESS"
-                },
-                "observedValue": "SUCCESS",
-                "matched": true
-              },
-              {
-                "predicate": {
-                  "path": "$.derivedViews.automaticEvidenceSatisfied",
-                  "operator": "eq",
-                  "value": false
-                },
-                "observedValue": false,
-                "matched": true
-              }
-            ]
+        "models": {
+          "GPT": {
+            "stateAxes": {
+              "submission": "evidence_partial",
+              "generationStart": "not_evaluated",
+              "answerIdentity": "current_dispatch",
+              "observedGeneration": "quiescent",
+              "textEvolution": "stable",
+              "answerCompleteness": "not_evaluated",
+              "extraction": "none",
+              "verification": "verified",
+              "completionDetection": "not_evaluated",
+              "completionEvidenceTier": 1,
+              "observationReliability": "degraded",
+              "finalization": "retry_scheduled",
+              "terminalMode": "none",
+              "terminationCause": "unknown"
+            },
+            "completionEvidenceTier": 1,
+            "acceptedTextLength": 120,
+            "maxObservedTextLength": 120,
+            "extractionCoveragePct": 100,
+            "postTerminalGrowthPct": 0,
+            "stableToTerminalMs": null
           }
         }
+      },
+      "stateAxes": {
+        "GPT": {
+          "submission": "evidence_partial",
+          "generationStart": "not_evaluated",
+          "answerIdentity": "current_dispatch",
+          "observedGeneration": "quiescent",
+          "textEvolution": "stable",
+          "answerCompleteness": "not_evaluated",
+          "extraction": "none",
+          "verification": "verified",
+          "completionDetection": "not_evaluated",
+          "completionEvidenceTier": 1,
+          "observationReliability": "degraded",
+          "finalization": "retry_scheduled",
+          "terminalMode": "none",
+          "terminationCause": "unknown"
+        }
+      },
+      "eventSeqs": [
+        9,
+        10,
+        11,
+        13,
+        14,
+        15,
+        18,
+        19
       ],
-      "analysisInstructionsRef": "shared:analysisInstructions"
-    },
-    "true-completion": {
-      "reportDescriptor": {
-        "reportType": "true-completion",
-        "reportVersion": "1.0.0",
-        "title": "Проверка истинности зафиксированного окончания генерации",
-        "primaryQuestion": "Проверка истинности зафиксированного окончания генерации",
-        "canDiagnose": [],
-        "cannotDiagnoseAlone": [],
-        "completeness": {
-          "level": "not_generated",
-          "evidenceCoveragePct": 0,
-          "missingCriticalEvidence": true,
-          "missingItems": [
-            "preset not selected for this example"
-          ],
-          "safeConclusions": [],
-          "blockedConclusions": [
-            "all"
-          ]
-        },
-        "reportMode": "embedded-in-all-presets",
-        "dependencyRegistryVersion": "1.0.0",
-        "dependencyRegistryHash": "sha256:ee727e80bbeb45cfc7b8c736f532219ffc65696d7cc4143707775b8ed46babbd"
-      },
-      "diagnosticSummary": {
-        "factsEstablished": [],
-        "preliminaryFindings": [],
-        "causalVerdict": "not_evaluated",
-        "confidence": "none",
-        "requiredAdditionalReports": []
-      },
-      "stateAxes": {},
-      "eventRefs": [],
-      "derivedViewRef": null,
+      "derivedViewRef": "model-timeline",
       "siblings": [
         {
-          "reportType": "truncation",
-          "relation": "audit-result",
+          "reportType": "false-success",
+          "relation": "diagnostic-dependency",
           "priority": "required",
           "requestIf": {
             "any": [
@@ -1603,363 +1157,666 @@
                 "path": "$.derivedViews.postTerminalGrowthPct",
                 "operator": "gt",
                 "value": 0.5
-              },
-              {
-                "path": "$.derivedViews.postTerminalHashChanged",
-                "operator": "eq",
-                "value": true
               }
             ]
           },
-          "requestPurpose": "Классифицировать продолжение ответа после terminal decision как возможную обрезку."
+          "evaluation": {
+            "matched": false,
+            "predicateResults": [
+              {
+                "modelId": "GPT",
+                "predicate": {
+                  "path": "$.derivedViews.postTerminalGrowthPct",
+                  "operator": "gt",
+                  "value": 0.5
+                },
+                "observedValue": 0,
+                "matched": false
+              }
+            ]
+          }
         },
         {
-          "reportType": "extraction-integrity",
-          "relation": "identity-dependency",
+          "reportType": "old-answer",
+          "relation": "diagnostic-dependency",
           "priority": "required",
           "requestIf": {
             "any": [
               {
                 "path": "$.stateAxes.answerIdentity",
-                "operator": "in",
-                "value": [
-                  "ambiguous",
-                  "stale",
-                  "rejected"
-                ]
-              },
-              {
-                "path": "$.derivedViews.extractionCoveragePct",
-                "operator": "lt",
-                "value": 98.0
+                "operator": "ne",
+                "value": "current_dispatch"
               }
             ]
           },
-          "requestPurpose": "Проверить, что completion оценивался по правильному и полному кандидату."
-        },
-        {
-          "reportType": "forced-finalization",
-          "relation": "alternative-terminal",
-          "priority": "required",
-          "requestIf": {
-            "all": [
+          "evaluation": {
+            "matched": false,
+            "predicateResults": [
               {
-                "path": "$.stateAxes.completionDetection",
-                "operator": "in",
-                "value": [
-                  "inconclusive",
-                  "probably_complete"
-                ]
-              },
-              {
-                "path": "$.stateAxes.terminalMode",
-                "operator": "eq",
-                "value": "forced"
+                "modelId": "GPT",
+                "predicate": {
+                  "path": "$.stateAxes.answerIdentity",
+                  "operator": "ne",
+                  "value": "current_dispatch"
+                },
+                "observedValue": "current_dispatch",
+                "matched": false
               }
             ]
-          },
-          "requestPurpose": "Разделить detected completion и прекращение ожидания по policy."
+          }
         },
         {
-          "reportType": "forced-success",
-          "relation": "projection-audit",
-          "priority": "required",
-          "requestIf": {
-            "all": [
-              {
-                "path": "$.derivedViews.terminalOutcome",
-                "operator": "eq",
-                "value": "SUCCESS"
-              },
-              {
-                "path": "$.derivedViews.completionEvidenceTier",
-                "operator": "lt",
-                "value": 3
-              }
-            ]
-          },
-          "requestPurpose": "Проверить SUCCESS при недостаточном evidence tier."
-        }
-      ],
-      "analysisInstructionsRef": "shared:analysisInstructions"
-    },
-    "submission-proof": {
-      "reportDescriptor": {
-        "reportType": "submission-proof",
-        "reportVersion": "1.0.0",
-        "title": "Доказательная фиксация факта принятия запроса платформой",
-        "primaryQuestion": "Доказательная фиксация факта принятия запроса платформой",
-        "canDiagnose": [],
-        "cannotDiagnoseAlone": [],
-        "completeness": {
-          "level": "not_generated",
-          "evidenceCoveragePct": 0,
-          "missingCriticalEvidence": true,
-          "missingItems": [
-            "preset not selected for this example"
-          ],
-          "safeConclusions": [],
-          "blockedConclusions": [
-            "all"
-          ]
-        },
-        "reportMode": "embedded-in-all-presets",
-        "dependencyRegistryVersion": "1.0.0",
-        "dependencyRegistryHash": "sha256:ee727e80bbeb45cfc7b8c736f532219ffc65696d7cc4143707775b8ed46babbd"
-      },
-      "diagnosticSummary": {
-        "factsEstablished": [],
-        "preliminaryFindings": [],
-        "causalVerdict": "not_evaluated",
-        "confidence": "none",
-        "requiredAdditionalReports": []
-      },
-      "stateAxes": {},
-      "eventRefs": [],
-      "derivedViewRef": null,
-      "siblings": [
-        {
-          "reportType": "request-not-sent",
-          "relation": "negative-outcome",
+          "reportType": "empty",
+          "relation": "diagnostic-dependency",
           "priority": "required",
           "requestIf": {
             "any": [
               {
-                "path": "$.stateAxes.submission",
-                "operator": "eq",
-                "value": "failed"
-              },
-              {
-                "path": "$.derivedViews.confirmedAcceptanceEvidenceCount",
+                "path": "$.derivedViews.acceptedTextLength",
                 "operator": "eq",
                 "value": 0
               }
             ]
           },
-          "requestPurpose": "Диагностировать отрицательный исход той же dispatch evidence chain."
-        },
-        {
-          "reportType": "generation-not-started",
-          "relation": "next-stage",
-          "priority": "required",
-          "requestIf": {
-            "all": [
+          "evaluation": {
+            "matched": false,
+            "predicateResults": [
               {
-                "path": "$.stateAxes.submission",
-                "operator": "eq",
-                "value": "confirmed"
-              },
-              {
-                "path": "$.derivedViews.firstGenerationSignalDelayMs",
-                "operator": "gte",
-                "value": 15000
+                "modelId": "GPT",
+                "predicate": {
+                  "path": "$.derivedViews.acceptedTextLength",
+                  "operator": "eq",
+                  "value": 0
+                },
+                "observedValue": 120,
+                "matched": false
               }
             ]
-          },
-          "requestPurpose": "Проверить, почему после подтверждённой отправки не началась генерация."
+          }
         }
       ],
-      "analysisInstructionsRef": "shared:analysisInstructions"
+      "analysisInstructionsRef": "sharedConfig.commonAnalysisInstructions"
     },
-    "extraction-integrity": {
+    "false-success": {
       "reportDescriptor": {
-        "reportType": "extraction-integrity",
-        "reportVersion": "1.0.0",
-        "title": "Проверка полноты извлечения текста из релевантных DOM-кандидатов",
-        "primaryQuestion": "Проверка полноты извлечения текста из релевантных DOM-кандидатов",
+        "reportId": "rpt-false-success-625f210c",
+        "reportType": "false-success",
+        "reportVersion": "2.0.0",
+        "title": "Почему система решила «готово», а ответ продолжил расти?",
+        "primaryQuestion": "Почему система решила «готово», а ответ продолжил расти?",
         "canDiagnose": [],
         "cannotDiagnoseAlone": [],
         "completeness": {
-          "level": "not_generated",
-          "evidenceCoveragePct": 0,
-          "missingCriticalEvidence": true,
-          "missingItems": [
-            "preset not selected for this example"
-          ],
+          "level": "partial",
+          "evidenceCoveragePct": 42.11,
+          "missingCriticalEvidence": false,
+          "missingItems": [],
           "safeConclusions": [],
-          "blockedConclusions": [
-            "all"
-          ]
+          "blockedConclusions": []
         },
         "reportMode": "embedded-in-all-presets",
         "dependencyRegistryVersion": "1.0.0",
-        "dependencyRegistryHash": "sha256:ee727e80bbeb45cfc7b8c736f532219ffc65696d7cc4143707775b8ed46babbd"
+        "dependencyRegistryHash": "sha256:b0e80779a69713e47171c678f6d7874be4b80e4f31fdca403059f5d3111d86ea"
       },
       "diagnosticSummary": {
-        "factsEstablished": [],
-        "preliminaryFindings": [],
-        "causalVerdict": "not_evaluated",
-        "confidence": "none",
-        "requiredAdditionalReports": []
+        "models": {
+          "GPT": {
+            "stateAxes": {
+              "submission": "evidence_partial",
+              "generationStart": "not_evaluated",
+              "answerIdentity": "current_dispatch",
+              "observedGeneration": "quiescent",
+              "textEvolution": "stable",
+              "answerCompleteness": "not_evaluated",
+              "extraction": "none",
+              "verification": "verified",
+              "completionDetection": "not_evaluated",
+              "completionEvidenceTier": 1,
+              "observationReliability": "degraded",
+              "finalization": "retry_scheduled",
+              "terminalMode": "none",
+              "terminationCause": "unknown"
+            },
+            "completionEvidenceTier": 1,
+            "acceptedTextLength": 120,
+            "maxObservedTextLength": 120,
+            "extractionCoveragePct": 100,
+            "postTerminalGrowthPct": 0,
+            "stableToTerminalMs": null
+          }
+        }
       },
-      "stateAxes": {},
-      "eventRefs": [],
-      "derivedViewRef": null,
+      "stateAxes": {
+        "GPT": {
+          "submission": "evidence_partial",
+          "generationStart": "not_evaluated",
+          "answerIdentity": "current_dispatch",
+          "observedGeneration": "quiescent",
+          "textEvolution": "stable",
+          "answerCompleteness": "not_evaluated",
+          "extraction": "none",
+          "verification": "verified",
+          "completionDetection": "not_evaluated",
+          "completionEvidenceTier": 1,
+          "observationReliability": "degraded",
+          "finalization": "retry_scheduled",
+          "terminalMode": "none",
+          "terminationCause": "unknown"
+        }
+      },
+      "eventSeqs": [
+        7,
+        8,
+        11,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "derivedViewRef": "model-timeline",
       "siblings": [
         {
-          "reportType": "truncation",
-          "relation": "symptom",
+          "reportType": "cutted",
+          "relation": "diagnostic-dependency",
           "priority": "required",
           "requestIf": {
             "any": [
               {
                 "path": "$.derivedViews.extractionCoveragePct",
                 "operator": "lt",
-                "value": 98.0
-              },
+                "value": 98
+              }
+            ]
+          },
+          "evaluation": {
+            "matched": false,
+            "predicateResults": [
               {
-                "path": "$.derivedViews.hiddenRelevantTextLength",
+                "modelId": "GPT",
+                "predicate": {
+                  "path": "$.derivedViews.extractionCoveragePct",
+                  "operator": "lt",
+                  "value": 98
+                },
+                "observedValue": 100,
+                "matched": false
+              }
+            ]
+          }
+        },
+        {
+          "reportType": "late-end",
+          "relation": "diagnostic-dependency",
+          "priority": "required",
+          "requestIf": {
+            "any": [
+              {
+                "path": "$.derivedViews.stableToTerminalMs",
                 "operator": "gt",
                 "value": 0
               }
             ]
           },
-          "requestPurpose": "Оценить влияние неполного извлечения на итоговый ответ."
-        },
-        {
-          "reportType": "true-completion",
-          "relation": "temporal-dependency",
-          "priority": "required",
-          "requestIf": {
-            "any": [
+          "evaluation": {
+            "matched": false,
+            "predicateResults": [
               {
-                "path": "$.derivedViews.captureBeforeTerminal",
-                "operator": "eq",
-                "value": true
-              },
-              {
-                "path": "$.derivedViews.completionEvidenceTier",
-                "operator": "lt",
-                "value": 3
+                "modelId": "GPT",
+                "predicate": {
+                  "path": "$.derivedViews.stableToTerminalMs",
+                  "operator": "gt",
+                  "value": 0
+                },
+                "observedValue": null,
+                "matched": false
               }
             ]
-          },
-          "requestPurpose": "Проверить, не извлекался ли текст до истинного окончания генерации."
-        },
-        {
-          "reportType": "forced-finalization",
-          "relation": "temporal-cause",
-          "priority": "required",
-          "requestIf": {
-            "any": [
-              {
-                "path": "$.stateAxes.terminalMode",
-                "operator": "eq",
-                "value": "forced"
-              },
-              {
-                "path": "$.derivedViews.terminalBeforeLastRelevantMutation",
-                "operator": "eq",
-                "value": true
-              }
-            ]
-          },
-          "requestPurpose": "Проверить, прекратило ли расширение ожидание до завершения DOM-эволюции."
+          }
         }
       ],
-      "analysisInstructionsRef": "shared:analysisInstructions"
+      "analysisInstructionsRef": "sharedConfig.commonAnalysisInstructions"
     },
-    "forced-success": {
+    "old-answer": {
       "reportDescriptor": {
-        "reportType": "forced-success",
-        "reportVersion": "1.0.0",
-        "title": "Аудит SUCCESS без доказанного automatic completion",
-        "primaryQuestion": "Аудит SUCCESS без доказанного automatic completion",
+        "reportId": "rpt-old-answer-625f210c",
+        "reportType": "old-answer",
+        "reportVersion": "2.0.0",
+        "title": "Почему принят текст от предыдущего запроса?",
+        "primaryQuestion": "Почему принят текст от предыдущего запроса?",
         "canDiagnose": [],
         "cannotDiagnoseAlone": [],
         "completeness": {
-          "level": "not_generated",
-          "evidenceCoveragePct": 0,
-          "missingCriticalEvidence": true,
-          "missingItems": [
-            "preset not selected for this example"
-          ],
+          "level": "partial",
+          "evidenceCoveragePct": 42.11,
+          "missingCriticalEvidence": false,
+          "missingItems": [],
           "safeConclusions": [],
-          "blockedConclusions": [
-            "all"
-          ]
+          "blockedConclusions": []
         },
         "reportMode": "embedded-in-all-presets",
         "dependencyRegistryVersion": "1.0.0",
-        "dependencyRegistryHash": "sha256:ee727e80bbeb45cfc7b8c736f532219ffc65696d7cc4143707775b8ed46babbd"
+        "dependencyRegistryHash": "sha256:b0e80779a69713e47171c678f6d7874be4b80e4f31fdca403059f5d3111d86ea"
       },
       "diagnosticSummary": {
-        "factsEstablished": [],
-        "preliminaryFindings": [],
-        "causalVerdict": "not_evaluated",
-        "confidence": "none",
-        "requiredAdditionalReports": []
+        "models": {
+          "GPT": {
+            "stateAxes": {
+              "submission": "evidence_partial",
+              "generationStart": "not_evaluated",
+              "answerIdentity": "current_dispatch",
+              "observedGeneration": "quiescent",
+              "textEvolution": "stable",
+              "answerCompleteness": "not_evaluated",
+              "extraction": "none",
+              "verification": "verified",
+              "completionDetection": "not_evaluated",
+              "completionEvidenceTier": 1,
+              "observationReliability": "degraded",
+              "finalization": "retry_scheduled",
+              "terminalMode": "none",
+              "terminationCause": "unknown"
+            },
+            "completionEvidenceTier": 1,
+            "acceptedTextLength": 120,
+            "maxObservedTextLength": 120,
+            "extractionCoveragePct": 100,
+            "postTerminalGrowthPct": 0,
+            "stableToTerminalMs": null
+          }
+        }
       },
-      "stateAxes": {},
-      "eventRefs": [],
-      "derivedViewRef": null,
+      "stateAxes": {
+        "GPT": {
+          "submission": "evidence_partial",
+          "generationStart": "not_evaluated",
+          "answerIdentity": "current_dispatch",
+          "observedGeneration": "quiescent",
+          "textEvolution": "stable",
+          "answerCompleteness": "not_evaluated",
+          "extraction": "none",
+          "verification": "verified",
+          "completionDetection": "not_evaluated",
+          "completionEvidenceTier": 1,
+          "observationReliability": "degraded",
+          "finalization": "retry_scheduled",
+          "terminalMode": "none",
+          "terminationCause": "unknown"
+        }
+      },
+      "eventSeqs": [
+        1,
+        4,
+        8,
+        9,
+        10,
+        11,
+        13,
+        14
+      ],
+      "derivedViewRef": "model-timeline",
       "siblings": [
         {
-          "reportType": "true-completion",
-          "relation": "evidence-gap",
-          "priority": "required",
-          "requestIf": {
-            "all": [
-              {
-                "path": "$.derivedViews.terminalOutcome",
-                "operator": "eq",
-                "value": "SUCCESS"
-              },
-              {
-                "path": "$.derivedViews.completionEvidenceTier",
-                "operator": "lt",
-                "value": 3
-              }
-            ]
-          },
-          "requestPurpose": "Установить, завершилась ли модель фактически."
-        },
-        {
-          "reportType": "forced-finalization",
-          "relation": "mechanism",
+          "reportType": "empty",
+          "relation": "diagnostic-dependency",
           "priority": "required",
           "requestIf": {
             "any": [
               {
-                "path": "$.stateAxes.terminalMode",
+                "path": "$.derivedViews.acceptedTextLength",
                 "operator": "eq",
-                "value": "forced"
-              },
-              {
-                "path": "$.derivedViews.timeoutTriggerObserved",
-                "operator": "eq",
-                "value": true
+                "value": 0
               }
             ]
           },
-          "requestPurpose": "Проверить конкретный механизм принудительной финализации."
+          "evaluation": {
+            "matched": false,
+            "predicateResults": [
+              {
+                "modelId": "GPT",
+                "predicate": {
+                  "path": "$.derivedViews.acceptedTextLength",
+                  "operator": "eq",
+                  "value": 0
+                },
+                "observedValue": 120,
+                "matched": false
+              }
+            ]
+          }
         },
         {
-          "reportType": "extraction-integrity",
-          "relation": "accepted-answer-quality",
+          "reportType": "cutted",
+          "relation": "diagnostic-dependency",
           "priority": "required",
           "requestIf": {
             "any": [
-              {
-                "path": "$.stateAxes.extraction",
-                "operator": "in",
-                "value": [
-                  "fallback",
-                  "ambiguous"
-                ]
-              },
               {
                 "path": "$.derivedViews.extractionCoveragePct",
                 "operator": "lt",
-                "value": 98.0
+                "value": 98
               }
             ]
           },
-          "requestPurpose": "Проверить качество текста, принятого forced-веткой."
+          "evaluation": {
+            "matched": false,
+            "predicateResults": [
+              {
+                "modelId": "GPT",
+                "predicate": {
+                  "path": "$.derivedViews.extractionCoveragePct",
+                  "operator": "lt",
+                  "value": 98
+                },
+                "observedValue": 100,
+                "matched": false
+              }
+            ]
+          }
+        }
+      ],
+      "analysisInstructionsRef": "sharedConfig.commonAnalysisInstructions"
+    },
+    "empty": {
+      "reportDescriptor": {
+        "reportId": "rpt-empty-625f210c",
+        "reportType": "empty",
+        "reportVersion": "2.0.0",
+        "title": "Почему генерация была, но extraction вернул пусто или не тот узел?",
+        "primaryQuestion": "Почему генерация была, но extraction вернул пусто или не тот узел?",
+        "canDiagnose": [],
+        "cannotDiagnoseAlone": [],
+        "completeness": {
+          "level": "partial",
+          "evidenceCoveragePct": 47.37,
+          "missingCriticalEvidence": false,
+          "missingItems": [],
+          "safeConclusions": [],
+          "blockedConclusions": []
+        },
+        "reportMode": "embedded-in-all-presets",
+        "dependencyRegistryVersion": "1.0.0",
+        "dependencyRegistryHash": "sha256:b0e80779a69713e47171c678f6d7874be4b80e4f31fdca403059f5d3111d86ea"
+      },
+      "diagnosticSummary": {
+        "models": {
+          "GPT": {
+            "stateAxes": {
+              "submission": "evidence_partial",
+              "generationStart": "not_evaluated",
+              "answerIdentity": "current_dispatch",
+              "observedGeneration": "quiescent",
+              "textEvolution": "stable",
+              "answerCompleteness": "not_evaluated",
+              "extraction": "none",
+              "verification": "verified",
+              "completionDetection": "not_evaluated",
+              "completionEvidenceTier": 1,
+              "observationReliability": "degraded",
+              "finalization": "retry_scheduled",
+              "terminalMode": "none",
+              "terminationCause": "unknown"
+            },
+            "completionEvidenceTier": 1,
+            "acceptedTextLength": 120,
+            "maxObservedTextLength": 120,
+            "extractionCoveragePct": 100,
+            "postTerminalGrowthPct": 0,
+            "stableToTerminalMs": null
+          }
+        }
+      },
+      "stateAxes": {
+        "GPT": {
+          "submission": "evidence_partial",
+          "generationStart": "not_evaluated",
+          "answerIdentity": "current_dispatch",
+          "observedGeneration": "quiescent",
+          "textEvolution": "stable",
+          "answerCompleteness": "not_evaluated",
+          "extraction": "none",
+          "verification": "verified",
+          "completionDetection": "not_evaluated",
+          "completionEvidenceTier": 1,
+          "observationReliability": "degraded",
+          "finalization": "retry_scheduled",
+          "terminalMode": "none",
+          "terminationCause": "unknown"
+        }
+      },
+      "eventSeqs": [
+        5,
+        6,
+        7,
+        9,
+        10,
+        11,
+        13,
+        14,
+        15
+      ],
+      "derivedViewRef": "model-timeline",
+      "siblings": [
+        {
+          "reportType": "old-answer",
+          "relation": "diagnostic-dependency",
+          "priority": "required",
+          "requestIf": {
+            "any": [
+              {
+                "path": "$.stateAxes.answerIdentity",
+                "operator": "ne",
+                "value": "current_dispatch"
+              }
+            ]
+          },
+          "evaluation": {
+            "matched": false,
+            "predicateResults": [
+              {
+                "modelId": "GPT",
+                "predicate": {
+                  "path": "$.stateAxes.answerIdentity",
+                  "operator": "ne",
+                  "value": "current_dispatch"
+                },
+                "observedValue": "current_dispatch",
+                "matched": false
+              }
+            ]
+          }
         },
         {
-          "reportType": "truncation",
-          "relation": "consequence",
+          "reportType": "cutted",
+          "relation": "diagnostic-dependency",
+          "priority": "required",
+          "requestIf": {
+            "any": [
+              {
+                "path": "$.derivedViews.maxObservedTextLength",
+                "operator": "gt",
+                "value": 0
+              }
+            ]
+          },
+          "evaluation": {
+            "matched": true,
+            "predicateResults": [
+              {
+                "modelId": "GPT",
+                "predicate": {
+                  "path": "$.derivedViews.maxObservedTextLength",
+                  "operator": "gt",
+                  "value": 0
+                },
+                "observedValue": 120,
+                "matched": true
+              }
+            ]
+          }
+        }
+      ],
+      "analysisInstructionsRef": "sharedConfig.commonAnalysisInstructions"
+    },
+    "prompt-not-sent": {
+      "reportDescriptor": {
+        "reportId": "rpt-prompt-not-sent-625f210c",
+        "reportType": "prompt-not-sent",
+        "reportVersion": "2.0.0",
+        "title": "Почему модель не получила запрос?",
+        "primaryQuestion": "Почему модель не получила запрос?",
+        "canDiagnose": [],
+        "cannotDiagnoseAlone": [],
+        "completeness": {
+          "level": "partial",
+          "evidenceCoveragePct": 26.32,
+          "missingCriticalEvidence": false,
+          "missingItems": [],
+          "safeConclusions": [],
+          "blockedConclusions": []
+        },
+        "reportMode": "embedded-in-all-presets",
+        "dependencyRegistryVersion": "1.0.0",
+        "dependencyRegistryHash": "sha256:b0e80779a69713e47171c678f6d7874be4b80e4f31fdca403059f5d3111d86ea"
+      },
+      "diagnosticSummary": {
+        "models": {
+          "GPT": {
+            "stateAxes": {
+              "submission": "evidence_partial",
+              "generationStart": "not_evaluated",
+              "answerIdentity": "current_dispatch",
+              "observedGeneration": "quiescent",
+              "textEvolution": "stable",
+              "answerCompleteness": "not_evaluated",
+              "extraction": "none",
+              "verification": "verified",
+              "completionDetection": "not_evaluated",
+              "completionEvidenceTier": 1,
+              "observationReliability": "degraded",
+              "finalization": "retry_scheduled",
+              "terminalMode": "none",
+              "terminationCause": "unknown"
+            },
+            "completionEvidenceTier": 1,
+            "acceptedTextLength": 120,
+            "maxObservedTextLength": 120,
+            "extractionCoveragePct": 100,
+            "postTerminalGrowthPct": 0,
+            "stableToTerminalMs": null
+          }
+        }
+      },
+      "stateAxes": {
+        "GPT": {
+          "submission": "evidence_partial",
+          "generationStart": "not_evaluated",
+          "answerIdentity": "current_dispatch",
+          "observedGeneration": "quiescent",
+          "textEvolution": "stable",
+          "answerCompleteness": "not_evaluated",
+          "extraction": "none",
+          "verification": "verified",
+          "completionDetection": "not_evaluated",
+          "completionEvidenceTier": 1,
+          "observationReliability": "degraded",
+          "finalization": "retry_scheduled",
+          "terminalMode": "none",
+          "terminationCause": "unknown"
+        }
+      },
+      "eventSeqs": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "derivedViewRef": "model-timeline",
+      "siblings": [],
+      "analysisInstructionsRef": "sharedConfig.commonAnalysisInstructions"
+    },
+    "late-end": {
+      "reportDescriptor": {
+        "reportId": "rpt-late-end-625f210c",
+        "reportType": "late-end",
+        "reportVersion": "2.0.0",
+        "title": "Текст давно стабилен — почему система ждала ещё N секунд?",
+        "primaryQuestion": "Текст давно стабилен — почему система ждала ещё N секунд?",
+        "canDiagnose": [],
+        "cannotDiagnoseAlone": [],
+        "completeness": {
+          "level": "partial",
+          "evidenceCoveragePct": 36.84,
+          "missingCriticalEvidence": false,
+          "missingItems": [],
+          "safeConclusions": [],
+          "blockedConclusions": []
+        },
+        "reportMode": "embedded-in-all-presets",
+        "dependencyRegistryVersion": "1.0.0",
+        "dependencyRegistryHash": "sha256:b0e80779a69713e47171c678f6d7874be4b80e4f31fdca403059f5d3111d86ea"
+      },
+      "diagnosticSummary": {
+        "models": {
+          "GPT": {
+            "stateAxes": {
+              "submission": "evidence_partial",
+              "generationStart": "not_evaluated",
+              "answerIdentity": "current_dispatch",
+              "observedGeneration": "quiescent",
+              "textEvolution": "stable",
+              "answerCompleteness": "not_evaluated",
+              "extraction": "none",
+              "verification": "verified",
+              "completionDetection": "not_evaluated",
+              "completionEvidenceTier": 1,
+              "observationReliability": "degraded",
+              "finalization": "retry_scheduled",
+              "terminalMode": "none",
+              "terminationCause": "unknown"
+            },
+            "completionEvidenceTier": 1,
+            "acceptedTextLength": 120,
+            "maxObservedTextLength": 120,
+            "extractionCoveragePct": 100,
+            "postTerminalGrowthPct": 0,
+            "stableToTerminalMs": null
+          }
+        }
+      },
+      "stateAxes": {
+        "GPT": {
+          "submission": "evidence_partial",
+          "generationStart": "not_evaluated",
+          "answerIdentity": "current_dispatch",
+          "observedGeneration": "quiescent",
+          "textEvolution": "stable",
+          "answerCompleteness": "not_evaluated",
+          "extraction": "none",
+          "verification": "verified",
+          "completionDetection": "not_evaluated",
+          "completionEvidenceTier": 1,
+          "observationReliability": "degraded",
+          "finalization": "retry_scheduled",
+          "terminalMode": "none",
+          "terminationCause": "unknown"
+        }
+      },
+      "eventSeqs": [
+        7,
+        8,
+        11,
+        12,
+        16,
+        17,
+        18
+      ],
+      "derivedViewRef": "model-timeline",
+      "siblings": [
+        {
+          "reportType": "false-success",
+          "relation": "diagnostic-dependency",
           "priority": "required",
           "requestIf": {
             "any": [
@@ -1967,178 +1824,67 @@
                 "path": "$.derivedViews.postTerminalGrowthPct",
                 "operator": "gt",
                 "value": 0.5
-              },
-              {
-                "path": "$.derivedViews.extractionCoveragePct",
-                "operator": "lt",
-                "value": 98.0
               }
             ]
           },
-          "requestPurpose": "Проверить, привёл ли forced SUCCESS к обрезанному ответу."
+          "evaluation": {
+            "matched": false,
+            "predicateResults": [
+              {
+                "modelId": "GPT",
+                "predicate": {
+                  "path": "$.derivedViews.postTerminalGrowthPct",
+                  "operator": "gt",
+                  "value": 0.5
+                },
+                "observedValue": 0,
+                "matched": false
+              }
+            ]
+          }
         }
       ],
-      "analysisInstructionsRef": "shared:analysisInstructions"
-    },
-    "forced-finalization": {
-      "reportDescriptor": {
-        "reportType": "forced-finalization",
-        "reportVersion": "1.0.0",
-        "title": "Аудит принудительного прекращения ожидания расширением",
-        "primaryQuestion": "Аудит принудительного прекращения ожидания расширением",
-        "canDiagnose": [],
-        "cannotDiagnoseAlone": [],
-        "completeness": {
-          "level": "not_generated",
-          "evidenceCoveragePct": 0,
-          "missingCriticalEvidence": true,
-          "missingItems": [
-            "preset not selected for this example"
-          ],
-          "safeConclusions": [],
-          "blockedConclusions": [
-            "all"
-          ]
-        },
-        "reportMode": "embedded-in-all-presets",
-        "dependencyRegistryVersion": "1.0.0",
-        "dependencyRegistryHash": "sha256:ee727e80bbeb45cfc7b8c736f532219ffc65696d7cc4143707775b8ed46babbd"
-      },
-      "diagnosticSummary": {
-        "factsEstablished": [],
-        "preliminaryFindings": [],
-        "causalVerdict": "not_evaluated",
-        "confidence": "none",
-        "requiredAdditionalReports": []
-      },
-      "stateAxes": {},
-      "eventRefs": [],
-      "derivedViewRef": null,
-      "siblings": [
-        {
-          "reportType": "forced-success",
-          "relation": "status-projection",
-          "priority": "required",
-          "requestIf": {
-            "any": [
-              {
-                "path": "$.derivedViews.terminalOutcome",
-                "operator": "eq",
-                "value": "SUCCESS"
-              }
-            ]
-          },
-          "requestPurpose": "Проверить, был ли forced terminal спроецирован как SUCCESS."
-        },
-        {
-          "reportType": "true-completion",
-          "relation": "counterfactual",
-          "priority": "required",
-          "requestIf": {
-            "any": [
-              {
-                "path": "$.derivedViews.completionEvidenceTier",
-                "operator": "lt",
-                "value": 3
-              },
-              {
-                "path": "$.derivedViews.activeSignalAtForce",
-                "operator": "eq",
-                "value": true
-              }
-            ]
-          },
-          "requestPurpose": "Установить, завершилась ли модель до принудительного прекращения ожидания."
-        },
-        {
-          "reportType": "generation-not-started",
-          "relation": "pre-start-timeout",
-          "priority": "required",
-          "requestIf": {
-            "all": [
-              {
-                "path": "$.stateAxes.observedGeneration",
-                "operator": "eq",
-                "value": "not_started"
-              },
-              {
-                "path": "$.derivedViews.answerLengthAtForce",
-                "operator": "eq",
-                "value": 0
-              }
-            ]
-          },
-          "requestPurpose": "Отличить timeout ожидания старта от timeout активной генерации."
-        },
-        {
-          "reportType": "truncation",
-          "relation": "post-force-consequence",
-          "priority": "required",
-          "requestIf": {
-            "all": [
-              {
-                "path": "$.derivedViews.answerLengthAtForce",
-                "operator": "gt",
-                "value": 0
-              },
-              {
-                "path": "$.derivedViews.postTerminalGrowthPct",
-                "operator": "gt",
-                "value": 0.5
-              }
-            ]
-          },
-          "requestPurpose": "Проверить, была ли сохранена неполная версия ответа."
-        }
-      ],
-      "analysisInstructionsRef": "shared:analysisInstructions"
+      "analysisInstructionsRef": "sharedConfig.commonAnalysisInstructions"
     }
   },
   "attachments": {
     "byId": {},
-    "omissions": [
-      {
-        "attachmentType": "redacted-dom-fragment",
-        "reason": "not captured in sample",
-        "impact": "hidden node details unavailable"
-      }
-    ],
-    "deduplication": "content-addressed by sha256"
+    "omissions": []
   },
   "exportAudit": {
+    "sampleData": true,
     "exportBoundary": {
-      "freezeStartedAtSeq": 9,
-      "ledgerCompleteThroughSeq": 9,
-      "pendingWritersFlushed": true,
-      "exportedAt": 1785230068000
+      "runSessionId": "synthetic-run",
+      "ledgerCompleteThroughSeq": 19,
+      "frozenAt": 12000
     },
     "hashes": {
-      "ledgerHash": "sha256:2100cfb4ef1f904297eeda2a3c680f78e91961050a9cb76e17aea1340e38575f",
-      "sharedConfigHash": "sha256:561b6767ce42f04745f00099d0828cb2bc5663c6c3540225dd5d6db5afb6d9ad",
-      "derivedViewsHash": "sha256:ddaee804d97afacfe9cbb535df7b49f2da2c0746a3c03d336f2eee9bd5dc875f",
-      "reportsHash": "sha256:78b71dbba62300459a108ca5236a0f2e497e1a5811afd2d6c295b8b50de6d25b",
-      "attachmentsHash": "sha256:a48982783460dad8d7a78ecaf06073c57590f0126b84857411139ad506ee72d3",
-      "containerHash": "sha256:a2cf5d348e9fe2552fe29399da60737fbea646c7247af2e2627f1d26da8e69fe"
-    },
-    "invariants": {
-      "passed": true,
-      "violations": []
-    },
-    "replay": {
-      "decisionMatches": true,
-      "summaryMatches": true,
-      "recordedDecisionHash": "sha256:decision-recorded",
-      "recomputedDecisionHash": "sha256:decision-recorded"
+      "ledger": "sha256:cf61ad87db67de9abc0cbe0d3981aefa53840eab7f52c0d0324e78e1b4e1bee3",
+      "sharedConfig": "sha256:a9bff338ad30671e0c32d52ddf73a89b6b662c669a82824f359a6b0e26a9c31d",
+      "derivedViews": "sha256:42ea20fa4a984ac868521ef3d6cb4c7626490c1e4afb84e1d1e25f642bd69209",
+      "reports": "sha256:bb4574c58fcc223e1c67c794032c2606d062d37b2bd824bc5a9dd505e08949bb",
+      "attachments": "sha256:b1968c832915f5cdc3320b65fc5ad56f2c9f3a9d20eaa0919b749ad664b9c18a",
+      "container": "sha256:faf381747dad5d067113f50e81aac450846768f4824e4d3069cfa5c0f6bd8c4b"
     },
     "schemaValidation": {
-      "passed": true,
-      "schemaId": "all-presets.schema.json"
+      "valid": true,
+      "schemaVersion": "5.0"
     },
-    "size": {
-      "minifiedBytes": 44117,
-      "gzipBytes": 7191,
-      "withinBudget": true
+    "invariantViolations": [],
+    "replay": {
+      "valid": true,
+      "recordedDecisionHash": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "recomputedDecisionHash": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
     },
-    "sampleData": true
+    "budget": {
+      "limitBytes": 1000000,
+      "measuredBytes": 36436,
+      "withinBudget": true,
+      "status": "within_budget"
+    },
+    "sourceCompatibility": {
+      "mode": "native-runtime-ledger",
+      "canonicalRuntimeEmissionPending": false
+    }
   }
 }

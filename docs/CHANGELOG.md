@@ -1,5 +1,20 @@
 # CHANGELOG — Project
 
+### 2026-08-28 — User-question telemetry presets, version 2.81.143
+
+- Replaced eight overlapping technical Tasks with six user-facing diagnoses:
+  `Cutted`, `False success`, `Old answer`, `Empty`, `Prompt not sent`, and
+  `Late end`.
+- Merged true-completion, forced-success and forced-finalization evidence into
+  `False success`; split extraction failures into wrong-turn and empty/wrong-node
+  reports.
+- Added `stableToTerminalMs` so `Late end` reports the actual wait between the
+  last confirmed stable boundary and terminal recording.
+- Kept one canonical segmented event ledger; All tasks and standalone Tasks
+  remain projections rather than parallel telemetry recordings.
+- Updated both Telemetry surfaces, executable contracts, validator, examples,
+  dependency registry and documentation.
+
 ### 2026-08-28 — Semantic ingestion and operational aggregation, version 2.81.142
 
 - Removed the catch-all runtime conversion of unknown legacy labels into

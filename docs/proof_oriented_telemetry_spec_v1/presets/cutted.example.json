@@ -1,0 +1,939 @@
+{
+  "schemaVersion": "5.0",
+  "fileKind": "diagnostic-report",
+  "reportDescriptor": {
+    "reportId": "rpt-cutted-GPT-816b960c",
+    "reportType": "cutted",
+    "reportVersion": "2.0.0",
+    "title": "Почему зафиксирован SUCCESS, а текст явно неполный?",
+    "primaryQuestion": "Почему зафиксирован SUCCESS, а текст явно неполный?",
+    "canDiagnose": [
+      {
+        "claim": "all required evidence slots are materialized"
+      }
+    ],
+    "cannotDiagnoseAlone": [],
+    "completeness": {
+      "level": "complete",
+      "evidenceCoveragePct": 100,
+      "missingCriticalEvidence": false,
+      "missingItems": [],
+      "safeConclusions": [
+        "all required evidence slots are materialized"
+      ],
+      "blockedConclusions": []
+    },
+    "reportMode": "standalone",
+    "dependencyRegistryVersion": "3.0.0",
+    "dependencyRegistryHash": "sha256:2d52e3f891783c3e171f2c26b45d588a727cb7c87b5ae94044228ea87732a6e4"
+  },
+  "correlation": {
+    "incidentId": "incident:synthetic-run|1|GPT|synthetic-dispatch|1",
+    "runSessionId": "synthetic-run",
+    "runGeneration": 1,
+    "modelId": "GPT",
+    "dispatchId": "synthetic-dispatch",
+    "generationEpoch": 1,
+    "candidateIds": [],
+    "navigationLineage": [],
+    "selectionReason": "task_evidence_rank_then_latest_including_zero_match",
+    "matchingIncidentCount": 1,
+    "otherMatchingIncidents": []
+  },
+  "reportCatalogSnapshot": [
+    {
+      "reportType": "cutted",
+      "reportVersion": "2.0.0",
+      "included": true
+    },
+    {
+      "reportType": "false-success",
+      "reportVersion": "2.0.0",
+      "included": false
+    },
+    {
+      "reportType": "old-answer",
+      "reportVersion": "2.0.0",
+      "included": false
+    },
+    {
+      "reportType": "empty",
+      "reportVersion": "2.0.0",
+      "included": false
+    },
+    {
+      "reportType": "prompt-not-sent",
+      "reportVersion": "2.0.0",
+      "included": false
+    },
+    {
+      "reportType": "late-end",
+      "reportVersion": "2.0.0",
+      "included": false
+    }
+  ],
+  "runConfiguration": {
+    "extensionVersion": "2.81.143",
+    "policy": {
+      "automaticMinimumEvidenceTier": 3,
+      "thresholds": {
+        "generationStartTimeoutMs": 15000,
+        "minimumExtractionCoveragePct": 98,
+        "postTerminalGrowthTolerancePct": 0.5,
+        "automaticMinimumEvidenceTier": 3,
+        "maximumSignalSkewMs": 250
+      }
+    },
+    "privacy": {
+      "mode": "metadata-only"
+    }
+  },
+  "diagnosticSummary": {
+    "incidentId": "incident:synthetic-run|1|GPT|synthetic-dispatch|1",
+    "sufficiency": "complete",
+    "evidenceSlots": [
+      {
+        "slotId": "success_decision",
+        "criticality": "critical",
+        "acceptedEventTypes": [
+          "DECISION_RECORDED",
+          "MODEL_TERMINAL_RECORDED"
+        ],
+        "status": "satisfied",
+        "eventIds": [
+          "event-157884a2-dfc9f7ce"
+        ],
+        "impact": null
+      },
+      {
+        "slotId": "text_evolution",
+        "criticality": "critical",
+        "acceptedEventTypes": [
+          "TEXT_STATE_CHANGED"
+        ],
+        "status": "satisfied",
+        "eventIds": [
+          "event-907dda8d-1de5fcad"
+        ],
+        "impact": null
+      },
+      {
+        "slotId": "completeness",
+        "criticality": "critical",
+        "acceptedEventTypes": [
+          "ANSWER_COMPLETENESS_EVALUATED",
+          "POST_TERMINAL_AUDIT_COMPLETED"
+        ],
+        "status": "satisfied",
+        "eventIds": [
+          "event-f60a1e51-4055de09"
+        ],
+        "impact": null
+      },
+      {
+        "slotId": "extraction_boundary",
+        "criticality": "required",
+        "acceptedEventTypes": [
+          "EXTRACTION_COMPLETED",
+          "STRUCTURAL_VERIFICATION_EVALUATED"
+        ],
+        "status": "satisfied",
+        "eventIds": [
+          "event-33529fdb-8d0c9a83"
+        ],
+        "impact": null
+      },
+      {
+        "slotId": "candidate_identity",
+        "criticality": "required",
+        "acceptedEventTypes": [
+          "CANDIDATE_SET_CHANGED",
+          "CANDIDATE_IDENTITY_INFERRED"
+        ],
+        "status": "satisfied",
+        "eventIds": [
+          "event-8b011c52-012674b2"
+        ],
+        "impact": null
+      },
+      {
+        "slotId": "decision_lineage",
+        "criticality": "required",
+        "acceptedEventTypes": [
+          "FINALIZATION_POLICY_EVALUATED",
+          "POLICY_OVERRIDE_APPLIED",
+          "DECISION_RECORDED"
+        ],
+        "status": "satisfied",
+        "eventIds": [
+          "event-157884a2-dfc9f7ce",
+          "event-05b5c098-13f287f8"
+        ],
+        "impact": null
+      },
+      {
+        "slotId": "missing_evidence",
+        "criticality": "conditional",
+        "acceptedEventTypes": [
+          "MISSING_EVIDENCE_RECORDED"
+        ],
+        "status": "satisfied",
+        "eventIds": [
+          "event-100f133f-9c007d17"
+        ],
+        "impact": null
+      }
+    ],
+    "safeConclusions": [
+      "all required evidence slots are materialized"
+    ],
+    "blockedConclusions": []
+  },
+  "stateAxes": {
+    "submission": "not_attempted",
+    "generationStart": "not_evaluated",
+    "answerIdentity": "none",
+    "observedGeneration": "not_started",
+    "textEvolution": "none",
+    "answerCompleteness": "not_evaluated",
+    "extraction": "none",
+    "verification": "none",
+    "completionDetection": "not_evaluated",
+    "completionEvidenceTier": 0,
+    "observationReliability": "unknown",
+    "finalization": "not_evaluated",
+    "terminalMode": "none",
+    "terminationCause": "unknown"
+  },
+  "eventSelection": {
+    "includedEventTypes": [
+      "DECISION_RECORDED",
+      "TEXT_STATE_CHANGED",
+      "ANSWER_COMPLETENESS_EVALUATED",
+      "EXTRACTION_COMPLETED",
+      "CANDIDATE_SET_CHANGED",
+      "FINALIZATION_POLICY_EVALUATED",
+      "MISSING_EVIDENCE_RECORDED"
+    ],
+    "eventRefs": [
+      "event-157884a2-dfc9f7ce",
+      "event-907dda8d-1de5fcad",
+      "event-f60a1e51-4055de09",
+      "event-33529fdb-8d0c9a83",
+      "event-8b011c52-012674b2",
+      "event-05b5c098-13f287f8",
+      "event-100f133f-9c007d17"
+    ],
+    "materializedEvents": [
+      {
+        "schemaVersion": 6,
+        "eventId": "event-157884a2-dfc9f7ce",
+        "eventType": "DECISION_RECORDED",
+        "layer": "decision",
+        "seq": 1,
+        "ingestSeq": 1,
+        "runGeneration": 1,
+        "wallTs": 1000,
+        "runSessionId": "synthetic-run",
+        "modelId": "GPT",
+        "producer": {
+          "component": "legacy-telemetry-adapter",
+          "version": "proof-export@1.1.0"
+        },
+        "clock": {
+          "contractVersion": "1.0",
+          "producerEpochId": "legacy-clockless",
+          "producerSequence": null,
+          "observedAtLocalMonoMs": null,
+          "sentAtLocalMonoMs": null,
+          "originKind": "unknown",
+          "ingestEpochId": "legacy-adapter",
+          "ingestMonoMs": 1
+        },
+        "payload": {
+          "typed": {
+            "kind": "unknown",
+            "state": "unknown"
+          },
+          "sourceEventType": "DECISION_RECORDED",
+          "sourceLevel": "info",
+          "detailsLength": 0,
+          "metadata": {
+            "dispatchId": "synthetic-dispatch",
+            "finalStatus": "SUCCESS",
+            "generationEpoch": 1,
+            "runGeneration": 1,
+            "runSessionId": "synthetic-run"
+          }
+        },
+        "dispatchId": "synthetic-dispatch",
+        "generationEpoch": 1,
+        "includedFor": [
+          "lineage:terminal",
+          "slot:decision_lineage",
+          "slot:success_decision"
+        ]
+      },
+      {
+        "schemaVersion": 6,
+        "eventId": "event-907dda8d-1de5fcad",
+        "eventType": "TEXT_STATE_CHANGED",
+        "layer": "fact",
+        "seq": 2,
+        "ingestSeq": 2,
+        "runGeneration": 1,
+        "wallTs": 1500,
+        "runSessionId": "synthetic-run",
+        "modelId": "GPT",
+        "producer": {
+          "component": "legacy-telemetry-adapter",
+          "version": "proof-export@1.1.0"
+        },
+        "clock": {
+          "contractVersion": "1.0",
+          "producerEpochId": "legacy-clockless",
+          "producerSequence": null,
+          "observedAtLocalMonoMs": null,
+          "sentAtLocalMonoMs": null,
+          "originKind": "unknown",
+          "ingestEpochId": "legacy-adapter",
+          "ingestMonoMs": 2
+        },
+        "payload": {
+          "typed": {
+            "kind": "unknown",
+            "state": "unknown"
+          },
+          "sourceEventType": "TEXT_STATE_CHANGED",
+          "sourceLevel": "info",
+          "detailsLength": 0,
+          "metadata": {
+            "dispatchId": "synthetic-dispatch",
+            "generationEpoch": 1,
+            "runGeneration": 1,
+            "runSessionId": "synthetic-run",
+            "textLength": 120
+          }
+        },
+        "dispatchId": "synthetic-dispatch",
+        "generationEpoch": 1,
+        "includedFor": [
+          "slot:text_evolution"
+        ]
+      },
+      {
+        "schemaVersion": 6,
+        "eventId": "event-f60a1e51-4055de09",
+        "eventType": "ANSWER_COMPLETENESS_EVALUATED",
+        "layer": "inference",
+        "seq": 3,
+        "ingestSeq": 3,
+        "runGeneration": 1,
+        "wallTs": 2000,
+        "runSessionId": "synthetic-run",
+        "modelId": "GPT",
+        "producer": {
+          "component": "legacy-telemetry-adapter",
+          "version": "proof-export@1.1.0"
+        },
+        "clock": {
+          "contractVersion": "1.0",
+          "producerEpochId": "legacy-clockless",
+          "producerSequence": null,
+          "observedAtLocalMonoMs": null,
+          "sentAtLocalMonoMs": null,
+          "originKind": "unknown",
+          "ingestEpochId": "legacy-adapter",
+          "ingestMonoMs": 3
+        },
+        "payload": {
+          "typed": {
+            "kind": "unknown",
+            "state": "unknown"
+          },
+          "sourceEventType": "ANSWER_COMPLETENESS_EVALUATED",
+          "sourceLevel": "info",
+          "detailsLength": 0,
+          "metadata": {
+            "dispatchId": "synthetic-dispatch",
+            "generationEpoch": 1,
+            "runGeneration": 1,
+            "runSessionId": "synthetic-run"
+          }
+        },
+        "dispatchId": "synthetic-dispatch",
+        "generationEpoch": 1,
+        "includedFor": [
+          "slot:completeness"
+        ]
+      },
+      {
+        "schemaVersion": 6,
+        "eventId": "event-33529fdb-8d0c9a83",
+        "eventType": "EXTRACTION_COMPLETED",
+        "layer": "fact",
+        "seq": 4,
+        "ingestSeq": 4,
+        "runGeneration": 1,
+        "wallTs": 2500,
+        "runSessionId": "synthetic-run",
+        "modelId": "GPT",
+        "producer": {
+          "component": "legacy-telemetry-adapter",
+          "version": "proof-export@1.1.0"
+        },
+        "clock": {
+          "contractVersion": "1.0",
+          "producerEpochId": "legacy-clockless",
+          "producerSequence": null,
+          "observedAtLocalMonoMs": null,
+          "sentAtLocalMonoMs": null,
+          "originKind": "unknown",
+          "ingestEpochId": "legacy-adapter",
+          "ingestMonoMs": 4
+        },
+        "payload": {
+          "typed": {
+            "kind": "unknown",
+            "state": "unknown"
+          },
+          "sourceEventType": "EXTRACTION_COMPLETED",
+          "sourceLevel": "info",
+          "detailsLength": 0,
+          "metadata": {
+            "dispatchId": "synthetic-dispatch",
+            "generationEpoch": 1,
+            "runGeneration": 1,
+            "runSessionId": "synthetic-run",
+            "textLength": 120
+          }
+        },
+        "dispatchId": "synthetic-dispatch",
+        "generationEpoch": 1,
+        "includedFor": [
+          "slot:extraction_boundary"
+        ]
+      },
+      {
+        "schemaVersion": 6,
+        "eventId": "event-8b011c52-012674b2",
+        "eventType": "CANDIDATE_SET_CHANGED",
+        "layer": "fact",
+        "seq": 5,
+        "ingestSeq": 5,
+        "runGeneration": 1,
+        "wallTs": 3000,
+        "runSessionId": "synthetic-run",
+        "modelId": "GPT",
+        "producer": {
+          "component": "legacy-telemetry-adapter",
+          "version": "proof-export@1.1.0"
+        },
+        "clock": {
+          "contractVersion": "1.0",
+          "producerEpochId": "legacy-clockless",
+          "producerSequence": null,
+          "observedAtLocalMonoMs": null,
+          "sentAtLocalMonoMs": null,
+          "originKind": "unknown",
+          "ingestEpochId": "legacy-adapter",
+          "ingestMonoMs": 5
+        },
+        "payload": {
+          "typed": {
+            "kind": "unknown",
+            "state": "unknown"
+          },
+          "sourceEventType": "CANDIDATE_SET_CHANGED",
+          "sourceLevel": "info",
+          "detailsLength": 0,
+          "metadata": {
+            "dispatchId": "synthetic-dispatch",
+            "generationEpoch": 1,
+            "runGeneration": 1,
+            "runSessionId": "synthetic-run"
+          }
+        },
+        "dispatchId": "synthetic-dispatch",
+        "generationEpoch": 1,
+        "includedFor": [
+          "slot:candidate_identity"
+        ]
+      },
+      {
+        "schemaVersion": 6,
+        "eventId": "event-05b5c098-13f287f8",
+        "eventType": "FINALIZATION_POLICY_EVALUATED",
+        "layer": "decision",
+        "seq": 6,
+        "ingestSeq": 6,
+        "runGeneration": 1,
+        "wallTs": 3500,
+        "runSessionId": "synthetic-run",
+        "modelId": "GPT",
+        "producer": {
+          "component": "legacy-telemetry-adapter",
+          "version": "proof-export@1.1.0"
+        },
+        "clock": {
+          "contractVersion": "1.0",
+          "producerEpochId": "legacy-clockless",
+          "producerSequence": null,
+          "observedAtLocalMonoMs": null,
+          "sentAtLocalMonoMs": null,
+          "originKind": "unknown",
+          "ingestEpochId": "legacy-adapter",
+          "ingestMonoMs": 6
+        },
+        "payload": {
+          "typed": {
+            "kind": "unknown",
+            "state": "unknown"
+          },
+          "sourceEventType": "FINALIZATION_POLICY_EVALUATED",
+          "sourceLevel": "info",
+          "detailsLength": 0,
+          "metadata": {
+            "dispatchId": "synthetic-dispatch",
+            "generationEpoch": 1,
+            "runGeneration": 1,
+            "runSessionId": "synthetic-run"
+          }
+        },
+        "dispatchId": "synthetic-dispatch",
+        "generationEpoch": 1,
+        "includedFor": [
+          "slot:decision_lineage"
+        ]
+      },
+      {
+        "schemaVersion": 6,
+        "eventId": "event-100f133f-9c007d17",
+        "eventType": "MISSING_EVIDENCE_RECORDED",
+        "layer": "decision",
+        "seq": 7,
+        "ingestSeq": 7,
+        "runGeneration": 1,
+        "wallTs": 4000,
+        "runSessionId": "synthetic-run",
+        "modelId": "GPT",
+        "producer": {
+          "component": "legacy-telemetry-adapter",
+          "version": "proof-export@1.1.0"
+        },
+        "clock": {
+          "contractVersion": "1.0",
+          "producerEpochId": "legacy-clockless",
+          "producerSequence": null,
+          "observedAtLocalMonoMs": null,
+          "sentAtLocalMonoMs": null,
+          "originKind": "unknown",
+          "ingestEpochId": "legacy-adapter",
+          "ingestMonoMs": 7
+        },
+        "payload": {
+          "typed": {
+            "kind": "unknown",
+            "state": "unknown"
+          },
+          "sourceEventType": "MISSING_EVIDENCE_RECORDED",
+          "sourceLevel": "info",
+          "detailsLength": 0,
+          "metadata": {
+            "dispatchId": "synthetic-dispatch",
+            "generationEpoch": 1,
+            "runGeneration": 1,
+            "runSessionId": "synthetic-run"
+          }
+        },
+        "dispatchId": "synthetic-dispatch",
+        "generationEpoch": 1,
+        "includedFor": [
+          "slot:missing_evidence"
+        ]
+      }
+    ]
+  },
+  "derivedViews": {
+    "modelTimeline": {
+      "viewType": "cutted",
+      "generatorVersion": "proof-export@1.1.0",
+      "ledgerHash": "sha256:f9855706b9e5bd99a56e90eb37d0fa3c5bbf4afe23db4ac7613a3ca63798bae1",
+      "data": {
+        "modelId": "GPT",
+        "stateAxes": {
+          "submission": "not_attempted",
+          "generationStart": "not_evaluated",
+          "answerIdentity": "none",
+          "observedGeneration": "not_started",
+          "textEvolution": "none",
+          "answerCompleteness": "not_evaluated",
+          "extraction": "none",
+          "verification": "none",
+          "completionDetection": "not_evaluated",
+          "completionEvidenceTier": 0,
+          "observationReliability": "unknown",
+          "finalization": "not_evaluated",
+          "terminalMode": "none",
+          "terminationCause": "unknown"
+        },
+        "eventSeqs": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ],
+        "firstSeq": 1,
+        "lastSeq": 7,
+        "submissionEvidenceCount": 0,
+        "completionEvidenceTier": 0,
+        "acceptedTextLength": 120,
+        "maxObservedTextLength": 120,
+        "postTerminalGrowthChars": 0,
+        "postTerminalGrowthPct": 0,
+        "postTerminalAuditStatus": "not_applicable",
+        "postTerminalAuditConclusion": null,
+        "extractionCoveragePct": 100,
+        "hiddenRelevantTextLength": 0,
+        "candidateCount": 0,
+        "captureBeforeTerminal": false,
+        "terminalBeforeLastRelevantMutation": false,
+        "terminalOutcome": null,
+        "stableToTerminalMs": null
+      }
+    },
+    "fieldProvenance": {
+      "submission": {
+        "derivedFromEventIds": [
+          "event-157884a2-dfc9f7ce",
+          "event-907dda8d-1de5fcad",
+          "event-f60a1e51-4055de09",
+          "event-33529fdb-8d0c9a83",
+          "event-8b011c52-012674b2",
+          "event-05b5c098-13f287f8",
+          "event-100f133f-9c007d17"
+        ],
+        "derivationVersion": "proof-export@1.1.0:axes-v2"
+      },
+      "generationStart": {
+        "derivedFromEventIds": [
+          "event-157884a2-dfc9f7ce",
+          "event-907dda8d-1de5fcad",
+          "event-f60a1e51-4055de09",
+          "event-33529fdb-8d0c9a83",
+          "event-8b011c52-012674b2",
+          "event-05b5c098-13f287f8",
+          "event-100f133f-9c007d17"
+        ],
+        "derivationVersion": "proof-export@1.1.0:axes-v2"
+      },
+      "answerIdentity": {
+        "derivedFromEventIds": [
+          "event-157884a2-dfc9f7ce",
+          "event-907dda8d-1de5fcad",
+          "event-f60a1e51-4055de09",
+          "event-33529fdb-8d0c9a83",
+          "event-8b011c52-012674b2",
+          "event-05b5c098-13f287f8",
+          "event-100f133f-9c007d17"
+        ],
+        "derivationVersion": "proof-export@1.1.0:axes-v2"
+      },
+      "observedGeneration": {
+        "derivedFromEventIds": [
+          "event-157884a2-dfc9f7ce",
+          "event-907dda8d-1de5fcad",
+          "event-f60a1e51-4055de09",
+          "event-33529fdb-8d0c9a83",
+          "event-8b011c52-012674b2",
+          "event-05b5c098-13f287f8",
+          "event-100f133f-9c007d17"
+        ],
+        "derivationVersion": "proof-export@1.1.0:axes-v2"
+      },
+      "textEvolution": {
+        "derivedFromEventIds": [
+          "event-157884a2-dfc9f7ce",
+          "event-907dda8d-1de5fcad",
+          "event-f60a1e51-4055de09",
+          "event-33529fdb-8d0c9a83",
+          "event-8b011c52-012674b2",
+          "event-05b5c098-13f287f8",
+          "event-100f133f-9c007d17"
+        ],
+        "derivationVersion": "proof-export@1.1.0:axes-v2"
+      },
+      "answerCompleteness": {
+        "derivedFromEventIds": [
+          "event-157884a2-dfc9f7ce",
+          "event-907dda8d-1de5fcad",
+          "event-f60a1e51-4055de09",
+          "event-33529fdb-8d0c9a83",
+          "event-8b011c52-012674b2",
+          "event-05b5c098-13f287f8",
+          "event-100f133f-9c007d17"
+        ],
+        "derivationVersion": "proof-export@1.1.0:axes-v2"
+      },
+      "extraction": {
+        "derivedFromEventIds": [
+          "event-157884a2-dfc9f7ce",
+          "event-907dda8d-1de5fcad",
+          "event-f60a1e51-4055de09",
+          "event-33529fdb-8d0c9a83",
+          "event-8b011c52-012674b2",
+          "event-05b5c098-13f287f8",
+          "event-100f133f-9c007d17"
+        ],
+        "derivationVersion": "proof-export@1.1.0:axes-v2"
+      },
+      "verification": {
+        "derivedFromEventIds": [
+          "event-157884a2-dfc9f7ce",
+          "event-907dda8d-1de5fcad",
+          "event-f60a1e51-4055de09",
+          "event-33529fdb-8d0c9a83",
+          "event-8b011c52-012674b2",
+          "event-05b5c098-13f287f8",
+          "event-100f133f-9c007d17"
+        ],
+        "derivationVersion": "proof-export@1.1.0:axes-v2"
+      },
+      "completionDetection": {
+        "derivedFromEventIds": [
+          "event-157884a2-dfc9f7ce",
+          "event-907dda8d-1de5fcad",
+          "event-f60a1e51-4055de09",
+          "event-33529fdb-8d0c9a83",
+          "event-8b011c52-012674b2",
+          "event-05b5c098-13f287f8",
+          "event-100f133f-9c007d17"
+        ],
+        "derivationVersion": "proof-export@1.1.0:axes-v2"
+      },
+      "completionEvidenceTier": {
+        "derivedFromEventIds": [
+          "event-157884a2-dfc9f7ce",
+          "event-907dda8d-1de5fcad",
+          "event-f60a1e51-4055de09",
+          "event-33529fdb-8d0c9a83",
+          "event-8b011c52-012674b2",
+          "event-05b5c098-13f287f8",
+          "event-100f133f-9c007d17"
+        ],
+        "derivationVersion": "proof-export@1.1.0:axes-v2"
+      },
+      "observationReliability": {
+        "derivedFromEventIds": [
+          "event-157884a2-dfc9f7ce",
+          "event-907dda8d-1de5fcad",
+          "event-f60a1e51-4055de09",
+          "event-33529fdb-8d0c9a83",
+          "event-8b011c52-012674b2",
+          "event-05b5c098-13f287f8",
+          "event-100f133f-9c007d17"
+        ],
+        "derivationVersion": "proof-export@1.1.0:axes-v2"
+      },
+      "finalization": {
+        "derivedFromEventIds": [
+          "event-157884a2-dfc9f7ce",
+          "event-907dda8d-1de5fcad",
+          "event-f60a1e51-4055de09",
+          "event-33529fdb-8d0c9a83",
+          "event-8b011c52-012674b2",
+          "event-05b5c098-13f287f8",
+          "event-100f133f-9c007d17"
+        ],
+        "derivationVersion": "proof-export@1.1.0:axes-v2"
+      },
+      "terminalMode": {
+        "derivedFromEventIds": [
+          "event-157884a2-dfc9f7ce",
+          "event-907dda8d-1de5fcad",
+          "event-f60a1e51-4055de09",
+          "event-33529fdb-8d0c9a83",
+          "event-8b011c52-012674b2",
+          "event-05b5c098-13f287f8",
+          "event-100f133f-9c007d17"
+        ],
+        "derivationVersion": "proof-export@1.1.0:axes-v2"
+      },
+      "terminationCause": {
+        "derivedFromEventIds": [
+          "event-157884a2-dfc9f7ce",
+          "event-907dda8d-1de5fcad",
+          "event-f60a1e51-4055de09",
+          "event-33529fdb-8d0c9a83",
+          "event-8b011c52-012674b2",
+          "event-05b5c098-13f287f8",
+          "event-100f133f-9c007d17"
+        ],
+        "derivationVersion": "proof-export@1.1.0:axes-v2"
+      }
+    }
+  },
+  "contradictions": [],
+  "missingEvidence": [],
+  "siblings": [
+    {
+      "reportType": "false-success",
+      "relation": "diagnostic-dependency",
+      "priority": "required",
+      "requestIf": {
+        "any": [
+          {
+            "path": "$.derivedViews.postTerminalGrowthPct",
+            "operator": "gt",
+            "value": 0.5
+          }
+        ]
+      },
+      "evaluation": {
+        "matched": false,
+        "predicateResults": [
+          {
+            "modelId": "GPT",
+            "predicate": {
+              "path": "$.derivedViews.postTerminalGrowthPct",
+              "operator": "gt",
+              "value": 0.5
+            },
+            "observedValue": 0,
+            "matched": false
+          }
+        ]
+      },
+      "antiLoop": {
+        "sourceReportType": "cutted",
+        "requestTargetOnlyOnce": true
+      }
+    },
+    {
+      "reportType": "old-answer",
+      "relation": "diagnostic-dependency",
+      "priority": "required",
+      "requestIf": {
+        "any": [
+          {
+            "path": "$.stateAxes.answerIdentity",
+            "operator": "ne",
+            "value": "current_dispatch"
+          }
+        ]
+      },
+      "evaluation": {
+        "matched": true,
+        "predicateResults": [
+          {
+            "modelId": "GPT",
+            "predicate": {
+              "path": "$.stateAxes.answerIdentity",
+              "operator": "ne",
+              "value": "current_dispatch"
+            },
+            "observedValue": "none",
+            "matched": true
+          }
+        ]
+      },
+      "antiLoop": {
+        "sourceReportType": "cutted",
+        "requestTargetOnlyOnce": true
+      }
+    },
+    {
+      "reportType": "empty",
+      "relation": "diagnostic-dependency",
+      "priority": "required",
+      "requestIf": {
+        "any": [
+          {
+            "path": "$.derivedViews.acceptedTextLength",
+            "operator": "eq",
+            "value": 0
+          }
+        ]
+      },
+      "evaluation": {
+        "matched": false,
+        "predicateResults": [
+          {
+            "modelId": "GPT",
+            "predicate": {
+              "path": "$.derivedViews.acceptedTextLength",
+              "operator": "eq",
+              "value": 0
+            },
+            "observedValue": 120,
+            "matched": false
+          }
+        ]
+      },
+      "antiLoop": {
+        "sourceReportType": "cutted",
+        "requestTargetOnlyOnce": true
+      }
+    }
+  ],
+  "analysisInstructions": {
+    "version": "1.0.0",
+    "instructions": [
+      "Analyze only the identified incident and materialized evidence.",
+      "Treat unavailable evidence and uncertain clocks as limits, not negative proof.",
+      "Use includedFor and field provenance to verify every conclusion."
+    ]
+  },
+  "crossReportCompatibility": {
+    "mode": "same_incident",
+    "exactMatch": {
+      "runSessionId": "synthetic-run",
+      "runGeneration": 1,
+      "modelId": "GPT",
+      "dispatchId": "synthetic-dispatch",
+      "generationEpoch": 1,
+      "sourceLedgerHash": "sha256:2aa45b192fbe79bfb94c21232d21ce7930508f77153c09a4303accb715689569",
+      "materializedEventHash": "sha256:f9855706b9e5bd99a56e90eb37d0fa3c5bbf4afe23db4ac7613a3ca63798bae1"
+    }
+  },
+  "attachments": [],
+  "exportIntegrity": {
+    "generatorVersion": "proof-export@1.1.0",
+    "sampleData": true,
+    "sourceLedgerHash": "sha256:2aa45b192fbe79bfb94c21232d21ce7930508f77153c09a4303accb715689569",
+    "materializedEventHash": "sha256:f9855706b9e5bd99a56e90eb37d0fa3c5bbf4afe23db4ac7613a3ca63798bae1",
+    "semanticHash": "sha256:7fcef1b7b1337b71fe2409cdd9fc3ed809f929c3676918aa5aa4a948dc9d3b0c",
+    "sourceLedgerEventCount": 7,
+    "materializedEventCount": 7,
+    "deduplication": {
+      "canonicalEventCopies": 7,
+      "duplicateEventIds": 0
+    },
+    "schemaValidation": {
+      "valid": true,
+      "scope": "materialized-events",
+      "status": "validated",
+      "reason": null
+    },
+    "replay": {
+      "valid": true,
+      "scope": "materialized-events",
+      "status": "validated",
+      "recordedStateHash": "sha256:ef51cf778f03a04ae29855430e5622b905fb2e6c1beaa7d87a121c28665bc257",
+      "recomputedStateHash": "sha256:ef51cf778f03a04ae29855430e5622b905fb2e6c1beaa7d87a121c28665bc257",
+      "reason": null
+    },
+    "hashes": {
+      "artifact": "sha256:c2464e34c080abf2cbe834d0074a70a1bfcc9194d40d7973291db4036cd95f24",
+      "semantic": "sha256:7fcef1b7b1337b71fe2409cdd9fc3ed809f929c3676918aa5aa4a948dc9d3b0c"
+    },
+    "size": {
+      "measuredBytes": 18789,
+      "category": "small",
+      "measurementOnly": true
+    }
+  }
+}

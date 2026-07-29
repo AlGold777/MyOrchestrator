@@ -1,5 +1,28 @@
 # Telemetry - tab/session diagnostics
 
+## User-question preset catalog v2.81.143 - 2026-08-28
+
+Telemetry Tasks now contains six user-facing diagnostic questions:
+
+- `Cutted`: SUCCESS recorded while the captured text is incomplete;
+- `False success`: the system finalized while the answer continued growing;
+- `Old answer`: extraction accepted a block belonging to an earlier request;
+- `Empty`: generation was observed but extraction returned empty or selected the
+  wrong node;
+- `Prompt not sent`: the model did not receive the request;
+- `Late end`: text was already stable but terminal recording happened later.
+
+The former `true-completion`, `forced-success` and `forced-finalization` views
+are one `False success` report because they are evidence facets of the same
+user problem. `Truncation` becomes the narrower success-specific `Cutted`, and
+the former broad extraction view is split into actionable `Old answer` and
+`Empty` failures. `Late end` reports `stableToTerminalMs`, calculated from the
+last confirmed stability boundary to the terminal event.
+
+This changes report construction only. Runtime telemetry is still written once
+to the canonical segmented ledger; All tasks and standalone Tasks are two
+export projections of that same evidence.
+
 ## Semantic ingestion and operational aggregation v2.81.142 - 2026-08-28
 
 Runtime ingestion no longer wraps the entire legacy operational stream in
@@ -133,7 +156,9 @@ Focused lifecycle/clock gate: 8 suites / 51 tests.
 
 ## Executable contracts and schema 6 v2.81.133 - 2026-08-28
 
-All eight Tasks are defined by one executable registry of typed evidence slots.
+At v2.81.133, all eight then-current Tasks were defined by one executable
+registry of typed evidence slots. The same registry mechanism now defines the
+six Tasks listed at the top of this document.
 The runtime policy reads normalized typed facts; legacy `sourceEventType` text
 is interpreted only at the migration adapter boundary. Incident joins require
 the exact run, model, dispatch and generation identity, so an absent identity
@@ -159,8 +184,8 @@ clock runtime introduced by the next migration stage.
 
 ## Bounded standalone diagnostic reports v2.81.131 - 2026-07-28
 
-`Tasks` теперь выбирает не дополнительный срез большого All-presets файла, а
-один из восьми самостоятельных proof-oriented отчётов для выбранной Platform:
+В версии 2.81.131 `Tasks` выбирал не дополнительный срез большого All-presets
+файла, а один из восьми самостоятельных proof-oriented отчётов для выбранной Platform:
 `request-not-sent`, `generation-not-started`, `truncation`, `true-completion`,
 `submission-proof`, `extraction-integrity`, `forced-success` или
 `forced-finalization`. При выбранной задаче Platform обязательна; это не даёт
@@ -290,8 +315,8 @@ Background runtime ведёт отдельный append-only ledger в
 В toolbar вкладки Telemetry оставлены ровно два фильтра:
 
 - `Platform` — ограничивает события одной платформой;
-- `Tasks` — выбирает одну из восьми proof-oriented диагностических задач,
-  перечисленных в разделе v2.81.131 выше.
+- `Tasks` — выбирает одну из шести текущих proof-oriented диагностических
+  задач, перечисленных в разделе v2.81.143 выше.
 
 Отдельные `Type`, `Presets` и `Only problems` удалены из UI и экспортного
 контура. Начиная с v2.81.131 Tasks использует каноническую классификацию schema
@@ -311,7 +336,7 @@ JSON export на вкладке Telemetry теперь выдаёт канони
 - независимые оси submission, generation start, answer identity, наблюдаемой
   генерации, эволюции текста, полноты, extraction, verification, completion,
   observation reliability и finalization;
-- восемь embedded reports: `request-not-sent`, `generation-not-started`,
+- на момент v2.81.124 восемь embedded reports: `request-not-sent`, `generation-not-started`,
   `truncation`, `true-completion`, `submission-proof`,
   `extraction-integrity`, `forced-success`, `forced-finalization`;
 - вычисленные `requestIf` зависимости с результатом по каждой модели;

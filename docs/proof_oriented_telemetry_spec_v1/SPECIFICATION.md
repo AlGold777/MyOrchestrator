@@ -387,7 +387,7 @@ Offline validator MUST уметь:
 6. проверить override и terminal lineage;
 7. определить влияние scheduler/observer degradation;
 8. выявить post-terminal change;
-9. построить все восемь reports из ledger;
+9. построить все шесть reports из ledger;
 10. детерминированно вычислить `requestIf`;
 11. отклонить несовместимые reports;
 12. построить summaries без mutable summary state;
@@ -436,7 +436,7 @@ MUST содержать:
 
 - время создания и encoding;
 - content index;
-- восемь report types и версии схем;
+- шесть report types и версии схем;
 - правила deduplication;
 - privacy mode;
 - size budget;
@@ -502,7 +502,7 @@ Chunked mode MUST содержать ordered chunk hashes и root hash.
 
 ```json
 {
-  "viewType": "truncation",
+  "viewType": "cutted",
   "derivedFromEventSeqs": [17, 18, 19],
   "generatorVersion": "summary-builder@5",
   "ledgerHash": "sha256:...",
@@ -527,17 +527,15 @@ Chunked mode MUST содержать ordered chunk hashes и root hash.
 
 ## 22. `reports`
 
-Map с восемью ключами:
+Map с шестью пользовательскими диагностическими ключами:
 
 ```text
-request-not-sent
-generation-not-started
-truncation
-true-completion
-submission-proof
-extraction-integrity
-forced-success
-forced-finalization
+cutted
+false-success
+old-answer
+empty
+prompt-not-sent
+late-end
 ```
 
 Embedded report содержит:
@@ -716,144 +714,62 @@ LLM MUST:
 
 ---
 
-# Часть IV. Восемь диагностических файлов
+# Часть IV. Шесть пользовательских диагностических файлов
 
-## 30. `request-not-sent`
+Технические аспекты не становятся отдельными presets, если они отвечают на
+один пользовательский вопрос. Completion proof, forced policy и terminal
+lineage поэтому объединены в `false-success`; candidate identity и extraction
+lineage используются внутри проблемно-ориентированных отчётов.
 
-**Primary question:** почему запрос не был принят платформой?
+## 30. `cutted`
 
-**Can diagnose:**
+**Primary question:** почему зафиксирован `SUCCESS`, а текст явно неполный?
 
-- action не dispatched;
-- action dispatched, но acceptance evidence отсутствует;
-- composer не очистился;
-- user message не появился;
-- переход `home→conversation` не состоялся;
-- prompt hash не совпал;
-- duplicate dispatch.
+Сопоставляет зафиксированный текст с максимальной наблюдавшейся длиной,
+границей extraction, completeness evidence, terminal decision и
+post-terminal audit. Диагностирует обрезку сохранённого ответа, но не подмену
+ответом другого запроса — это задача `old-answer`.
 
-**Cannot diagnose alone:** provider-internal rejection reason; отсутствие генерации после подтверждённого submission.
+## 31. `false-success`
 
-**Event selection:** `DISPATCH_BASELINE_CAPTURED`, `SUBMIT_ACTION_OBSERVED`, `SUBMISSION_EVIDENCE_CHANGED`, `SUBMISSION_INFERRED`, `PAGE_CONTEXT_OBSERVED`, `PAGE_HEALTH_OBSERVED`, релевантные observer/scheduler events.
+**Primary question:** почему система решила «готово», а ответ продолжил расти?
 
-**Siblings:**
+Объединяет прежние `true-completion`, `forced-success` и
+`forced-finalization`: показывает признаки активности, основание completion,
+policy/override, terminal decision и рост текста после terminal.
 
-- `submission-proof`, если `submission in [evidence_partial, unknown]` либо coverage `<80%`;
-- `generation-not-started`, если user message появился и first generation signal delay `>=15000 ms`.
+## 32. `old-answer`
 
-## 31. `generation-not-started`
+**Primary question:** почему принят текст от предыдущего запроса?
 
-**Primary question:** почему после dispatch не появились признаки начала генерации?
+Проверяет dispatch baseline, candidate lineage и identity, принадлежность
+выбранного DOM-блока текущему turn, extraction result и structural verification.
 
-**Can diagnose:** отсутствует assistant candidate; нет active UI signal; start timeout; page blocker; observer starvation; content script unavailable.
+## 33. `empty`
 
-**Cannot diagnose alone:** platform acceptance при submission tier `<T3`; provider-internal причина без provider telemetry.
+**Primary question:** почему генерация была, но extraction вернул пусто или не
+тот узел?
 
-**Event selection:** submission evidence; `GENERATION_START_EVALUATED`; first candidate/signal/text; page/observer health; scheduler delay.
+Связывает доказательство начавшейся генерации с candidate selection, text
+boundaries, extraction result, structural verification и observer health.
 
-**Siblings:**
+## 34. `prompt-not-sent`
 
-- `submission-proof`, если `submission != confirmed` либо submission tier `<3`;
-- `request-not-sent`, если delay `>=15000 ms`, candidate count `=0` и submission `failed|evidence_partial|unknown`.
+**Primary question:** почему модель не получила запрос?
 
-## 32. `truncation`
+Проверяет dispatch baseline, submit action, внешние признаки принятия запроса,
+page context и observer health. Отсутствующее acceptance evidence обозначается
+как неизвестное, а не автоматически как доказательство неотправки.
 
-**Primary question:** почему сохранённый ответ короче фактически сгенерированного или позднее доступного текста?
+## 35. `late-end`
 
-**Can diagnose:** post-terminal growth; premature completion; incomplete extraction; candidate switch; hidden-node loss; storage/export truncation при наличии length/hash boundaries.
+**Primary question:** текст давно стабилен — почему система ждала ещё `N`
+секунд?
 
-**Cannot diagnose alone:** provider finish reason ниже T4; точное содержимое скрытого узла без attachment.
-
-**Event selection:** candidate history; text evolution; extraction; completeness; completion hypothesis; policy/override; terminal; post-terminal audit.
-
-**Siblings:**
-
-- `true-completion`, если tier `<3` либо mode `forced|recovery|manual`;
-- `extraction-integrity`, если coverage `<98%`, candidate count `>1` либо hidden nodes `>0`;
-- `forced-finalization`, если mode `forced` либо deadline exceeded;
-- `forced-success`, если outcome `SUCCESS` и automatic evidence false.
-
-## 33. `true-completion`
-
-**Primary question:** действительно ли генерация закончилась в recorded terminal moment?
-
-**Can diagnose:** T0–T4; contradictory active signals; inferred vs provider completion; premature/late detection; post-terminal growth.
-
-**Cannot diagnose alone:** correctness extraction при unresolved identity/coverage.
-
-**Event selection:** signal history; strong transitions; stability; mutations; completeness; completion hypothesis/tier; decision; terminal; post-terminal audit; optional provider facts.
-
-**Siblings:**
-
-- `truncation`, если post-terminal growth `>0.5%` либо hash changed;
-- `extraction-integrity`, если identity ambiguous/stale/rejected либо coverage `<98%`;
-- `forced-finalization`, если completion inconclusive/probable и mode forced;
-- `forced-success`, если SUCCESS ниже T3.
-
-## 34. `submission-proof`
-
-**Primary question:** какие внешние признаки доказывают принятие запроса платформой?
-
-**Can diagnose:** confirmed/failed/partial/unknown submission; home-page correlation; duplicate dispatch; prompt hash mismatch.
-
-**Cannot diagnose alone:** дальнейший generation/completion state.
-
-**Event selection:** baseline; action; composer clear; user-message hash; navigation/conversation creation; optional provider acknowledgment; submission inference.
-
-**Siblings:**
-
-- `request-not-sent`, если submission failed либо confirmed evidence count `=0`;
-- `generation-not-started`, если submission confirmed, а start delay `>=15000 ms`.
-
-## 35. `extraction-integrity`
-
-**Primary question:** захвачен ли весь релевантный текст из DOM?
-
-**Can diagnose:** wrong root/candidate; hidden relevant node; multi-candidate ambiguity; fallback extraction; capture before final DOM; storage/export length mismatch.
-
-**Cannot diagnose alone:** истинный конец генерации без completion timeline.
-
-**Event selection:** candidate set/identity; root fingerprints; visibility; hashes/lengths; extraction result; completeness; structural verification; forensic references.
-
-**Siblings:**
-
-- `truncation`, если coverage `<98%` либо hidden relevant length `>0`;
-- `true-completion`, если capture before terminal либо tier `<3`;
-- `forced-finalization`, если terminal был раньше last relevant mutation либо mode forced.
-
-## 36. `forced-success`
-
-**Primary question:** почему система выставила SUCCESS без automatic completion proof?
-
-**Can diagnose:** forced/recovery/manual projection; waived rules; residual risk; blocked automatic branch; accepted fallback text.
-
-**Cannot diagnose alone:** фактический конец модели ниже T3; extraction completeness при unresolved extraction.
-
-**Event selection:** completion hypothesis/tier; automatic blockers; override; waived rules; accepted answer; decision/terminal lineage; post-terminal audit, если доступен.
-
-**Siblings:**
-
-- `true-completion`, если SUCCESS ниже T3;
-- `forced-finalization`, если mode forced либо timeout trigger;
-- `extraction-integrity`, если extraction fallback/ambiguous либо coverage `<98%`;
-- `truncation`, если post-terminal growth `>0.5%` либо coverage `<98%`.
-
-## 37. `forced-finalization`
-
-**Primary question:** когда и почему расширение прекратило ожидание по timeout/forced policy?
-
-**Can diagnose:** hard/soft timeout; force moment; active signal at force; observer/scheduler contribution; consequence after force.
-
-**Cannot diagnose alone:** provider-internal причина длительной генерации.
-
-**Event selection:** configured deadlines; elapsed time; active signal at force; last reliable observation; override; decision; terminal; post-terminal audit.
-
-**Siblings:**
-
-- `forced-success`, если terminal outcome `SUCCESS`;
-- `true-completion`, если tier `<3` либо active signal at force;
-- `generation-not-started`, если generation `not_started` и answer length at force `=0`;
-- `truncation`, если answer non-empty и post-terminal growth `>0.5%`.
+Отчёт вычисляет `stableToTerminalMs` между последним подтверждённым
+`STABILITY_INTERVAL_CLOSED` и `MODEL_TERMINAL_RECORDED`, затем показывает
+generation signals, completion policy, deadlines, observer delays и decision
+lineage, объясняющие этот интервал.
 
 ---
 
@@ -869,14 +785,12 @@ schemas/
 registry/
   report-dependency-registry.json
 presets/
-  request-not-sent.example.json
-  generation-not-started.example.json
-  truncation.example.json
-  true-completion.example.json
-  submission-proof.example.json
-  extraction-integrity.example.json
-  forced-success.example.json
-  forced-finalization.example.json
+  cutted.example.json
+  false-success.example.json
+  old-answer.example.json
+  empty.example.json
+  prompt-not-sent.example.json
+  late-end.example.json
 ```
 
 Каждый example содержит конкретные числовые значения, events, state axes, evaluated sibling rules, required reports, compatibility и integrity. Данные являются синтетическими, что явно отмечено `exportIntegrity.sampleData=true`; они не выдаются за production telemetry.
