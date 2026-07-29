@@ -4,7 +4,7 @@
 
   const EVENT_SCHEMA_VERSION = 6;
   const CLOCK_CONTRACT_VERSION = '1.0';
-  const REGISTRY_VERSION = '5.5.0';
+  const REGISTRY_VERSION = '5.6.0';
   const THRESHOLDS = Object.freeze({
     generationStartTimeoutMs: 15000,
     minimumExtractionCoveragePct: 98,
@@ -17,6 +17,7 @@
   const REPORT_CONTRACTS = Object.freeze({
     cutted: {
       question: 'Почему зафиксирован SUCCESS, а текст явно неполный?',
+      refutationModel: 'complement',
       refutation: {
         any: [
           ['$.derivedViews.incompleteCaptureEvidence', 'eq', false]
@@ -41,6 +42,7 @@
     },
     'false-success': {
       question: 'Почему система решила «готово», а ответ продолжил расти?',
+      refutationModel: 'complement',
       refutation: {
         any: [
           ['$.derivedViews.postTerminalGrowthProven', 'eq', false]
@@ -65,6 +67,7 @@
     },
     'old-answer': {
       question: 'Почему принят текст от предыдущего запроса?',
+      refutationModel: 'independent_terminal_outcome',
       refutation: {
         any: [
           ['$.derivedViews.terminalOutcome', 'ne', 'SUCCESS']
@@ -91,6 +94,7 @@
     },
     empty: {
       question: 'Почему генерация была, но extraction вернул пусто или не тот узел?',
+      refutationModel: 'complement',
       refutation: {
         any: [
           ['$.derivedViews.extractionProblemEvidence', 'eq', false]
@@ -113,6 +117,7 @@
     },
     'prompt-not-inserted': {
       question: 'Почему prompt не вставился в поле ввода?',
+      refutationModel: 'independent_positive_delivery_evidence',
       refutation: {
         any: [
           ['$.derivedViews.promptInsertedCounterEvidence', 'eq', true]
@@ -127,13 +132,14 @@
         ['dispatch_baseline', 'critical', ['DISPATCH_BASELINE_CAPTURED']],
         ['insertion_outcome', 'critical', ['PROMPT_INSERTION_EVALUATED']],
         ['composer_context', 'required', ['PAGE_HEALTH_OBSERVED', 'OBSERVATION_FRAME_CAPTURED']],
-        ['submit_counterevidence', 'required', ['SUBMISSION_EVIDENCE_CHANGED', 'SUBMISSION_INFERRED']],
-        ['absence_observation_window', 'critical', ['OBSERVATION_FRAME_CAPTURED', 'PAGE_HEALTH_OBSERVED', 'OBSERVER_HEALTH_INTERVAL_CLOSED', 'OBSERVATION_INTERVAL_CLOSED']],
+        ['submit_counterevidence', 'conditional', ['SUBMISSION_EVIDENCE_CHANGED', 'SUBMISSION_INFERRED'], ['$.derivedViews.submitActionObserved', 'eq', true]],
+        ['absence_observation_window', 'critical', ['OBSERVATION_INTERVAL_CLOSED', 'OBSERVER_HEALTH_INTERVAL_CLOSED', 'OBSERVATION_FRAME_CAPTURED', 'PAGE_HEALTH_OBSERVED']],
         ['observer_context', 'conditional', ['OBSERVER_HEALTH_OBSERVED', 'OBSERVER_HEALTH_INTERVAL_CLOSED', 'OBSERVATION_SLOT_DENIED'], ['$.stateAxes.observationReliability', 'in', ['degraded', 'stale', 'unavailable']]]
       ]
     },
     'prompt-not-sent': {
       question: 'Почему модель не получила запрос?',
+      refutationModel: 'independent_positive_delivery_evidence',
       refutation: {
         any: [
           ['$.derivedViews.promptReceivedCounterEvidence', 'eq', true]
@@ -149,12 +155,13 @@
         ['submit_action', 'critical', ['SUBMIT_ACTION_OBSERVED']],
         ['acceptance_evidence', 'critical', ['SUBMISSION_EVIDENCE_CHANGED', 'SUBMISSION_INFERRED']],
         ['page_context', 'required', ['PAGE_CONTEXT_OBSERVED', 'PAGE_HEALTH_OBSERVED']],
-        ['absence_observation_window', 'critical', ['OBSERVATION_FRAME_CAPTURED', 'PAGE_HEALTH_OBSERVED', 'OBSERVER_HEALTH_INTERVAL_CLOSED', 'OBSERVATION_INTERVAL_CLOSED']],
+        ['absence_observation_window', 'critical', ['OBSERVATION_INTERVAL_CLOSED', 'OBSERVER_HEALTH_INTERVAL_CLOSED', 'OBSERVATION_FRAME_CAPTURED', 'PAGE_HEALTH_OBSERVED']],
         ['observer_context', 'conditional', ['OBSERVER_HEALTH_OBSERVED', 'OBSERVER_HEALTH_INTERVAL_CLOSED', 'OBSERVATION_SLOT_DENIED'], ['$.stateAxes.observationReliability', 'in', ['degraded', 'stale', 'unavailable']]]
       ]
     },
     'late-end': {
       question: 'Текст давно стабилен — почему система ждала ещё N секунд?',
+      refutationModel: 'complement',
       refutation: {
         any: [
           ['$.derivedViews.lateEndEvidence', 'eq', false]
@@ -166,6 +173,7 @@
         ]
       },
       slots: [
+        ['candidate_identity', 'critical', ['CANDIDATE_SET_CHANGED', 'CANDIDATE_IDENTITY_INFERRED', 'EXTRACTION_COMPLETED', 'MODEL_TERMINAL_RECORDED']],
         ['stable_boundary', 'critical', ['STABILITY_INTERVAL_CLOSED']],
         ['terminal_boundary', 'critical', ['MODEL_TERMINAL_RECORDED']],
         ['generation_state', 'critical', ['GENERATION_SIGNAL_CHANGED', 'OBSERVATION_FRAME_CAPTURED']],
@@ -193,8 +201,6 @@
     'old-answer.accepted_answer_boundary': { fact: { kind: 'terminal_action', states: ['success'] } },
     'prompt-not-inserted.insertion_outcome': { fact: { kind: 'prompt_insertion', states: ['failed', 'inserted', 'confirmed'] } },
     'prompt-not-sent.acceptance_evidence': { fact: { kind: 'submission', states: ['confirmed', 'failed'] } },
-    'prompt-not-inserted.absence_observation_window': { fact: { kind: 'observation', states: ['reliable', 'healthy', 'available'] } },
-    'prompt-not-sent.absence_observation_window': { fact: { kind: 'observation', states: ['reliable', 'healthy', 'available'] } },
     'late-end.stable_boundary': { fact: { kind: 'text', states: ['stable'] }, temporal: { closestBeforeEventType: 'MODEL_TERMINAL_RECORDED' } },
     'late-end.terminal_boundary': { fact: { kind: 'terminal_action', states: ['success', 'failure', 'error', 'timeout'] } }
   });
@@ -248,9 +254,17 @@
 
   function factOf(event) {
     const typed = event?.payload?.typed;
-    if (typed && typeof typed === 'object') return typed;
+    const canonical = canonicalFactOf(event);
+    const typedKind = String(typed?.kind || '').trim().toLowerCase();
+    const typedState = String(typed?.state || '').trim().toLowerCase();
+    if (typed && typeof typed === 'object' && typedKind && typedKind !== 'unknown'
+      && typedState && typedState !== 'unknown') return typed;
+    return canonical || adaptLegacyEvent(event);
+  }
+
+  function canonicalFactOf(event) {
     const payload = event?.payload || {};
-    const canonical = ({
+    return ({
       SUBMISSION_INFERRED: { kind: 'submission', state: payload.submission || 'unknown' },
       PROMPT_INSERTION_EVALUATED: { kind: 'prompt_insertion', state: payload.insertionState || payload.metadata?.insertionState || 'unknown' },
       GENERATION_STATE_INFERRED: { kind: 'generation', state: payload.observedGeneration || 'unknown' },
@@ -265,9 +279,24 @@
       MODEL_TERMINAL_RECORDED: { kind: 'terminal_action', state: payload.metadata?.terminalStatus || payload.status || 'unknown' },
       PAGE_HEALTH_OBSERVED: { kind: 'observation', state: payload.pageHealth || payload.metadata?.pageHealth || payload.status || payload.metadata?.status || 'unknown' },
       OBSERVATION_FRAME_CAPTURED: { kind: 'observation', state: payload.observationCoverage === 'complete' || payload.metadata?.observationCoverage === 'complete' ? 'reliable' : (payload.observationCoverage || payload.metadata?.observationCoverage || 'unknown') },
+      OBSERVER_HEALTH_INTERVAL_CLOSED: { kind: 'observation_interval', state: 'closed' },
       OBSERVATION_INTERVAL_CLOSED: { kind: 'observation_interval', state: 'closed' }
     })[event?.eventType];
-    return canonical || adaptLegacyEvent(event);
+  }
+
+  function typedCanonicalConflict(event) {
+    const typed = event?.payload?.typed;
+    const canonical = canonicalFactOf(event);
+    if (!typed || !canonical) return null;
+    const typedKind = String(typed.kind || '').trim().toLowerCase();
+    const typedState = String(typed.state || '').trim().toLowerCase();
+    if (!typedKind || typedKind === 'unknown' || !typedState || typedState === 'unknown') return null;
+    const canonicalKind = String(canonical.kind || '').trim().toLowerCase();
+    const canonicalState = String(canonical.state || '').trim().toLowerCase();
+    if (!canonicalKind || canonicalKind === 'unknown' || !canonicalState || canonicalState === 'unknown') return null;
+    return typedKind !== canonicalKind || typedState !== canonicalState
+      ? { typed: { kind: typedKind, state: typedState }, canonical: { kind: canonicalKind, state: canonicalState } }
+      : null;
   }
 
   function sameIncidentScope(left, right, { allowSystem = false } = {}) {
@@ -321,6 +350,7 @@
   function normalizedRefutation(reportType) {
     const contract = REPORT_CONTRACTS[reportType]?.refutation || { any: [] };
     return {
+      model: REPORT_CONTRACTS[reportType]?.refutationModel || 'unspecified',
       any: (contract.any || []).map(([path, operator, value]) => ({ path, operator, value }))
     };
   }
@@ -340,6 +370,8 @@
     sourceType,
     adaptLegacyEvent,
     factOf,
+    canonicalFactOf,
+    typedCanonicalConflict,
     sameIncidentScope,
     normalizeIdentityState,
     normalizedSlots,

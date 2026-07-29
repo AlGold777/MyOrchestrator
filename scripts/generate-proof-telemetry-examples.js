@@ -52,6 +52,10 @@ function ledgerForTypes(types, reportType = null) {
       metadata.contentScriptAvailable = true;
       typed = { kind: 'observation', state: 'reliable' };
     }
+    if (['OBSERVATION_INTERVAL_CLOSED', 'OBSERVER_HEALTH_INTERVAL_CLOSED'].includes(item.eventType)) {
+      directPayload = { observationCoverage: 'complete', continuous: true, gapMs: 0 };
+      typed = { kind: 'observation_interval', state: 'closed' };
+    }
     if (item.eventType === 'EXTRACTION_COMPLETED') {
       metadata.length = reportType === 'cutted' ? 60 : 120;
       typed = { kind: 'extraction', state: reportType === 'empty' ? 'failed' : 'completed' };
@@ -77,6 +81,7 @@ function ledgerForTypes(types, reportType = null) {
     if (reportType === 'old-answer' && item.eventType === 'MODEL_TERMINAL_RECORDED') metadata.answerEvidenceDispatchId = 'synthetic-previous-dispatch';
     return {
       ...item,
+      ...(reportType ? { candidateId: 'synthetic-candidate' } : {}),
       clock: {
         ...item.clock,
         producerEpochId: 'synthetic-document-epoch',
@@ -95,6 +100,8 @@ function ledgerForTypes(types, reportType = null) {
       ['PAGE_CONTEXT_OBSERVED', 40],
       ['PAGE_HEALTH_OBSERVED', 41],
       ['OBSERVER_HEALTH_OBSERVED', 42],
+      ['OBSERVER_HEALTH_INTERVAL_CLOSED', 43],
+      ['OBSERVATION_INTERVAL_CLOSED', 44],
       ['GENERATION_START_EVALUATED', 50],
       ['GENERATION_SIGNAL_CHANGED', 51],
       ['OBSERVATION_FRAME_CAPTURED', 52],
@@ -116,13 +123,15 @@ function ledgerForTypes(types, reportType = null) {
     ]);
     const lateEndOrder = new Map([
       ['OBSERVER_HEALTH_OBSERVED', 1],
-      ['GENERATION_SIGNAL_CHANGED', 2],
-      ['STABILITY_INTERVAL_CLOSED', 3],
-      ['TEXT_STATE_CHANGED', 4],
-      ['COMPLETION_HYPOTHESIS_EVALUATED', 5],
-      ['DECISION_RECORDED', 6],
-      ['MODEL_TERMINAL_RECORDED', 7],
-      ['POST_TERMINAL_AUDIT_COMPLETED', 8]
+      ['CANDIDATE_SET_CHANGED', 2],
+      ['CANDIDATE_IDENTITY_INFERRED', 3],
+      ['GENERATION_SIGNAL_CHANGED', 4],
+      ['STABILITY_INTERVAL_CLOSED', 5],
+      ['TEXT_STATE_CHANGED', 6],
+      ['COMPLETION_HYPOTHESIS_EVALUATED', 7],
+      ['DECISION_RECORDED', 8],
+      ['MODEL_TERMINAL_RECORDED', 9],
+      ['POST_TERMINAL_AUDIT_COMPLETED', 10]
     ]);
     const order = reportType === 'late-end' ? lateEndOrder : baseOrder;
     if (reportType === 'false-success') order.set('TEXT_STATE_CHANGED', 90);
@@ -136,6 +145,11 @@ function ledgerForTypes(types, reportType = null) {
       if (reportType === 'late-end' && item.eventType === 'MODEL_TERMINAL_RECORDED') {
         item.wallTs += 2000;
         item.clock.observedAtLocalMonoMs += 2000;
+      }
+      if (['prompt-not-sent', 'prompt-not-inserted'].includes(reportType)
+        && ['OBSERVATION_INTERVAL_CLOSED', 'OBSERVER_HEALTH_INTERVAL_CLOSED'].includes(item.eventType)) {
+        item.wallTs += Contracts.THRESHOLDS.generationStartTimeoutMs;
+        item.clock.observedAtLocalMonoMs += Contracts.THRESHOLDS.generationStartTimeoutMs;
       }
     });
     const audit = ledger.find((item) => item.eventType === 'POST_TERMINAL_AUDIT_COMPLETED');
@@ -175,7 +189,7 @@ async function main() {
     canonicalLedger: true,
     runSessionId: 'synthetic-run',
     exportedAt: 12000,
-    extensionVersion: '2.81.156',
+    extensionVersion: '2.81.157',
     sampleData: true
   };
   const all = await ProofTelemetry.buildAllPresets(ledger, options);

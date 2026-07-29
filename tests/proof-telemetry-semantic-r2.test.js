@@ -52,24 +52,24 @@ function reliableWindow(startSeq = 1) {
 }
 
 describe('telemetry preset semantic review iteration 2', () => {
-  test('required-slot omission yields supported_but_incomplete and cannot win arbitration', async () => {
-    const incomplete = [
+  test('submit counterevidence is conditional on an observed submit action', async () => {
+    const preSubmitFailure = [
       ...reliableWindow(1),
-      event('PROMPT_INSERTION_EVALUATED', 3, { typed: { kind: 'prompt_insertion', state: 'failed' }, payload: { insertionState: 'failed' } })
+      event('PROMPT_INSERTION_EVALUATED', 3, { mono: 1000, typed: { kind: 'prompt_insertion', state: 'failed' }, payload: { insertionState: 'failed' } }),
+      event('OBSERVATION_INTERVAL_CLOSED', 4, { mono: 16000, typed: { kind: 'observation_interval', state: 'closed' }, payload: { observationCoverage: 'complete' } })
     ];
-    const bounded = await ProofTelemetry.buildAllPresets(incomplete, { canonicalLedger: true, exportedAt: 5000 });
-    const incidentId = Object.keys(bounded.diagnosisArbitration.byIncident)[0];
-    expect(bounded.reports['prompt-not-inserted'].reportDescriptor.applicability.byIncident[incidentId])
-      .toEqual(expect.objectContaining({ status: 'confirmed', diagnosticVerdict: 'supported_but_incomplete', sufficiency: 'bounded' }));
-    expect(bounded.diagnosisArbitration.byIncident[incidentId].primaryDiagnosis).toBeNull();
-
-    const complete = await ProofTelemetry.buildAllPresets([
-      ...incomplete,
-      event('SUBMISSION_INFERRED', 4, { typed: { kind: 'submission', state: 'attempted' } })
-    ], { canonicalLedger: true, exportedAt: 5000 });
+    const complete = await ProofTelemetry.buildAllPresets(preSubmitFailure, { canonicalLedger: true, exportedAt: 5000 });
     const completeId = Object.keys(complete.diagnosisArbitration.byIncident)[0];
-    expect(complete.reports['prompt-not-inserted'].reportDescriptor.applicability.byIncident[completeId].diagnosticVerdict).toBe('confirmed');
-    expect(complete.diagnosisArbitration.byIncident[completeId].primaryDiagnosis).toBe('prompt-not-inserted');
+    expect(complete.reports['prompt-not-inserted'].reportDescriptor.applicability.byIncident[completeId])
+      .toEqual(expect.objectContaining({ status: 'confirmed', diagnosticVerdict: 'confirmed', sufficiency: 'complete' }));
+
+    const bounded = await ProofTelemetry.buildAllPresets([
+      ...preSubmitFailure,
+      event('SUBMIT_ACTION_OBSERVED', 5, { typed: { kind: 'submission', state: 'attempted' } })
+    ], { canonicalLedger: true, exportedAt: 5000 });
+    const boundedId = Object.keys(bounded.diagnosisArbitration.byIncident)[0];
+    expect(bounded.reports['prompt-not-inserted'].reportDescriptor.applicability.byIncident[boundedId])
+      .toEqual(expect.objectContaining({ status: 'confirmed', diagnosticVerdict: 'supported_but_incomplete', sufficiency: 'bounded' }));
   });
 
   test('impossible audit is unknown while a completed within-tolerance audit refutes growth', () => {
@@ -137,7 +137,8 @@ describe('telemetry preset semantic review iteration 2', () => {
     ]);
     expect(degraded.view.absenceObservationWindow.coverage).toBe('incomplete');
     expect(degraded.applicability.status).toBe('unknown');
-    const reliable = evaluate('prompt-not-sent', [...reliableWindow(1), failed]);
+    const reliable = evaluate('prompt-not-sent', [...reliableWindow(1), { ...failed, clock: { ...failed.clock, observedAtLocalMonoMs: 1000 } },
+      event('OBSERVATION_INTERVAL_CLOSED', 4, { mono: 16000, typed: { kind: 'observation_interval', state: 'closed' }, payload: { observationCoverage: 'complete' } })]);
     expect(reliable.view.absenceObservationWindow.coverage).toBe('complete');
     expect(reliable.applicability.status).toBe('confirmed');
   });
@@ -198,8 +199,9 @@ describe('telemetry preset semantic review iteration 2', () => {
     const events = [
       ...reliableWindow(1),
       event('SUBMIT_ACTION_OBSERVED', 3, { typed: { kind: 'submission', state: 'attempted' } }),
-      event('SUBMISSION_INFERRED', 4, { typed: { kind: 'submission', state: 'failed' } }),
-      event('POST_TERMINAL_AUDIT_COMPLETED', 5, { payload: { conclusion: 'contradicted', growthChars: 30, growthPct: 30, auditPossible: true } })
+      event('SUBMISSION_INFERRED', 4, { mono: 1000, typed: { kind: 'submission', state: 'failed' } }),
+      event('OBSERVATION_INTERVAL_CLOSED', 5, { mono: 16000, typed: { kind: 'observation_interval', state: 'closed' }, payload: { observationCoverage: 'complete' } }),
+      event('POST_TERMINAL_AUDIT_COMPLETED', 6, { payload: { conclusion: 'contradicted', growthChars: 30, growthPct: 30, auditPossible: true } })
     ];
     const container = await ProofTelemetry.buildAllPresets(events, { canonicalLedger: true, exportedAt: 8000 });
     const incidentId = Object.keys(container.diagnosisArbitration.byIncident)[0];

@@ -14,8 +14,8 @@
   const Clock = root.ProofTelemetryClock || (typeof require === 'function' ? require('./proof-telemetry-clock.js') : null);
   const SCHEMA_VERSION = '5.0';
   const EVENT_SCHEMA_VERSION = Contracts?.EVENT_SCHEMA_VERSION || 6;
-  const GENERATOR_VERSION = 'proof-export@1.8.0';
-  const REPORT_VERSION = '2.7.0';
+  const GENERATOR_VERSION = 'proof-export@1.9.0';
+  const REPORT_VERSION = '2.8.0';
   const REPORT_TYPES = Object.freeze([
     'cutted',
     'false-success',
@@ -337,6 +337,52 @@
     return null;
   }
 
+  function numericValue(event, keys) {
+    return numericMeta(event ? [event] : [], keys)[0] ?? null;
+  }
+
+  function observationWindowAfter(events, boundaryEvent) {
+    const requiredMs = Number(Contracts?.THRESHOLDS?.generationStartTimeoutMs || 15000);
+    const signalTypes = new Set(['OBSERVATION_FRAME_CAPTURED', 'PAGE_HEALTH_OBSERVED', 'OBSERVER_HEALTH_OBSERVED', 'OBSERVER_HEALTH_INTERVAL_CLOSED', 'OBSERVATION_INTERVAL_CLOSED']);
+    if (!boundaryEvent) return { usable: false, coverage: 'incomplete', reason: 'failed_action_not_observed', durationMs: null, startEventId: null, endEventId: null, signalEventIds: [] };
+    const postBoundary = events.filter((event) => Number(event.seq) > Number(boundaryEvent.seq) && signalTypes.has(event.eventType));
+    const bad = postBoundary.some((event) => {
+      const fact = Contracts?.factOf?.(event) || {};
+      return (fact.kind === 'observation' && ['degraded', 'stale', 'unavailable'].includes(String(fact.state || '').toLowerCase()))
+        || eventBoolean(event, ['continuous', 'coverageContinuous']) === false
+        || Number(eventValue(event, ['gapMs', 'unobservedGapMs']) || 0) > 0;
+    });
+    const reliable = postBoundary.filter((event) => {
+      const fact = Contracts?.factOf?.(event) || {};
+      return (fact.kind === 'observation' && ['reliable', 'healthy', 'available'].includes(String(fact.state || '').toLowerCase()))
+        || (fact.kind === 'observation_interval' && fact.state === 'closed');
+    });
+    const explicitClosure = [...postBoundary].reverse().find((event) => ['OBSERVER_HEALTH_INTERVAL_CLOSED', 'OBSERVATION_INTERVAL_CLOSED'].includes(event.eventType)) || null;
+    const end = explicitClosure || reliable[reliable.length - 1] || null;
+    const duration = exactEventDuration(boundaryEvent, end);
+    const explicitlyComplete = explicitClosure
+      ? !['incomplete', 'partial', 'gapped'].includes(String(eventValue(explicitClosure, ['coverage', 'observationCoverage']) || '').toLowerCase())
+      : false;
+    const continuouslySampled = !explicitClosure && reliable.length >= 2 && reliable.every((event, index) => {
+      if (!index) return true;
+      const gap = exactEventDuration(reliable[index - 1], event);
+      return gap.comparable && gap.durationMs <= Number(Contracts?.THRESHOLDS?.maximumSignalSkewMs || 250);
+    });
+    const usable = Boolean(!bad && reliable.length && duration.comparable && duration.durationMs >= requiredMs
+      && (explicitlyComplete || continuouslySampled));
+    return {
+      usable,
+      coverage: usable ? 'complete' : 'incomplete',
+      reason: usable ? 'post_failure_window_complete' : (bad ? 'observation_gap_or_degradation' : (!duration.comparable ? 'clock_unavailable' : (duration.durationMs < requiredMs ? 'window_too_short' : 'continuous_coverage_unproven'))),
+      requiredDurationMs: requiredMs,
+      durationMs: duration.comparable ? duration.durationMs : null,
+      clockBasis: duration.basis,
+      startEventId: boundaryEvent.eventId,
+      endEventId: end?.eventId || null,
+      signalEventIds: postBoundary.map((event) => event.eventId)
+    };
+  }
+
   function resolveAcceptedExtraction(events, terminalEvent) {
     const terminalSeq = Number(terminalEvent?.seq ?? Infinity);
     const candidates = events.filter((event) => event.eventType === 'EXTRACTION_COMPLETED'
@@ -426,10 +472,6 @@
     const observedTextEvents = events.filter((event) => observedTextTypes.has(event.eventType));
     const preTerminalObservedEvents = observedTextEvents.filter((event) => Number(event.seq) <= terminalSeq);
     const preTerminalLengths = numericMeta(preTerminalObservedEvents, ['textLength', 'answerLength', 'answerLen', 'latestObservedTextLength']);
-    const stableEvents = events.filter((event) => event.eventType === 'STABILITY_INTERVAL_CLOSED');
-    const lastStableBeforeTerminal = terminalEvent
-      ? stableEvents.filter((event) => Number(event.seq) <= Number(terminalEvent.seq)).slice(-1)[0]
-      : stableEvents.slice(-1)[0];
     const terminalLengths = terminalEvent ? numericMeta([terminalEvent], ['textLength', 'answerLength', 'answerLen']) : [];
     const acceptedLength = terminalLengths.length ? terminalLengths[0] : null;
     const acceptedExtraction = resolveAcceptedExtraction(events, terminalEvent);
@@ -455,13 +497,19 @@
       if (measurementComparability === 'candidate_proven') return String(event?.candidateId || '') === String(acceptedCandidateId);
       return !event?.candidateId || incidentCandidateIds.size <= 1;
     };
+    const stableEvents = events.filter((event) => event.eventType === 'STABILITY_INTERVAL_CLOSED' && eventComparable(event));
+    const lastStableBeforeTerminal = terminalEvent
+      ? stableEvents.filter((event) => Number(event.seq) <= Number(terminalEvent.seq)).slice(-1)[0]
+      : stableEvents.slice(-1)[0];
     const candidateMatchedObservedEvents = preTerminalObservedEvents.filter(eventComparable);
     const candidateMatchedLengths = numericMeta(candidateMatchedObservedEvents, ['textLength', 'answerLength', 'answerLen', 'latestObservedTextLength']);
     const candidateContinuity = measurementComparability === 'candidate_proven'
       ? 'matched'
       : (acceptedCandidateId ? 'mismatched' : measurementComparability);
     const maxObservedLength = preTerminalLengths.length ? Math.max(...preTerminalLengths) : null;
-    const comparableObservedLength = candidateMatchedLengths.length ? Math.max(...candidateMatchedLengths) : null;
+    const comparableObservedLength = [...candidateMatchedObservedEvents].reverse()
+      .map((event) => numericValue(event, ['textLength', 'answerLength', 'answerLen', 'latestObservedTextLength']))
+      .find((value) => value !== null) ?? null;
     const postTerminalObservedEvents = terminalEvent
       ? observedTextEvents.filter((event) => Number(event.seq) > Number(terminalEvent.seq) && eventComparable(event))
       : [];
@@ -578,35 +626,32 @@
       .filter(({ fact }) => fact?.kind === 'submission');
     const submissionFailed = submissionEntries.some(({ fact }) => fact.state === 'failed');
     const submissionConfirmed = submissionEntries.some(({ fact }) => fact.state === 'confirmed');
+    const submitActionObserved = events.some((event) => event.eventType === 'SUBMIT_ACTION_OBSERVED');
     const promptReceivedCounterEvidence = submissionConfirmed
       || generationStarted === true
       || generationTextObserved === true
       || (extractedTextLength !== null && extractedTextLength > 0)
       || terminalOutcome === 'SUCCESS';
-    const absenceWindowStart = events.find((event) => event.eventType === 'DISPATCH_BASELINE_CAPTURED') || null;
-    const absenceWindowSignals = events.filter((event) => ['OBSERVATION_FRAME_CAPTURED', 'PAGE_HEALTH_OBSERVED', 'OBSERVER_HEALTH_OBSERVED', 'OBSERVER_HEALTH_INTERVAL_CLOSED', 'OBSERVATION_INTERVAL_CLOSED'].includes(event.eventType));
-    const explicitReliableObservation = absenceWindowSignals.some((event) => {
+    const observationSignals = events.filter((event) => ['OBSERVATION_FRAME_CAPTURED', 'PAGE_HEALTH_OBSERVED', 'OBSERVER_HEALTH_OBSERVED', 'OBSERVER_HEALTH_INTERVAL_CLOSED', 'OBSERVATION_INTERVAL_CLOSED'].includes(event.eventType));
+    const explicitReliableObservation = observationSignals.some((event) => {
       const fact = Contracts?.factOf?.(event) || {};
       return fact.kind === 'observation' && ['reliable', 'healthy', 'available'].includes(String(fact.state || '').toLowerCase());
     });
-    const explicitBadObservation = events.some((event) => {
-      const fact = Contracts?.factOf?.(event) || {};
-      return fact.kind === 'observation' && ['degraded', 'stale', 'unavailable'].includes(String(fact.state || '').toLowerCase());
-    });
-    const absenceWindowCoverageComplete = Boolean(absenceWindowStart && absenceWindowSignals.length
-      && !explicitBadObservation && (axes.observationReliability === 'reliable' || explicitReliableObservation));
-    const absenceObservationUsable = absenceWindowCoverageComplete;
+    const failedSubmissionEntry = [...submissionEntries].reverse().find(({ fact }) => fact.state === 'failed');
+    const submissionAbsenceWindow = observationWindowAfter(events, failedSubmissionEntry?.event || null);
     const promptNotSentEvidence = promptReceivedCounterEvidence
       ? false
-      : (submissionFailed && absenceObservationUsable ? true : null);
+      : (submissionFailed && submissionAbsenceWindow.usable ? true : null);
     const insertionEntries = events.map((event) => ({ event, fact: Contracts?.factOf?.(event) }))
       .filter(({ fact }) => fact?.kind === 'prompt_insertion');
     const insertionFailed = insertionEntries.some(({ fact }) => fact.state === 'failed');
     const insertionConfirmed = insertionEntries.some(({ fact }) => ['confirmed', 'inserted'].includes(fact.state));
     const promptInsertedCounterEvidence = insertionConfirmed || promptReceivedCounterEvidence;
+    const failedInsertionEntry = [...insertionEntries].reverse().find(({ fact }) => fact.state === 'failed');
+    const insertionAbsenceWindow = observationWindowAfter(events, failedInsertionEntry?.event || null);
     const promptNotInsertedEvidence = promptInsertedCounterEvidence
       ? false
-      : (insertionFailed && absenceObservationUsable ? true : null);
+      : (insertionFailed && insertionAbsenceWindow.usable ? true : null);
     const stableDelay = exactEventDuration(lastStableBeforeTerminal, terminalEvent);
     const lastStableSeq = Number(lastStableBeforeTerminal?.seq ?? -Infinity);
     const terminalBoundarySeq = Number(terminalEvent?.seq ?? Infinity);
@@ -619,8 +664,14 @@
       && Number(event.seq) <= terminalBoundarySeq
       && eventBoolean(event, ['accepted', 'decisionAccepted']) === true);
     const stableLength = numericMeta(lastStableBeforeTerminal ? [lastStableBeforeTerminal] : [], ['textLength', 'answerLength', 'answerLen', 'latestObservedTextLength'])[0] ?? null;
+    const lateEndCandidateBinding = acceptedCandidateId
+      ? (lastStableBeforeTerminal && terminalEvent?.candidateId
+        && String(lastStableBeforeTerminal.candidateId || '') === String(acceptedCandidateId)
+        && String(terminalEvent.candidateId || '') === String(acceptedCandidateId) ? 'candidate_proven' : 'unknown')
+      : 'single_candidate';
     const postStableObservations = events.filter((event) => Number(event.seq) > lastStableSeq
       && Number(event.seq) < terminalBoundarySeq
+      && eventComparable(event)
       && ['TEXT_STATE_CHANGED', 'OBSERVATION_FRAME_CAPTURED', 'OBSERVATION_INTERVAL_CLOSED'].includes(event.eventType));
     const invalidatingAfterStable = postStableObservations.some((event) => {
       if (event.eventType !== 'TEXT_STATE_CHANGED') return false;
@@ -643,16 +694,20 @@
       : (acceptingDecisions.length ? false : null);
     const eligibilityCandidates = events.filter((event) => Number(event.seq) >= lastStableSeq
       && Number(event.seq) <= terminalBoundarySeq
-      && (event.eventType === 'TERMINAL_DEADLINE_REACHED'
-        || (event.eventType === 'DECISION_RECORDED' && eventBoolean(event, ['accepted', 'decisionAccepted']) === true)
+      && eventComparable(event)
+      && ((event.eventType === 'DECISION_RECORDED' && eventBoolean(event, ['accepted', 'decisionAccepted']) === true)
         || (event.eventType === 'FINALIZATION_POLICY_EVALUATED' && eventBoolean(event, ['accepted', 'decisionAccepted']) === true)
         || (event.eventType === 'COMPLETION_HYPOTHESIS_EVALUATED'
           && !/block|wait|pending|retry|defer/i.test(JSON.stringify(event.payload || {})))));
-    const policyEligibilityEvent = eligibilityCandidates.slice(-1)[0] || null;
+    const supersededEligibilityIds = new Set(events.flatMap((event) => {
+      const id = eventValue(event, ['supersedesEligibilityEventId', 'supersededEligibilityEventId']);
+      return id ? [String(id)] : [];
+    }));
+    const policyEligibilityEvent = eligibilityCandidates.find((event) => !supersededEligibilityIds.has(String(event.eventId))) || null;
     const eligibilityDelay = exactEventDuration(policyEligibilityEvent, terminalEvent);
     const lateEndToleranceMs = Number(Contracts?.THRESHOLDS?.lateEndPolicyToleranceMs || 1000);
     const lateObservationUsable = axes.observationReliability === 'reliable' || explicitReliableObservation;
-    const lateEndEvidence = !lateObservationUsable || !postStabilityWindowCovered
+    const lateEndEvidence = lateEndCandidateBinding === 'unknown' || !lateObservationUsable || !postStabilityWindowCovered
       ? null
       : (invalidatingAfterStable
         ? false
@@ -703,15 +758,11 @@
       normalizedCurrentDispatchId: currentDispatchIdentity,
       normalizedAnswerEvidenceDispatchId: acceptedAnswerIdentity,
       submissionFailed,
+      submitActionObserved,
       promptReceivedCounterEvidence,
       promptNotSentEvidence,
-      absenceObservationWindow: {
-        startEventId: absenceWindowStart?.eventId || null,
-        endEventId: terminalEvent?.eventId || events.slice(-1)[0]?.eventId || null,
-        signalEventIds: absenceWindowSignals.map((event) => event.eventId),
-        reliability: axes.observationReliability,
-        coverage: absenceWindowCoverageComplete ? 'complete' : 'incomplete'
-      },
+      absenceObservationWindow: submissionFailed ? submissionAbsenceWindow : insertionAbsenceWindow,
+      absenceObservationWindows: { submission: submissionAbsenceWindow, insertion: insertionAbsenceWindow },
       insertionEvidenceCount: insertionEntries.length,
       insertionFailed,
       promptInsertedCounterEvidence,
@@ -727,6 +778,7 @@
       policyWaitObserved,
       policyWaitEvidenceEventIds: [...blockingDecisions, ...policyBoundaryEvents].map((event) => event.eventId),
       policyEligibilityEventId: policyEligibilityEvent?.eventId || null,
+      lateEndCandidateBinding,
       policyEligibleToTerminalMs: eligibilityDelay.comparable ? eligibilityDelay.durationMs : null,
       lateEndPolicyToleranceMs: lateEndToleranceMs,
       postStabilityObservationCovered: postStabilityWindowCovered,
@@ -987,8 +1039,6 @@
     }));
     const reports = Object.fromEntries(REPORT_TYPES.map((reportType) => {
       const primaryQuestion = reportQuestion(reportType);
-      const relevantTypes = REPORT_EVENT_TYPES[reportType] || [];
-      const relevant = ledger.filter((event) => relevantTypes.includes(event.eventType));
       const slotResults = slotResultsByReport[reportType];
       const applicabilityByIncident = Object.fromEntries(allViews.map((view) => [view.incidentId, {
         modelId: view.modelId,
@@ -1006,13 +1056,15 @@
         const incidentResults = Object.entries(applicabilityByIncident)
           .filter(([, result]) => result.modelId === modelId);
         return [modelId, {
-          status: aggregateApplicability(incidentResults.map(([, result]) => ({ status: result.diagnosticVerdict }))),
+          status: aggregateApplicability(incidentResults.map(([, result]) => ({ status: result.status }))),
+          diagnosticVerdict: aggregateApplicability(incidentResults.map(([, result]) => ({ status: result.diagnosticVerdict }))),
           incidentIds: incidentResults.map(([incidentId]) => incidentId),
           confirmedIncidentIds: incidentResults.filter(([, result]) => result.diagnosticVerdict === 'confirmed').map(([incidentId]) => incidentId),
           unknownIncidentIds: incidentResults.filter(([, result]) => result.diagnosticVerdict === 'unknown').map(([incidentId]) => incidentId)
         }];
       }));
-      const applicabilityStatus = aggregateApplicability(Object.values(applicabilityByIncident).map((result) => ({ status: result.diagnosticVerdict })));
+      const applicabilityStatus = aggregateApplicability(Object.values(applicabilityByIncident).map((result) => ({ status: result.status })));
+      const diagnosticStatus = aggregateApplicability(Object.values(applicabilityByIncident).map((result) => ({ status: result.diagnosticVerdict })));
       const siblingEvaluations = (SIBLING_RULES[reportType] || []).map(([target, path, operator, value]) => {
         const perIncident = allViews.map((view) => {
           const result = evaluatePredicate({ stateAxes: view.stateAxes, derivedViews: view }, { path, operator, value });
@@ -1034,9 +1086,17 @@
           antiLoop: { sourceReportType: reportType, requestTargetOnlyOnce: true }
         };
       });
-      const relevantIncidentIds = Object.keys(applicabilityByIncident)
+      const supportedIncidentIds = Object.keys(applicabilityByIncident)
+        .filter((incidentId) => ['confirmed', 'supported_but_incomplete'].includes(verdicts[reportType][incidentId]));
+      const unresolvedIncidentIds = Object.keys(applicabilityByIncident)
         .filter((incidentId) => rawApplicability[reportType][incidentId].status !== 'not_confirmed');
-      const completenessIncidentIds = relevantIncidentIds.length ? relevantIncidentIds : [];
+      const completenessIncidentIds = supportedIncidentIds.length ? supportedIncidentIds : unresolvedIncidentIds;
+      const evidenceClosures = Object.fromEntries(completenessIncidentIds.map((incidentId) => {
+        const view = incidentViews[incidentId];
+        return [incidentId, Incidents.buildEvidenceClosure(ledger, { incidentId, scope: view.incidentScope }, reportType, {
+          context: { stateAxes: view.stateAxes, derivedViews: view }, legacyMode
+        })];
+      }));
       const allSlots = completenessIncidentIds.flatMap((incidentId) => slotResults[incidentId].slots)
         .filter((slot) => slot.effectiveCriticality !== 'conditional');
       const evidenceCoveragePct = allSlots.length
@@ -1050,15 +1110,34 @@
         : (sufficiencies.includes('bounded') ? 'bounded' : 'complete');
       const missingItems = completenessIncidentIds.flatMap((incidentId) => slotResults[incidentId].missingEvidence
         .map((item) => ({ incidentId, ...item })));
+      const completenessByIncident = Object.fromEntries(Object.keys(applicabilityByIncident).map((incidentId) => {
+        const slots = slotResults[incidentId].slots.filter((slot) => slot.effectiveCriticality !== 'conditional');
+        const applicable = rawApplicability[reportType][incidentId].status !== 'not_confirmed';
+        return [incidentId, {
+          level: applicable ? slotResults[incidentId].sufficiency : 'not_applicable',
+          evidenceCoveragePct: applicable && slots.length
+            ? Math.round((slots.filter((slot) => slot.status === 'satisfied').length / slots.length) * 10000) / 100
+            : 0,
+          missingItems: applicable ? slotResults[incidentId].missingEvidence : []
+        }];
+      }));
       const completeness = {
         level: completenessLevel,
         evidenceCoveragePct,
         missingCriticalEvidence: missingItems.some((item) => item.criticality === 'critical'),
         missingItems,
+        byIncident: completenessByIncident,
+        summarizedIncidentIds: completenessIncidentIds,
         safeConclusions: completenessLevel === 'complete' ? ['all required evidence slots are materialized'] : ['only conclusions supported by satisfied slots'],
         blockedConclusions: completenessLevel === 'complete' ? [] : missingItems.map((item) => `blocked by ${item.incidentId}:${item.slotId}`)
       };
-      const conclusions = buildConclusions(reportType, applicabilityStatus, allSlots, missingItems);
+      const conclusions = buildConclusions(reportType, diagnosticStatus, allSlots, missingItems);
+      const selectedEvents = new Map();
+      Object.values(evidenceClosures).forEach((closure) => closure.events.forEach((event) => {
+        if (!selectedEvents.has(event.eventId)) selectedEvents.set(event.eventId, { seq: event.seq, includedFor: new Set() });
+        (event.includedFor || []).forEach((reason) => selectedEvents.get(event.eventId).includedFor.add(reason));
+      }));
+      const orderedSelectedEvents = [...selectedEvents.values()].sort((left, right) => Number(left.seq) - Number(right.seq));
       return [reportType, {
         reportDescriptor: {
           reportId: `rpt-${reportType}-${eventFingerprint(ledgerHash)}`,
@@ -1067,6 +1146,7 @@
           title: primaryQuestion,
           primaryQuestion,
           applicability: { status: applicabilityStatus, byModel: applicabilityByModel, byIncident: applicabilityByIncident },
+          diagnosticVerdict: diagnosticStatus,
           canDiagnose: conclusions.safe,
           cannotDiagnoseAlone: conclusions.blocked,
           completeness,
@@ -1092,7 +1172,10 @@
             }))
           }]))
         },
-        eventSeqs: relevant.map((event) => event.seq),
+        eventSeqs: orderedSelectedEvents.map((event) => event.seq),
+        eventSelection: {
+          bySeq: Object.fromEntries(orderedSelectedEvents.map((event) => [String(event.seq), [...event.includedFor].sort()]))
+        },
         derivedViewRef: 'incident-timeline',
         siblings: siblingEvaluations,
         analysisInstructionsRef: 'sharedConfig.commonAnalysisInstructions'

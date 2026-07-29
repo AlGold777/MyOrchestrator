@@ -589,42 +589,42 @@ section 20 task is Done.
 21.1. Build a real post-failure absence-observation window for Prompt not sent
 and Prompt not inserted: start at the failed action, require a closed or
 continuously covered interval of at least `generationStartTimeoutMs`, exclude
-pre-failure observations and reject degraded or discontinuous coverage. - Pending
+pre-failure observations and reject degraded or discontinuous coverage. - Done
 
 21.2. Bind Late end stability, observation, eligibility and terminal boundaries
 to the accepted candidate; expose the identity proof as a critical evidence
-slot and leave mismatched candidates unknown. - Pending
+slot and leave mismatched candidates unknown. - Done
 
 21.3. Measure Late end from the first still-active eligibility boundary after
 final stability; treat deadlines only as terminal-mode explanations and model
 explicit eligibility supersession without allowing repeated acceptance to reset
-the clock. - Pending
+the clock. - Done
 
 21.4. Use typed facts only when their kind and state are recognized; otherwise
 fall back to canonical event mapping, and report typed/canonical contradictions
-as localized invariant violations. - Pending
+as localized invariant violations. - Done
 
 21.5. Compute embedded completeness per relevant incident and summarize it
 separately at report level; materialize embedded `eventSeqs` only from scoped
 slot evidence, counter-evidence and their proof closure, with an inclusion reason
-for every event. - Pending
+for every event. - Done
 
 21.6. Require Prompt not inserted submit counter-evidence only when a submit
-action was observed; keep it auxiliary when insertion failed before submission. - Pending
+action was observed; keep it auxiliary when insertion failed before submission. - Done
 
 21.7. Compare Cutted extraction against the final valid stable boundary of the
 accepted candidate rather than its historical maximum, so a proven stabilized
-rollback is not diagnosed as truncation. - Pending
+rollback is not diagnosed as truncation. - Done
 
 21.8. Declare the refutation model for every preset and require either an
-independent refuting fact or an explicit `complement` model. - Pending
+independent refuting fact or an explicit `complement` model. - Done
 
 21.9. Add temporal invariants for Prompt not inserted, Prompt not sent and Late
-end, with report and slot localization and one adversarial regression per preset. - Pending
+end, with report and slot localization and one adversarial regression per preset. - Done
 
 21.10. Prevent bounded evidence from confirming measurement diagnoses under
 `single_candidate` comparability or Old answer when the referenced prior
-incident is outside the export. - Pending
+incident is outside the export. - Done
 
 21.11. Add the complete W1-W12 adversarial regression matrix and synchronize
 contracts, schemas, examples, validator, specification, telemetry documentation,

@@ -151,10 +151,11 @@ describe('proof telemetry preset semantic applicability', () => {
     const relevant = [
       event('DISPATCH_BASELINE_CAPTURED', 1),
       event('SUBMIT_ACTION_OBSERVED', 2, { typed: { kind: 'submission', state: 'attempted' } }),
-      event('SUBMISSION_INFERRED', 3, { typed: { kind: 'submission', state: 'failed' } }),
-      event('PAGE_HEALTH_OBSERVED', 4, { typed: { kind: 'observation', state: 'reliable' } })
+      event('SUBMISSION_INFERRED', 3, { clock: { observedAtLocalMonoMs: 1000 }, typed: { kind: 'submission', state: 'failed' } }),
+      event('PAGE_HEALTH_OBSERVED', 4, { typed: { kind: 'observation', state: 'reliable' } }),
+      event('OBSERVATION_INTERVAL_CLOSED', 5, { clock: { observedAtLocalMonoMs: 16000 }, typed: { kind: 'observation_interval', state: 'closed' }, payload: { observationCoverage: 'complete' } })
     ];
-    const unrelated = event('MODEL_TERMINAL_RECORDED', 5, {
+    const unrelated = event('MODEL_TERMINAL_RECORDED', 6, {
       metadata: { terminalStatus: 'SUCCESS' },
       typed: { kind: 'terminal_action', state: 'SUCCESS' }
     });
@@ -385,7 +386,7 @@ describe('proof telemetry preset semantic applicability', () => {
     ]));
 
     const withoutPrior = await ProofTelemetry.buildStandaloneReport(currentEvents, { canonicalLedger: true, modelId: 'GPT', reportType: 'old-answer' });
-    expect(withoutPrior.reportDescriptor.diagnosticVerdict).toBe('confirmed');
+    expect(withoutPrior.reportDescriptor.diagnosticVerdict).toBe('supported_but_incomplete');
     expect(withoutPrior.reportDescriptor.completeness.level).toBe('bounded');
     expect(withoutPrior.missingEvidence).toEqual(expect.arrayContaining([
       expect.objectContaining({ slotId: 'prior_incident_evidence', criticality: 'required', impact: 'prior_incident_outside_export' })
@@ -434,8 +435,9 @@ describe('proof telemetry preset semantic applicability', () => {
     ]).result.status).toBe('unknown');
     expect(applicability('prompt-not-sent', [
       event('DISPATCH_BASELINE_CAPTURED', 1),
-      event('PAGE_HEALTH_OBSERVED', 2, { typed: { kind: 'observation', state: 'reliable' } }),
-      event('SUBMISSION_INFERRED', 3, { typed: { kind: 'submission', state: 'failed' } })
+      event('SUBMISSION_INFERRED', 2, { clock: { observedAtLocalMonoMs: 1000 }, typed: { kind: 'submission', state: 'failed' } }),
+      event('PAGE_HEALTH_OBSERVED', 3, { typed: { kind: 'observation', state: 'reliable' } }),
+      event('OBSERVATION_INTERVAL_CLOSED', 4, { clock: { observedAtLocalMonoMs: 16000 }, typed: { kind: 'observation_interval', state: 'closed' }, payload: { observationCoverage: 'complete' } })
     ]).result.status).toBe('confirmed');
     expect(applicability('prompt-not-sent', [
       event('SUBMISSION_INFERRED', 1, { typed: { kind: 'submission', state: 'confirmed' } })
@@ -465,8 +467,9 @@ describe('proof telemetry preset semantic applicability', () => {
     expect(applicability('prompt-not-inserted', [failed]).result.status).toBe('unknown');
     expect(applicability('prompt-not-inserted', [
       baseline,
-      failed,
-      event('PAGE_HEALTH_OBSERVED', 3, { typed: { kind: 'observation', state: 'reliable' } })
+      { ...failed, clock: { ...failed.clock, observedAtLocalMonoMs: 1000 } },
+      event('PAGE_HEALTH_OBSERVED', 3, { typed: { kind: 'observation', state: 'reliable' } }),
+      event('OBSERVATION_INTERVAL_CLOSED', 4, { clock: { observedAtLocalMonoMs: 16000 }, typed: { kind: 'observation_interval', state: 'closed' }, payload: { observationCoverage: 'complete' } })
     ]).result.status).toBe('confirmed');
     expect(applicability('prompt-not-inserted', []).result.status).toBe('unknown');
     expect(applicability('prompt-not-inserted', [
@@ -485,7 +488,8 @@ describe('proof telemetry preset semantic applicability', () => {
     const submitAction = event('SUBMIT_ACTION_OBSERVED', 3, { typed: { kind: 'submission', state: 'attempted' } });
     const alsoNotSent = event('SUBMISSION_INFERRED', 4, { typed: { kind: 'submission', state: 'failed' } });
     const pageContext = event('PAGE_HEALTH_OBSERVED', 5, { typed: { kind: 'observation', state: 'reliable' } });
-    const container = await ProofTelemetry.buildAllPresets([baseline, failed, submitAction, alsoNotSent, pageContext], {
+    const closed = event('OBSERVATION_INTERVAL_CLOSED', 6, { clock: { observedAtLocalMonoMs: 20000 }, typed: { kind: 'observation_interval', state: 'closed' }, payload: { observationCoverage: 'complete' } });
+    const container = await ProofTelemetry.buildAllPresets([baseline, failed, submitAction, alsoNotSent, pageContext, closed], {
       canonicalLedger: true,
       exportedAt: 2000
     });

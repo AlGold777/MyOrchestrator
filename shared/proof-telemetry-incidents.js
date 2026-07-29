@@ -225,6 +225,18 @@
     const byId = new Map(scoped.map((event) => [event.eventId, event]));
     const violations = [];
     const limitations = [];
+    scoped.forEach((event) => {
+      const conflict = contracts()?.typedCanonicalConflict?.(event);
+      if (conflict) violations.push({
+        invariantId: 'TYPED_CANONICAL_CONFLICT',
+        eventId: event.eventId,
+        affectedReportTypes: Object.keys(contracts()?.REPORT_CONTRACTS || {}),
+        affectedSlotIds: [],
+        affectedFields: [],
+        conflict,
+        message: 'typed fact contradicts canonical event payload'
+      });
+    });
     scoped.filter((event) => event.eventType === 'POST_TERMINAL_AUDIT_COMPLETED').forEach((audit) => {
       const terminal = [...scoped].reverse().find((event) => event.eventType === 'MODEL_TERMINAL_RECORDED' && Number(event.seq) < Number(audit.seq));
       if (!terminal) {
@@ -249,6 +261,31 @@
           && /recovery|retry|repair/i.test(JSON.stringify(event.payload || {})));
       if (!recoveryLinked) violations.push({ invariantId: 'TEMPORAL_EXTRACTION_AFTER_TERMINAL', eventId: extraction.eventId, affectedReportTypes: ['empty', 'old-answer', 'cutted'], affectedSlotIds: ['extraction_result', 'extraction_boundary'], affectedFields: ['extractionProblemEvidence', 'oldAnswerEvidence', 'incompleteCaptureEvidence'], message: 'post-terminal extraction lacks explicit recovery lineage' });
     });
+    const first = (type) => scoped.find((event) => event.eventType === type) || null;
+    const last = (type) => [...scoped].reverse().find((event) => event.eventType === type) || null;
+    const baseline = first('DISPATCH_BASELINE_CAPTURED');
+    const insertion = first('PROMPT_INSERTION_EVALUATED');
+    const submit = first('SUBMIT_ACTION_OBSERVED');
+    const acceptance = first('SUBMISSION_EVIDENCE_CHANGED') || first('SUBMISSION_INFERRED');
+    if (baseline && insertion && Number(insertion.seq) < Number(baseline.seq)) {
+      violations.push({ invariantId: 'TEMPORAL_PROMPT_INSERTION_ORDER', eventId: insertion.eventId, affectedReportTypes: ['prompt-not-inserted'], affectedSlotIds: ['dispatch_baseline', 'insertion_outcome'], affectedFields: ['promptNotInsertedEvidence'], message: 'prompt insertion evaluation precedes dispatch baseline' });
+    }
+    if (insertion && submit && Number(submit.seq) < Number(insertion.seq)) {
+      violations.push({ invariantId: 'TEMPORAL_PROMPT_SUBMIT_ORDER', eventId: submit.eventId, affectedReportTypes: ['prompt-not-inserted', 'prompt-not-sent'], affectedSlotIds: ['insertion_outcome', 'submit_action'], affectedFields: ['promptNotInsertedEvidence', 'promptNotSentEvidence'], message: 'submit action precedes prompt insertion evaluation' });
+    }
+    if (submit && acceptance && Number(acceptance.seq) < Number(submit.seq)) {
+      violations.push({ invariantId: 'TEMPORAL_PROMPT_ACCEPTANCE_ORDER', eventId: acceptance.eventId, affectedReportTypes: ['prompt-not-sent'], affectedSlotIds: ['submit_action', 'acceptance_evidence'], affectedFields: ['promptNotSentEvidence'], message: 'submission acceptance evidence precedes submit action' });
+    }
+    const generationStart = first('GENERATION_START_EVALUATED') || first('GENERATION_SIGNAL_CHANGED');
+    const stable = first('STABILITY_INTERVAL_CLOSED');
+    if (generationStart && stable && Number(stable.seq) < Number(generationStart.seq)) {
+      violations.push({ invariantId: 'TEMPORAL_LATE_END_STABILITY_ORDER', eventId: stable.eventId, affectedReportTypes: ['late-end'], affectedSlotIds: ['generation_state', 'stable_boundary'], affectedFields: ['lateEndEvidence'], message: 'stability boundary precedes generation start' });
+    }
+    const eligibility = scoped.find((event) => (event.eventType === 'DECISION_RECORDED' || event.eventType === 'FINALIZATION_POLICY_EVALUATED')
+      && contracts()?.factOf?.(event)?.state === 'accepted') || null;
+    if (stable && eligibility && Number(eligibility.seq) < Number(stable.seq)) {
+      violations.push({ invariantId: 'TEMPORAL_LATE_END_ELIGIBILITY_ORDER', eventId: eligibility.eventId, affectedReportTypes: ['late-end'], affectedSlotIds: ['stable_boundary', 'completion_policy', 'decision_lineage'], affectedFields: ['lateEndEvidence'], message: 'terminal eligibility precedes final stability boundary' });
+    }
     return { violations, limitations };
   }
 
@@ -279,8 +316,11 @@
       const allMatched = contract.slotId === 'prior_incident_evidence'
         ? typeMatched
         : typeMatched.filter((event) => {
+          if (task === 'late-end' && contract.slotId === 'candidate_identity'
+            && context?.derivedViews?.lateEndCandidateBinding !== 'candidate_proven') return false;
           if (!eventMatchesSlot(event, contract, scoped)) return false;
-          const candidateBoundSlot = ['extraction_boundary', 'extraction_result', 'structural_verification', 'post_terminal_mutation'].includes(contract.slotId);
+          const candidateBoundSlot = ['extraction_boundary', 'extraction_result', 'structural_verification', 'post_terminal_mutation',
+            'stable_boundary', 'terminal_boundary', 'generation_state', 'text_evolution', 'completion_policy', 'decision_lineage'].includes(contract.slotId);
           const expectedCandidateId = context?.derivedViews?.measurementCandidateId;
           return !(candidateBoundSlot && expectedCandidateId && event.candidateId && String(event.candidateId) !== String(expectedCandidateId));
         });
@@ -319,11 +359,13 @@
     const sufficiency = criticalMissing.length
       ? 'insufficient'
       : (ordinaryRequiredMissing.length || externalPriorMissing || confidenceLimitations.length ? 'bounded' : 'complete');
+    const boundedConfirmationBlocked = (task === 'cutted' && context?.derivedViews?.measurementComparability === 'single_candidate')
+      || (task === 'old-answer' && externalPriorMissing);
     return {
       slots,
       sufficiency,
       missingRequiredSlotCount: ordinaryRequiredMissing.length,
-      confirmationAllowedWhenBounded: ordinaryRequiredMissing.length === 0 && criticalMissing.length === 0,
+      confirmationAllowedWhenBounded: ordinaryRequiredMissing.length === 0 && criticalMissing.length === 0 && !boundedConfirmationBlocked,
       confidenceLimitations,
       missingEvidence: [...criticalMissing, ...requiredMissing].map((slot) => ({
         slotId: slot.slotId,
