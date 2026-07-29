@@ -1,5 +1,15 @@
 # CHANGELOG — Project
 
+### 2026-08-28 — Incident-safe post-terminal audit, version 2.81.145
+
+- Post-terminal audit now requires the exact run generation, model, dispatch
+  and generation epoch even when the policy module is unavailable.
+- Missing answer lengths are preserved as unknown instead of being converted
+  to zero; hash evidence remains independently comparable.
+- When neither length nor hash can be compared, audit records an explicit
+  `unknown` conclusion and missing-evidence impact rather than a false growth
+  confirmation or refutation.
+
 ### 2026-08-28 — Semantic preset applicability, version 2.81.144
 
 - Separated evidence-slot completeness from proof that the selected problem

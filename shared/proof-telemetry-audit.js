@@ -7,7 +7,11 @@
   function sameScope(left, right) {
     return root.ProofTelemetryPolicy?.sameScope?.(left, right)
       || (String(left?.runSessionId) === String(right?.runSessionId)
-        && String(left?.modelId) === String(right?.modelId));
+        && Number(left?.runGeneration) === Number(right?.runGeneration)
+        && String(left?.modelId) === String(right?.modelId)
+        && Boolean(left?.dispatchId)
+        && String(left?.dispatchId) === String(right?.dispatchId)
+        && Number(left?.generationEpoch) === Number(right?.generationEpoch));
   }
 
   function sourceType(event) {
@@ -20,7 +24,7 @@
       const value = Number(metadata[key]);
       if (Number.isFinite(value) && value >= 0) return value;
     }
-    return 0;
+    return null;
   }
 
   function stringFrom(event, keys) {
@@ -65,10 +69,15 @@
       const observedLength = numberFrom(sourceEvent, ['answerLength', 'answerLen', 'textLength']);
       const acceptedHash = stringFrom(terminal, ['answerHash', 'textHash', 'normalizedHash']);
       const observedHash = stringFrom(sourceEvent, ['answerHash', 'textHash', 'normalizedHash']);
-      const growthChars = Math.max(0, observedLength - acceptedLength);
-      const growthPct = acceptedLength > 0 ? (growthChars / acceptedLength) * 100 : (growthChars > 0 ? 100 : 0);
+      const lengthsComparable = acceptedLength !== null && observedLength !== null;
+      const hashesComparable = Boolean(acceptedHash && observedHash);
+      const auditPossible = lengthsComparable || hashesComparable;
+      const growthChars = lengthsComparable ? Math.max(0, observedLength - acceptedLength) : null;
+      const growthPct = lengthsComparable
+        ? (acceptedLength > 0 ? (growthChars / acceptedLength) * 100 : (growthChars > 0 ? 100 : 0))
+        : null;
       const hashChanged = Boolean(acceptedHash && observedHash && acceptedHash !== observedHash);
-      const contradicted = growthPct > 0.5 || hashChanged;
+      const contradicted = (growthPct !== null && growthPct > 0.5) || hashChanged;
       descriptors.push({
         eventType: 'POST_TERMINAL_AUDIT_COMPLETED',
         layer: 'audit',
@@ -81,10 +90,22 @@
           growthChars,
           growthPct,
           hashChanged,
-          conclusion: contradicted ? 'contradicted' : 'confirmed',
-          auditPossible: true
+          conclusion: auditPossible ? (contradicted ? 'contradicted' : 'confirmed') : 'unknown',
+          auditPossible
         }
       });
+      if (!auditPossible) {
+        descriptors.push({
+          eventType: 'MISSING_EVIDENCE_RECORDED',
+          layer: 'decision',
+          evidenceRefs: [terminal.eventId, sourceEvent.eventId],
+          payload: {
+            missingEvidence: 'post_terminal_comparable_measurement',
+            status: 'unavailable',
+            impact: 'post-terminal growth cannot be confirmed or refuted without comparable length or hash evidence'
+          }
+        });
+      }
       if (contradicted) {
         descriptors.push({
           eventType: 'SELECTOR_FORENSIC_SNAPSHOT_CAPTURED',

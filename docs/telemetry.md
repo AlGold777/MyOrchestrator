@@ -1,5 +1,14 @@
 # Telemetry - tab/session diagnostics
 
+## Incident-safe post-terminal audit v2.81.145 - 2026-08-28
+
+Post-terminal observations can audit only a terminal from the exact same run
+generation, Platform, dispatch and generation epoch. An observation from the
+next request can no longer prove growth of the previous answer. Missing length
+metadata stays unknown; if neither lengths nor hashes are comparable, the
+audit records `auditPossible=false`, `conclusion=unknown` and the missing
+evidence explicitly.
+
 ## Semantic preset applicability v2.81.144 - 2026-08-28
 
 Every Task now reports two independent results:

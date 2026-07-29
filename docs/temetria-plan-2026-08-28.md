@@ -364,7 +364,7 @@ reject arbitrary size/time targets and false diagnosis exclusivity. - Done
 aggregate them to Platform with explicit incident references. - Pending
 
 16.3. Make post-terminal audit require exact incident scope and known comparable
-length/hash evidence; missing measurement must remain unknown. - Pending
+length/hash evidence; missing measurement must remain unknown. - Done
 
 16.4. Correct Old answer identity precedence and normalized dispatch identity. - Pending
 
