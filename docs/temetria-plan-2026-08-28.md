@@ -407,3 +407,41 @@ Section 16 evidence: registry 5.0.0 is generated from the executable contract;
 All tasks and all six standalone examples validate with zero errors; focused
 telemetry gate passes 13 suites / 99 tests; complete regression gate passes
 185 suites / 1269 tests. Every section 16 task is Done.
+
+## 17. Prompt insertion diagnosis
+
+17.1. Separate a prompt insertion failure from a later submission failure and
+define the user question `Prompt not inserted`. - Done
+
+17.2. Preserve lifecycle error type, source and privacy-safe prompt length so
+`prompt_injection_failed` is not lost at the content/background boundary. - Done
+
+17.3. Emit an incident-scoped typed `PROMPT_INSERTION_EVALUATED` fact with the
+active dispatch and generation identity. - Done
+
+17.4. Define critical insertion-outcome evidence, composer context, submission
+counter-evidence and conditional observer evidence. - Done
+
+17.5. Confirm only explicit failed insertion; keep missing or unreliable
+observation unknown; refute with inserted/confirmed submission, generation,
+non-empty extraction or SUCCESS. - Done
+
+17.6. Record `Prompt not inserted` as the cause and `Prompt not sent` as its
+consequence when both diagnoses are independently proven. - Done
+
+17.7. Add the seventh Task to both Telemetry views without introducing another
+filter or another telemetry recording. - Done
+
+17.8. Add positive, negative, unknown, counter-evidence, ingestion and causal
+arbitration regression tests. - Done
+
+17.9. Regenerate All tasks, all seven standalone examples and registry 5.1.0;
+validate schemas, replay, slots and applicability. - Done
+
+17.10. Synchronize manifest/package version 2.81.150, documentation, changelog
+and the external review package. - Done
+
+Section 17 evidence: registry 5.1.0 and all seven standalone examples were
+generated from the executable contracts and validated without errors. Focused
+semantic tests pass 4 suites / 37 tests; the complete regression gate passes
+186 suites / 1272 tests. Every section 17 task is Done.

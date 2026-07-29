@@ -11,6 +11,26 @@ const evt = (platform, label, ts, meta = {}, details = '') => ({
 });
 
 describe('Proof-oriented telemetry schema 6 event export', () => {
+  test('routes prompt insertion failure into a typed canonical proof event', () => {
+    const runtime = evt('GPT', 'PROMPT_INSERTION_FAILED', 1000, {
+      dispatchId: 'dispatch-insertion',
+      generationEpoch: 1,
+      insertionState: 'failed',
+      errorType: 'prompt_injection_failed'
+    });
+    expect(ProofTelemetry.classifyRuntimeEvent(runtime)).toEqual(expect.objectContaining({
+      route: 'canonical',
+      eventType: 'PROMPT_INSERTION_EVALUATED',
+      typed: { kind: 'prompt_insertion', state: 'failed' }
+    }));
+    const [proofEvent] = ProofTelemetry.buildLedger([runtime], { runSessionId: 42 });
+    expect(proofEvent).toEqual(expect.objectContaining({
+      eventType: 'PROMPT_INSERTION_EVALUATED',
+      dispatchId: 'dispatch-insertion'
+    }));
+    expect(proofEvent.payload.typed).toEqual({ kind: 'prompt_insertion', state: 'failed' });
+  });
+
   test('routes proof, operational and unknown legacy events to distinct stores', () => {
     expect(ProofTelemetry.classifyRuntimeEvent({ label: 'GROK_PROMPT_ECHO_REJECTED' })).toEqual(expect.objectContaining({
       route: 'canonical',
@@ -24,7 +44,7 @@ describe('Proof-oriented telemetry schema 6 event export', () => {
     ], { runSessionId: 42 })[0].eventType).toBe('STABILITY_INTERVAL_CLOSED');
   });
 
-  test('builds one immutable canonical ledger and all six embedded reports', async () => {
+  test('builds one immutable canonical ledger and all seven embedded reports', async () => {
     const container = await ProofTelemetry.buildAllPresets({
       '<GPT>': [
         evt('GPT', 'DISPATCH_BASELINE_CAPTURED', 1000),
@@ -209,7 +229,7 @@ describe('Proof-oriented telemetry schema 6 event export', () => {
     );
   });
 
-  test('builds replay-equivalent isolated artifacts for all six tasks', async () => {
+  test('builds replay-equivalent isolated artifacts for all seven tasks', async () => {
     const labels = [
       'DISPATCH_BASELINE_CAPTURED', 'DISPATCH_SEND', 'PROMPT_SUBMITTED_ACCEPTED',
       'ANSWER_START_DETECTED', 'ANSWER_GENERATING', 'TURN_RESOLUTION_ACCEPTED',

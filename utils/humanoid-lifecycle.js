@@ -67,9 +67,13 @@
     }
 
     error(traceId, error, fatal = false) {
+      const activity = this.activeActivities.get(traceId) || {};
       const payload = {
         traceId,
         error: error?.message || String(error || 'unknown'),
+        errorType: error?.type || error?.code || null,
+        source: activity.source || null,
+        promptLength: Number.isFinite(Number(activity.promptLength)) ? Number(activity.promptLength) : null,
         stack: error?.stack,
         fatal,
         timestamp: Date.now()

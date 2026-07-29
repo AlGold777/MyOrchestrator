@@ -5,12 +5,13 @@ const Contracts = require('../shared/proof-telemetry-contracts.js');
 const ProofTelemetry = require('../shared/proof-oriented-telemetry.js');
 
 describe('proof telemetry executable contracts', () => {
-  test('defines evidence-slot contracts for the six user diagnostic questions', () => {
+  test('defines evidence-slot contracts for the seven user diagnostic questions', () => {
     expect(Object.keys(Contracts.REPORT_CONTRACTS)).toEqual([
       'cutted',
       'false-success',
       'old-answer',
       'empty',
+      'prompt-not-inserted',
       'prompt-not-sent',
       'late-end'
     ]);

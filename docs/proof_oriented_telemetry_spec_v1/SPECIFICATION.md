@@ -387,7 +387,7 @@ Offline validator MUST уметь:
 6. проверить override и terminal lineage;
 7. определить влияние scheduler/observer degradation;
 8. выявить post-terminal change;
-9. построить все шесть reports из ledger;
+9. построить все семь reports из ledger;
 10. детерминированно вычислить `requestIf`;
 11. отклонить несовместимые reports;
 12. построить summaries без mutable summary state;
@@ -436,7 +436,7 @@ MUST содержать:
 
 - время создания и encoding;
 - content index;
-- шесть report types и версии схем;
+- семь report types и версии схем;
 - правила deduplication;
 - privacy mode;
 - size budget;
@@ -527,13 +527,14 @@ Chunked mode MUST содержать ordered chunk hashes и root hash.
 
 ## 22. `reports`
 
-Map с шестью пользовательскими диагностическими ключами:
+Map с семью пользовательскими диагностическими ключами:
 
 ```text
 cutted
 false-success
 old-answer
 empty
+prompt-not-inserted
 prompt-not-sent
 late-end
 ```
@@ -747,6 +748,7 @@ observation нельзя превращать в positive anomaly. Исключ�
 | `false-success` | `terminalOutcome == SUCCESS`, completed post-terminal audit и `postTerminalGrowthProven == true` |
 | `old-answer` | `oldAnswerEvidence == true` на основании accepted-answer dispatch mismatch |
 | `empty` | `generationTextObserved == true` и `extractionProblemEvidence == true` |
+| `prompt-not-inserted` | `promptNotInsertedEvidence == true` из typed failed insertion |
 | `prompt-not-sent` | `promptNotSentEvidence == true` из typed failed submission |
 | `late-end` | `lateEndEvidence == true`: policy решила ждать, clocks сопоставимы и последующей мутации не было |
 
@@ -822,7 +824,18 @@ boundaries, extraction result, structural verification и observer health.
 ambiguous или stale candidate). Успешный verified current-dispatch extraction
 опровергает Empty; неоднозначный выбор остаётся `unknown`.
 
-## 34. `prompt-not-sent`
+## 34. `prompt-not-inserted`
+
+**Primary question:** почему prompt не вставился в поле ввода?
+
+Проверяет явный результат composer insertion внутри точного incident. Только
+typed `prompt_insertion=failed` при пригодном observer context подтверждает
+диагноз. Confirmed/inserted insertion, подтверждённая отправка, наблюдавшаяся
+генерация, непустой extraction или SUCCESS terminal опровергают его. Ошибка
+вставки является возможной причиной `prompt-not-sent`, но не подменяет диагноз
+сбоя отправки.
+
+## 35. `prompt-not-sent`
 
 **Primary question:** почему модель не получила запрос?
 
@@ -835,7 +848,7 @@ SUCCESS terminal явно опровергают preset. Partial/absent/unavaila
 даёт `unknown`; только typed failed submission без counter-evidence подтверждает
 проблему.
 
-## 35. `late-end`
+## 36. `late-end`
 
 **Primary question:** текст давно стабилен — почему система ждала ещё `N`
 секунд?
@@ -877,6 +890,7 @@ presets/
   false-success.example.json
   old-answer.example.json
   empty.example.json
+  prompt-not-inserted.example.json
   prompt-not-sent.example.json
   late-end.example.json
 ```

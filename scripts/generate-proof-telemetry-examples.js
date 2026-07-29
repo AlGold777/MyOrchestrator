@@ -50,6 +50,11 @@ function ledgerForTypes(types, reportType = null) {
       typed = { kind: 'answer_completeness', state: reportType === 'cutted' ? 'probably_truncated' : 'unknown' };
     }
     if (item.eventType === 'SUBMISSION_EVIDENCE_CHANGED') typed = { kind: 'submission', state: reportType === 'prompt-not-sent' ? 'failed' : 'confirmed' };
+    if (reportType === 'prompt-not-inserted' && item.eventType === 'SUBMISSION_EVIDENCE_CHANGED') typed = { kind: 'submission', state: 'attempted' };
+    if (item.eventType === 'PROMPT_INSERTION_EVALUATED') {
+      directPayload = { insertionState: reportType === 'prompt-not-inserted' ? 'failed' : 'inserted' };
+      typed = { kind: 'prompt_insertion', state: reportType === 'prompt-not-inserted' ? 'failed' : 'inserted' };
+    }
     if (reportType === 'false-success' && item.eventType === 'POST_TERMINAL_AUDIT_COMPLETED') {
       directPayload = { conclusion: 'contradicted', growthChars: 30, growthPct: 25, hashChanged: true, auditPossible: true };
     }
@@ -97,6 +102,7 @@ async function main() {
     'DISPATCH_BASELINE_CAPTURED',
     'SUBMIT_ACTION_OBSERVED',
     'SUBMISSION_EVIDENCE_CHANGED',
+    'PROMPT_INSERTION_EVALUATED',
     'PAGE_CONTEXT_OBSERVED',
     'PAGE_HEALTH_OBSERVED',
     'GENERATION_START_EVALUATED',
@@ -119,7 +125,7 @@ async function main() {
     canonicalLedger: true,
     runSessionId: 'synthetic-run',
     exportedAt: 12000,
-    extensionVersion: '2.81.149',
+    extensionVersion: '2.81.150',
     sampleData: true
   };
   const all = await ProofTelemetry.buildAllPresets(ledger, options);

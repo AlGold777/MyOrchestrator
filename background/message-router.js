@@ -2910,6 +2910,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                         level: 'info'
                     });
                 } else if (event === 'activity:error') {
+                    const errorType = String(detail.errorType || '').trim().toLowerCase();
+                    if (['prompt_injection_failed', 'injection_failed'].includes(errorType)) {
+                        const insertionEntry = jobState?.llms?.[llmName] || null;
+                        emitTelemetry(llmName, 'PROMPT_INSERTION_FAILED', {
+                            level: 'error',
+                            details: detail.error || errorType,
+                            meta: {
+                                dispatchId: insertionEntry?.lastDispatchMeta?.dispatchId || null,
+                                generationEpoch: insertionEntry?.generationEpoch ?? null,
+                                insertionState: 'failed',
+                                errorType,
+                                source: detail.source || null,
+                                promptLength: Number.isFinite(Number(detail.promptLength)) ? Number(detail.promptLength) : null
+                            },
+                            force: true
+                        });
+                    }
                     // Only update status indicator for FATAL errors (selector not found, injection failed)
                     // Timeouts and pipeline errors are handled by handleLLMResponse
                     if (detail.fatal) {

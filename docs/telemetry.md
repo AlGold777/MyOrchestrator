@@ -1,5 +1,17 @@
 # Telemetry - tab/session diagnostics
 
+## Prompt insertion diagnosis v2.81.150 - 2026-07-29
+
+Telemetry Tasks now includes `Prompt not inserted` for the specific failure in
+which the requested prompt never reaches the live composer. The content
+lifecycle preserves `prompt_injection_failed` as a typed, incident-scoped
+`PROMPT_INSERTION_EVALUATED` proof event. Confirmed submission, generated text,
+non-empty extraction or SUCCESS is explicit counter-evidence. If insertion
+failure and failed submission are both proven, Prompt not inserted is the cause
+and Prompt not sent is recorded as its consequence. Registry 5.1.0, report
+2.3.0 and generator 1.4.0 define all seven Tasks. The complete regression gate
+passes 186 suites / 1272 tests.
+
 ## Preset semantic hardening gate v2.81.149 - 2026-08-28
 
 Registry 5.0.0, report 2.2.0 and generator 1.3.0 formalize the incident-scoped

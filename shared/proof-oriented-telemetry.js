@@ -14,13 +14,14 @@
   const Clock = root.ProofTelemetryClock || (typeof require === 'function' ? require('./proof-telemetry-clock.js') : null);
   const SCHEMA_VERSION = '5.0';
   const EVENT_SCHEMA_VERSION = Contracts?.EVENT_SCHEMA_VERSION || 6;
-  const GENERATOR_VERSION = 'proof-export@1.3.0';
-  const REPORT_VERSION = '2.2.0';
+  const GENERATOR_VERSION = 'proof-export@1.4.0';
+  const REPORT_VERSION = '2.3.0';
   const REPORT_TYPES = Object.freeze([
     'cutted',
     'false-success',
     'old-answer',
     'empty',
+    'prompt-not-inserted',
     'prompt-not-sent',
     'late-end'
   ]);
@@ -76,6 +77,7 @@
     LEASE_DENIED: 'OBSERVATION_SLOT_DENIED',
     LEASE_RELEASED: 'OBSERVATION_SLOT_RELEASED',
     COMMAND_SEND_ERROR: 'SUBMISSION_EVIDENCE_CHANGED',
+    PROMPT_INSERTION_FAILED: 'PROMPT_INSERTION_EVALUATED',
     SEND_DEFERRED_TRANSIENT_BLOCKER: 'SUBMISSION_EVIDENCE_CHANGED',
     SEND_DEGRADED_AFTER_SUBMIT: 'SUBMISSION_EVIDENCE_CHANGED',
     LLM_RESPONSE_READY: 'EXTRACTION_COMPLETED',
@@ -91,6 +93,7 @@
 
   const RUNTIME_TYPED_FACTS = Object.freeze({
     COMMAND_SEND_ERROR: { kind: 'submission', state: 'failed' },
+    PROMPT_INSERTION_FAILED: { kind: 'prompt_insertion', state: 'failed' },
     SEND_DEFERRED_TRANSIENT_BLOCKER: { kind: 'submission', state: 'deferred' },
     SEND_DEGRADED_AFTER_SUBMIT: { kind: 'submission', state: 'confirmed' },
     LLM_RESPONSE_READY: { kind: 'extraction', state: 'completed' },
@@ -531,6 +534,14 @@
     const promptNotSentEvidence = promptReceivedCounterEvidence
       ? false
       : (submissionFailed && absenceObservationUsable ? true : null);
+    const insertionEntries = events.map((event) => ({ event, fact: Contracts?.factOf?.(event) }))
+      .filter(({ fact }) => fact?.kind === 'prompt_insertion');
+    const insertionFailed = insertionEntries.some(({ fact }) => fact.state === 'failed');
+    const insertionConfirmed = insertionEntries.some(({ fact }) => ['confirmed', 'inserted'].includes(fact.state));
+    const promptInsertedCounterEvidence = insertionConfirmed || promptReceivedCounterEvidence;
+    const promptNotInsertedEvidence = promptInsertedCounterEvidence
+      ? false
+      : (insertionFailed && absenceObservationUsable ? true : null);
     const stableDelay = exactEventDuration(lastStableBeforeTerminal, terminalEvent);
     const lastStableSeq = Number(lastStableBeforeTerminal?.seq ?? -Infinity);
     const terminalBoundarySeq = Number(terminalEvent?.seq ?? Infinity);
@@ -586,6 +597,10 @@
       submissionFailed,
       promptReceivedCounterEvidence,
       promptNotSentEvidence,
+      insertionEvidenceCount: insertionEntries.length,
+      insertionFailed,
+      promptInsertedCounterEvidence,
+      promptNotInsertedEvidence,
       hiddenRelevantTextLength: 0,
       candidateCount: new Set(events.map((event) => event.candidateId).filter(Boolean)).size,
       captureBeforeTerminal: false,
@@ -644,14 +659,24 @@
     'false-success': [['cutted', '$.derivedViews.incompleteCaptureEvidence', 'eq', true], ['late-end', '$.derivedViews.lateEndEvidence', 'eq', true]],
     'old-answer': [['empty', '$.derivedViews.emptyExtractionEvidence', 'eq', true], ['cutted', '$.derivedViews.incompleteCaptureEvidence', 'eq', true]],
     empty: [['old-answer', '$.derivedViews.oldAnswerEvidence', 'eq', true], ['cutted', '$.derivedViews.incompleteCaptureEvidence', 'eq', true]],
-    'prompt-not-sent': [],
+    'prompt-not-inserted': [['prompt-not-sent', '$.derivedViews.promptNotSentEvidence', 'eq', true]],
+    'prompt-not-sent': [['prompt-not-inserted', '$.derivedViews.promptNotInsertedEvidence', 'eq', true]],
     'late-end': [['false-success', '$.derivedViews.postTerminalGrowthProven', 'eq', true]]
   });
 
-  const DIAGNOSIS_PRIORITY = Object.freeze(['false-success', 'old-answer', 'prompt-not-sent', 'empty', 'cutted', 'late-end']);
+  const DIAGNOSIS_PRIORITY = Object.freeze(['false-success', 'old-answer', 'prompt-not-inserted', 'prompt-not-sent', 'empty', 'cutted', 'late-end']);
   const DIAGNOSIS_CAUSAL_RULES = Object.freeze([
-    Object.freeze({ cause: 'false-success', consequence: 'cutted', when: { path: '$.derivedViews.postTerminalGrowthProven', operator: 'eq', value: true } })
+    Object.freeze({ cause: 'false-success', consequence: 'cutted', when: { path: '$.derivedViews.postTerminalGrowthProven', operator: 'eq', value: true } }),
+    Object.freeze({ cause: 'prompt-not-inserted', consequence: 'prompt-not-sent', when: { path: '$.derivedViews.promptNotInsertedEvidence', operator: 'eq', value: true } })
   ]);
+
+  function diagnosisRelation(reportType, primaryDiagnosis) {
+    if (reportType === primaryDiagnosis) return { explanationRole: 'primary', causedBy: null };
+    const causal = DIAGNOSIS_CAUSAL_RULES.find((rule) => rule.cause === primaryDiagnosis && rule.consequence === reportType);
+    return causal
+      ? { explanationRole: 'consequence', causedBy: primaryDiagnosis }
+      : { explanationRole: 'related', causedBy: null };
+  }
 
   function dependencyRegistrySnapshot() {
     return {
@@ -687,11 +712,7 @@
       const primaryDiagnosis = confirmed[0] || null;
       const relations = {};
       confirmed.forEach((reportType) => {
-        relations[reportType] = reportType === primaryDiagnosis
-          ? { explanationRole: 'primary', causedBy: null }
-          : (reportType === 'cutted' && primaryDiagnosis === 'false-success'
-            ? { explanationRole: 'consequence', causedBy: 'false-success' }
-            : { explanationRole: 'related', causedBy: null });
+        relations[reportType] = diagnosisRelation(reportType, primaryDiagnosis);
       });
       return [view.incidentId, { primaryDiagnosis, confirmedDiagnoses: confirmed, relations }];
     }));
@@ -1060,13 +1081,9 @@
     const allApplicability = Object.fromEntries(REPORT_TYPES.map((type) => [type, evaluateApplicability(type, context)]));
     const confirmedDiagnoses = DIAGNOSIS_PRIORITY.filter((type) => allApplicability[type].status === 'confirmed');
     const primaryDiagnosis = confirmedDiagnoses[0] || null;
-    const diagnosisRelation = applicability.status !== 'confirmed'
+    const reportDiagnosisRelation = applicability.status !== 'confirmed'
       ? { explanationRole: 'not_applicable', causedBy: null }
-      : (reportType === primaryDiagnosis
-        ? { explanationRole: 'primary', causedBy: null }
-        : (reportType === 'cutted' && primaryDiagnosis === 'false-success'
-          ? { explanationRole: 'consequence', causedBy: 'false-success' }
-          : { explanationRole: 'related', causedBy: null }));
+      : diagnosisRelation(reportType, primaryDiagnosis);
     const siblings = (SIBLING_RULES[reportType] || []).map(([target, path, operator, value]) => {
       const result = evaluatePredicate(context, { path, operator, value });
       return {
@@ -1112,7 +1129,7 @@
         title: reportQuestion(reportType),
         primaryQuestion: reportQuestion(reportType),
         applicability,
-        diagnosisArbitration: { primaryDiagnosis, confirmedDiagnoses, ...diagnosisRelation },
+        diagnosisArbitration: { primaryDiagnosis, confirmedDiagnoses, ...reportDiagnosisRelation },
         canDiagnose: completeness.safeConclusions.map((claim) => ({ claim })),
         cannotDiagnoseAlone: completeness.blockedConclusions.map((claim) => ({ claim })),
         completeness,

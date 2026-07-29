@@ -1,5 +1,19 @@
 # CHANGELOG — Project
 
+### 2026-07-29 — Prompt insertion diagnosis, version 2.81.150
+
+- Added the separate `Prompt not inserted` Task for failures before the prompt
+  reaches the live composer.
+- Preserved lifecycle error type, source and privacy-safe prompt length and
+  emitted an incident-scoped typed insertion outcome into the proof ledger.
+- Added semantic counter-evidence: confirmed submission, generated text,
+  non-empty extraction or SUCCESS refutes an insertion-failure diagnosis.
+- Added causal arbitration so `Prompt not inserted` is the cause and `Prompt
+  not sent` is its consequence when both are independently proven.
+- Updated both Telemetry views, executable registry, examples, tests and
+  documentation; all 186 suites / 1272 tests pass and project version is
+  2.81.150.
+
 ### 2026-08-28 — Preset semantic hardening gate, version 2.81.149
 
 - Completed positive, negative and unknown semantic coverage for all six Tasks,

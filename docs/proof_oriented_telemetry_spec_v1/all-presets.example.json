@@ -11,21 +11,23 @@
         "false-success",
         "old-answer",
         "empty",
+        "prompt-not-inserted",
         "prompt-not-sent",
         "late-end"
       ],
       "modelIds": [
         "GPT"
       ],
-      "eventCount": 19
+      "eventCount": 20
     },
     "reportSchemas": {
-      "cutted": "2.2.0",
-      "false-success": "2.2.0",
-      "old-answer": "2.2.0",
-      "empty": "2.2.0",
-      "prompt-not-sent": "2.2.0",
-      "late-end": "2.2.0"
+      "cutted": "2.3.0",
+      "false-success": "2.3.0",
+      "old-answer": "2.3.0",
+      "empty": "2.3.0",
+      "prompt-not-inserted": "2.3.0",
+      "prompt-not-sent": "2.3.0",
+      "late-end": "2.3.0"
     },
     "deduplication": {
       "canonicalEventsStoredOnce": true,
@@ -45,15 +47,15 @@
     "mode": "same_export",
     "exactMatch": {
       "runSessionId": "synthetic-run",
-      "ledgerHash": "sha256:c01f1486c084535af8c36d85b8b07d0e4a1ab1dd98cdee350b0df291779dd523",
-      "ledgerCompleteThroughSeq": 19
+      "ledgerHash": "sha256:905afbe793e0684f0e934cca6db7f7957c7c2642cbc0384582671f6b3659e598",
+      "ledgerCompleteThroughSeq": 20
     }
   },
   "sharedConfig": {
-    "extensionVersion": "2.81.149",
+    "extensionVersion": "2.81.150",
     "generationWaitProfile": "unknown",
     "schemaVersion": "5.0",
-    "generatorVersion": "proof-export@1.3.0",
+    "generatorVersion": "proof-export@1.4.0",
     "policy": {
       "policyId": "proof-default-v1",
       "automaticMinimumEvidenceTier": 3,
@@ -65,7 +67,7 @@
       "urlMode": "hash-only"
     },
     "dependencyRegistry": {
-      "registryVersion": "5.0.0",
+      "registryVersion": "5.1.0",
       "predicateLanguageVersion": "1.0.0",
       "maxEscalationDepth": 2,
       "reports": {
@@ -408,6 +410,68 @@
             ]
           ]
         },
+        "prompt-not-inserted": {
+          "question": "Почему prompt не вставился в поле ввода?",
+          "applicability": {
+            "all": [
+              [
+                "$.derivedViews.promptNotInsertedEvidence",
+                "eq",
+                true
+              ]
+            ]
+          },
+          "slots": [
+            [
+              "dispatch_baseline",
+              "critical",
+              [
+                "DISPATCH_BASELINE_CAPTURED"
+              ]
+            ],
+            [
+              "insertion_outcome",
+              "critical",
+              [
+                "PROMPT_INSERTION_EVALUATED"
+              ]
+            ],
+            [
+              "composer_context",
+              "required",
+              [
+                "PAGE_HEALTH_OBSERVED",
+                "OBSERVATION_FRAME_CAPTURED"
+              ]
+            ],
+            [
+              "submit_counterevidence",
+              "required",
+              [
+                "SUBMISSION_EVIDENCE_CHANGED",
+                "SUBMISSION_INFERRED"
+              ]
+            ],
+            [
+              "observer_context",
+              "conditional",
+              [
+                "OBSERVER_HEALTH_OBSERVED",
+                "OBSERVER_HEALTH_INTERVAL_CLOSED",
+                "OBSERVATION_SLOT_DENIED"
+              ],
+              [
+                "$.stateAxes.observationReliability",
+                "in",
+                [
+                  "degraded",
+                  "stale",
+                  "unavailable"
+                ]
+              ]
+            ]
+          ]
+        },
         "prompt-not-sent": {
           "question": "Почему модель не получила запрос?",
           "applicability": {
@@ -613,6 +677,15 @@
             }
           ]
         },
+        "prompt-not-inserted": {
+          "all": [
+            {
+              "path": "$.derivedViews.promptNotInsertedEvidence",
+              "operator": "eq",
+              "value": true
+            }
+          ]
+        },
         "prompt-not-sent": {
           "all": [
             {
@@ -803,7 +876,46 @@
             }
           }
         ],
-        "prompt-not-sent": [],
+        "prompt-not-inserted": [
+          {
+            "reportType": "prompt-not-sent",
+            "relation": "diagnostic-dependency",
+            "priority": "required",
+            "requestIf": {
+              "any": [
+                {
+                  "path": "$.derivedViews.promptNotSentEvidence",
+                  "operator": "eq",
+                  "value": true
+                }
+              ]
+            },
+            "antiLoop": {
+              "sourceReportType": "prompt-not-inserted",
+              "requestTargetOnlyOnce": true
+            }
+          }
+        ],
+        "prompt-not-sent": [
+          {
+            "reportType": "prompt-not-inserted",
+            "relation": "diagnostic-dependency",
+            "priority": "required",
+            "requestIf": {
+              "any": [
+                {
+                  "path": "$.derivedViews.promptNotInsertedEvidence",
+                  "operator": "eq",
+                  "value": true
+                }
+              ]
+            },
+            "antiLoop": {
+              "sourceReportType": "prompt-not-sent",
+              "requestTargetOnlyOnce": true
+            }
+          }
+        ],
         "late-end": [
           {
             "reportType": "false-success",
@@ -829,6 +941,7 @@
         "priority": [
           "false-success",
           "old-answer",
+          "prompt-not-inserted",
           "prompt-not-sent",
           "empty",
           "cutted",
@@ -840,6 +953,15 @@
             "consequence": "cutted",
             "when": {
               "path": "$.derivedViews.postTerminalGrowthProven",
+              "operator": "eq",
+              "value": true
+            }
+          },
+          {
+            "cause": "prompt-not-inserted",
+            "consequence": "prompt-not-sent",
+            "when": {
+              "path": "$.derivedViews.promptNotInsertedEvidence",
               "operator": "eq",
               "value": true
             }
@@ -858,9 +980,9 @@
   "ledger": {
     "encoding": "inline-json",
     "firstSeq": 1,
-    "lastSeq": 19,
-    "eventCount": 19,
-    "ledgerHash": "sha256:c01f1486c084535af8c36d85b8b07d0e4a1ab1dd98cdee350b0df291779dd523",
+    "lastSeq": 20,
+    "eventCount": 20,
+    "ledgerHash": "sha256:905afbe793e0684f0e934cca6db7f7957c7c2642cbc0384582671f6b3659e598",
     "events": [
       {
         "schemaVersion": 6,
@@ -875,7 +997,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.3.0"
+          "version": "proof-export@1.4.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -918,7 +1040,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.3.0"
+          "version": "proof-export@1.4.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -961,7 +1083,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.3.0"
+          "version": "proof-export@1.4.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -993,8 +1115,8 @@
       },
       {
         "schemaVersion": 6,
-        "eventId": "event-01444778-44c01b30",
-        "eventType": "PAGE_CONTEXT_OBSERVED",
+        "eventId": "event-74d89d38-d41e72d6",
+        "eventType": "PROMPT_INSERTION_EVALUATED",
         "layer": "fact",
         "seq": 4,
         "ingestSeq": 4,
@@ -1004,7 +1126,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.3.0"
+          "version": "proof-export@1.4.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -1015,6 +1137,50 @@
           "originKind": "unknown",
           "ingestEpochId": "legacy-adapter",
           "ingestMonoMs": 4
+        },
+        "payload": {
+          "typed": {
+            "kind": "prompt_insertion",
+            "state": "inserted"
+          },
+          "sourceEventType": "PROMPT_INSERTION_EVALUATED",
+          "sourceLevel": "info",
+          "detailsLength": 0,
+          "metadata": {
+            "dispatchId": "synthetic-dispatch",
+            "generationEpoch": 1,
+            "runGeneration": 1,
+            "runSessionId": "synthetic-run"
+          },
+          "insertionState": "inserted"
+        },
+        "dispatchId": "synthetic-dispatch",
+        "generationEpoch": 1
+      },
+      {
+        "schemaVersion": 6,
+        "eventId": "event-85e16099-302c1cc9",
+        "eventType": "PAGE_CONTEXT_OBSERVED",
+        "layer": "fact",
+        "seq": 5,
+        "ingestSeq": 5,
+        "runGeneration": 1,
+        "wallTs": 3000,
+        "runSessionId": "synthetic-run",
+        "modelId": "GPT",
+        "producer": {
+          "component": "legacy-telemetry-adapter",
+          "version": "proof-export@1.4.0"
+        },
+        "clock": {
+          "contractVersion": "1.0",
+          "producerEpochId": "synthetic-document-epoch",
+          "producerSequence": null,
+          "observedAtLocalMonoMs": 2000,
+          "sentAtLocalMonoMs": null,
+          "originKind": "unknown",
+          "ingestEpochId": "legacy-adapter",
+          "ingestMonoMs": 5
         },
         "payload": {
           "typed": {
@@ -1036,28 +1202,28 @@
       },
       {
         "schemaVersion": 6,
-        "eventId": "event-3e443012-6d8b70d0",
+        "eventId": "event-a0253fa8-3ffb0666",
         "eventType": "PAGE_HEALTH_OBSERVED",
         "layer": "fact",
-        "seq": 5,
-        "ingestSeq": 5,
+        "seq": 6,
+        "ingestSeq": 6,
         "runGeneration": 1,
-        "wallTs": 3000,
+        "wallTs": 3500,
         "runSessionId": "synthetic-run",
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.3.0"
+          "version": "proof-export@1.4.0"
         },
         "clock": {
           "contractVersion": "1.0",
           "producerEpochId": "synthetic-document-epoch",
           "producerSequence": null,
-          "observedAtLocalMonoMs": 2000,
+          "observedAtLocalMonoMs": 2500,
           "sentAtLocalMonoMs": null,
           "originKind": "unknown",
           "ingestEpochId": "legacy-adapter",
-          "ingestMonoMs": 5
+          "ingestMonoMs": 6
         },
         "payload": {
           "typed": {
@@ -1079,28 +1245,28 @@
       },
       {
         "schemaVersion": 6,
-        "eventId": "event-b7b212dc-4ba913de",
+        "eventId": "event-4f5a8663-dd526d6b",
         "eventType": "GENERATION_START_EVALUATED",
         "layer": "inference",
-        "seq": 6,
-        "ingestSeq": 6,
+        "seq": 7,
+        "ingestSeq": 7,
         "runGeneration": 1,
-        "wallTs": 3500,
+        "wallTs": 4000,
         "runSessionId": "synthetic-run",
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.3.0"
+          "version": "proof-export@1.4.0"
         },
         "clock": {
           "contractVersion": "1.0",
           "producerEpochId": "synthetic-document-epoch",
           "producerSequence": null,
-          "observedAtLocalMonoMs": 2500,
+          "observedAtLocalMonoMs": 3000,
           "sentAtLocalMonoMs": null,
           "originKind": "unknown",
           "ingestEpochId": "legacy-adapter",
-          "ingestMonoMs": 6
+          "ingestMonoMs": 7
         },
         "payload": {
           "typed": {
@@ -1122,28 +1288,28 @@
       },
       {
         "schemaVersion": 6,
-        "eventId": "event-1d941130-9364195c",
+        "eventId": "event-9128b386-b0867556",
         "eventType": "GENERATION_SIGNAL_CHANGED",
         "layer": "fact",
-        "seq": 7,
-        "ingestSeq": 7,
+        "seq": 8,
+        "ingestSeq": 8,
         "runGeneration": 1,
-        "wallTs": 4000,
+        "wallTs": 4500,
         "runSessionId": "synthetic-run",
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.3.0"
+          "version": "proof-export@1.4.0"
         },
         "clock": {
           "contractVersion": "1.0",
           "producerEpochId": "synthetic-document-epoch",
           "producerSequence": null,
-          "observedAtLocalMonoMs": 3000,
+          "observedAtLocalMonoMs": 3500,
           "sentAtLocalMonoMs": null,
           "originKind": "unknown",
           "ingestEpochId": "legacy-adapter",
-          "ingestMonoMs": 7
+          "ingestMonoMs": 8
         },
         "payload": {
           "typed": {
@@ -1166,28 +1332,28 @@
       },
       {
         "schemaVersion": 6,
-        "eventId": "event-d1e36c0d-26a4e04d",
+        "eventId": "event-c61206cc-1403e1aa",
         "eventType": "OBSERVATION_FRAME_CAPTURED",
         "layer": "fact",
-        "seq": 8,
-        "ingestSeq": 8,
+        "seq": 9,
+        "ingestSeq": 9,
         "runGeneration": 1,
-        "wallTs": 4500,
+        "wallTs": 5000,
         "runSessionId": "synthetic-run",
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.3.0"
+          "version": "proof-export@1.4.0"
         },
         "clock": {
           "contractVersion": "1.0",
           "producerEpochId": "synthetic-document-epoch",
           "producerSequence": null,
-          "observedAtLocalMonoMs": 3500,
+          "observedAtLocalMonoMs": 4000,
           "sentAtLocalMonoMs": null,
           "originKind": "unknown",
           "ingestEpochId": "legacy-adapter",
-          "ingestMonoMs": 8
+          "ingestMonoMs": 9
         },
         "payload": {
           "typed": {
@@ -1209,28 +1375,28 @@
       },
       {
         "schemaVersion": 6,
-        "eventId": "event-f98ad754-5917a6b4",
+        "eventId": "event-c6a11609-e13b46ad",
         "eventType": "CANDIDATE_SET_CHANGED",
         "layer": "fact",
-        "seq": 9,
-        "ingestSeq": 9,
+        "seq": 10,
+        "ingestSeq": 10,
         "runGeneration": 1,
-        "wallTs": 5000,
+        "wallTs": 5500,
         "runSessionId": "synthetic-run",
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.3.0"
+          "version": "proof-export@1.4.0"
         },
         "clock": {
           "contractVersion": "1.0",
           "producerEpochId": "synthetic-document-epoch",
           "producerSequence": null,
-          "observedAtLocalMonoMs": 4000,
+          "observedAtLocalMonoMs": 4500,
           "sentAtLocalMonoMs": null,
           "originKind": "unknown",
           "ingestEpochId": "legacy-adapter",
-          "ingestMonoMs": 9
+          "ingestMonoMs": 10
         },
         "payload": {
           "typed": {
@@ -1252,28 +1418,28 @@
       },
       {
         "schemaVersion": 6,
-        "eventId": "event-b1992cf2-36296598",
+        "eventId": "event-b8955dfd-c9aef8a1",
         "eventType": "CANDIDATE_IDENTITY_INFERRED",
         "layer": "inference",
-        "seq": 10,
-        "ingestSeq": 10,
+        "seq": 11,
+        "ingestSeq": 11,
         "runGeneration": 1,
-        "wallTs": 5500,
+        "wallTs": 6000,
         "runSessionId": "synthetic-run",
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.3.0"
+          "version": "proof-export@1.4.0"
         },
         "clock": {
           "contractVersion": "1.0",
           "producerEpochId": "synthetic-document-epoch",
           "producerSequence": null,
-          "observedAtLocalMonoMs": 4500,
+          "observedAtLocalMonoMs": 5000,
           "sentAtLocalMonoMs": null,
           "originKind": "unknown",
           "ingestEpochId": "legacy-adapter",
-          "ingestMonoMs": 10
+          "ingestMonoMs": 11
         },
         "payload": {
           "typed": {
@@ -1296,28 +1462,28 @@
       },
       {
         "schemaVersion": 6,
-        "eventId": "event-be1c7def-b6ecc3df",
+        "eventId": "event-971bf83b-95194dd3",
         "eventType": "TEXT_STATE_CHANGED",
         "layer": "fact",
-        "seq": 11,
-        "ingestSeq": 11,
+        "seq": 12,
+        "ingestSeq": 12,
         "runGeneration": 1,
-        "wallTs": 6000,
+        "wallTs": 6500,
         "runSessionId": "synthetic-run",
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.3.0"
+          "version": "proof-export@1.4.0"
         },
         "clock": {
           "contractVersion": "1.0",
           "producerEpochId": "synthetic-document-epoch",
           "producerSequence": null,
-          "observedAtLocalMonoMs": 5000,
+          "observedAtLocalMonoMs": 5500,
           "sentAtLocalMonoMs": null,
           "originKind": "unknown",
           "ingestEpochId": "legacy-adapter",
-          "ingestMonoMs": 11
+          "ingestMonoMs": 12
         },
         "payload": {
           "typed": {
@@ -1340,28 +1506,28 @@
       },
       {
         "schemaVersion": 6,
-        "eventId": "event-b6003d81-01269b15",
+        "eventId": "event-45d8f2fc-80de1caa",
         "eventType": "STABILITY_INTERVAL_CLOSED",
         "layer": "fact",
-        "seq": 12,
-        "ingestSeq": 12,
+        "seq": 13,
+        "ingestSeq": 13,
         "runGeneration": 1,
-        "wallTs": 6500,
+        "wallTs": 7000,
         "runSessionId": "synthetic-run",
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.3.0"
+          "version": "proof-export@1.4.0"
         },
         "clock": {
           "contractVersion": "1.0",
           "producerEpochId": "synthetic-document-epoch",
           "producerSequence": null,
-          "observedAtLocalMonoMs": 5500,
+          "observedAtLocalMonoMs": 6000,
           "sentAtLocalMonoMs": null,
           "originKind": "unknown",
           "ingestEpochId": "legacy-adapter",
-          "ingestMonoMs": 12
+          "ingestMonoMs": 13
         },
         "payload": {
           "typed": {
@@ -1384,28 +1550,28 @@
       },
       {
         "schemaVersion": 6,
-        "eventId": "event-2c98a753-fdbc9f33",
+        "eventId": "event-4c9c42ef-ece252c7",
         "eventType": "EXTRACTION_COMPLETED",
         "layer": "fact",
-        "seq": 13,
-        "ingestSeq": 13,
+        "seq": 14,
+        "ingestSeq": 14,
         "runGeneration": 1,
-        "wallTs": 7000,
+        "wallTs": 7500,
         "runSessionId": "synthetic-run",
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.3.0"
+          "version": "proof-export@1.4.0"
         },
         "clock": {
           "contractVersion": "1.0",
           "producerEpochId": "synthetic-document-epoch",
           "producerSequence": null,
-          "observedAtLocalMonoMs": 6000,
+          "observedAtLocalMonoMs": 6500,
           "sentAtLocalMonoMs": null,
           "originKind": "unknown",
           "ingestEpochId": "legacy-adapter",
-          "ingestMonoMs": 13
+          "ingestMonoMs": 14
         },
         "payload": {
           "typed": {
@@ -1429,28 +1595,28 @@
       },
       {
         "schemaVersion": 6,
-        "eventId": "event-d3e2adff-37659fa7",
+        "eventId": "event-962e3600-5703478a",
         "eventType": "STRUCTURAL_VERIFICATION_EVALUATED",
         "layer": "inference",
-        "seq": 14,
-        "ingestSeq": 14,
+        "seq": 15,
+        "ingestSeq": 15,
         "runGeneration": 1,
-        "wallTs": 7500,
+        "wallTs": 8000,
         "runSessionId": "synthetic-run",
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.3.0"
+          "version": "proof-export@1.4.0"
         },
         "clock": {
           "contractVersion": "1.0",
           "producerEpochId": "synthetic-document-epoch",
           "producerSequence": null,
-          "observedAtLocalMonoMs": 6500,
+          "observedAtLocalMonoMs": 7000,
           "sentAtLocalMonoMs": null,
           "originKind": "unknown",
           "ingestEpochId": "legacy-adapter",
-          "ingestMonoMs": 14
+          "ingestMonoMs": 15
         },
         "payload": {
           "typed": {
@@ -1472,28 +1638,28 @@
       },
       {
         "schemaVersion": 6,
-        "eventId": "event-6b047e40-fb15fba6",
+        "eventId": "event-4ece2fa8-c6c1d1f2",
         "eventType": "ANSWER_COMPLETENESS_EVALUATED",
         "layer": "inference",
-        "seq": 15,
-        "ingestSeq": 15,
+        "seq": 16,
+        "ingestSeq": 16,
         "runGeneration": 1,
-        "wallTs": 8000,
+        "wallTs": 8500,
         "runSessionId": "synthetic-run",
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.3.0"
+          "version": "proof-export@1.4.0"
         },
         "clock": {
           "contractVersion": "1.0",
           "producerEpochId": "synthetic-document-epoch",
           "producerSequence": null,
-          "observedAtLocalMonoMs": 7000,
+          "observedAtLocalMonoMs": 7500,
           "sentAtLocalMonoMs": null,
           "originKind": "unknown",
           "ingestEpochId": "legacy-adapter",
-          "ingestMonoMs": 15
+          "ingestMonoMs": 16
         },
         "payload": {
           "typed": {
@@ -1515,28 +1681,28 @@
       },
       {
         "schemaVersion": 6,
-        "eventId": "event-0e6a122e-83819b64",
+        "eventId": "event-01ea4803-b033991b",
         "eventType": "COMPLETION_HYPOTHESIS_EVALUATED",
         "layer": "inference",
-        "seq": 16,
-        "ingestSeq": 16,
+        "seq": 17,
+        "ingestSeq": 17,
         "runGeneration": 1,
-        "wallTs": 8500,
+        "wallTs": 9000,
         "runSessionId": "synthetic-run",
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.3.0"
+          "version": "proof-export@1.4.0"
         },
         "clock": {
           "contractVersion": "1.0",
           "producerEpochId": "synthetic-document-epoch",
           "producerSequence": null,
-          "observedAtLocalMonoMs": 7500,
+          "observedAtLocalMonoMs": 8000,
           "sentAtLocalMonoMs": null,
           "originKind": "unknown",
           "ingestEpochId": "legacy-adapter",
-          "ingestMonoMs": 16
+          "ingestMonoMs": 17
         },
         "payload": {
           "typed": {
@@ -1558,28 +1724,28 @@
       },
       {
         "schemaVersion": 6,
-        "eventId": "event-4b627344-9e3206a2",
+        "eventId": "event-8fafb444-8e857be6",
         "eventType": "TERMINAL_DEADLINE_REACHED",
         "layer": "fact",
-        "seq": 17,
-        "ingestSeq": 17,
+        "seq": 18,
+        "ingestSeq": 18,
         "runGeneration": 1,
-        "wallTs": 9000,
+        "wallTs": 9500,
         "runSessionId": "synthetic-run",
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.3.0"
+          "version": "proof-export@1.4.0"
         },
         "clock": {
           "contractVersion": "1.0",
           "producerEpochId": "synthetic-document-epoch",
           "producerSequence": null,
-          "observedAtLocalMonoMs": 8000,
+          "observedAtLocalMonoMs": 8500,
           "sentAtLocalMonoMs": null,
           "originKind": "unknown",
           "ingestEpochId": "legacy-adapter",
-          "ingestMonoMs": 17
+          "ingestMonoMs": 18
         },
         "payload": {
           "typed": {
@@ -1601,28 +1767,28 @@
       },
       {
         "schemaVersion": 6,
-        "eventId": "event-3585a0b5-4c81ec59",
+        "eventId": "event-4ae24cfd-165c7595",
         "eventType": "FINALIZATION_POLICY_EVALUATED",
         "layer": "decision",
-        "seq": 18,
-        "ingestSeq": 18,
+        "seq": 19,
+        "ingestSeq": 19,
         "runGeneration": 1,
-        "wallTs": 9500,
+        "wallTs": 10000,
         "runSessionId": "synthetic-run",
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.3.0"
+          "version": "proof-export@1.4.0"
         },
         "clock": {
           "contractVersion": "1.0",
           "producerEpochId": "synthetic-document-epoch",
           "producerSequence": null,
-          "observedAtLocalMonoMs": 8500,
+          "observedAtLocalMonoMs": 9000,
           "sentAtLocalMonoMs": null,
           "originKind": "unknown",
           "ingestEpochId": "legacy-adapter",
-          "ingestMonoMs": 18
+          "ingestMonoMs": 19
         },
         "payload": {
           "typed": {
@@ -1644,28 +1810,28 @@
       },
       {
         "schemaVersion": 6,
-        "eventId": "event-903994cd-106e1fc5",
+        "eventId": "event-4841e8ec-dcf7b970",
         "eventType": "POLICY_OVERRIDE_APPLIED",
         "layer": "decision",
-        "seq": 19,
-        "ingestSeq": 19,
+        "seq": 20,
+        "ingestSeq": 20,
         "runGeneration": 1,
-        "wallTs": 10000,
+        "wallTs": 10500,
         "runSessionId": "synthetic-run",
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.3.0"
+          "version": "proof-export@1.4.0"
         },
         "clock": {
           "contractVersion": "1.0",
           "producerEpochId": "synthetic-document-epoch",
           "producerSequence": null,
-          "observedAtLocalMonoMs": 9000,
+          "observedAtLocalMonoMs": 9500,
           "sentAtLocalMonoMs": null,
           "originKind": "unknown",
           "ingestEpochId": "legacy-adapter",
-          "ingestMonoMs": 19
+          "ingestMonoMs": 20
         },
         "payload": {
           "typed": {
@@ -1709,10 +1875,11 @@
         16,
         17,
         18,
-        19
+        19,
+        20
       ],
-      "generatorVersion": "proof-export@1.3.0",
-      "ledgerHash": "sha256:c01f1486c084535af8c36d85b8b07d0e4a1ab1dd98cdee350b0df291779dd523",
+      "generatorVersion": "proof-export@1.4.0",
+      "ledgerHash": "sha256:905afbe793e0684f0e934cca6db7f7957c7c2642cbc0384582671f6b3659e598",
       "data": {
         "GPT": {
           "modelId": "GPT",
@@ -1746,10 +1913,11 @@
         16,
         17,
         18,
-        19
+        19,
+        20
       ],
-      "generatorVersion": "proof-export@1.3.0",
-      "ledgerHash": "sha256:c01f1486c084535af8c36d85b8b07d0e4a1ab1dd98cdee350b0df291779dd523",
+      "generatorVersion": "proof-export@1.4.0",
+      "ledgerHash": "sha256:905afbe793e0684f0e934cca6db7f7957c7c2642cbc0384582671f6b3659e598",
       "data": {
         "incident:synthetic-run|1|GPT|synthetic-dispatch|1": {
           "modelId": "GPT",
@@ -1788,10 +1956,11 @@
             16,
             17,
             18,
-            19
+            19,
+            20
           ],
           "firstSeq": 1,
-          "lastSeq": 19,
+          "lastSeq": 20,
           "submissionEvidenceCount": 2,
           "completionEvidenceTier": 1,
           "acceptedTextLength": null,
@@ -1805,7 +1974,7 @@
           "extractionCoveragePct": 100,
           "incompleteCaptureEvidence": false,
           "generationTextObserved": true,
-          "acceptedExtractionEventId": "event-2c98a753-fdbc9f33",
+          "acceptedExtractionEventId": "event-4c9c42ef-ece252c7",
           "acceptedExtractionResolution": "unique_pre_terminal_extraction",
           "emptyResultEvidence": false,
           "wrongNodeEvidence": null,
@@ -1818,6 +1987,10 @@
           "submissionFailed": false,
           "promptReceivedCounterEvidence": true,
           "promptNotSentEvidence": false,
+          "insertionEvidenceCount": 1,
+          "insertionFailed": false,
+          "promptInsertedCounterEvidence": true,
+          "promptNotInsertedEvidence": false,
           "hiddenRelevantTextLength": 0,
           "candidateCount": 0,
           "captureBeforeTerminal": false,
@@ -1844,9 +2017,9 @@
   "reports": {
     "cutted": {
       "reportDescriptor": {
-        "reportId": "rpt-cutted-af39eacc",
+        "reportId": "rpt-cutted-7927048a",
         "reportType": "cutted",
-        "reportVersion": "2.2.0",
+        "reportVersion": "2.3.0",
         "title": "Почему зафиксирован SUCCESS, а текст явно неполный?",
         "primaryQuestion": "Почему зафиксирован SUCCESS, а текст явно неполный?",
         "applicability": {
@@ -1916,8 +2089,8 @@
         },
         "diagnosisArbitrationRef": "diagnosisArbitration.byIncident",
         "reportMode": "embedded-in-all-presets",
-        "dependencyRegistryVersion": "5.0.0",
-        "dependencyRegistryHash": "sha256:1d9e90fdb0fa78ab0395d31d1adeb3689b3c338ded5d1db99b02d5851541cf9a",
+        "dependencyRegistryVersion": "5.1.0",
+        "dependencyRegistryHash": "sha256:537ecb83ba679af14fc6c4cd1d36c9ebad9a9171f3e27c1b54452f7c0c64b3dd",
         "limitations": []
       },
       "diagnosticSummary": {
@@ -1941,7 +2114,7 @@
                 "effectiveCriticality": "critical",
                 "requiredIfMatched": false,
                 "eventSeqs": [
-                  11
+                  12
                 ],
                 "matchedEventCount": 1,
                 "selectedEventCount": 1
@@ -1952,7 +2125,7 @@
                 "effectiveCriticality": "critical",
                 "requiredIfMatched": false,
                 "eventSeqs": [
-                  15
+                  16
                 ],
                 "matchedEventCount": 1,
                 "selectedEventCount": 1
@@ -1963,8 +2136,8 @@
                 "effectiveCriticality": "required",
                 "requiredIfMatched": false,
                 "eventSeqs": [
-                  13,
-                  14
+                  14,
+                  15
                 ],
                 "matchedEventCount": 2,
                 "selectedEventCount": 2
@@ -1975,8 +2148,8 @@
                 "effectiveCriticality": "required",
                 "requiredIfMatched": false,
                 "eventSeqs": [
-                  9,
-                  10
+                  10,
+                  11
                 ],
                 "matchedEventCount": 2,
                 "selectedEventCount": 2
@@ -1996,8 +2169,8 @@
                 "effectiveCriticality": "conditional",
                 "requiredIfMatched": false,
                 "eventSeqs": [
-                  18,
-                  19
+                  19,
+                  20
                 ],
                 "matchedEventCount": 2,
                 "selectedEventCount": 2
@@ -2016,14 +2189,14 @@
         }
       },
       "eventSeqs": [
-        9,
         10,
         11,
-        13,
+        12,
         14,
         15,
-        18,
-        19
+        16,
+        19,
+        20
       ],
       "derivedViewRef": "incident-timeline",
       "siblings": [
@@ -2122,9 +2295,9 @@
     },
     "false-success": {
       "reportDescriptor": {
-        "reportId": "rpt-false-success-af39eacc",
+        "reportId": "rpt-false-success-7927048a",
         "reportType": "false-success",
-        "reportVersion": "2.2.0",
+        "reportVersion": "2.3.0",
         "title": "Почему система решила «готово», а ответ продолжил расти?",
         "primaryQuestion": "Почему система решила «готово», а ответ продолжил расти?",
         "applicability": {
@@ -2208,8 +2381,8 @@
         },
         "diagnosisArbitrationRef": "diagnosisArbitration.byIncident",
         "reportMode": "embedded-in-all-presets",
-        "dependencyRegistryVersion": "5.0.0",
-        "dependencyRegistryHash": "sha256:1d9e90fdb0fa78ab0395d31d1adeb3689b3c338ded5d1db99b02d5851541cf9a",
+        "dependencyRegistryVersion": "5.1.0",
+        "dependencyRegistryHash": "sha256:537ecb83ba679af14fc6c4cd1d36c9ebad9a9171f3e27c1b54452f7c0c64b3dd",
         "limitations": []
       },
       "diagnosticSummary": {
@@ -2251,8 +2424,8 @@
                 "effectiveCriticality": "required",
                 "requiredIfMatched": false,
                 "eventSeqs": [
-                  7,
-                  8
+                  8,
+                  9
                 ],
                 "matchedEventCount": 2,
                 "selectedEventCount": 2
@@ -2263,7 +2436,7 @@
                 "effectiveCriticality": "required",
                 "requiredIfMatched": false,
                 "eventSeqs": [
-                  11
+                  12
                 ],
                 "matchedEventCount": 1,
                 "selectedEventCount": 1
@@ -2274,8 +2447,8 @@
                 "effectiveCriticality": "conditional",
                 "requiredIfMatched": false,
                 "eventSeqs": [
-                  15,
-                  16
+                  16,
+                  17
                 ],
                 "matchedEventCount": 2,
                 "selectedEventCount": 2
@@ -2286,9 +2459,9 @@
                 "effectiveCriticality": "conditional",
                 "requiredIfMatched": false,
                 "eventSeqs": [
-                  17,
                   18,
-                  19
+                  19,
+                  20
                 ],
                 "matchedEventCount": 3,
                 "selectedEventCount": 3
@@ -2307,14 +2480,14 @@
         }
       },
       "eventSeqs": [
-        7,
         8,
-        11,
-        15,
+        9,
+        12,
         16,
         17,
         18,
-        19
+        19,
+        20
       ],
       "derivedViewRef": "incident-timeline",
       "siblings": [
@@ -2383,9 +2556,9 @@
     },
     "old-answer": {
       "reportDescriptor": {
-        "reportId": "rpt-old-answer-af39eacc",
+        "reportId": "rpt-old-answer-7927048a",
         "reportType": "old-answer",
-        "reportVersion": "2.2.0",
+        "reportVersion": "2.3.0",
         "title": "Почему принят текст от предыдущего запроса?",
         "primaryQuestion": "Почему принят текст от предыдущего запроса?",
         "applicability": {
@@ -2445,8 +2618,8 @@
         },
         "diagnosisArbitrationRef": "diagnosisArbitration.byIncident",
         "reportMode": "embedded-in-all-presets",
-        "dependencyRegistryVersion": "5.0.0",
-        "dependencyRegistryHash": "sha256:1d9e90fdb0fa78ab0395d31d1adeb3689b3c338ded5d1db99b02d5851541cf9a",
+        "dependencyRegistryVersion": "5.1.0",
+        "dependencyRegistryHash": "sha256:537ecb83ba679af14fc6c4cd1d36c9ebad9a9171f3e27c1b54452f7c0c64b3dd",
         "limitations": []
       },
       "diagnosticSummary": {
@@ -2472,7 +2645,7 @@
                 "effectiveCriticality": "critical",
                 "requiredIfMatched": false,
                 "eventSeqs": [
-                  10
+                  11
                 ],
                 "matchedEventCount": 1,
                 "selectedEventCount": 1
@@ -2483,7 +2656,7 @@
                 "effectiveCriticality": "critical",
                 "requiredIfMatched": false,
                 "eventSeqs": [
-                  13
+                  14
                 ],
                 "matchedEventCount": 1,
                 "selectedEventCount": 1
@@ -2503,7 +2676,7 @@
                 "effectiveCriticality": "required",
                 "requiredIfMatched": false,
                 "eventSeqs": [
-                  9
+                  10
                 ],
                 "matchedEventCount": 1,
                 "selectedEventCount": 1
@@ -2514,8 +2687,8 @@
                 "effectiveCriticality": "required",
                 "requiredIfMatched": false,
                 "eventSeqs": [
-                  4,
-                  8
+                  5,
+                  9
                 ],
                 "matchedEventCount": 2,
                 "selectedEventCount": 2
@@ -2526,7 +2699,7 @@
                 "effectiveCriticality": "required",
                 "requiredIfMatched": false,
                 "eventSeqs": [
-                  14
+                  15
                 ],
                 "matchedEventCount": 1,
                 "selectedEventCount": 1
@@ -2537,7 +2710,7 @@
                 "effectiveCriticality": "conditional",
                 "requiredIfMatched": false,
                 "eventSeqs": [
-                  11
+                  12
                 ],
                 "matchedEventCount": 1,
                 "selectedEventCount": 1
@@ -2557,13 +2730,13 @@
       },
       "eventSeqs": [
         1,
-        4,
-        8,
+        5,
         9,
         10,
         11,
-        13,
-        14
+        12,
+        14,
+        15
       ],
       "derivedViewRef": "incident-timeline",
       "siblings": [
@@ -2632,9 +2805,9 @@
     },
     "empty": {
       "reportDescriptor": {
-        "reportId": "rpt-empty-af39eacc",
+        "reportId": "rpt-empty-7927048a",
         "reportType": "empty",
-        "reportVersion": "2.2.0",
+        "reportVersion": "2.3.0",
         "title": "Почему генерация была, но extraction вернул пусто или не тот узел?",
         "primaryQuestion": "Почему генерация была, но extraction вернул пусто или не тот узел?",
         "applicability": {
@@ -2679,8 +2852,8 @@
         },
         "diagnosisArbitrationRef": "diagnosisArbitration.byIncident",
         "reportMode": "embedded-in-all-presets",
-        "dependencyRegistryVersion": "5.0.0",
-        "dependencyRegistryHash": "sha256:1d9e90fdb0fa78ab0395d31d1adeb3689b3c338ded5d1db99b02d5851541cf9a",
+        "dependencyRegistryVersion": "5.1.0",
+        "dependencyRegistryHash": "sha256:537ecb83ba679af14fc6c4cd1d36c9ebad9a9171f3e27c1b54452f7c0c64b3dd",
         "limitations": []
       },
       "diagnosticSummary": {
@@ -2695,8 +2868,8 @@
                 "effectiveCriticality": "critical",
                 "requiredIfMatched": false,
                 "eventSeqs": [
-                  6,
-                  7
+                  7,
+                  8
                 ],
                 "matchedEventCount": 2,
                 "selectedEventCount": 2
@@ -2707,7 +2880,7 @@
                 "effectiveCriticality": "critical",
                 "requiredIfMatched": false,
                 "eventSeqs": [
-                  13
+                  14
                 ],
                 "matchedEventCount": 1,
                 "selectedEventCount": 1
@@ -2718,8 +2891,8 @@
                 "effectiveCriticality": "critical",
                 "requiredIfMatched": false,
                 "eventSeqs": [
-                  9,
-                  10
+                  10,
+                  11
                 ],
                 "matchedEventCount": 2,
                 "selectedEventCount": 2
@@ -2730,8 +2903,8 @@
                 "effectiveCriticality": "critical",
                 "requiredIfMatched": false,
                 "eventSeqs": [
-                  8,
-                  11
+                  9,
+                  12
                 ],
                 "matchedEventCount": 2,
                 "selectedEventCount": 2
@@ -2742,8 +2915,8 @@
                 "effectiveCriticality": "required",
                 "requiredIfMatched": false,
                 "eventSeqs": [
-                  14,
-                  15
+                  15,
+                  16
                 ],
                 "matchedEventCount": 2,
                 "selectedEventCount": 2
@@ -2754,7 +2927,7 @@
                 "effectiveCriticality": "required",
                 "requiredIfMatched": true,
                 "eventSeqs": [
-                  5
+                  6
                 ],
                 "matchedEventCount": 1,
                 "selectedEventCount": 1
@@ -2764,16 +2937,16 @@
         }
       },
       "eventSeqs": [
-        5,
         6,
         7,
         8,
         9,
         10,
         11,
-        13,
+        12,
         14,
-        15
+        15,
+        16
       ],
       "derivedViewRef": "incident-timeline",
       "siblings": [
@@ -2840,11 +3013,191 @@
       ],
       "analysisInstructionsRef": "sharedConfig.commonAnalysisInstructions"
     },
+    "prompt-not-inserted": {
+      "reportDescriptor": {
+        "reportId": "rpt-prompt-not-inserted-7927048a",
+        "reportType": "prompt-not-inserted",
+        "reportVersion": "2.3.0",
+        "title": "Почему prompt не вставился в поле ввода?",
+        "primaryQuestion": "Почему prompt не вставился в поле ввода?",
+        "applicability": {
+          "status": "not_confirmed",
+          "byModel": {
+            "GPT": {
+              "status": "not_confirmed",
+              "incidentIds": [
+                "incident:synthetic-run|1|GPT|synthetic-dispatch|1"
+              ],
+              "confirmedIncidentIds": [],
+              "unknownIncidentIds": []
+            }
+          },
+          "byIncident": {
+            "incident:synthetic-run|1|GPT|synthetic-dispatch|1": {
+              "modelId": "GPT",
+              "status": "not_confirmed",
+              "primaryDiagnosis": null,
+              "explanationRole": "not_applicable",
+              "causedBy": null
+            }
+          }
+        },
+        "canDiagnose": [
+          {
+            "claim": "only conclusions supported by satisfied slots"
+          }
+        ],
+        "cannotDiagnoseAlone": [
+          {
+            "claim": "blocked by incident:synthetic-run|1|GPT|synthetic-dispatch|1:observer_context"
+          }
+        ],
+        "completeness": {
+          "level": "bounded",
+          "evidenceCoveragePct": 80,
+          "missingCriticalEvidence": false,
+          "missingItems": [
+            {
+              "incidentId": "incident:synthetic-run|1|GPT|synthetic-dispatch|1",
+              "slotId": "observer_context",
+              "criticality": "required",
+              "declaredCriticality": "conditional",
+              "requiredIf": {
+                "path": "$.stateAxes.observationReliability",
+                "operator": "in",
+                "value": [
+                  "degraded",
+                  "stale",
+                  "unavailable"
+                ]
+              },
+              "impact": "required_evidence_not_available"
+            }
+          ],
+          "safeConclusions": [
+            "only conclusions supported by satisfied slots"
+          ],
+          "blockedConclusions": [
+            "blocked by incident:synthetic-run|1|GPT|synthetic-dispatch|1:observer_context"
+          ]
+        },
+        "diagnosisArbitrationRef": "diagnosisArbitration.byIncident",
+        "reportMode": "embedded-in-all-presets",
+        "dependencyRegistryVersion": "5.1.0",
+        "dependencyRegistryHash": "sha256:537ecb83ba679af14fc6c4cd1d36c9ebad9a9171f3e27c1b54452f7c0c64b3dd",
+        "limitations": []
+      },
+      "diagnosticSummary": {
+        "incidents": {
+          "incident:synthetic-run|1|GPT|synthetic-dispatch|1": {
+            "applicabilityStatus": "not_confirmed",
+            "sufficiency": "bounded",
+            "evidenceSlots": [
+              {
+                "slotId": "dispatch_baseline",
+                "status": "satisfied",
+                "effectiveCriticality": "critical",
+                "requiredIfMatched": false,
+                "eventSeqs": [
+                  1
+                ],
+                "matchedEventCount": 1,
+                "selectedEventCount": 1
+              },
+              {
+                "slotId": "insertion_outcome",
+                "status": "satisfied",
+                "effectiveCriticality": "critical",
+                "requiredIfMatched": false,
+                "eventSeqs": [
+                  4
+                ],
+                "matchedEventCount": 1,
+                "selectedEventCount": 1
+              },
+              {
+                "slotId": "composer_context",
+                "status": "satisfied",
+                "effectiveCriticality": "required",
+                "requiredIfMatched": false,
+                "eventSeqs": [
+                  6,
+                  9
+                ],
+                "matchedEventCount": 2,
+                "selectedEventCount": 2
+              },
+              {
+                "slotId": "submit_counterevidence",
+                "status": "satisfied",
+                "effectiveCriticality": "required",
+                "requiredIfMatched": false,
+                "eventSeqs": [
+                  3
+                ],
+                "matchedEventCount": 1,
+                "selectedEventCount": 1
+              },
+              {
+                "slotId": "observer_context",
+                "status": "unavailable",
+                "effectiveCriticality": "required",
+                "requiredIfMatched": true,
+                "eventSeqs": [],
+                "matchedEventCount": 0,
+                "selectedEventCount": 0
+              }
+            ]
+          }
+        }
+      },
+      "eventSeqs": [
+        1,
+        3,
+        4,
+        6,
+        9
+      ],
+      "derivedViewRef": "incident-timeline",
+      "siblings": [
+        {
+          "reportType": "prompt-not-sent",
+          "relation": "diagnostic-dependency",
+          "priority": "required",
+          "requestIf": {
+            "any": [
+              {
+                "path": "$.derivedViews.promptNotSentEvidence",
+                "operator": "eq",
+                "value": true
+              }
+            ]
+          },
+          "evaluation": {
+            "matched": false,
+            "predicateResults": [
+              {
+                "modelId": "GPT",
+                "incidentId": "incident:synthetic-run|1|GPT|synthetic-dispatch|1",
+                "observedValue": false,
+                "known": true,
+                "matched": false
+              }
+            ]
+          },
+          "antiLoop": {
+            "sourceReportType": "prompt-not-inserted",
+            "requestTargetOnlyOnce": true
+          }
+        }
+      ],
+      "analysisInstructionsRef": "sharedConfig.commonAnalysisInstructions"
+    },
     "prompt-not-sent": {
       "reportDescriptor": {
-        "reportId": "rpt-prompt-not-sent-af39eacc",
+        "reportId": "rpt-prompt-not-sent-7927048a",
         "reportType": "prompt-not-sent",
-        "reportVersion": "2.2.0",
+        "reportVersion": "2.3.0",
         "title": "Почему модель не получила запрос?",
         "primaryQuestion": "Почему модель не получила запрос?",
         "applicability": {
@@ -2910,8 +3263,8 @@
         },
         "diagnosisArbitrationRef": "diagnosisArbitration.byIncident",
         "reportMode": "embedded-in-all-presets",
-        "dependencyRegistryVersion": "5.0.0",
-        "dependencyRegistryHash": "sha256:1d9e90fdb0fa78ab0395d31d1adeb3689b3c338ded5d1db99b02d5851541cf9a",
+        "dependencyRegistryVersion": "5.1.0",
+        "dependencyRegistryHash": "sha256:537ecb83ba679af14fc6c4cd1d36c9ebad9a9171f3e27c1b54452f7c0c64b3dd",
         "limitations": []
       },
       "diagnosticSummary": {
@@ -2959,8 +3312,8 @@
                 "effectiveCriticality": "required",
                 "requiredIfMatched": false,
                 "eventSeqs": [
-                  4,
-                  5
+                  5,
+                  6
                 ],
                 "matchedEventCount": 2,
                 "selectedEventCount": 2
@@ -2982,18 +3335,49 @@
         1,
         2,
         3,
-        4,
-        5
+        5,
+        6
       ],
       "derivedViewRef": "incident-timeline",
-      "siblings": [],
+      "siblings": [
+        {
+          "reportType": "prompt-not-inserted",
+          "relation": "diagnostic-dependency",
+          "priority": "required",
+          "requestIf": {
+            "any": [
+              {
+                "path": "$.derivedViews.promptNotInsertedEvidence",
+                "operator": "eq",
+                "value": true
+              }
+            ]
+          },
+          "evaluation": {
+            "matched": false,
+            "predicateResults": [
+              {
+                "modelId": "GPT",
+                "incidentId": "incident:synthetic-run|1|GPT|synthetic-dispatch|1",
+                "observedValue": false,
+                "known": true,
+                "matched": false
+              }
+            ]
+          },
+          "antiLoop": {
+            "sourceReportType": "prompt-not-sent",
+            "requestTargetOnlyOnce": true
+          }
+        }
+      ],
       "analysisInstructionsRef": "sharedConfig.commonAnalysisInstructions"
     },
     "late-end": {
       "reportDescriptor": {
-        "reportId": "rpt-late-end-af39eacc",
+        "reportId": "rpt-late-end-7927048a",
         "reportType": "late-end",
-        "reportVersion": "2.2.0",
+        "reportVersion": "2.3.0",
         "title": "Текст давно стабилен — почему система ждала ещё N секунд?",
         "primaryQuestion": "Текст давно стабилен — почему система ждала ещё N секунд?",
         "applicability": {
@@ -3085,8 +3469,8 @@
         },
         "diagnosisArbitrationRef": "diagnosisArbitration.byIncident",
         "reportMode": "embedded-in-all-presets",
-        "dependencyRegistryVersion": "5.0.0",
-        "dependencyRegistryHash": "sha256:1d9e90fdb0fa78ab0395d31d1adeb3689b3c338ded5d1db99b02d5851541cf9a",
+        "dependencyRegistryVersion": "5.1.0",
+        "dependencyRegistryHash": "sha256:537ecb83ba679af14fc6c4cd1d36c9ebad9a9171f3e27c1b54452f7c0c64b3dd",
         "limitations": []
       },
       "diagnosticSummary": {
@@ -3101,7 +3485,7 @@
                 "effectiveCriticality": "critical",
                 "requiredIfMatched": false,
                 "eventSeqs": [
-                  12
+                  13
                 ],
                 "matchedEventCount": 1,
                 "selectedEventCount": 1
@@ -3121,8 +3505,8 @@
                 "effectiveCriticality": "critical",
                 "requiredIfMatched": false,
                 "eventSeqs": [
-                  7,
-                  8
+                  8,
+                  9
                 ],
                 "matchedEventCount": 2,
                 "selectedEventCount": 2
@@ -3133,7 +3517,7 @@
                 "effectiveCriticality": "required",
                 "requiredIfMatched": false,
                 "eventSeqs": [
-                  11
+                  12
                 ],
                 "matchedEventCount": 1,
                 "selectedEventCount": 1
@@ -3144,9 +3528,9 @@
                 "effectiveCriticality": "required",
                 "requiredIfMatched": false,
                 "eventSeqs": [
-                  16,
                   17,
-                  18
+                  18,
+                  19
                 ],
                 "matchedEventCount": 3,
                 "selectedEventCount": 3
@@ -3183,13 +3567,13 @@
         }
       },
       "eventSeqs": [
-        7,
         8,
-        11,
+        9,
         12,
-        16,
+        13,
         17,
-        18
+        18,
+        19
       ],
       "derivedViewRef": "incident-timeline",
       "siblings": [
@@ -3244,16 +3628,16 @@
     "sampleData": true,
     "exportBoundary": {
       "runSessionId": "synthetic-run",
-      "ledgerCompleteThroughSeq": 19,
+      "ledgerCompleteThroughSeq": 20,
       "frozenAt": 12000
     },
     "hashes": {
-      "ledger": "sha256:c01f1486c084535af8c36d85b8b07d0e4a1ab1dd98cdee350b0df291779dd523",
-      "sharedConfig": "sha256:13799f1dadbd32a6986cda11488e11cf7add1ee76cdf8f257684ff46e4e3af8e",
-      "derivedViews": "sha256:57dc0d3cfd8f0083575e7c0946ac5638789de8db9815c89dbf03a7eff6d406e3",
-      "reports": "sha256:0cf202dbb5aee534d6e9cef9e0f61996ad4d253630a6edecec95404b0524e084",
+      "ledger": "sha256:905afbe793e0684f0e934cca6db7f7957c7c2642cbc0384582671f6b3659e598",
+      "sharedConfig": "sha256:945e4c391c97df2c37425607b1dc43dda06374fc41b02f4b427bfd550ee8fb03",
+      "derivedViews": "sha256:a674680553e5889bf910b89ab70660ca61ec5979e8c4478f76705b21d989f367",
+      "reports": "sha256:e708937318220c891636cdd829646ab58e56820338507a64a10e6ab62b158744",
       "attachments": "sha256:b1968c832915f5cdc3320b65fc5ad56f2c9f3a9d20eaa0919b749ad664b9c18a",
-      "container": "sha256:3300e33099b2b4c11473a9aceb5b6cf9011aa21c88d7f38f2b1e81f6c9ce13b1"
+      "container": "sha256:21799d527b81203f252fb724a74bbd13c895f8681dc01f21ea9a88c39d932ab6"
     },
     "schemaValidation": {
       "valid": true,
@@ -3267,7 +3651,7 @@
     },
     "budget": {
       "limitBytes": 1000000,
-      "measuredBytes": 57336,
+      "measuredBytes": 63813,
       "withinBudget": true,
       "status": "within_budget"
     },

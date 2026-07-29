@@ -2,18 +2,18 @@
   "schemaVersion": "5.0",
   "fileKind": "diagnostic-report",
   "reportDescriptor": {
-    "reportId": "rpt-prompt-not-sent-GPT-b5da0889",
-    "reportType": "prompt-not-sent",
+    "reportId": "rpt-prompt-not-inserted-GPT-954baee2",
+    "reportType": "prompt-not-inserted",
     "reportVersion": "2.3.0",
-    "title": "Почему модель не получила запрос?",
-    "primaryQuestion": "Почему модель не получила запрос?",
+    "title": "Почему prompt не вставился в поле ввода?",
+    "primaryQuestion": "Почему prompt не вставился в поле ввода?",
     "applicability": {
       "status": "confirmed",
       "mode": "all",
       "predicateResults": [
         {
           "predicate": {
-            "path": "$.derivedViews.promptNotSentEvidence",
+            "path": "$.derivedViews.promptNotInsertedEvidence",
             "operator": "eq",
             "value": true
           },
@@ -24,9 +24,9 @@
       ]
     },
     "diagnosisArbitration": {
-      "primaryDiagnosis": "prompt-not-sent",
+      "primaryDiagnosis": "prompt-not-inserted",
       "confirmedDiagnoses": [
-        "prompt-not-sent"
+        "prompt-not-inserted"
       ],
       "explanationRole": "primary",
       "causedBy": null
@@ -89,12 +89,12 @@
     {
       "reportType": "prompt-not-inserted",
       "reportVersion": "2.3.0",
-      "included": false
+      "included": true
     },
     {
       "reportType": "prompt-not-sent",
       "reportVersion": "2.3.0",
-      "included": true
+      "included": false
     },
     {
       "reportType": "late-end",
@@ -126,7 +126,7 @@
       "predicateResults": [
         {
           "predicate": {
-            "path": "$.derivedViews.promptNotSentEvidence",
+            "path": "$.derivedViews.promptNotInsertedEvidence",
             "operator": "eq",
             "value": true
           },
@@ -156,26 +156,44 @@
         "impact": null
       },
       {
-        "slotId": "submit_action",
+        "slotId": "insertion_outcome",
         "criticality": "critical",
         "effectiveCriticality": "critical",
         "requiredIf": null,
         "requiredIfMatched": false,
         "acceptedEventTypes": [
-          "SUBMIT_ACTION_OBSERVED"
+          "PROMPT_INSERTION_EVALUATED"
         ],
         "status": "satisfied",
         "eventIds": [
-          "event-c8829cbb-018c5743"
+          "event-16c811a5-b0de6535"
         ],
         "matchedEventCount": 1,
         "selectedEventCount": 1,
         "impact": null
       },
       {
-        "slotId": "acceptance_evidence",
-        "criticality": "critical",
-        "effectiveCriticality": "critical",
+        "slotId": "composer_context",
+        "criticality": "required",
+        "effectiveCriticality": "required",
+        "requiredIf": null,
+        "requiredIfMatched": false,
+        "acceptedEventTypes": [
+          "PAGE_HEALTH_OBSERVED",
+          "OBSERVATION_FRAME_CAPTURED"
+        ],
+        "status": "satisfied",
+        "eventIds": [
+          "event-9cadfaf9-d9fcc87d"
+        ],
+        "matchedEventCount": 1,
+        "selectedEventCount": 1,
+        "impact": null
+      },
+      {
+        "slotId": "submit_counterevidence",
+        "criticality": "required",
+        "effectiveCriticality": "required",
         "requiredIf": null,
         "requiredIfMatched": false,
         "acceptedEventTypes": [
@@ -184,25 +202,7 @@
         ],
         "status": "satisfied",
         "eventIds": [
-          "event-269d0103-a314b14b"
-        ],
-        "matchedEventCount": 1,
-        "selectedEventCount": 1,
-        "impact": null
-      },
-      {
-        "slotId": "page_context",
-        "criticality": "required",
-        "effectiveCriticality": "required",
-        "requiredIf": null,
-        "requiredIfMatched": false,
-        "acceptedEventTypes": [
-          "PAGE_CONTEXT_OBSERVED",
-          "PAGE_HEALTH_OBSERVED"
-        ],
-        "status": "satisfied",
-        "eventIds": [
-          "event-01444778-44c01b30"
+          "event-a7944681-08eef32d"
         ],
         "matchedEventCount": 1,
         "selectedEventCount": 1,
@@ -242,7 +242,7 @@
     "blockedConclusions": []
   },
   "stateAxes": {
-    "submission": "failed",
+    "submission": "evidence_partial",
     "generationStart": "not_evaluated",
     "answerIdentity": "none",
     "observedGeneration": "not_started",
@@ -260,16 +260,16 @@
   "eventSelection": {
     "includedEventTypes": [
       "DISPATCH_BASELINE_CAPTURED",
-      "SUBMIT_ACTION_OBSERVED",
+      "PROMPT_INSERTION_EVALUATED",
+      "PAGE_HEALTH_OBSERVED",
       "SUBMISSION_EVIDENCE_CHANGED",
-      "PAGE_CONTEXT_OBSERVED",
       "OBSERVER_HEALTH_OBSERVED"
     ],
     "eventRefs": [
       "event-5548e30c-3db5470a",
-      "event-c8829cbb-018c5743",
-      "event-269d0103-a314b14b",
-      "event-01444778-44c01b30",
+      "event-16c811a5-b0de6535",
+      "event-9cadfaf9-d9fcc87d",
+      "event-a7944681-08eef32d",
       "event-795e0945-b7b93d61"
     ],
     "materializedEvents": [
@@ -321,8 +321,8 @@
       },
       {
         "schemaVersion": 6,
-        "eventId": "event-c8829cbb-018c5743",
-        "eventType": "SUBMIT_ACTION_OBSERVED",
+        "eventId": "event-16c811a5-b0de6535",
+        "eventType": "PROMPT_INSERTION_EVALUATED",
         "layer": "fact",
         "seq": 2,
         "ingestSeq": 2,
@@ -346,10 +346,10 @@
         },
         "payload": {
           "typed": {
-            "kind": "submission",
-            "state": "attempted"
+            "kind": "prompt_insertion",
+            "state": "failed"
           },
-          "sourceEventType": "SUBMIT_ACTION_OBSERVED",
+          "sourceEventType": "PROMPT_INSERTION_EVALUATED",
           "sourceLevel": "info",
           "detailsLength": 0,
           "metadata": {
@@ -357,18 +357,19 @@
             "generationEpoch": 1,
             "runGeneration": 1,
             "runSessionId": "synthetic-run"
-          }
+          },
+          "insertionState": "failed"
         },
         "dispatchId": "synthetic-dispatch",
         "generationEpoch": 1,
         "includedFor": [
-          "slot:submit_action"
+          "slot:insertion_outcome"
         ]
       },
       {
         "schemaVersion": 6,
-        "eventId": "event-269d0103-a314b14b",
-        "eventType": "SUBMISSION_EVIDENCE_CHANGED",
+        "eventId": "event-9cadfaf9-d9fcc87d",
+        "eventType": "PAGE_HEALTH_OBSERVED",
         "layer": "fact",
         "seq": 3,
         "ingestSeq": 3,
@@ -392,10 +393,10 @@
         },
         "payload": {
           "typed": {
-            "kind": "submission",
-            "state": "failed"
+            "kind": "unknown",
+            "state": "unknown"
           },
-          "sourceEventType": "SUBMISSION_EVIDENCE_CHANGED",
+          "sourceEventType": "PAGE_HEALTH_OBSERVED",
           "sourceLevel": "info",
           "detailsLength": 0,
           "metadata": {
@@ -408,13 +409,13 @@
         "dispatchId": "synthetic-dispatch",
         "generationEpoch": 1,
         "includedFor": [
-          "slot:acceptance_evidence"
+          "slot:composer_context"
         ]
       },
       {
         "schemaVersion": 6,
-        "eventId": "event-01444778-44c01b30",
-        "eventType": "PAGE_CONTEXT_OBSERVED",
+        "eventId": "event-a7944681-08eef32d",
+        "eventType": "SUBMISSION_EVIDENCE_CHANGED",
         "layer": "fact",
         "seq": 4,
         "ingestSeq": 4,
@@ -438,10 +439,10 @@
         },
         "payload": {
           "typed": {
-            "kind": "unknown",
-            "state": "unknown"
+            "kind": "submission",
+            "state": "attempted"
           },
-          "sourceEventType": "PAGE_CONTEXT_OBSERVED",
+          "sourceEventType": "SUBMISSION_EVIDENCE_CHANGED",
           "sourceLevel": "info",
           "detailsLength": 0,
           "metadata": {
@@ -454,7 +455,7 @@
         "dispatchId": "synthetic-dispatch",
         "generationEpoch": 1,
         "includedFor": [
-          "slot:page_context"
+          "slot:submit_counterevidence"
         ]
       },
       {
@@ -507,13 +508,13 @@
   },
   "derivedViews": {
     "modelTimeline": {
-      "viewType": "prompt-not-sent",
+      "viewType": "prompt-not-inserted",
       "generatorVersion": "proof-export@1.4.0",
-      "ledgerHash": "sha256:4962ac7d50bd5fade9dbd95404bd7dd9e73a80e2b651c07f94f98bc69d556e71",
+      "ledgerHash": "sha256:61166eb07f34589644350dd5c508c40fb7b43b4533c0a7273be0dec33dad108b",
       "data": {
         "modelId": "GPT",
         "stateAxes": {
-          "submission": "failed",
+          "submission": "evidence_partial",
           "generationStart": "not_evaluated",
           "answerIdentity": "none",
           "observedGeneration": "not_started",
@@ -537,7 +538,7 @@
         ],
         "firstSeq": 1,
         "lastSeq": 5,
-        "submissionEvidenceCount": 2,
+        "submissionEvidenceCount": 1,
         "completionEvidenceTier": 0,
         "acceptedTextLength": null,
         "extractedTextLength": null,
@@ -560,13 +561,13 @@
         "oldAnswerEvidence": null,
         "normalizedCurrentDispatchId": null,
         "normalizedAnswerEvidenceDispatchId": null,
-        "submissionFailed": true,
+        "submissionFailed": false,
         "promptReceivedCounterEvidence": false,
-        "promptNotSentEvidence": true,
-        "insertionEvidenceCount": 0,
-        "insertionFailed": false,
+        "promptNotSentEvidence": null,
+        "insertionEvidenceCount": 1,
+        "insertionFailed": true,
         "promptInsertedCounterEvidence": false,
-        "promptNotInsertedEvidence": null,
+        "promptNotInsertedEvidence": true,
         "hiddenRelevantTextLength": 0,
         "candidateCount": 0,
         "captureBeforeTerminal": false,
@@ -584,9 +585,9 @@
       "submission": {
         "derivedFromEventIds": [
           "event-5548e30c-3db5470a",
-          "event-c8829cbb-018c5743",
-          "event-269d0103-a314b14b",
-          "event-01444778-44c01b30",
+          "event-16c811a5-b0de6535",
+          "event-9cadfaf9-d9fcc87d",
+          "event-a7944681-08eef32d",
           "event-795e0945-b7b93d61"
         ],
         "derivationVersion": "proof-export@1.4.0:axes-v2"
@@ -594,9 +595,9 @@
       "generationStart": {
         "derivedFromEventIds": [
           "event-5548e30c-3db5470a",
-          "event-c8829cbb-018c5743",
-          "event-269d0103-a314b14b",
-          "event-01444778-44c01b30",
+          "event-16c811a5-b0de6535",
+          "event-9cadfaf9-d9fcc87d",
+          "event-a7944681-08eef32d",
           "event-795e0945-b7b93d61"
         ],
         "derivationVersion": "proof-export@1.4.0:axes-v2"
@@ -604,9 +605,9 @@
       "answerIdentity": {
         "derivedFromEventIds": [
           "event-5548e30c-3db5470a",
-          "event-c8829cbb-018c5743",
-          "event-269d0103-a314b14b",
-          "event-01444778-44c01b30",
+          "event-16c811a5-b0de6535",
+          "event-9cadfaf9-d9fcc87d",
+          "event-a7944681-08eef32d",
           "event-795e0945-b7b93d61"
         ],
         "derivationVersion": "proof-export@1.4.0:axes-v2"
@@ -614,9 +615,9 @@
       "observedGeneration": {
         "derivedFromEventIds": [
           "event-5548e30c-3db5470a",
-          "event-c8829cbb-018c5743",
-          "event-269d0103-a314b14b",
-          "event-01444778-44c01b30",
+          "event-16c811a5-b0de6535",
+          "event-9cadfaf9-d9fcc87d",
+          "event-a7944681-08eef32d",
           "event-795e0945-b7b93d61"
         ],
         "derivationVersion": "proof-export@1.4.0:axes-v2"
@@ -624,9 +625,9 @@
       "textEvolution": {
         "derivedFromEventIds": [
           "event-5548e30c-3db5470a",
-          "event-c8829cbb-018c5743",
-          "event-269d0103-a314b14b",
-          "event-01444778-44c01b30",
+          "event-16c811a5-b0de6535",
+          "event-9cadfaf9-d9fcc87d",
+          "event-a7944681-08eef32d",
           "event-795e0945-b7b93d61"
         ],
         "derivationVersion": "proof-export@1.4.0:axes-v2"
@@ -634,9 +635,9 @@
       "answerCompleteness": {
         "derivedFromEventIds": [
           "event-5548e30c-3db5470a",
-          "event-c8829cbb-018c5743",
-          "event-269d0103-a314b14b",
-          "event-01444778-44c01b30",
+          "event-16c811a5-b0de6535",
+          "event-9cadfaf9-d9fcc87d",
+          "event-a7944681-08eef32d",
           "event-795e0945-b7b93d61"
         ],
         "derivationVersion": "proof-export@1.4.0:axes-v2"
@@ -644,9 +645,9 @@
       "extraction": {
         "derivedFromEventIds": [
           "event-5548e30c-3db5470a",
-          "event-c8829cbb-018c5743",
-          "event-269d0103-a314b14b",
-          "event-01444778-44c01b30",
+          "event-16c811a5-b0de6535",
+          "event-9cadfaf9-d9fcc87d",
+          "event-a7944681-08eef32d",
           "event-795e0945-b7b93d61"
         ],
         "derivationVersion": "proof-export@1.4.0:axes-v2"
@@ -654,9 +655,9 @@
       "verification": {
         "derivedFromEventIds": [
           "event-5548e30c-3db5470a",
-          "event-c8829cbb-018c5743",
-          "event-269d0103-a314b14b",
-          "event-01444778-44c01b30",
+          "event-16c811a5-b0de6535",
+          "event-9cadfaf9-d9fcc87d",
+          "event-a7944681-08eef32d",
           "event-795e0945-b7b93d61"
         ],
         "derivationVersion": "proof-export@1.4.0:axes-v2"
@@ -664,9 +665,9 @@
       "completionDetection": {
         "derivedFromEventIds": [
           "event-5548e30c-3db5470a",
-          "event-c8829cbb-018c5743",
-          "event-269d0103-a314b14b",
-          "event-01444778-44c01b30",
+          "event-16c811a5-b0de6535",
+          "event-9cadfaf9-d9fcc87d",
+          "event-a7944681-08eef32d",
           "event-795e0945-b7b93d61"
         ],
         "derivationVersion": "proof-export@1.4.0:axes-v2"
@@ -674,9 +675,9 @@
       "completionEvidenceTier": {
         "derivedFromEventIds": [
           "event-5548e30c-3db5470a",
-          "event-c8829cbb-018c5743",
-          "event-269d0103-a314b14b",
-          "event-01444778-44c01b30",
+          "event-16c811a5-b0de6535",
+          "event-9cadfaf9-d9fcc87d",
+          "event-a7944681-08eef32d",
           "event-795e0945-b7b93d61"
         ],
         "derivationVersion": "proof-export@1.4.0:axes-v2"
@@ -684,9 +685,9 @@
       "observationReliability": {
         "derivedFromEventIds": [
           "event-5548e30c-3db5470a",
-          "event-c8829cbb-018c5743",
-          "event-269d0103-a314b14b",
-          "event-01444778-44c01b30",
+          "event-16c811a5-b0de6535",
+          "event-9cadfaf9-d9fcc87d",
+          "event-a7944681-08eef32d",
           "event-795e0945-b7b93d61"
         ],
         "derivationVersion": "proof-export@1.4.0:axes-v2"
@@ -694,9 +695,9 @@
       "finalization": {
         "derivedFromEventIds": [
           "event-5548e30c-3db5470a",
-          "event-c8829cbb-018c5743",
-          "event-269d0103-a314b14b",
-          "event-01444778-44c01b30",
+          "event-16c811a5-b0de6535",
+          "event-9cadfaf9-d9fcc87d",
+          "event-a7944681-08eef32d",
           "event-795e0945-b7b93d61"
         ],
         "derivationVersion": "proof-export@1.4.0:axes-v2"
@@ -704,9 +705,9 @@
       "terminalMode": {
         "derivedFromEventIds": [
           "event-5548e30c-3db5470a",
-          "event-c8829cbb-018c5743",
-          "event-269d0103-a314b14b",
-          "event-01444778-44c01b30",
+          "event-16c811a5-b0de6535",
+          "event-9cadfaf9-d9fcc87d",
+          "event-a7944681-08eef32d",
           "event-795e0945-b7b93d61"
         ],
         "derivationVersion": "proof-export@1.4.0:axes-v2"
@@ -714,9 +715,9 @@
       "terminationCause": {
         "derivedFromEventIds": [
           "event-5548e30c-3db5470a",
-          "event-c8829cbb-018c5743",
-          "event-269d0103-a314b14b",
-          "event-01444778-44c01b30",
+          "event-16c811a5-b0de6535",
+          "event-9cadfaf9-d9fcc87d",
+          "event-a7944681-08eef32d",
           "event-795e0945-b7b93d61"
         ],
         "derivationVersion": "proof-export@1.4.0:axes-v2"
@@ -727,13 +728,13 @@
   "missingEvidence": [],
   "siblings": [
     {
-      "reportType": "prompt-not-inserted",
+      "reportType": "prompt-not-sent",
       "relation": "diagnostic-dependency",
       "priority": "required",
       "requestIf": {
         "any": [
           {
-            "path": "$.derivedViews.promptNotInsertedEvidence",
+            "path": "$.derivedViews.promptNotSentEvidence",
             "operator": "eq",
             "value": true
           }
@@ -745,7 +746,7 @@
           {
             "modelId": "GPT",
             "predicate": {
-              "path": "$.derivedViews.promptNotInsertedEvidence",
+              "path": "$.derivedViews.promptNotSentEvidence",
               "operator": "eq",
               "value": true
             },
@@ -756,7 +757,7 @@
         ]
       },
       "antiLoop": {
-        "sourceReportType": "prompt-not-sent",
+        "sourceReportType": "prompt-not-inserted",
         "requestTargetOnlyOnce": true
       }
     }
@@ -777,17 +778,17 @@
       "modelId": "GPT",
       "dispatchId": "synthetic-dispatch",
       "generationEpoch": 1,
-      "sourceLedgerHash": "sha256:b9ced89eb152ed7cbb161f769066888efac7da179b35d8ac4278d7eecad9c810",
-      "materializedEventHash": "sha256:4962ac7d50bd5fade9dbd95404bd7dd9e73a80e2b651c07f94f98bc69d556e71"
+      "sourceLedgerHash": "sha256:f87ae3ba63972744f90da315702bd92d552f88e798e2b57b3ae79faf3ee6d5f2",
+      "materializedEventHash": "sha256:61166eb07f34589644350dd5c508c40fb7b43b4533c0a7273be0dec33dad108b"
     }
   },
   "attachments": [],
   "exportIntegrity": {
     "generatorVersion": "proof-export@1.4.0",
     "sampleData": true,
-    "sourceLedgerHash": "sha256:b9ced89eb152ed7cbb161f769066888efac7da179b35d8ac4278d7eecad9c810",
-    "materializedEventHash": "sha256:4962ac7d50bd5fade9dbd95404bd7dd9e73a80e2b651c07f94f98bc69d556e71",
-    "semanticHash": "sha256:d8465bf04b036adac6324339c5ca3aea1dc7118877be110791e7717a14973233",
+    "sourceLedgerHash": "sha256:f87ae3ba63972744f90da315702bd92d552f88e798e2b57b3ae79faf3ee6d5f2",
+    "materializedEventHash": "sha256:61166eb07f34589644350dd5c508c40fb7b43b4533c0a7273be0dec33dad108b",
+    "semanticHash": "sha256:f5cbd251b603d885f0b5fa1da46a24ac2cc3245fe0312b4a65d26d957421ff05",
     "sourceLedgerEventCount": 5,
     "materializedEventCount": 5,
     "deduplication": {
@@ -804,16 +805,16 @@
       "valid": true,
       "scope": "materialized-events",
       "status": "validated",
-      "recordedStateHash": "sha256:09c616584ad5c4103c3917b9465af991b4afcc74c8c0ad0e9343f0731e57a34c",
-      "recomputedStateHash": "sha256:09c616584ad5c4103c3917b9465af991b4afcc74c8c0ad0e9343f0731e57a34c",
+      "recordedStateHash": "sha256:0d7ea52564fe86d31b5f9b4e4a30c825a50b2843d208b6d85efc69c3b85c2deb",
+      "recomputedStateHash": "sha256:0d7ea52564fe86d31b5f9b4e4a30c825a50b2843d208b6d85efc69c3b85c2deb",
       "reason": null
     },
     "hashes": {
-      "artifact": "sha256:cb9b658af89552aec988500c5e30f1abdf736cf1df6adf406a875af992721bad",
-      "semantic": "sha256:d8465bf04b036adac6324339c5ca3aea1dc7118877be110791e7717a14973233"
+      "artifact": "sha256:c253734469b3e3ba0823cd9b9d10bed7d300cde2c0f4bbb623f2ecb152232723",
+      "semantic": "sha256:f5cbd251b603d885f0b5fa1da46a24ac2cc3245fe0312b4a65d26d957421ff05"
     },
     "size": {
-      "measuredBytes": 17168,
+      "measuredBytes": 17292,
       "category": "small",
       "measurementOnly": true
     },

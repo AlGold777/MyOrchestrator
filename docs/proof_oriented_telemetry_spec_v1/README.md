@@ -5,11 +5,16 @@
 - `all-presets.example.json` — пример дедуплицированного контейнера.
 - `schemas/` — JSON Schemas.
 - `registry/report-dependency-registry.json` — единый реестр количественных escalation rules.
-- `presets/*.example.json` — шесть заполненных standalone reports.
+- `presets/*.example.json` — семь заполненных standalone reports.
 
 Примеры используют конкретные синтетические данные и помечены `exportIntegrity.sampleData=true`.
 
 ## Статус реализации
+
+В версии `2.81.150` добавлен отдельный `Prompt not inserted`: runtime сохраняет
+typed failure вставки prompt в composer и отличает её от последующего сбоя
+отправки. Подтверждённая отправка, генерация, extraction или SUCCESS служат
+counter-evidence; отсутствие наблюдений остаётся `unknown`.
 
 В версии `2.81.149` applicability и sufficiency вычисляются по точному incident
 scope одинаково в embedded и standalone reports. `REPORT_CONTRACTS` является

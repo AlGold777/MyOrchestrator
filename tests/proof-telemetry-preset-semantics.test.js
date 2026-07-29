@@ -266,6 +266,37 @@ describe('proof telemetry preset semantic applicability', () => {
     expect(applicability('prompt-not-sent', []) .result.status).toBe('unknown');
   });
 
+  test('Prompt not inserted requires an explicit insertion failure and is refuted by received-request evidence', async () => {
+    const failed = event('PROMPT_INSERTION_EVALUATED', 1, {
+      payload: { insertionState: 'failed' },
+      typed: { kind: 'prompt_insertion', state: 'failed' }
+    });
+    expect(applicability('prompt-not-inserted', [failed]).result.status).toBe('confirmed');
+    expect(applicability('prompt-not-inserted', []).result.status).toBe('unknown');
+    expect(applicability('prompt-not-inserted', [
+      failed,
+      event('SUBMISSION_INFERRED', 2, { typed: { kind: 'submission', state: 'confirmed' } })
+    ]).result.status).toBe('not_confirmed');
+    expect(applicability('prompt-not-inserted', [
+      failed,
+      event('GENERATION_SIGNAL_CHANGED', 2, { metadata: { textLength: 50 }, typed: { kind: 'generation', state: 'active' } })
+    ]).result.status).toBe('not_confirmed');
+    expect(applicability('prompt-not-inserted', [
+      failed,
+      event('OBSERVER_HEALTH_OBSERVED', 2, { typed: { kind: 'observation', state: 'unavailable' } })
+    ]).result.status).toBe('unknown');
+
+    const alsoNotSent = event('SUBMISSION_INFERRED', 2, { typed: { kind: 'submission', state: 'failed' } });
+    const container = await ProofTelemetry.buildAllPresets([failed, alsoNotSent], {
+      canonicalLedger: true,
+      exportedAt: 2000
+    });
+    const incidentId = Object.keys(container.diagnosisArbitration.byIncident)[0];
+    expect(container.diagnosisArbitration.byIncident[incidentId].primaryDiagnosis).toBe('prompt-not-inserted');
+    expect(container.reports['prompt-not-sent'].reportDescriptor.applicability.byIncident[incidentId])
+      .toEqual(expect.objectContaining({ status: 'confirmed', explanationRole: 'consequence', causedBy: 'prompt-not-inserted' }));
+  });
+
   test('Late end uses comparable monotonic clocks and preserves incomparable time as unknown', () => {
     const positive = applicability('late-end', [
       event('STABILITY_INTERVAL_CLOSED', 1, { clock: { observedAtLocalMonoMs: 1000 } }),

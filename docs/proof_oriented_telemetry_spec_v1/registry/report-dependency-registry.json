@@ -1,5 +1,5 @@
 {
-  "registryVersion": "5.0.0",
+  "registryVersion": "5.1.0",
   "predicateLanguageVersion": "1.0.0",
   "maxEscalationDepth": 2,
   "reports": {
@@ -342,6 +342,68 @@
         ]
       ]
     },
+    "prompt-not-inserted": {
+      "question": "Почему prompt не вставился в поле ввода?",
+      "applicability": {
+        "all": [
+          [
+            "$.derivedViews.promptNotInsertedEvidence",
+            "eq",
+            true
+          ]
+        ]
+      },
+      "slots": [
+        [
+          "dispatch_baseline",
+          "critical",
+          [
+            "DISPATCH_BASELINE_CAPTURED"
+          ]
+        ],
+        [
+          "insertion_outcome",
+          "critical",
+          [
+            "PROMPT_INSERTION_EVALUATED"
+          ]
+        ],
+        [
+          "composer_context",
+          "required",
+          [
+            "PAGE_HEALTH_OBSERVED",
+            "OBSERVATION_FRAME_CAPTURED"
+          ]
+        ],
+        [
+          "submit_counterevidence",
+          "required",
+          [
+            "SUBMISSION_EVIDENCE_CHANGED",
+            "SUBMISSION_INFERRED"
+          ]
+        ],
+        [
+          "observer_context",
+          "conditional",
+          [
+            "OBSERVER_HEALTH_OBSERVED",
+            "OBSERVER_HEALTH_INTERVAL_CLOSED",
+            "OBSERVATION_SLOT_DENIED"
+          ],
+          [
+            "$.stateAxes.observationReliability",
+            "in",
+            [
+              "degraded",
+              "stale",
+              "unavailable"
+            ]
+          ]
+        ]
+      ]
+    },
     "prompt-not-sent": {
       "question": "Почему модель не получила запрос?",
       "applicability": {
@@ -547,6 +609,15 @@
         }
       ]
     },
+    "prompt-not-inserted": {
+      "all": [
+        {
+          "path": "$.derivedViews.promptNotInsertedEvidence",
+          "operator": "eq",
+          "value": true
+        }
+      ]
+    },
     "prompt-not-sent": {
       "all": [
         {
@@ -737,7 +808,46 @@
         }
       }
     ],
-    "prompt-not-sent": [],
+    "prompt-not-inserted": [
+      {
+        "reportType": "prompt-not-sent",
+        "relation": "diagnostic-dependency",
+        "priority": "required",
+        "requestIf": {
+          "any": [
+            {
+              "path": "$.derivedViews.promptNotSentEvidence",
+              "operator": "eq",
+              "value": true
+            }
+          ]
+        },
+        "antiLoop": {
+          "sourceReportType": "prompt-not-inserted",
+          "requestTargetOnlyOnce": true
+        }
+      }
+    ],
+    "prompt-not-sent": [
+      {
+        "reportType": "prompt-not-inserted",
+        "relation": "diagnostic-dependency",
+        "priority": "required",
+        "requestIf": {
+          "any": [
+            {
+              "path": "$.derivedViews.promptNotInsertedEvidence",
+              "operator": "eq",
+              "value": true
+            }
+          ]
+        },
+        "antiLoop": {
+          "sourceReportType": "prompt-not-sent",
+          "requestTargetOnlyOnce": true
+        }
+      }
+    ],
     "late-end": [
       {
         "reportType": "false-success",
@@ -763,6 +873,7 @@
     "priority": [
       "false-success",
       "old-answer",
+      "prompt-not-inserted",
       "prompt-not-sent",
       "empty",
       "cutted",
@@ -774,6 +885,15 @@
         "consequence": "cutted",
         "when": {
           "path": "$.derivedViews.postTerminalGrowthProven",
+          "operator": "eq",
+          "value": true
+        }
+      },
+      {
+        "cause": "prompt-not-inserted",
+        "consequence": "prompt-not-sent",
+        "when": {
+          "path": "$.derivedViews.promptNotInsertedEvidence",
           "operator": "eq",
           "value": true
         }

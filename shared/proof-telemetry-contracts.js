@@ -4,7 +4,7 @@
 
   const EVENT_SCHEMA_VERSION = 6;
   const CLOCK_CONTRACT_VERSION = '1.0';
-  const REGISTRY_VERSION = '5.0.0';
+  const REGISTRY_VERSION = '5.1.0';
   const THRESHOLDS = Object.freeze({
     generationStartTimeoutMs: 15000,
     minimumExtractionCoveragePct: 98,
@@ -89,6 +89,21 @@
         ['observer_context', 'conditional', ['PAGE_HEALTH_OBSERVED', 'OBSERVER_HEALTH_OBSERVED', 'OBSERVER_HEALTH_INTERVAL_CLOSED'], ['$.stateAxes.observationReliability', 'in', ['degraded', 'stale', 'unavailable']]]
       ]
     },
+    'prompt-not-inserted': {
+      question: 'Почему prompt не вставился в поле ввода?',
+      applicability: {
+        all: [
+          ['$.derivedViews.promptNotInsertedEvidence', 'eq', true]
+        ]
+      },
+      slots: [
+        ['dispatch_baseline', 'critical', ['DISPATCH_BASELINE_CAPTURED']],
+        ['insertion_outcome', 'critical', ['PROMPT_INSERTION_EVALUATED']],
+        ['composer_context', 'required', ['PAGE_HEALTH_OBSERVED', 'OBSERVATION_FRAME_CAPTURED']],
+        ['submit_counterevidence', 'required', ['SUBMISSION_EVIDENCE_CHANGED', 'SUBMISSION_INFERRED']],
+        ['observer_context', 'conditional', ['OBSERVER_HEALTH_OBSERVED', 'OBSERVER_HEALTH_INTERVAL_CLOSED', 'OBSERVATION_SLOT_DENIED'], ['$.stateAxes.observationReliability', 'in', ['degraded', 'stale', 'unavailable']]]
+      ]
+    },
     'prompt-not-sent': {
       question: 'Почему модель не получила запрос?',
       applicability: {
@@ -139,6 +154,8 @@
     if (/TURN_RESOLUTION_ACCEPTED|CURRENT_DISPATCH/.test(source) || meta.answerIdentity === 'current_dispatch') return { kind: 'candidate_identity', state: 'current_dispatch' };
     if (/PROMPT_SUBMITTED_ACCEPTED|SUBMISSION_CONFIRMED/.test(source)) return { kind: 'submission', state: 'confirmed' };
     if (/PROMPT_SUBMITTED_REJECTED|DISPATCH_COMMAND_NOT_ACCEPTED|NO_SEND/.test(source)) return { kind: 'submission', state: 'failed' };
+    if (/PROMPT_INSERTION_FAILED|PROMPT_INJECTION_FAILED|INJECTION_FAILED/.test(source)) return { kind: 'prompt_insertion', state: 'failed' };
+    if (/PROMPT_INSERTION_(?:CONFIRMED|SUCCEEDED)|PROMPT_INSERTED/.test(source)) return { kind: 'prompt_insertion', state: 'inserted' };
     if (/DISPATCH|SUBMIT|SEND|PROMPT/.test(source)) return { kind: 'submission', state: 'attempted' };
     if (/STOP_(BUTTON_)?(PRESENT_TO_ABSENT|DISAPPEARED)|STREAMING_(TRUE_TO_FALSE|STOPPED)|COMPLETION_CONTROLS_APPEARED/.test(source)) return { kind: 'generation_transition', state: 'provider_ui_completed', strong: true };
     if (/ANSWER_GENERATING|STREAMING_START|GENERATION_ACTIVE/.test(source)) return { kind: 'generation', state: 'active' };
@@ -165,6 +182,7 @@
     const payload = event?.payload || {};
     const canonical = ({
       SUBMISSION_INFERRED: { kind: 'submission', state: payload.submission || 'unknown' },
+      PROMPT_INSERTION_EVALUATED: { kind: 'prompt_insertion', state: payload.insertionState || payload.metadata?.insertionState || 'unknown' },
       GENERATION_STATE_INFERRED: { kind: 'generation', state: payload.observedGeneration || 'unknown' },
       CANDIDATE_IDENTITY_INFERRED: { kind: 'candidate_identity', state: payload.answerIdentity || 'unknown' },
       ANSWER_COMPLETENESS_EVALUATED: { kind: 'answer_completeness', state: payload.answerCompleteness || 'unknown' },

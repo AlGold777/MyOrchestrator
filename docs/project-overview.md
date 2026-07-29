@@ -542,6 +542,7 @@ Verify:
 |---|---|---|
 | Model stuck on generating | Lifecycle detector did not reach terminal | Check content logs and response detector |
 | Prompt not sent | Composer or send selector changed | Update provider selector profile |
+| Prompt not inserted | Composer rejected or lost the prepared prompt before send | Inspect insertion outcome and composer context in telemetry |
 | Empty answer | Extraction selector changed | Run watcher and provider extraction tests |
 | Panel does not open | Service worker startup error | Inspect background service worker logs |
 | Qwen/Grok fails | Provider UI changed | Run provider-specific test and update selectors |

@@ -20,6 +20,7 @@ describe('Telemetry export actions', () => {
       'false-success',
       'old-answer',
       'empty',
+      'prompt-not-inserted',
       'prompt-not-sent',
       'late-end'
     ];
