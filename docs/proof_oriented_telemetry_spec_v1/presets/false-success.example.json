@@ -123,7 +123,7 @@
     }
   ],
   "runConfiguration": {
-    "extensionVersion": "2.81.150",
+    "extensionVersion": "2.81.151",
     "policy": {
       "automaticMinimumEvidenceTier": 3,
       "thresholds": {
@@ -1138,7 +1138,7 @@
       "reason": null
     },
     "hashes": {
-      "artifact": "sha256:ce68e8903006046fef1832a0ad2925b4324dad470264a9258cd8ff10528531c3",
+      "artifact": "sha256:be596d5752f6bc91a87549ec1ebc19de8a8f4d7edb692a79ec06815ff73a44d3",
       "semantic": "sha256:6bc66164856584430d14a3cd97fea602bf2457fb3c8b52d33e307ebdcc31193f"
     },
     "size": {

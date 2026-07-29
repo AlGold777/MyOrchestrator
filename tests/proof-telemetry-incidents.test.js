@@ -19,6 +19,24 @@ function event(id, type, overrides = {}) {
 }
 
 describe('proof telemetry incident index and evidence graph', () => {
+  test('expands a selected task to deterministic incident reports across all platforms', () => {
+    const events = [
+      event('event-1', 'TEXT_STATE_CHANGED'),
+      event('event-2', 'TEXT_STATE_CHANGED', { modelId: 'Claude', dispatchId: 'dispatch-claude-1' }),
+      event('event-3', 'MODEL_TERMINAL_RECORDED', { dispatchId: 'dispatch-gpt-2' })
+    ];
+    const allTargets = Incidents.selectIncidentReports(events, { task: 'cutted' });
+    expect(allTargets.map((target) => target.modelId)).toEqual(['GPT', 'GPT', 'Claude']);
+    expect(allTargets.map((target) => target.incidentId)).toEqual(expect.arrayContaining([
+      expect.stringContaining('dispatch-1'),
+      expect.stringContaining('dispatch-gpt-2'),
+      expect.stringContaining('dispatch-claude-1')
+    ]));
+    const claudeTargets = Incidents.selectIncidentReports(events, { platform: 'Claude', task: 'cutted' });
+    expect(claudeTargets).toHaveLength(1);
+    expect(claudeTargets[0]).toEqual(expect.objectContaining({ modelId: 'Claude', rank: 0 }));
+  });
+
   test('indexes and selects one deterministic incident while reporting other matches', () => {
     const events = [
       event('event-1', 'GENERATION_SIGNAL_CHANGED'),

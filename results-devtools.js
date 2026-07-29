@@ -790,12 +790,10 @@
         return filtered;
     };
     const applyActiveProofFilter = (events = [], { includeTask = true } = {}) => {
-        const selectedSet = getSelectedLlmSet();
         const platformFilter = normalizePlatformName(telemetryPlatformSelect?.value || 'all');
         const taskFilter = (telemetryTaskSelect?.value || 'all').toLowerCase().trim();
         return (Array.isArray(events) ? events : []).filter((event) => {
             const modelId = normalizePlatformName(event?.modelId || 'SYSTEM');
-            if (platformFilter === 'all' && selectedSet.size && modelId !== 'system' && !selectedSet.has(modelId)) return false;
             if (platformFilter !== 'all' && modelId !== 'system' && modelId !== platformFilter) return false;
             if (includeTask && !matchesProofTask(event, taskFilter)) return false;
             return true;
@@ -1164,10 +1162,6 @@
             }
             const task = String(telemetryTaskSelect?.value || 'all');
             const platform = String(telemetryPlatformSelect?.value || 'all');
-            if (task !== 'all' && platform === 'all') {
-                if (telemetryStatus) telemetryStatus.textContent = 'Select a platform for a standalone task report';
-                return;
-            }
             const canonicalEvents = applyActiveProofFilter(proofSnapshot.events, { includeTask: false });
             if (!canonicalEvents.length) return;
             const buildOptions = {
@@ -1182,22 +1176,27 @@
                 downloadProofArtifact(payload, `telemetry-all-presets-${Date.now()}.json`);
                 return;
             }
-            const modelId = canonicalEvents.find((event) => normalizePlatformName(event.modelId) === normalizePlatformName(platform))?.modelId || platform;
-            const selection = window.ProofTelemetryIncidents?.selectIncident?.(canonicalEvents, { platform: modelId, task });
-            if (!selection?.selected) {
-                if (telemetryStatus) telemetryStatus.textContent = 'No matching incident for Platform + Task';
+            const selectedModelId = platform === 'all'
+                ? null
+                : (canonicalEvents.find((event) => normalizePlatformName(event.modelId) === normalizePlatformName(platform))?.modelId || platform);
+            const targets = window.ProofTelemetryIncidents?.selectIncidentReports?.(canonicalEvents, {
+                platform: selectedModelId,
+                task
+            }) || [];
+            if (!targets.length) {
+                if (telemetryStatus) telemetryStatus.textContent = 'No incidents available for the selected Task';
                 return;
             }
-            if (telemetryStatus) telemetryStatus.textContent = describeSelectedIncident(selection);
-            const incidentIds = [selection.selected.incidentId, ...selection.otherMatchingIncidents];
-            for (const [index, incidentId] of incidentIds.entries()) {
+            if (telemetryStatus) telemetryStatus.textContent = `${targets.length} incident report(s) selected for ${task}`;
+            for (const target of targets) {
+                const safeModel = String(target.modelId).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'unknown';
                 const payload = await window.ProofOrientedTelemetry.buildStandaloneReport(canonicalEvents, {
                     ...buildOptions,
                     reportType: task,
-                    modelId,
-                    incidentId
+                    modelId: target.modelId,
+                    incidentId: target.incidentId
                 });
-                downloadProofArtifact(payload, `telemetry-${task}-${platform}-incident-${index + 1}-${Date.now()}.json`);
+                downloadProofArtifact(payload, `telemetry-${task}-${safeModel}-incident-${target.rank + 1}-${Date.now()}.json`);
             }
             chrome.storage.local.get(['proofTelemetryShadowCompare'], async (stored) => {
                 if (!stored?.proofTelemetryShadowCompare) return;
@@ -1205,7 +1204,7 @@
                     const previous = await window.ProofOrientedTelemetry.buildAllPresets(canonicalEvents, buildOptions);
                     console.info('[proof-telemetry-shadow]', {
                         task,
-                        incidentCount: incidentIds.length,
+                        incidentCount: targets.length,
                         previousSharedReportEventCount: previous.reports?.[task]?.eventSeqs?.length || 0,
                         status: 'compared'
                     });

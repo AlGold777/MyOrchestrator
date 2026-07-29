@@ -445,3 +445,25 @@ Section 17 evidence: registry 5.1.0 and all seven standalone examples were
 generated from the executable contracts and validated without errors. Focused
 semantic tests pass 4 suites / 37 tests; the complete regression gate passes
 186 suites / 1272 tests. Every section 17 task is Done.
+
+## 18. Task JSON export correction
+
+18.1. Reproduce the concrete-Task export path and identify the early return
+that rejects `All platforms`. - Done
+
+18.2. Add deterministic Task target expansion across every indexed Platform
+and exact incident while preserving Platform-specific narrowing. - Done
+
+18.3. Remove the hidden header-model constraint from proof JSON so Platform
+and Tasks remain the only export filters. - Done
+
+18.4. Add all-platform and single-platform regression coverage and run the
+focused telemetry gate. - Done
+
+18.5. Synchronize manifest/package version 2.81.151, generated examples,
+telemetry documentation and changelog. - Done
+
+Section 18 evidence: a concrete Task now produces bounded standalone reports
+for every matching indexed incident under `All platforms`, or only the selected
+Platform. The focused telemetry gate passes 9 suites / 75 tests; the complete
+gate passes 186 suites / 1273 tests. Every section 18 task is Done.

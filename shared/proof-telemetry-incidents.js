@@ -98,6 +98,26 @@
     };
   }
 
+  function selectIncidentReports(events, { platform = null, task } = {}) {
+    const indexed = indexIncidents(events);
+    const modelIds = [];
+    indexed.forEach((incident) => {
+      const modelId = incident.scope.modelId;
+      if ((!platform || modelId === platform) && !modelIds.includes(modelId)) modelIds.push(modelId);
+    });
+    return modelIds.flatMap((modelId) => {
+      const selection = selectIncident(events, { platform: modelId, task });
+      if (!selection.selected) return [];
+      return [selection.selected.incidentId, ...selection.otherMatchingIncidents].map((incidentId, rank) => ({
+        incidentId,
+        modelId,
+        rank,
+        selectionReason: selection.selectionReason,
+        matchingIncidentCount: selection.matchingIncidentCount
+      }));
+    });
+  }
+
   function contextValue(context, path) {
     return String(path || '').replace(/^\$\.?/, '').split('.').filter(Boolean)
       .reduce((current, key) => current?.[key], context);
@@ -235,7 +255,7 @@
     return { ...slotResult, events: materialized, violations };
   }
 
-  const api = Object.freeze({ scopeOf, scopeKey, exactScope, indexIncidents, selectIncident, selectProofEvents, resolveEvidenceSlots, buildEvidenceClosure });
+  const api = Object.freeze({ scopeOf, scopeKey, exactScope, indexIncidents, selectIncident, selectIncidentReports, selectProofEvents, resolveEvidenceSlots, buildEvidenceClosure });
   root.ProofTelemetryIncidents = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

@@ -71,9 +71,13 @@ describe('Telemetry export actions', () => {
     expect(devtoolsSource).toContain('canonicalLedger: true');
     expect(devtoolsSource).not.toContain('nativeLedgerAvailable ? proofSnapshot.events : grouped');
     expect(devtoolsSource).toContain("modelId !== 'system' && modelId !== platformFilter");
+    expect(devtoolsSource).not.toContain("Select a platform for a standalone task report");
+    expect(devtoolsSource).toContain('selectIncidentReports?.(canonicalEvents');
+    expect(devtoolsSource).toContain('platform: selectedModelId');
+    expect(devtoolsSource).not.toContain("platformFilter === 'all' && selectedSet.size && modelId !== 'system'");
     expect(devtoolsSource).toContain('describeSelectedIncident(selection)');
-    expect(devtoolsSource).toContain('selection.otherMatchingIncidents');
-    expect(devtoolsSource).toContain('incident-${index + 1}');
+    expect(devtoolsSource).toContain('targets.length');
+    expect(devtoolsSource).toContain('incident-${target.rank + 1}');
     expect(devtoolsSource).toContain("proofTelemetryShadowCompare");
   });
 

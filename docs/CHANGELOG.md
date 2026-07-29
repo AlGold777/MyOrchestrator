@@ -1,5 +1,18 @@
 # CHANGELOG — Project
 
+### 2026-07-29 — Task JSON export across platforms, version 2.81.151
+
+- Fixed JSON export for every concrete Telemetry Task: `All platforms` now
+  expands the selected Task to all indexed model incidents instead of refusing
+  to export until one Platform is selected.
+- A concrete Platform still narrows export to that model, with one bounded
+  standalone proof report per exact incident in deterministic evidence order.
+- Removed the hidden header-model restriction from proof JSON export, so its
+  scope is controlled only by the two visible Telemetry filters.
+- Added regression coverage for all-platform and single-platform Task target
+  selection; the focused telemetry gate passes 9 suites / 75 tests and the
+  complete gate passes 186 suites / 1273 tests.
+
 ### 2026-07-29 — Prompt insertion diagnosis, version 2.81.150
 
 - Added the separate `Prompt not inserted` Task for failures before the prompt
