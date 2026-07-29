@@ -1,23 +1,24 @@
 # No delivery: план proof-oriented telemetry preset
 
 Дата: 2026-07-29  
-Статус: проект для независимого semantic review; реализации кода нет.
+Статус: согласованный план реализации; выполнение начато.
 
 ## 1. Назначение
 
 `No delivery` отвечает на один пользовательский вопрос:
 
-> Почему модель создала ответ, но правильный результат не оказался в карточке
-> ответа этой модели и этого запроса?
+> Почему ответ текущего запроса материализовался на стороне provider, но
+> правильный результат не оказался в карточке этой модели и этого запроса?
 
 Это сквозной диагноз разрыва цепочки доставки, а не новое имя для пустого
 extraction. Проверяемая цепочка:
 
-`ответ создан → замечен → выбран → извлечён → проверен → передан → сохранён → показан`
+`ответ материализован → замечен → выбран → извлечён → проверен → передан → сохранён → показан`
 
 Preset обязан одновременно:
 
-1. доказать существование ответа модели для текущего запроса;
+1. доказать наблюдаемую материализацию ответа текущего запроса, не приписывая
+   системе знание о внутреннем состоянии модели;
 2. доказать отсутствие правильного результата в ожидаемой карточке;
 3. определить последний доказанно успешный этап и первый доказанно неуспешный;
 4. не выдавать отсутствие телеметрии за доказательство сбоя;
@@ -45,8 +46,8 @@ Preset обязан одновременно:
 
 1. Модель не получила prompt — это `Prompt not sent`.
 2. Prompt не попал в composer — это `Prompt not inserted`.
-3. Нет доказательства, что модель вообще создала ответ — No delivery остаётся
-   `unknown`, даже если карточка пуста.
+3. Нет доказательства, что ответ текущего запроса материализовался на provider
+   surface — No delivery остаётся `unknown`, даже если карточка пуста.
 4. В карточку пришёл правильный текущий ответ, но только его часть — основной
    диагноз `Cutted`; No delivery используется лишь если результат непригоден как
    ответ целиком.
@@ -73,7 +74,7 @@ Preset обязан одновременно:
 | transport/storage/render failure → No delivery | causal subtype внутри No delivery |
 | Cutted ↔ No delivery | обычно alternative; co-occurring только для непригодного результата |
 | False success → No delivery | causal только если финальная версия отсутствует в карточке |
-| Prompt not sent ↔ No delivery | mutually exclusive при доказанном создании ответа |
+| Prompt not sent ↔ No delivery | mutually exclusive при доказанной материализации current-dispatch ответа |
 
 ## 3. Два независимых результата
 
@@ -115,7 +116,16 @@ Preset обязан одновременно:
 
 `causeVerdict` публикуется отдельно и не подменяет `diagnosticVerdict`.
 
-## 4. Модель этапов доставки
+### 3.4. Evaluation boundary и resolution
+
+Каждый verdict привязан к `evaluationBoundaryId` и
+`evaluationBoundaryType ∈ {automatic_terminal, delivery_deadline,
+recovery_completed, incident_close}`. Текущее состояние публикуется отдельно как
+`resolutionState ∈ {unresolved, resolved_by_recovery, resolved_by_retry,
+unknown_persistence}`. Позднее исправление не переписывает исторический вывод:
+«не доставлено на automatic terminal; восстановлено recovery через N мс».
+
+## 4. Граф границ доставки
 
 Каждый этап имеет входную границу, выходную границу и точную identity.
 
@@ -131,13 +141,31 @@ Preset обязан одновременно:
 | S7 Commit | payload принят | state/storage read-back совпал | reject/overwrite/write failure |
 | S8 Render | commit подтверждён | правильная карточка показывает payload | wrong card/stale UI/render failure |
 
-Причина определяется как переход `последний successful stage → первый failed
-stage`. Если между ними отсутствует наблюдаемая граница, причина остаётся
-bounded или unknown.
+Эти стадии являются словарём наблюдаемых границ, а не обязательной линейной
+машиной. Реальный pipeline образует граф: retry, fallback, recovery и
+supersession создают отдельные attempt paths. Причина определяется внутри одной
+доказанной path как диапазон `lastSuccessfulBoundary →
+firstObservedUnsuccessfulBoundary`. Если path identity или промежуточная
+граница отсутствует, причина остаётся `supported_but_incomplete` либо `unknown`.
 
 ## 5. Таксономия причин
 
 Причины должны быть стабильными machine-readable codes, а не свободным текстом.
+
+Нормативный результат содержит четыре независимые оси:
+
+1. `failureStageCode` — наблюдаемая граница или диапазон сбоя;
+2. `mechanismCauseCode` — только доказанный механизм;
+3. `observabilityLimitationCodes[]` — пробелы observer/clock/identity;
+4. `recoveryFindingCode` — результат recovery, но не причина сбоя.
+
+Перечни ниже являются backlog кандидатов, а не стартовым registry. В первой
+реализации разрешены только шесть кодов с исполнимыми контрактами:
+`extraction_empty`, `extraction_unsupported_source`,
+`delivery_rejected_post_terminal`, `delivery_rejected_correlation`,
+`commit_overwritten`, `card_render_empty`. `observer_gap` относится к
+`observabilityLimitationCodes`, а `manual_recovery_found_answer` — к
+`recoveryFindingCode`.
 
 ### 5.1. Observation
 
@@ -223,7 +251,16 @@ bounded или unknown.
 компонент не равен совпадению. Explicit supersession обязана ссылаться на
 предыдущий candidate/payload/card binding.
 
-## 7. Контракт содержимого без экспорта текста
+Минимальная attempt identity вводится до instrumentation: `dispatchId`,
+`attemptId`/`sourceRevisionId`, `payloadEvidenceId` и normalization identity.
+Без неё две передачи одного и того же hash в одном dispatch причинно
+неразличимы.
+
+## 7. Общая версионированная нормализация
+
+До первого hash-сравнения source, extraction, transport, commit и render MUST
+использовать одну shared-функцию нормализации. Результат включает
+`normalizationVersion`; разные версии дают `incomparable`, а не mismatch.
 
 Для сравнения source, extraction, transport, commit и card используются:
 
@@ -235,9 +272,8 @@ bounded или unknown.
 - признак наличия non-text blocks;
 - версия normalization/classification algorithm.
 
-Raw prompt и raw answer в proof report не экспортируются. Hash должен
-вычисляться после одинаковой нормализации на всех этапах. Разные алгоритмы или
-версии делают сравнение `unknown`, а не mismatch.
+Raw prompt и raw answer в proof report не экспортируются. Наличие версии в
+event envelope без общей функции не считается выполнением контракта.
 
 ## 8. События, которые можно переиспользовать
 
@@ -266,56 +302,67 @@ Raw prompt и raw answer в proof report не экспортируются. Hash
 
 ### 9.1. Observation and candidate
 
-1. `ANSWER_CANDIDATE_OBSERVED`
+1. `ANSWER_SOURCE_MATERIALIZED`
+   - source proof level: `direct_preterminal|direct_postterminal|
+     retrospective_identity_proven|inferred|unproven`;
+   - dispatch/attempt/candidate identity, normalized length/hash;
+   - provider-observed boundary; событие не утверждает внутреннее создание
+     ответа моделью.
+2. `ANSWER_CANDIDATE_OBSERVED`
    - candidate identity, role, visibility, DOM fingerprint, length/hash;
    - first/last observed monotonic time;
    - current-dispatch evidence.
-2. `ANSWER_CANDIDATE_INVALIDATED`
+3. `ANSWER_CANDIDATE_INVALIDATED`
    - replacement/removal/navigation reason;
    - superseded candidate reference.
 
 ### 9.2. Extraction
 
-3. `EXTRACTION_ATTEMPTED`
+4. `EXTRACTION_ATTEMPTED`
    - strategy, selector version, candidate ID, source kind;
    - attempt number и causal refs.
-4. `EXTRACTION_COMPLETED`
+5. `EXTRACTION_COMPLETED`
    - outcome: `completed|empty|failed|unsupported`;
    - mode: `primary|fallback|recovery` — mode не подменяет outcome;
    - raw/normalized lengths and hashes;
    - extracted content class.
-5. `EXTRACTED_CONTENT_CLASSIFIED`
+6. `EXTRACTED_CONTENT_CLASSIFIED`
    - `answer|empty|technical_message|provider_error|prompt_echo|previous_answer|
      placeholder|non_text|ambiguous`;
    - classifier version и evidence refs.
 
 ### 9.3. Transport
 
-6. `ANSWER_DELIVERY_ATTEMPTED`
+7. `ANSWER_DELIVERY_ATTEMPTED`
    - payloadEvidenceId, sender, receiver, length/hash.
-7. `ANSWER_DELIVERY_ACKNOWLEDGED`
+8. `ANSWER_DELIVERY_ACKNOWLEDGED`
    - receiver-observed length/hash and accepted/rejected outcome.
-8. `ANSWER_DELIVERY_FAILED`
+9. `ANSWER_DELIVERY_REJECTED`
+   - existing `SENDER_*_REJECTED` и `LIFECYCLE_CORRELATION_REJECTED`
+     переиспользуются после исправления canonical semantics;
+   - `post_terminal_noise` получает явное экспортируемое событие;
+   - reason, attempt/payload identity, безопасные length/hash.
+10. `ANSWER_DELIVERY_FAILED`
    - explicit transport error/timeout/context loss.
 
 ### 9.4. Commit and render
 
-9. `ANSWER_COMMIT_EVALUATED`
+11. `ANSWER_COMMIT_EVALUATED`
    - accepted/rejected, state transition, previous value, reason.
-10. `ANSWER_PERSISTENCE_CONFIRMED`
+12. `ANSWER_PERSISTENCE_CONFIRMED`
     - write/read-back identity and hash.
-11. `ANSWER_CARD_RENDER_EVALUATED`
+13. `ANSWER_CARD_RENDER_EVALUATED`
     - expected card ID;
     - observed card content class, length/hash;
     - `matched|empty|stale|wrong_card|mismatched`.
 
 ### 9.5. Recovery
 
-12. `ANSWER_RECOVERY_REQUESTED`
+14. `ANSWER_RECOVERY_REQUESTED`
     - automatic/manual;
     - user action: `get_it|status_indicator_double_click|other`;
     - pre-recovery terminal state.
-13. `ANSWER_RECOVERY_COMPLETED`
+15. `ANSWER_RECOVERY_COMPLETED`
     - found/not found;
     - candidate/dispatch proof;
     - recovered length/hash;
@@ -456,11 +503,16 @@ terminal.
 
 ## 15. Cause resolution
 
-Cause resolver проходит stages по порядку и возвращает:
+Cause resolver обходит causal edges конкретной attempt path, а не глобальный
+список стадий, и возвращает:
 
 - `lastSuccessfulStage`;
-- `firstFailedStage`;
-- `causeCode`;
+- `firstObservedUnsuccessfulStage`;
+- `failureRange`;
+- `failureStageCode`;
+- `mechanismCauseCode`;
+- `observabilityLimitationCodes`;
+- `recoveryFindingCode`;
 - `causeVerdict`;
 - supporting event IDs;
 - missing boundary;
@@ -530,17 +582,19 @@ Standalone No delivery report включает только:
 
 - `deliveryStages`;
 - `lastSuccessfulStage`;
-- `firstFailedStage`;
-- `causeCode`;
+- `firstObservedUnsuccessfulStage` и `failureRange`;
+- четыре независимые cause axes;
 - `causeAlternatives`;
+- `evaluationBoundary` и `resolutionState`;
 - evidence slots;
 - card/source comparison;
 - recovery interpretation.
 
 Вывод для пользователя должен формироваться как одна причинная фраза:
 
-> Claude создал ответ, extraction получил его, но background не подтвердил
-> доставку; поэтому карточка осталась пустой.
+> Ответ Claude текущего dispatch материализовался на provider surface,
+> extraction получил его, но background отклонил payload; на границе automatic
+> terminal карточка осталась пустой.
 
 Если причина не доказана:
 
@@ -585,31 +639,56 @@ Standalone No delivery report включает только:
 
 ### Phase B. Instrumentation
 
-5. Ввести stage-boundary events без изменения UI presets.
-6. Удалить broad canonical mapping recovery lifecycle в extraction.
-7. Добавить payload evidence identity от content script до card render.
-8. Проверить privacy, volume и event deduplication.
+5. Удалить broad canonical mapping и исправить semantics существующих
+   `SENDER_*_REJECTED`/`LIFECYCLE_CORRELATION_REJECTED`, чтобы они немедленно
+   перестали подделывать submission/text evidence.
+6. Разделить recovery lifecycle и extraction outcome.
+7. Ввести shared normalization function с версией до hash-сравнений.
+8. Добавить attempt/payload identity от content script до card render.
+9. Ввести source, reception, commit и render boundaries без изменения UI.
+10. Проверить privacy, volume и event deduplication.
 
 ### Phase C. Shadow preset
 
-9. Добавить `no-delivery` в registry, но не показывать пользователю.
-10. Строить его параллельно с `Empty` на одинаковых incidents.
-11. Сравнивать occurrence, cause, size и missing evidence.
-12. Собирать реальные расхождения Empty/No delivery.
+11. Добавить `no-delivery` в registry, но не показывать пользователю.
+12. Строить его параллельно с `Empty` на одинаковых incidents.
+13. Сравнивать occurrence, cause, size и missing evidence.
+14. Собирать реальные расхождения Empty/No delivery.
 
 ### Phase D. Product cutover
 
-13. Добавить `No delivery` в Task filter/export.
-14. Оставить `Empty` как deprecated alias на один migration window.
-15. Обновить All tasks, standalone schema, validator, generator и examples.
-16. Обновить документацию, manifest/package versions и changelog.
+15. Добавить `No delivery` в Task filter/export.
+16. Оставить `Empty` как deprecated alias до конца commit/render shadow phase.
+17. Обновить All tasks, standalone schema, validator, generator и examples.
+18. Обновить документацию, manifest/package versions и changelog.
 
 ### Phase E. Removal
 
-17. Убедиться, что No delivery покрывает все подтверждённые Empty fixtures.
-18. Удалить Empty из UI и текущего registry.
-19. Сохранить legacy validator/registry для старых файлов.
-20. Удалить Empty-specific derived fields только после отсутствия consumers.
+19. Убедиться, что No delivery покрывает все подтверждённые Empty fixtures.
+20. Удалить Empty из UI и текущего registry.
+21. Сохранить legacy validator/registry для старых файлов.
+22. Удалить Empty-specific derived fields только после отсутствия consumers.
+
+### 19.1. Нормативный порядок исполнения
+
+Статус меняется на `Done` только после прохождения указанной приёмки.
+
+1. Исправить определение observable claim и evaluation boundary. — Done
+2. Санировать broad mapping и неизвестные runtime labels. — Pending
+3. Исправить canonical semantics rejection-событий. — Pending
+4. Разделить extraction attempt/outcome/mode. — Pending
+5. Ввести shared versioned normalization. — Pending
+6. Ввести раннюю attempt/payload identity. — Pending
+7. Ввести `ANSWER_SOURCE_MATERIALIZED`. — Pending
+8. Инструментировать reception/rejection, включая post-terminal. — Pending
+9. Ввести единого владельца commit evidence. — Pending
+10. Инструментировать expected-card render evidence. — Pending
+11. Реализовать occurrence contract с evaluation boundary/resolution state. — Pending
+12. Реализовать attempt graph и четыре независимые cause axes. — Pending
+13. Запустить shadow comparison с `Empty`. — Pending
+14. Переключить UI/export на `No delivery`, сохранить legacy validation и
+    удалить текущий `Empty`. — Pending
+15. Обновить версии/документацию и пройти полный regression gate. — Pending
 
 ## 20. Test matrix
 
@@ -638,7 +717,7 @@ minimal closure и offline replay.
 ### 20.3. Unknown
 
 14. Empty card without generation evidence.
-15. Generated answer without card observation.
+15. Materialized current-dispatch answer without card observation.
 16. Recovery text without current-dispatch identity.
 17. Source/card normalization versions differ.
 18. Observer gap covers the suspected failure.
@@ -648,7 +727,7 @@ minimal closure и offline replay.
 ### 20.4. Cross-preset arbitration
 
 21. Confirmed Prompt not sent makes No delivery not applicable unless independent
-    evidence nevertheless proves that a current answer was created.
+    evidence nevertheless proves current-dispatch answer materialization.
 22. Old answer causes No delivery of current answer.
 23. Cutted remains primary for usable partial delivery.
 24. False success causes No delivery of the final version.
@@ -683,6 +762,10 @@ No delivery готов к замене Empty, когда:
     признаны не относящимися к нему.
 13. После migration window Empty удалён из текущего UI/registry без потери
     поддержки исторических exports.
+14. Rejection events не удовлетворяют submission/text-evolution slots.
+15. Hash comparison использует одну shared normalization implementation;
+    разные версии дают `incomparable`.
+16. Attempt graph различает повторную передачу одинакового payload.
 
 ## 22. Вопросы для adversarial review Claude
 
