@@ -5,6 +5,15 @@ const Contracts = require('../shared/proof-telemetry-contracts.js');
 const ProofTelemetry = require('../shared/proof-oriented-telemetry.js');
 
 describe('proof telemetry executable contracts', () => {
+  test('scope equality includes run generation and identity vocabulary is normalized', () => {
+    const base = { runSessionId: 'run', runGeneration: 1, modelId: 'GPT', dispatchId: 'd1', generationEpoch: 1 };
+    expect(Contracts.sameIncidentScope(base, { ...base, runGeneration: 9 })).toBe(false);
+    expect(Contracts.sameIncidentScope(base, { ...base })).toBe(true);
+    expect(Contracts.normalizeIdentityState('stale')).toBe('previous');
+    expect(Contracts.normalizeIdentityState('previous_dispatch')).toBe('previous');
+    expect(Contracts.normalizeIdentityState('current_dispatch')).toBe('current');
+  });
+
   test('defines evidence-slot contracts for the seven user diagnostic questions', () => {
     expect(Object.keys(Contracts.REPORT_CONTRACTS)).toEqual([
       'cutted',

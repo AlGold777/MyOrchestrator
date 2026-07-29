@@ -201,6 +201,10 @@
   function sameIncidentScope(left, right, { allowSystem = false } = {}) {
     if (!left || !right) return false;
     if (String(left.runSessionId) !== String(right.runSessionId)) return false;
+    if (left.runGeneration !== undefined || right.runGeneration !== undefined) {
+      if (left.runGeneration === undefined || right.runGeneration === undefined) return false;
+      if (Number(left.runGeneration) !== Number(right.runGeneration)) return false;
+    }
     if (allowSystem && (left.modelId === 'SYSTEM' || right.modelId === 'SYSTEM')) return true;
     if (String(left.modelId) !== String(right.modelId)) return false;
     if (!left.dispatchId || !right.dispatchId || String(left.dispatchId) !== String(right.dispatchId)) return false;
@@ -209,6 +213,16 @@
       if (Number(left.generationEpoch) !== Number(right.generationEpoch)) return false;
     }
     return true;
+  }
+
+  function normalizeIdentityState(value) {
+    const state = String(value || '').trim().toLowerCase();
+    if (!state) return 'unknown';
+    if (['current', 'current_dispatch', 'accepted_current', 'verified_current'].includes(state)) return 'current';
+    if (['previous', 'previous_dispatch', 'stale', 'stale_accepted', 'prior_dispatch'].includes(state)) return 'previous';
+    if (['ambiguous', 'multiple_candidates', 'unresolved'].includes(state)) return 'ambiguous';
+    if (['rejected', 'invalid', 'wrong_node'].includes(state)) return 'rejected';
+    return 'unknown';
   }
 
   function normalizedSlots(reportType) {
@@ -237,6 +251,7 @@
     adaptLegacyEvent,
     factOf,
     sameIncidentScope,
+    normalizeIdentityState,
     normalizedSlots,
     normalizedApplicability
   });

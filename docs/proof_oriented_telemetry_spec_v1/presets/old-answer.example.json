@@ -26,7 +26,8 @@
     "diagnosisArbitration": {
       "primaryDiagnosis": "old-answer",
       "confirmedDiagnoses": [
-        "old-answer"
+        "old-answer",
+        "empty"
       ],
       "explanationRole": "primary",
       "causedBy": null
@@ -103,7 +104,7 @@
     }
   ],
   "runConfiguration": {
-    "extensionVersion": "2.81.151",
+    "extensionVersion": "2.81.152",
     "policy": {
       "automaticMinimumEvidenceTier": 3,
       "thresholds": {
@@ -817,10 +818,10 @@
         "acceptedExtractionEventId": "event-bc484cc1-0298de49",
         "acceptedExtractionResolution": "unique_pre_terminal_extraction",
         "emptyResultEvidence": false,
-        "wrongNodeEvidence": null,
-        "extractionProblemEvidence": null,
-        "emptyExtractionEvidence": null,
-        "emptyExtractionBranch": null,
+        "wrongNodeEvidence": true,
+        "extractionProblemEvidence": true,
+        "emptyExtractionEvidence": true,
+        "emptyExtractionBranch": "wrong_node",
         "oldAnswerEvidence": true,
         "normalizedCurrentDispatchId": "synthetic-dispatch",
         "normalizedAnswerEvidenceDispatchId": "synthetic-previous-dispatch",
@@ -1060,7 +1061,7 @@
         ]
       },
       "evaluation": {
-        "matched": false,
+        "matched": true,
         "predicateResults": [
           {
             "modelId": "GPT",
@@ -1069,9 +1070,9 @@
               "operator": "eq",
               "value": true
             },
-            "observedValue": null,
-            "known": false,
-            "matched": false
+            "observedValue": true,
+            "known": true,
+            "matched": true
           }
         ]
       },
@@ -1163,11 +1164,11 @@
       "reason": null
     },
     "hashes": {
-      "artifact": "sha256:ce77d7cd5e51bc0938767622e9b6b4cc1e93c5f0d085f74321cfcde2d389767f",
+      "artifact": "sha256:f4b85af3a87836e77ba4b7b066bd57bcb00294dae4bc4c554566a0abb4ceb791",
       "semantic": "sha256:65116144c9cf96570bbc73c8d2e438d7548bc9943dbb74e1b1ac4b707cdd5941"
     },
     "size": {
-      "measuredBytes": 24346,
+      "measuredBytes": 24359,
       "category": "medium",
       "measurementOnly": true
     },

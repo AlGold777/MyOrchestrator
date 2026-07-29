@@ -24,13 +24,14 @@
   }
 
   function exactScope(left, right) {
+    return contracts()?.sameIncidentScope?.(left, right) === true;
+  }
+
+  function sameRunScope(left, right) {
     const a = scopeOf(left);
     const b = scopeOf(right);
-    return a.runSessionId === b.runSessionId
-      && a.runGeneration === b.runGeneration
-      && a.modelId === b.modelId
-      && a.dispatchId !== null && a.dispatchId === b.dispatchId
-      && a.generationEpoch === b.generationEpoch;
+    return a.runSessionId !== null && a.runSessionId === b.runSessionId
+      && a.runGeneration !== null && a.runGeneration === b.runGeneration;
   }
 
   function indexIncidents(events) {
@@ -75,17 +76,21 @@
   function selectIncident(events, { platform, task, incidentId = null } = {}) {
     const eventById = new Map((events || []).map((event) => [event.eventId, event]));
     const candidates = indexIncidents(events).filter((incident) => !platform || incident.scope.modelId === platform);
+    if (incidentId && !candidates.some((incident) => incident.incidentId === incidentId)) {
+      return {
+        selected: null,
+        selectionReason: 'explicit_incident_not_found',
+        otherMatchingIncidents: [],
+        matchingIncidentCount: 0
+      };
+    }
     // A zero task-specific match is still a valid diagnostic incident. For
     // absence-oriented tasks (request not sent / generation not started),
     // requiring the expected event before allowing export would hide the very
     // failure the report is meant to explain. Rank by available evidence, but
     // never use evidence absence as an incident-exclusion predicate.
-    const matching = candidates;
+    const matching = incidentId ? candidates.filter((incident) => incident.incidentId === incidentId) : candidates;
     const ranked = matching.slice().sort((left, right) => {
-      if (incidentId) {
-        if (left.incidentId === incidentId) return -1;
-        if (right.incidentId === incidentId) return 1;
-      }
       const leftScore = taskMatchScore(left, eventById, task) + (left.contradiction ? 4 : 0) + (left.terminal ? 1 : 0);
       const rightScore = taskMatchScore(right, eventById, task) + (right.contradiction ? 4 : 0) + (right.terminal ? 1 : 0);
       return rightScore - leftScore || right.lastIngestSeq - left.lastIngestSeq || left.incidentId.localeCompare(right.incidentId);
@@ -224,7 +229,8 @@
         violations.push({ invariantId: 'S02', eventId, message: 'referenced evidence is absent' });
         return;
       }
-      if (event.modelId !== 'SYSTEM' && !exactScope(event, incident.scope)) {
+      if ((event.modelId === 'SYSTEM' && !sameRunScope(event, incident.scope))
+        || (event.modelId !== 'SYSTEM' && !exactScope(event, incident.scope))) {
         violations.push({ invariantId: 'SCOPE', eventId, message: 'cross-incident evidence rejected' });
         return;
       }
@@ -255,7 +261,7 @@
     return { ...slotResult, events: materialized, violations };
   }
 
-  const api = Object.freeze({ scopeOf, scopeKey, exactScope, indexIncidents, selectIncident, selectIncidentReports, selectProofEvents, resolveEvidenceSlots, buildEvidenceClosure });
+  const api = Object.freeze({ scopeOf, scopeKey, exactScope, sameRunScope, indexIncidents, selectIncident, selectIncidentReports, selectProofEvents, resolveEvidenceSlots, buildEvidenceClosure });
   root.ProofTelemetryIncidents = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

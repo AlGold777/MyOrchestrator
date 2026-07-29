@@ -467,3 +467,38 @@ Section 18 evidence: a concrete Task now produces bounded standalone reports
 for every matching indexed incident under `All platforms`, or only the selected
 Platform. The focused telemetry gate passes 9 suites / 75 tests; the complete
 gate passes 186 suites / 1273 tests. Every section 18 task is Done.
+
+## 19. Cross-review semantic corrections
+
+19.1. Preserve the full-incident verdict across standalone compaction and
+record a verifiable full-incident semantic hash. - Pending
+
+19.2. Introduce a composite diagnostic verdict based on applicability,
+sufficiency and invariant violations; arbitrate only strong verdicts. - Pending
+
+19.3. Replace event-type-only slot matching with fact, payload, identity and
+temporal predicates. - Pending
+
+19.4. Enforce temporal and causal ordering across submission, generation,
+extraction, decision, terminal and post-terminal audit. - Pending
+
+19.5. Unify exact incident scope, SYSTEM boundaries and identity vocabulary. - Done
+
+19.6. Require candidate continuity for text/extraction measurements. - Pending
+
+19.7. Add explicit refutation predicates for accepted-answer and generation
+counter-evidence. - Pending
+
+19.8. Give Late end a policy-relative threshold and alternative wait evidence. - Pending
+
+19.9. Add a bounded prior-incident evidence lane for Old answer. - Pending
+
+19.10. Unify post-terminal change semantics and use one configured threshold. - Pending
+
+19.11. Correct effective-slot coverage, enumerated states, conclusions and
+per-field diagnostic provenance. - Pending
+
+19.12. Reject unknown explicit incident IDs without fallback. - Done
+
+19.13. Add the full adversarial test matrix, update schemas/validator/examples,
+versions and documentation, then run focused and complete gates. - Pending

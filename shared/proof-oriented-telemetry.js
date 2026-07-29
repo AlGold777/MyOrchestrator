@@ -473,15 +473,16 @@
     const generationEvents = events.filter((event) => ['GENERATION_START_EVALUATED', 'GENERATION_SIGNAL_CHANGED', 'OBSERVATION_FRAME_CAPTURED', 'TEXT_STATE_CHANGED'].includes(event.eventType));
     const generationLengths = numericMeta(generationEvents, ['textLength', 'answerLength', 'answerLen', 'latestObservedTextLength']);
     const generationTextObserved = generationLengths.length ? Math.max(...generationLengths) > 0 : null;
-    const extractionIdentity = String(eventValue(extractionEvent, ['answerIdentity']) || '').toLowerCase() || null;
+    const extractionIdentityRaw = String(eventValue(extractionEvent, ['answerIdentity']) || '').toLowerCase() || null;
+    const extractionIdentity = Contracts?.normalizeIdentityState?.(extractionIdentityRaw) || extractionIdentityRaw;
     const extractionVerified = eventBoolean(extractionEvent, ['verified', 'structuralVerified']);
     const extractionVerification = String(eventValue(extractionEvent, ['verification']) || '').toLowerCase() || null;
     const wrongNodeEvidence = extractionEvent && extractedTextLength > 0
       ? (extractionVerified === false
         || extractionVerification === 'rejected'
-        || ['ambiguous', 'rejected', 'stale'].includes(extractionIdentity)
+        || ['ambiguous', 'rejected', 'previous'].includes(extractionIdentity)
           ? true
-          : (extractionVerified === true || extractionVerification === 'verified' || extractionIdentity === 'current_dispatch' ? false : null))
+          : (extractionVerified === true || extractionVerification === 'verified' || extractionIdentity === 'current' ? false : null))
       : null;
     const emptyResultEvidence = extractionEvent
       ? (extractionFailed || extractedTextLength === 0
@@ -512,12 +513,13 @@
         ? false
         : (explicitComplete ? false : null));
     const terminalAnswerDispatchId = eventValue(terminalEvent, ['answerEvidenceDispatchId', 'acceptedAnswerDispatchId']);
-    const explicitAnswerIdentity = String(eventValue(terminalEvent, ['answerIdentity']) || extractionIdentity || '').toLowerCase() || null;
+    const explicitAnswerIdentityRaw = String(eventValue(terminalEvent, ['answerIdentity']) || extractionIdentityRaw || '').toLowerCase() || null;
+    const explicitAnswerIdentity = Contracts?.normalizeIdentityState?.(explicitAnswerIdentityRaw) || explicitAnswerIdentityRaw;
     const currentDispatchIdentity = normalizeDispatchIdentity(terminalEvent?.dispatchId, modelId);
     const acceptedAnswerIdentity = normalizeDispatchIdentity(terminalAnswerDispatchId, modelId);
-    const oldAnswerEvidence = explicitAnswerIdentity === 'current_dispatch'
+    const oldAnswerEvidence = explicitAnswerIdentity === 'current'
       ? false
-      : (['previous_dispatch', 'stale_accepted'].includes(explicitAnswerIdentity)
+      : (explicitAnswerIdentity === 'previous'
         ? true
         : (currentDispatchIdentity !== null && acceptedAnswerIdentity !== null
           ? currentDispatchIdentity !== acceptedAnswerIdentity

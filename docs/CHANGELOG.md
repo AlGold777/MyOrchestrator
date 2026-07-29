@@ -1,5 +1,16 @@
 # CHANGELOG — Project
 
+### 2026-07-29 — Strict incident identity boundaries, version 2.81.152
+
+- Unified policy, audit and evidence-closure scope comparison, including
+  `runGeneration`, dispatch and generation epoch.
+- SYSTEM evidence is now admitted only from the same run and run generation;
+  cross-run references produce an explicit scope violation.
+- Unknown explicit incident IDs return `explicit_incident_not_found` instead of
+  silently selecting another incident.
+- Added one normalized identity vocabulary shared by Old answer and Empty.
+- Focused scope/contract gate passes 5 suites / 38 tests.
+
 ### 2026-07-29 — Task JSON export across platforms, version 2.81.151
 
 - Fixed JSON export for every concrete Telemetry Task: `All platforms` now

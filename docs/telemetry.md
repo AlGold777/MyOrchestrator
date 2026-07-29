@@ -306,6 +306,12 @@ Platform экспорт ограничивается только её incident'
 в заголовке страницы на proof JSON не влияет — область задают исключительно
 два видимых фильтра Telemetry.
 
+Версия `2.81.152` унифицирует границу incident во всех слоях: совпадать должны
+run, `runGeneration`, model, dispatch и generation epoch. SYSTEM-доказательства
+могут войти в closure только из того же run/runGeneration, неизвестный явный
+`incidentId` завершается без fallback, а состояния identity приводятся к
+единому словарю `current|previous|ambiguous|rejected|unknown`.
+
 `Only problems` не возвращён: проблемность является вычисляемым результатом
 диагностической задачи, а не независимой осью отбора. Для анализа выбираются
 конкретный вопрос и при необходимости Platform; режим `All tasks` остаётся

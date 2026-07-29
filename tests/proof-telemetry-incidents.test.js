@@ -49,6 +49,20 @@ describe('proof telemetry incident index and evidence graph', () => {
     expect(result.otherMatchingIncidents).toHaveLength(1);
   });
 
+  test('rejects an unknown explicit incident instead of silently falling back', () => {
+    const selection = Incidents.selectIncident([event('event-1', 'GENERATION_SIGNAL_CHANGED')], {
+      platform: 'GPT',
+      task: 'false-success',
+      incidentId: 'incident:not-present'
+    });
+    expect(selection).toEqual({
+      selected: null,
+      selectionReason: 'explicit_incident_not_found',
+      otherMatchingIncidents: [],
+      matchingIncidentCount: 0
+    });
+  });
+
   test('resolves typed evidence slots and marks missing evidence explicitly', () => {
     const incident = Incidents.indexIncidents([event('event-1', 'GENERATION_SIGNAL_CHANGED')])[0];
     const result = Incidents.resolveEvidenceSlots([event('event-1', 'GENERATION_SIGNAL_CHANGED')], incident, 'false-success');
@@ -82,6 +96,21 @@ describe('proof telemetry incident index and evidence graph', () => {
     const result = Incidents.buildEvidenceClosure(events, incident, 'false-success');
     expect(result.violations).toEqual(expect.arrayContaining([expect.objectContaining({ invariantId: 'SCOPE', eventId: 'event-2' })]));
     expect(result.events.some((item) => item.eventId === 'event-2')).toBe(false);
+  });
+
+  test('rejects SYSTEM evidence from another run or run generation', () => {
+    const events = [
+      event('event-1', 'GENERATION_SIGNAL_CHANGED', { evidenceRefs: ['event-2', 'event-3'] }),
+      event('event-2', 'RUN_CONFIG_RECORDED', { modelId: 'SYSTEM', dispatchId: undefined, runSessionId: 'other-run' }),
+      event('event-3', 'RUN_CONFIG_RECORDED', { modelId: 'SYSTEM', dispatchId: undefined, runGeneration: 9 })
+    ];
+    const incident = Incidents.indexIncidents(events)[0];
+    const result = Incidents.buildEvidenceClosure(events, incident, 'false-success');
+    expect(result.violations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ invariantId: 'SCOPE', eventId: 'event-2' }),
+      expect.objectContaining({ invariantId: 'SCOPE', eventId: 'event-3' })
+    ]));
+    expect(result.events.map((item) => item.eventId)).not.toEqual(expect.arrayContaining(['event-2', 'event-3']));
   });
 
   test('registry covers every selectable task', () => {
