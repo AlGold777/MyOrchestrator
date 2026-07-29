@@ -4,7 +4,7 @@
 
   const EVENT_SCHEMA_VERSION = 6;
   const CLOCK_CONTRACT_VERSION = '1.0';
-  const REGISTRY_VERSION = '5.2.0';
+  const REGISTRY_VERSION = '5.3.0';
   const THRESHOLDS = Object.freeze({
     generationStartTimeoutMs: 15000,
     minimumExtractionCoveragePct: 98,
@@ -158,6 +158,16 @@
     'late-end.terminal_boundary': { fact: { kind: 'terminal_action', states: ['success', 'failure', 'error', 'timeout'] } }
   });
 
+  const REPORT_COUNTEREVIDENCE_TYPES = Object.freeze({
+    cutted: ['TEXT_STATE_CHANGED', 'EXTRACTION_COMPLETED', 'STRUCTURAL_VERIFICATION_EVALUATED', 'MODEL_TERMINAL_RECORDED', 'POST_TERMINAL_AUDIT_COMPLETED'],
+    'false-success': ['MODEL_TERMINAL_RECORDED', 'TEXT_STATE_CHANGED', 'GENERATION_SIGNAL_CHANGED', 'POST_TERMINAL_AUDIT_COMPLETED', 'MISSING_EVIDENCE_RECORDED'],
+    'old-answer': ['CANDIDATE_IDENTITY_INFERRED', 'EXTRACTION_COMPLETED', 'MODEL_TERMINAL_RECORDED', 'DECISION_RECORDED'],
+    empty: ['GENERATION_START_EVALUATED', 'GENERATION_SIGNAL_CHANGED', 'TEXT_STATE_CHANGED', 'EXTRACTION_COMPLETED', 'CANDIDATE_IDENTITY_INFERRED', 'STRUCTURAL_VERIFICATION_EVALUATED'],
+    'prompt-not-inserted': ['PROMPT_INSERTION_EVALUATED', 'SUBMISSION_EVIDENCE_CHANGED', 'SUBMISSION_INFERRED', 'GENERATION_START_EVALUATED', 'GENERATION_SIGNAL_CHANGED', 'TEXT_STATE_CHANGED', 'EXTRACTION_COMPLETED', 'MODEL_TERMINAL_RECORDED'],
+    'prompt-not-sent': ['SUBMISSION_EVIDENCE_CHANGED', 'SUBMISSION_INFERRED', 'GENERATION_START_EVALUATED', 'GENERATION_SIGNAL_CHANGED', 'TEXT_STATE_CHANGED', 'EXTRACTION_COMPLETED', 'MODEL_TERMINAL_RECORDED'],
+    'late-end': ['STABILITY_INTERVAL_CLOSED', 'TEXT_STATE_CHANGED', 'GENERATION_SIGNAL_CHANGED', 'DECISION_RECORDED', 'TERMINAL_DEADLINE_REACHED', 'FINALIZATION_POLICY_EVALUATED', 'MODEL_TERMINAL_RECORDED']
+  });
+
   function sourceType(event) {
     return String(event?.payload?.sourceEventType || event?.payload?.metadata?.sourceEventType || '').toUpperCase();
   }
@@ -265,6 +275,10 @@
     };
   }
 
+  function counterEvidenceTypes(reportType) {
+    return (REPORT_COUNTEREVIDENCE_TYPES[reportType] || []).slice();
+  }
+
   const api = Object.freeze({
     EVENT_SCHEMA_VERSION,
     CLOCK_CONTRACT_VERSION,
@@ -272,13 +286,15 @@
     THRESHOLDS,
     REPORT_CONTRACTS,
     SLOT_MATCH_RULES,
+    REPORT_COUNTEREVIDENCE_TYPES,
     sourceType,
     adaptLegacyEvent,
     factOf,
     sameIncidentScope,
     normalizeIdentityState,
     normalizedSlots,
-    normalizedApplicability
+    normalizedApplicability,
+    counterEvidenceTypes
   });
   root.ProofTelemetryContracts = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

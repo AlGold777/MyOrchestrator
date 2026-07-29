@@ -319,6 +319,13 @@ run, `runGeneration`, model, dispatch и generation epoch. SYSTEM-доказат
 Audit после terminal обязан ссылаться на terminal и последующее наблюдение;
 одно лишь совпадение eventType слот больше не удовлетворяет.
 
+Версия `2.81.154` запрещает изменение диагноза из-за компактизации. Applicability
+фиксируется на полном frozen incident; compacted report обязан воспроизводить
+те же state axes и результаты всех Tasks. В export integrity записываются
+`fullIncidentSemanticHash`, обе verdict-проекции и `equivalent`. Если bounded
+closure не сохраняет смысл, материализуется полный incident с явной причиной
+`semantic-verdict-preservation`.
+
 `Only problems` не возвращён: проблемность является вычисляемым результатом
 диагностической задачи, а не независимой осью отбора. Для анализа выбираются
 конкретный вопрос и при необходимости Platform; режим `All tasks` остаётся

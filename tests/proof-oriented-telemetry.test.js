@@ -272,7 +272,10 @@ describe('Proof-oriented telemetry schema 6 event export', () => {
     expect(report.reportDescriptor.completeness.level).toBe('insufficient');
     expect(report.missingEvidence.length).toBeGreaterThan(0);
     expect(report.eventSelection.materializedEvents).toHaveLength(1);
-    expect(report.eventSelection.materializedEvents[0].includedFor).toEqual(['scope:incident-anchor']);
+    expect(report.eventSelection.materializedEvents[0].includedFor).toEqual([
+      'counterevidence:prompt-not-sent',
+      'scope:incident-anchor'
+    ]);
   });
 
   test('reports the measured stable-to-terminal delay for Late end', async () => {

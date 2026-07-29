@@ -305,6 +305,10 @@
     }
     slotResult.slots.forEach((slot) => slot.eventIds.forEach((id) => include(id, `slot:${slot.slotId}`)));
     slotResult.slots.forEach((slot) => slot.rejectedEventIds.forEach((id) => include(id, `slot-rejected:${slot.slotId}`)));
+    const counterEvidenceTypes = new Set(contracts()?.counterEvidenceTypes?.(task) || []);
+    selectProofEvents((events || []).filter((event) => exactScope(event, incident.scope)
+      && counterEvidenceTypes.has(event.eventType)), events || [])
+      .forEach((event) => include(event.eventId, `counterevidence:${task}`));
     if (!slotResult.slots.some((slot) => slot.eventIds.length)) {
       const anchorId = incident.eventIds?.[0];
       if (anchorId) include(anchorId, 'scope:incident-anchor');

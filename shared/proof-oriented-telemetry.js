@@ -14,8 +14,8 @@
   const Clock = root.ProofTelemetryClock || (typeof require === 'function' ? require('./proof-telemetry-clock.js') : null);
   const SCHEMA_VERSION = '5.0';
   const EVENT_SCHEMA_VERSION = Contracts?.EVENT_SCHEMA_VERSION || 6;
-  const GENERATOR_VERSION = 'proof-export@1.5.0';
-  const REPORT_VERSION = '2.4.0';
+  const GENERATOR_VERSION = 'proof-export@1.6.0';
+  const REPORT_VERSION = '2.5.0';
   const REPORT_TYPES = Object.freeze([
     'cutted',
     'false-success',
@@ -1095,22 +1095,48 @@
     preliminaryView.stateAxes = root.ProofTelemetryPolicy?.deriveAxes
       ? root.ProofTelemetryPolicy.deriveAxes(preliminaryEvents, preliminaryEvents[preliminaryEvents.length - 1])
       : preliminaryView.stateAxes;
+    const fullContext = { stateAxes: preliminaryView.stateAxes, derivedViews: preliminaryView };
+    const fullApplicability = Object.fromEntries(REPORT_TYPES.map((type) => [type, evaluateApplicability(type, fullContext)]));
     const closure = Incidents.buildEvidenceClosure(sourceEvents, selection.selected, reportType, {
-      context: { stateAxes: preliminaryView.stateAxes, derivedViews: preliminaryView }
+      context: fullContext
     });
-    const materializedEvents = closure.events;
+    let materializedEvents = closure.events;
+    const deriveCompacted = (events) => {
+      const view = deriveModelView(modelId, events.filter((event) => event.modelId === modelId));
+      const stateAxes = root.ProofTelemetryPolicy?.deriveAxes
+        ? root.ProofTelemetryPolicy.deriveAxes(events, events.filter((event) => event.modelId === modelId).slice(-1)[0])
+        : view.stateAxes;
+      view.stateAxes = stateAxes;
+      const context = { stateAxes, derivedViews: view };
+      return {
+        view,
+        axes: stateAxes,
+        context,
+        applicability: Object.fromEntries(REPORT_TYPES.map((type) => [type, evaluateApplicability(type, context)]))
+      };
+    };
+    const fullVerdictProjection = { axes: preliminaryView.stateAxes, applicability: fullApplicability };
+    let compacted = deriveCompacted(materializedEvents);
+    let fallbackMaterializedFullIncident = false;
+    if (stableStringify(fullVerdictProjection) !== stableStringify({ axes: compacted.axes, applicability: compacted.applicability })) {
+      fallbackMaterializedFullIncident = true;
+      const existing = new Map(materializedEvents.map((event) => [event.eventId, event]));
+      preliminaryEvents.forEach((event) => {
+        const current = existing.get(event.eventId);
+        existing.set(event.eventId, current || { ...event, includedFor: ['semantic-verdict-preservation'] });
+      });
+      materializedEvents = [...existing.values()].sort((left, right) => Number(left.ingestSeq || left.seq) - Number(right.ingestSeq || right.seq));
+      compacted = deriveCompacted(materializedEvents);
+    }
     const materializedHash = await sha256(materializedEvents);
     const sourceLedgerHash = await sha256(sourceEvents);
-    const modelView = deriveModelView(modelId, materializedEvents.filter((event) => event.modelId === modelId));
-    const axes = root.ProofTelemetryPolicy?.deriveAxes
-      ? root.ProofTelemetryPolicy.deriveAxes(materializedEvents, materializedEvents.filter((event) => event.modelId === modelId).slice(-1)[0])
-      : modelView.stateAxes;
-    modelView.stateAxes = axes;
+    const modelView = compacted.view;
+    const axes = compacted.axes;
     const registrySnapshot = dependencyRegistrySnapshot();
     const registryHash = await sha256(registrySnapshot);
-    const context = { stateAxes: axes, derivedViews: modelView };
-    const applicability = evaluateApplicability(reportType, context);
-    const allApplicability = Object.fromEntries(REPORT_TYPES.map((type) => [type, evaluateApplicability(type, context)]));
+    const context = compacted.context;
+    const applicability = fullApplicability[reportType];
+    const allApplicability = fullApplicability;
     const allVerdicts = Object.fromEntries(REPORT_TYPES.map((type) => {
       const evidence = Incidents.resolveEvidenceSlots(sourceEvents, selection.selected, type, {
         stateAxes: preliminaryView.stateAxes,
@@ -1150,7 +1176,16 @@
       if (copy.clock) delete copy.clock.ingestMonoMs;
       return copy;
     });
+    const fullSemanticEvents = preliminaryEvents.map((event) => {
+      const copy = JSON.parse(JSON.stringify(event));
+      delete copy.wallTs;
+      if (copy.clock) delete copy.clock.ingestMonoMs;
+      return copy;
+    });
     const semanticHash = await sha256({ incident: selection.selected.scope, task: reportType, events: semanticEvents, axes });
+    const fullIncidentSemanticHash = await sha256({ incident: selection.selected.scope, events: fullSemanticEvents, axes: preliminaryView.stateAxes });
+    const fullVerdictHash = await sha256(fullVerdictProjection);
+    const materializedVerdictHash = await sha256({ axes: compacted.axes, applicability: compacted.applicability });
     const effectiveSlots = closure.slots.filter((slot) => slot.effectiveCriticality !== 'conditional');
     const completeness = {
       level: closure.sufficiency,
@@ -1253,6 +1288,15 @@
         sourceLedgerHash,
         materializedEventHash: materializedHash,
         semanticHash,
+        fullIncidentSemanticHash,
+        fullIncidentEventCount: preliminaryEvents.length,
+        applicabilitySource: 'full-frozen-incident',
+        verdictPreservation: {
+          fullVerdictHash,
+          materializedVerdictHash,
+          equivalent: fullVerdictHash === materializedVerdictHash,
+          fallbackMaterializedFullIncident
+        },
         sourceLedgerEventCount: sourceEvents.length,
         materializedEventCount: materializedEvents.length,
         deduplication: {

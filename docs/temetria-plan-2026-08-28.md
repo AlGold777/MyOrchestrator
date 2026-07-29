@@ -471,7 +471,7 @@ gate passes 186 suites / 1273 tests. Every section 18 task is Done.
 ## 19. Cross-review semantic corrections
 
 19.1. Preserve the full-incident verdict across standalone compaction and
-record a verifiable full-incident semantic hash. - Pending
+record a verifiable full-incident semantic hash. - Done
 
 19.2. Introduce a composite diagnostic verdict based on applicability,
 sufficiency and invariant violations; arbitrate only strong verdicts. - Done

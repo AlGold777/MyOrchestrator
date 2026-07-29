@@ -281,6 +281,35 @@ async function validateStandaloneReport(report) {
     || report?.diagnosticSummary?.diagnosticVerdict !== recomputedVerdict) {
     addError('VERDICT_MISMATCH', 'standalone diagnostic verdict does not replay');
   }
+  const recomputedAllApplicability = Object.fromEntries(REQUIRED_REPORTS.map((reportType) => [
+    reportType,
+    ProofTelemetry.evaluateApplicability(reportType, {
+      stateAxes: report.stateAxes,
+      derivedViews: report.derivedViews?.modelTimeline?.data
+    })
+  ]));
+  const materializedVerdictHash = await ProofTelemetry.sha256({ axes: report.stateAxes, applicability: recomputedAllApplicability });
+  const preservation = report?.exportIntegrity?.verdictPreservation || {};
+  if (report?.exportIntegrity?.applicabilitySource !== 'full-frozen-incident'
+    || preservation.materializedVerdictHash !== materializedVerdictHash
+    || preservation.fullVerdictHash !== materializedVerdictHash
+    || preservation.equivalent !== true) {
+    addError('VERDICT_COMPACTION_MISMATCH', 'materialized evidence does not preserve the full-incident verdict projection');
+  }
+  if (preservation.fallbackMaterializedFullIncident === true) {
+    const fullProjection = events.filter((event) => event.modelId === correlation.modelId).map((event) => {
+      const copy = JSON.parse(JSON.stringify(event));
+      delete copy.wallTs;
+      delete copy.includedFor;
+      if (copy.clock) delete copy.clock.ingestMonoMs;
+      return copy;
+    });
+    const reconstructedFullHash = await ProofTelemetry.sha256({ incident: Incidents.scopeOf(correlation), events: fullProjection, axes: report.stateAxes });
+    if (Number(report?.exportIntegrity?.fullIncidentEventCount) !== fullProjection.length
+      || report?.exportIntegrity?.fullIncidentSemanticHash !== reconstructedFullHash) {
+      addError('FULL_INCIDENT_HASH_MISMATCH', 'full incident fallback does not match its semantic commitment');
+    }
+  }
   const semanticEvents = events.map((event) => {
     const copy = JSON.parse(JSON.stringify(event));
     delete copy.wallTs;

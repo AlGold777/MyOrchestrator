@@ -1,5 +1,18 @@
 # CHANGELOG — Project
 
+### 2026-07-29 — Verdict-preserving compaction, version 2.81.154
+
+- Standalone applicability is frozen from the complete exact incident instead
+  of being recomputed only from the compacted subset.
+- Registry 5.3.0 declares counter-evidence event types for every Task; rejected
+  fact matches and refuting observations receive explicit inclusion reasons.
+- Each report commits to the full-incident semantic hash and to full/materialized
+  verdict projection hashes. Offline validation requires exact equivalence.
+- If bounded selection changes any state axis or Task applicability, the
+  builder automatically materializes the complete incident as a safe fallback.
+- Regression coverage proves that a refuted Prompt not sent diagnosis remains
+  refuted after standalone compaction; 4 suites / 50 tests pass.
+
 ### 2026-07-29 — Fact-level evidence and composite verdict, version 2.81.153
 
 - Added executable fact and temporal matching rules to registry 5.2.0; presence

@@ -154,7 +154,10 @@ describe('proof telemetry incident index and evidence graph', () => {
     const closure = Incidents.buildEvidenceClosure(events, selection.selected, 'prompt-not-sent');
     expect(closure.sufficiency).toBe('insufficient');
     expect(closure.events).toEqual([
-      expect.objectContaining({ eventId: 'event-1', includedFor: ['scope:incident-anchor'] })
+      expect.objectContaining({
+        eventId: 'event-1',
+        includedFor: ['counterevidence:prompt-not-sent', 'scope:incident-anchor']
+      })
     ]);
   });
 

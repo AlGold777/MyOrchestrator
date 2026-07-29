@@ -38,6 +38,32 @@ function applicability(reportType, events) {
 }
 
 describe('proof telemetry preset semantic applicability', () => {
+  test('standalone compaction preserves full-incident refutation', async () => {
+    const events = [
+      event('DISPATCH_BASELINE_CAPTURED', 1),
+      event('SUBMISSION_INFERRED', 2, { typed: { kind: 'submission', state: 'failed' } }),
+      event('GENERATION_SIGNAL_CHANGED', 3, { metadata: { textLength: 500 }, typed: { kind: 'generation', state: 'active' } }),
+      event('EXTRACTION_COMPLETED', 4, { metadata: { length: 500 }, typed: { kind: 'extraction', state: 'completed' } }),
+      event('MODEL_TERMINAL_RECORDED', 5, {
+        metadata: { terminalStatus: 'SUCCESS', answerLen: 500 },
+        typed: { kind: 'terminal_action', state: 'SUCCESS' }
+      })
+    ];
+    expect(applicability('prompt-not-sent', events).result.status).toBe('not_confirmed');
+    const standalone = await ProofTelemetry.buildStandaloneReport(events, {
+      canonicalLedger: true,
+      modelId: 'GPT',
+      reportType: 'prompt-not-sent'
+    });
+    expect(standalone.reportDescriptor.applicability.status).toBe('not_confirmed');
+    expect(standalone.diagnosticSummary.applicability.status).toBe('not_confirmed');
+    expect(standalone.derivedViews.modelTimeline.data.promptNotSentEvidence).toBe(false);
+    expect(standalone.exportIntegrity.verdictPreservation).toEqual(expect.objectContaining({
+      equivalent: true,
+      fullVerdictHash: standalone.exportIntegrity.verdictPreservation.materializedVerdictHash
+    }));
+  });
+
   test('composite verdict blocks arbitration when confirmed applicability lacks proof', async () => {
     const terminal = event('MODEL_TERMINAL_RECORDED', 1, {
       metadata: { terminalStatus: 'SUCCESS', answerIdentity: 'previous_dispatch' },
