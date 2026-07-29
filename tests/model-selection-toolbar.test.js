@@ -127,6 +127,21 @@ describe('Model selection toolbar', () => {
     expect(payload.llmComparatorFavoriteEntries[0].text).toContain('Selected');
   });
 
+  test('one physical star press stores the fragment even when the host clears selection before click', async () => {
+    await selectText();
+    const favorite = document.querySelector('#codex-model-selection-toolbar [data-fav]');
+
+    favorite.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true }));
+    window.getSelection().removeAllRanges();
+    document.dispatchEvent(new Event('selectionchange', { bubbles: true }));
+    favorite.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    await delay(20);
+
+    const payload = chrome.storage.local.set.mock.calls.at(-1)[0];
+    expect(payload.llmComparatorFavoriteEntries).toHaveLength(1);
+    expect(payload.llmComparatorFavoriteEntries[0].text).toContain('Selected');
+  });
+
   test('renders remove-highlight before yellow and clears an applied highlight', async () => {
     await selectText();
     const toolbar = document.getElementById('codex-model-selection-toolbar');

@@ -491,6 +491,43 @@ describe('Pipeline debate favorites view', () => {
     expect(source.style.display).toBe('none');
   });
 
+  test('one physical star press creates exactly one fragment card', async () => {
+    const source = addDebateCard({
+      id: 'source-pointer',
+      model: 'GPT',
+      text: 'One pointer press must create one favorite fragment.'
+    });
+    const output = source.querySelector('.debate-model-card-output');
+    await selectTextInOutput(output, 4, 19);
+    const favorite = document.querySelector('#debateSelTb [data-fav]');
+
+    favorite.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true }));
+    favorite.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+    const fragments = document.querySelectorAll('.fragment-card[data-kind="fragment"]');
+    expect(fragments).toHaveLength(1);
+    expect(fragments[0].textContent).toContain('pointer press');
+  });
+
+  test('one physical star press creates exactly one main-page favorite item', async () => {
+    const output = document.getElementById('output-gemini');
+    const favoriteState = window.__resultsExportDebug.favoriteState;
+    const originalEntries = favoriteState.entries;
+    favoriteState.entries = [];
+    output.textContent = 'Main page favorite selection.';
+    await selectTextInOutput(output, 10, 18);
+    const favorite = document.querySelector('#responseSelTb [data-fav]');
+
+    favorite.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true }));
+    favorite.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+    expect(favoriteState.entries).toHaveLength(1);
+    expect(favoriteState.entries[0].kind).toBe('fragment');
+    expect(favoriteState.entries[0].text).toBe('favorite');
+    favoriteState.entries = originalEntries;
+    output.textContent = '';
+  });
+
   test('delete session removes the current session when multiple sessions exist', async () => {
     const addBtn = document.getElementById('debate-session-add-btn');
     addBtn.click();

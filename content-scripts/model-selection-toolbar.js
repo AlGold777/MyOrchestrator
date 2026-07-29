@@ -262,6 +262,8 @@
   };
 
   let syncHandle = null;
+  let favoriteActivationPending = false;
+  let suppressFavoriteClickUntil = 0;
 
   const hideToolbar = () => {
     selectionState.range = null;
@@ -425,11 +427,17 @@
     return Array.isArray(data?.[STORAGE_KEY]) ? data[STORAGE_KEY] : [];
   };
 
-  const pushFavoriteEntry = async ({ text = '', html = '' } = {}) => {
+  const toggleFavoriteEntry = async ({ text = '', html = '' } = {}) => {
+    const current = await loadFavoriteEntries();
+    const index = findFavoriteEntryIndex(current, text);
+    if (index !== -1) {
+      current.splice(index, 1);
+      await safeStorageSet({ [STORAGE_KEY]: current });
+      return false;
+    }
     const normalizedText = String(text || '').trim();
     const normalizedHtml = normalizeHtml(String(html || '').trim());
     if (!normalizedText && !normalizedHtml) return false;
-    const current = await loadFavoriteEntries();
     current.push({
       id: `fav-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       kind: 'fragment',
@@ -444,16 +452,19 @@
     return true;
   };
 
-  const toggleFavoriteEntry = async ({ text = '', html = '' } = {}) => {
-    const current = await loadFavoriteEntries();
-    const index = findFavoriteEntryIndex(current, text);
-    if (index !== -1) {
-      current.splice(index, 1);
-      await safeStorageSet({ [STORAGE_KEY]: current });
-      return false;
+  const activateFavorite = async () => {
+    if (favoriteActivationPending) return;
+    const text = selectionState.range?.toString?.() || '';
+    const html = getSelectionHtml();
+    if (!String(text || '').trim() && !String(html || '').trim()) return;
+    favoriteActivationPending = true;
+    hideToolbar();
+    try {
+      const isActive = await toggleFavoriteEntry({ text, html });
+      setFavoriteButtonState(isActive);
+    } finally {
+      favoriteActivationPending = false;
     }
-    await pushFavoriteEntry({ text, html });
-    return true;
   };
 
   const scheduleToolbarSync = () => {
@@ -474,8 +485,18 @@
     });
   };
 
+  toolbar.addEventListener('pointerdown', (event) => {
+    const favoriteButton = event.target.closest?.('[data-fav]');
+    event.preventDefault();
+    event.stopPropagation();
+    if (!favoriteButton) return;
+    suppressFavoriteClickUntil = Date.now() + 750;
+    activateFavorite().catch((err) => console.warn('[MODEL-SEL] favorite activation failed', err));
+  });
+
   toolbar.addEventListener('mousedown', (event) => {
     event.preventDefault();
+    event.stopPropagation();
   });
 
   toolbar.addEventListener('click', async (event) => {
@@ -498,11 +519,8 @@
       return;
     }
     if (btn.dataset.fav) {
-      const text = selectionState.range?.toString?.() || '';
-      const html = getSelectionHtml();
-      const isActive = await toggleFavoriteEntry({ text, html });
-      setFavoriteButtonState(isActive);
-      hideToolbar();
+      if (Date.now() < suppressFavoriteClickUntil) return;
+      await activateFavorite();
     }
   });
 

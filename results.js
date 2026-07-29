@@ -73,6 +73,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     let favoriteOutputEl = null;
     let responseSelectionToolbarEl = null;
     let responseSelectionToolbarBound = false;
+    let suppressResponseFavoriteClickUntil = 0;
     const llmResultsContainer = document.querySelector('.llm-results');
     const sanitizeInlineHtml = (html) => {
         if (!html) return '';
@@ -16982,6 +16983,21 @@ function bindMainPageFavoritesInteractions() {
             hideResponseSelectionToolbar();
         }
     });
+    document.addEventListener('pointerdown', (event) => {
+        const toolbar = event.target?.closest?.(`#${responseSelectionToolbarId}`);
+        const btn = event.target?.closest?.('button[data-fav]');
+        if (!toolbar || !btn) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        suppressResponseFavoriteClickUntil = Date.now() + 750;
+        const text = getResponseSelectionText();
+        const html = getResponseSelectionHtml();
+        const sourceCard = responseSelectionState.target?.closest?.('.llm-panel') || null;
+        const isActive = toggleFavoriteFragmentFromSelection({ sourceCard, text, html });
+        setSelectionFavoriteButtonState(toolbar, isActive);
+        hideResponseSelectionToolbar();
+        window.getSelection?.()?.removeAllRanges?.();
+    });
     document.addEventListener('click', (event) => {
         const toolbar = event.target?.closest?.(`#${responseSelectionToolbarId}`);
         if (!toolbar) return;
@@ -17006,6 +17022,7 @@ function bindMainPageFavoritesInteractions() {
             return;
         }
         if (btn.dataset.fav) {
+            if (Date.now() < suppressResponseFavoriteClickUntil) return;
             const text = getResponseSelectionText();
             const html = getResponseSelectionHtml();
             const sourceCard = responseSelectionState.target?.closest?.('.llm-panel') || null;
@@ -17990,6 +18007,7 @@ function checkCompareButtonState() {
         };
     const serialDebateTimeline = [];
     const debateSelectionState = { range: null, target: null };
+    let suppressDebateFavoriteClickUntil = 0;
     const debateDirectionState = { mode: 'forward' };
     const DEBATE_SESSION_CLICK_DELAY_MS = 180;
     let debateSessionClickTimer = null;
@@ -21650,6 +21668,14 @@ function exportSingleTemplate(templateName, sourceData = null) {
             syncDebateLengthStepperUi();
             syncModeratorMiniPrompts();
         });
+    debateSelToolbar?.addEventListener('pointerdown', (event) => {
+        const btn = event.target.closest?.('button[data-fav]');
+        if (!btn) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        suppressDebateFavoriteClickUntil = Date.now() + 750;
+        promoteDebateSelectionToFavorite();
+    });
     debateSelToolbar?.addEventListener('click', (event) => {
         const btn = event.target.closest('button');
         if (!btn) return;
@@ -21669,6 +21695,7 @@ function exportSingleTemplate(templateName, sourceData = null) {
             return;
         }
         if (btn.dataset.fav) {
+            if (Date.now() < suppressDebateFavoriteClickUntil) return;
             promoteDebateSelectionToFavorite();
         }
     });

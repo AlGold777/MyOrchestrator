@@ -1,5 +1,17 @@
 # CHANGELOG — Project
 
+### 2026-07-29 — One-click selection favorites, version 2.81.158
+
+- The star in selection toolbars now commits the favorite on `pointerdown`,
+  before a model page can clear the browser selection or consume the later
+  `click` event.
+- The following synthetic `click` is suppressed, so one physical press creates
+  exactly one favorite on the main page, model pages and debate fragment cards.
+- Model-page storage now performs one read-modify-write transaction per toggle,
+  avoiding a second asynchronous storage read during insertion.
+- Regression tests cover selection loss between `pointerdown` and `click` and
+  verify that a full pointer gesture creates only one fragment card.
+
 ### 2026-07-29 — Preset semantic review iteration 3, version 2.81.157
 
 - Absence windows now start at the failed insertion/submission action and must
