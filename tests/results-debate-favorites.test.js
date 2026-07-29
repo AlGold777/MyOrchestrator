@@ -860,7 +860,10 @@ describe('Pipeline debate favorites view', () => {
       meta: expect.objectContaining({
         observedCardId: 'panel-gemini',
         outcome: 'matched',
-        payloadEvidenceId: proof.payloadEvidenceId
+        payloadEvidenceId: proof.payloadEvidenceId,
+        evaluationBoundaryId: expect.stringContaining('boundary:Gemini:42:1:render-attempt-1'),
+        evaluationBoundaryType: 'delivery_deadline',
+        resolutionState: 'delivered'
       })
     }));
   });

@@ -11,6 +11,51 @@ const evt = (platform, label, ts, meta = {}, details = '') => ({
 });
 
 describe('Proof-oriented telemetry schema 6 event export', () => {
+  const noDeliveryLedger = (renderOutcome, overrides = {}) => ProofTelemetry.buildLedger([
+    evt('GPT', 'ANSWER_SOURCE_MATERIALIZED', 1000, {
+      generationEpoch: 1,
+      sourceProofLevel: 'direct_preterminal',
+      attemptId: 'attempt-1',
+      payloadEvidenceId: 'payload-1',
+      normalizationVersion: 'answer-proof-normalization@1.0.0',
+      normalizedHash: 'fnv1a:12345678',
+      normalizedLength: 120,
+      ...overrides.source
+    }),
+    ...(overrides.middle || [
+      evt('GPT', 'ANSWER_DELIVERY_ACKNOWLEDGED', 1100, {
+        generationEpoch: 1,
+        attemptId: 'attempt-1',
+        payloadEvidenceId: 'payload-1',
+        outcome: 'accepted'
+      }),
+      evt('GPT', 'ANSWER_COMMIT_EVALUATED', 1200, {
+        generationEpoch: 1,
+        attemptId: 'attempt-1',
+        payloadEvidenceId: 'payload-1',
+        outcome: 'accepted',
+        overwrite: false
+      })
+    ]),
+    evt('GPT', 'ANSWER_CARD_RENDER_EVALUATED', 1300, {
+      generationEpoch: 1,
+      attemptId: 'attempt-1',
+      payloadEvidenceId: 'payload-1',
+      expectedCardId: 'panel-gpt',
+      observedCardId: 'panel-gpt',
+      outcome: renderOutcome,
+      contentClass: renderOutcome === 'empty' ? 'empty' : 'answer',
+      normalizationVersion: 'answer-proof-normalization@1.0.0',
+      expectedNormalizationVersion: 'answer-proof-normalization@1.0.0',
+      normalizedHash: renderOutcome === 'matched' ? 'fnv1a:12345678' : null,
+      expectedNormalizedHash: 'fnv1a:12345678',
+      evaluationBoundaryId: 'boundary-1',
+      evaluationBoundaryType: 'automatic_terminal',
+      resolutionState: renderOutcome === 'matched' ? 'delivered' : 'unresolved',
+      ...overrides.render
+    })
+  ], { runSessionId: 42 });
+
   test('routes prompt insertion failure into a typed canonical proof event', () => {
     const runtime = evt('GPT', 'PROMPT_INSERTION_FAILED', 1000, {
       dispatchId: 'dispatch-insertion',
@@ -122,6 +167,72 @@ describe('Proof-oriented telemetry schema 6 event export', () => {
     expect(container.exportAudit.hashes.ledger).toMatch(/^sha256:/);
     expect(container.reports['false-success'].eventSeqs.length).toBeGreaterThan(0);
     expect(container.reports['false-success']).not.toHaveProperty('materializedEvents');
+  });
+
+  test.each([
+    ['empty expected card', 'empty', true],
+    ['matching expected card', 'matched', false]
+  ])('derives No delivery occurrence from independent source/card proof: %s', (_name, outcome, expected) => {
+    const view = ProofTelemetry.deriveModelView('GPT', noDeliveryLedger(outcome));
+    expect(view.noDeliveryEvidence).toBe(expected);
+    expect(view.evaluationBoundaryId).toBe('boundary-1');
+    expect(view.sourceToCardComparison).toBe(outcome);
+  });
+
+  test.each([
+    ['source proof missing', { source: { sourceProofLevel: 'unproven' } }],
+    ['attempt identity differs', { render: { attemptId: 'attempt-2', payloadEvidenceId: 'payload-2' } }],
+    ['normalization version differs', { render: { expectedNormalizationVersion: 'answer-proof-normalization@2.0.0' } }],
+    ['expected card is unknown', { render: { expectedCardId: null } }]
+  ])('keeps No delivery unknown when comparison is not provable: %s', (_name, overrides) => {
+    const view = ProofTelemetry.deriveModelView('GPT', noDeliveryLedger('empty', overrides));
+    expect(view.noDeliveryEvidence).toBeNull();
+  });
+
+  test('keeps occurrence confirmed when the failing stage cannot be localized', async () => {
+    const ledger = noDeliveryLedger('mismatched', { middle: [] });
+    const report = await ProofTelemetry.buildStandaloneReport(ledger, {
+      canonicalLedger: true,
+      modelId: 'GPT',
+      reportType: 'no-delivery'
+    });
+    expect(report.reportDescriptor.occurrenceVerdict).toBe('confirmed');
+    expect(report.reportDescriptor.causeVerdict).toBe('supported_but_incomplete');
+    expect(report.reportDescriptor.occurrenceCompleteness.level).toBe('complete');
+    expect(report.reportDescriptor.causeCompleteness.level).toBe('bounded');
+    expect(report.diagnosticSummary.unexplainedByCatalogue).toBe(true);
+  });
+
+  test('localizes an empty-card cause on one attempt path and publishes all four cause axes', async () => {
+    const report = await ProofTelemetry.buildStandaloneReport(noDeliveryLedger('empty'), {
+      canonicalLedger: true,
+      modelId: 'GPT',
+      reportType: 'no-delivery'
+    });
+    expect(report.reportDescriptor.diagnosticVerdict).toBe('confirmed');
+    expect(report.diagnosticSummary).toEqual(expect.objectContaining({
+      failureStageCode: 'render',
+      mechanismCauseCode: 'card_render_empty',
+      observabilityLimitationCodes: expect.any(Array),
+      recoveryFindingCode: null,
+      lastSuccessfulStage: 'commit',
+      firstObservedUnsuccessfulStage: 'render'
+    }));
+  });
+
+  test('shadow-builds Empty and No delivery from one canonical ledger without event duplication', async () => {
+    const ledger = noDeliveryLedger('empty');
+    const container = await ProofTelemetry.buildAllPresets(ledger, { canonicalLedger: true, exportedAt: 2000 });
+    const incidentId = Object.keys(container.migration.shadowComparison)[0];
+    expect(container.reports).toHaveProperty('empty');
+    expect(container.reports).toHaveProperty('no-delivery');
+    expect(container.migration).toEqual(expect.objectContaining({
+      phase: 'empty-no-delivery-shadow',
+      canonicalLedgerShared: true
+    }));
+    expect(container.migration.shadowComparison[incidentId].noDeliveryVerdict).toBe('confirmed');
+    expect(container.ledger.eventCount).toBe(ledger.length);
+    expect(new Set(container.ledger.events.map((event) => event.eventId)).size).toBe(ledger.length);
   });
 
   test('keeps completion, forced terminal and completeness as independent axes', async () => {

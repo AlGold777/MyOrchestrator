@@ -37,12 +37,13 @@ describe('proof telemetry executable contracts', () => {
     });
   });
 
-  test('defines evidence-slot contracts for the seven user diagnostic questions', () => {
+  test('defines evidence-slot contracts for every current and shadow diagnostic question', () => {
     expect(Object.keys(Contracts.REPORT_CONTRACTS)).toEqual([
       'cutted',
       'false-success',
       'old-answer',
       'empty',
+      'no-delivery',
       'prompt-not-inserted',
       'prompt-not-sent',
       'late-end'

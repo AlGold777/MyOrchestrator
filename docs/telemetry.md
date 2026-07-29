@@ -1,5 +1,18 @@
 # Telemetry - tab/session diagnostics
 
+## No delivery shadow contract v2.81.163 - 2026-07-29
+
+`No delivery` is generated beside legacy `Empty` from the same immutable
+ledger. Its occurrence verdict compares a directly proven current-attempt
+source payload with the expected card at an explicit evaluation boundary;
+missing identity, card binding or comparable normalization stays `unknown`.
+
+Occurrence and cause are independent. A proven missing/unusable card remains
+`confirmed` when the failing stage is unknown. The cause graph publishes the
+last successful stage, first unsuccessful stage and separate failure-stage,
+mechanism, observability and recovery axes. Shadow output records verdict
+differences without duplicating canonical events.
+
 ## Answer commit and card render boundaries v2.81.162 - 2026-07-29
 
 `ANSWER_COMMIT_EVALUATED` is emitted by the accepted-answer commit owner before

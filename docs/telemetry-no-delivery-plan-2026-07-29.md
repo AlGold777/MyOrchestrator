@@ -683,9 +683,9 @@ Standalone No delivery report включает только:
 8. Инструментировать reception/rejection, включая post-terminal. — Done
 9. Ввести единого владельца commit evidence. — Done
 10. Инструментировать expected-card render evidence. — Done
-11. Реализовать occurrence contract с evaluation boundary/resolution state. — Pending
-12. Реализовать attempt graph и четыре независимые cause axes. — Pending
-13. Запустить shadow comparison с `Empty`. — Pending
+11. Реализовать occurrence contract с evaluation boundary/resolution state. — Done
+12. Реализовать attempt graph и четыре независимые cause axes. — Done
+13. Запустить shadow comparison с `Empty`. — Done
 14. Переключить UI/export на `No delivery`, сохранить legacy validation и
     удалить текущий `Empty`. — Pending
 15. Обновить версии/документацию и пройти полный regression gate. — Pending

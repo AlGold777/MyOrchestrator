@@ -16200,6 +16200,13 @@ document.addEventListener('click', (event) => {
             : (!outputElement || !renderedText
                 ? 'empty'
                 : comparison.status);
+        const terminalStatus = /^(?:SUCCESS|PARTIAL|ERROR|NO_SEND|EXTRACT_FAILED|STREAM_TIMEOUT|UNCERTAIN)$/.test(String(meta.status || '').toUpperCase());
+        const evaluationBoundaryType = meta.evaluationBoundaryType
+            || (terminalStatus ? 'automatic_terminal' : 'delivery_deadline');
+        const evaluationBoundaryId = meta.evaluationBoundaryId
+            || `boundary:${String(meta.dispatchId || 'unknown')}:${String(meta.attemptId || 'unknown')}:${evaluationBoundaryType}`;
+        const resolutionState = meta.resolutionState
+            || (outcome === 'matched' ? 'delivered' : 'unresolved');
         const renderKey = [meta.dispatchId, meta.attemptId, meta.payloadEvidenceId, observedCardId, outcome].join('|');
         if (outputElement?.dataset?.proofRenderKey === renderKey) return;
         if (outputElement?.dataset) outputElement.dataset.proofRenderKey = renderKey;
@@ -16220,7 +16227,10 @@ document.addEventListener('click', (event) => {
                     normalizedHash: observed?.normalizedHash || null,
                     expectedNormalizationVersion: meta.normalizationVersion || null,
                     expectedNormalizedHash: meta.normalizedHash || null,
-                    contentClass: !renderedText ? 'empty' : (isErrorOutput(renderedText) ? 'technical_message' : 'answer')
+                    contentClass: !renderedText ? 'empty' : (isErrorOutput(renderedText) ? 'technical_message' : 'answer'),
+                    evaluationBoundaryId,
+                    evaluationBoundaryType,
+                    resolutionState
                 }
             });
         } catch (_) {}

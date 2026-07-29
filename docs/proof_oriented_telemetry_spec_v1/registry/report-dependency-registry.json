@@ -1,5 +1,5 @@
 {
-  "registryVersion": "5.6.0",
+  "registryVersion": "6.0.0",
   "predicateLanguageVersion": "1.0.0",
   "maxEscalationDepth": 2,
   "reports": {
@@ -390,6 +390,104 @@
         ]
       ]
     },
+    "no-delivery": {
+      "question": "Почему материализованный ответ текущего запроса не оказался в правильной карточке?",
+      "refutationModel": "independent_delivery_confirmation",
+      "refutation": {
+        "any": [
+          [
+            "$.derivedViews.noDeliveryEvidence",
+            "eq",
+            false
+          ]
+        ]
+      },
+      "applicability": {
+        "all": [
+          [
+            "$.derivedViews.noDeliveryEvidence",
+            "eq",
+            true
+          ]
+        ]
+      },
+      "slots": [
+        [
+          "incident_identity",
+          "critical",
+          [
+            "ANSWER_SOURCE_MATERIALIZED"
+          ]
+        ],
+        [
+          "source_answer_materialized",
+          "critical",
+          [
+            "ANSWER_SOURCE_MATERIALIZED"
+          ]
+        ],
+        [
+          "expected_card_binding",
+          "critical",
+          [
+            "ANSWER_CARD_RENDER_EVALUATED"
+          ]
+        ],
+        [
+          "card_delivery_outcome",
+          "critical",
+          [
+            "ANSWER_CARD_RENDER_EVALUATED"
+          ]
+        ],
+        [
+          "source_to_card_comparison",
+          "critical",
+          [
+            "ANSWER_CARD_RENDER_EVALUATED"
+          ]
+        ],
+        [
+          "delivery_boundary",
+          "required",
+          [
+            "ANSWER_DELIVERY_ACKNOWLEDGED",
+            "ANSWER_DELIVERY_REJECTED"
+          ]
+        ],
+        [
+          "commit_boundary",
+          "required",
+          [
+            "ANSWER_COMMIT_EVALUATED"
+          ]
+        ],
+        [
+          "extraction_boundary",
+          "conditional",
+          [
+            "EXTRACTION_ATTEMPTED",
+            "EXTRACTION_COMPLETED"
+          ]
+        ],
+        [
+          "terminal_boundary",
+          "conditional",
+          [
+            "MODEL_TERMINAL_RECORDED"
+          ]
+        ],
+        [
+          "observer_context",
+          "conditional",
+          [
+            "OBSERVER_HEALTH_OBSERVED",
+            "OBSERVER_HEALTH_INTERVAL_CLOSED",
+            "MISSING_EVIDENCE_RECORDED"
+          ]
+        ]
+      ]
+    },
     "prompt-not-inserted": {
       "question": "Почему prompt не вставился в поле ввода?",
       "refutationModel": "independent_positive_delivery_evidence",
@@ -724,6 +822,15 @@
         }
       ]
     },
+    "no-delivery": {
+      "all": [
+        {
+          "path": "$.derivedViews.noDeliveryEvidence",
+          "operator": "eq",
+          "value": true
+        }
+      ]
+    },
     "prompt-not-inserted": {
       "all": [
         {
@@ -788,6 +895,16 @@
       "any": [
         {
           "path": "$.derivedViews.extractionProblemEvidence",
+          "operator": "eq",
+          "value": false
+        }
+      ]
+    },
+    "no-delivery": {
+      "model": "independent_delivery_confirmation",
+      "any": [
+        {
+          "path": "$.derivedViews.noDeliveryEvidence",
           "operator": "eq",
           "value": false
         }
@@ -995,6 +1112,62 @@
         }
       }
     ],
+    "no-delivery": [
+      {
+        "reportType": "old-answer",
+        "relation": "diagnostic-dependency",
+        "priority": "required",
+        "requestIf": {
+          "any": [
+            {
+              "path": "$.derivedViews.oldAnswerEvidence",
+              "operator": "eq",
+              "value": true
+            }
+          ]
+        },
+        "antiLoop": {
+          "sourceReportType": "no-delivery",
+          "requestTargetOnlyOnce": true
+        }
+      },
+      {
+        "reportType": "empty",
+        "relation": "diagnostic-dependency",
+        "priority": "required",
+        "requestIf": {
+          "any": [
+            {
+              "path": "$.derivedViews.emptyExtractionEvidence",
+              "operator": "eq",
+              "value": true
+            }
+          ]
+        },
+        "antiLoop": {
+          "sourceReportType": "no-delivery",
+          "requestTargetOnlyOnce": true
+        }
+      },
+      {
+        "reportType": "cutted",
+        "relation": "diagnostic-dependency",
+        "priority": "required",
+        "requestIf": {
+          "any": [
+            {
+              "path": "$.derivedViews.incompleteCaptureEvidence",
+              "operator": "eq",
+              "value": true
+            }
+          ]
+        },
+        "antiLoop": {
+          "sourceReportType": "no-delivery",
+          "requestTargetOnlyOnce": true
+        }
+      }
+    ],
     "prompt-not-inserted": [
       {
         "reportType": "prompt-not-sent",
@@ -1063,6 +1236,7 @@
       "prompt-not-inserted",
       "prompt-not-sent",
       "empty",
+      "no-delivery",
       "cutted",
       "late-end"
     ],
@@ -1081,6 +1255,24 @@
         "consequence": "prompt-not-sent",
         "when": {
           "path": "$.derivedViews.promptNotInsertedEvidence",
+          "operator": "eq",
+          "value": true
+        }
+      },
+      {
+        "cause": "empty",
+        "consequence": "no-delivery",
+        "when": {
+          "path": "$.derivedViews.emptyExtractionEvidence",
+          "operator": "eq",
+          "value": true
+        }
+      },
+      {
+        "cause": "old-answer",
+        "consequence": "no-delivery",
+        "when": {
+          "path": "$.derivedViews.oldAnswerEvidence",
           "operator": "eq",
           "value": true
         }
@@ -1112,6 +1304,16 @@
       "empty|old-answer": {
         "relation": "co-occurring",
         "causalClaim": false
+      },
+      "empty|no-delivery": {
+        "relation": "causal",
+        "cause": "empty",
+        "consequence": "no-delivery"
+      },
+      "no-delivery|old-answer": {
+        "relation": "causal",
+        "cause": "old-answer",
+        "consequence": "no-delivery"
       }
     }
   }

@@ -387,7 +387,7 @@ Offline validator MUST уметь:
 6. проверить override и terminal lineage;
 7. определить влияние scheduler/observer degradation;
 8. выявить post-terminal change;
-9. построить все семь reports из ledger;
+9. построить все восемь reports из ledger в shadow-фазе миграции;
 10. детерминированно вычислить `requestIf`;
 11. отклонить несовместимые reports;
 12. построить summaries без mutable summary state;
@@ -527,13 +527,14 @@ Chunked mode MUST содержать ordered chunk hashes и root hash.
 
 ## 22. `reports`
 
-Map с семью пользовательскими диагностическими ключами:
+Map с восемью диагностическими ключами на время shadow-миграции:
 
 ```text
 cutted
 false-success
 old-answer
 empty
+no-delivery
 prompt-not-inserted
 prompt-not-sent
 late-end
@@ -748,6 +749,7 @@ observation нельзя превращать в positive anomaly. Исключ�
 | `false-success` | `terminalOutcome == SUCCESS`, completed post-terminal audit и `postTerminalGrowthProven == true` |
 | `old-answer` | `oldAnswerEvidence == true` на основании accepted-answer dispatch mismatch |
 | `empty` | `generationTextObserved == true` и `extractionProblemEvidence == true` |
+| `no-delivery` | `noDeliveryEvidence == true`: доказанный source payload текущей attempt отсутствует либо непригоден в однозначной expected card на зафиксированной evaluation boundary |
 | `prompt-not-inserted` | `promptNotInsertedEvidence == true` из typed failed insertion |
 | `prompt-not-sent` | `promptNotSentEvidence == true` из typed failed submission |
 | `late-end` | `lateEndEvidence == true`: policy решила ждать, clocks сопоставимы и последующей мутации не было |
@@ -828,6 +830,24 @@ boundaries, extraction result, structural verification и observer health.
 `empty_result` (failed/zero length) и `wrong_node` (непустой, но rejected,
 ambiguous или stale candidate). Успешный verified current-dispatch extraction
 опровергает Empty; неоднозначный выбор остаётся `unknown`.
+
+### 33.1. `no-delivery` (shadow)
+
+**Primary question:** почему материализованный ответ текущего запроса не
+оказался в правильной карточке?
+
+Occurrence требует прямого либо identity-proven retrospective source evidence,
+однозначного expected-card binding и card evaluation той же attempt/payload.
+Source и card используют одну normalization version; отсутствующая identity,
+несовместимые версии и непроверенная карточка дают `unknown`. Matched answer в
+expected card является независимым опровержением.
+
+`occurrenceVerdict` и `causeVerdict` независимы. Missing cause boundaries не
+понижают уже доказанный occurrence. Cause summary содержит attempt graph,
+последнюю успешную и первую неуспешную границы, а также четыре ортогональные
+оси: stage, mechanism, observability limitations и recovery finding. На время
+shadow-фазы `empty` и `no-delivery` строятся из одного ledger, а расхождения
+фиксируются в `migration.shadowComparison`.
 
 ## 34. `prompt-not-inserted`
 

@@ -316,6 +316,16 @@
       const allMatched = contract.slotId === 'prior_incident_evidence'
         ? typeMatched
         : typeMatched.filter((event) => {
+          if (task === 'no-delivery') {
+            const sourceSlots = ['incident_identity', 'source_answer_materialized'];
+            const renderSlots = ['expected_card_binding', 'card_delivery_outcome', 'source_to_card_comparison'];
+            if (sourceSlots.includes(contract.slotId)
+              && event.eventId !== context?.derivedViews?.sourceEvidenceEventId) return false;
+            if (renderSlots.includes(contract.slotId)
+              && event.eventId !== context?.derivedViews?.cardRenderEvidenceEventId) return false;
+            if (['delivery_boundary', 'commit_boundary'].includes(contract.slotId)
+              && !context?.derivedViews?.deliveryAttemptGraph?.eventIds?.includes(event.eventId)) return false;
+          }
           if (task === 'late-end' && contract.slotId === 'candidate_identity'
             && context?.derivedViews?.lateEndCandidateBinding !== 'candidate_proven') return false;
           if (!eventMatchesSlot(event, contract, scoped)) return false;
@@ -365,7 +375,9 @@
       slots,
       sufficiency,
       missingRequiredSlotCount: ordinaryRequiredMissing.length,
-      confirmationAllowedWhenBounded: ordinaryRequiredMissing.length === 0 && criticalMissing.length === 0 && !boundedConfirmationBlocked,
+      confirmationAllowedWhenBounded: criticalMissing.length === 0
+        && !boundedConfirmationBlocked
+        && (task === 'no-delivery' || ordinaryRequiredMissing.length === 0),
       confidenceLimitations,
       missingEvidence: [...criticalMissing, ...requiredMissing].map((slot) => ({
         slotId: slot.slotId,

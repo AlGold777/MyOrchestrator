@@ -5,11 +5,18 @@
 - `all-presets.example.json` — пример дедуплицированного контейнера.
 - `schemas/` — JSON Schemas.
 - `registry/report-dependency-registry.json` — единый реестр количественных escalation rules.
-- `presets/*.example.json` — семь заполненных standalone reports.
+- `presets/*.example.json` — восемь standalone reports shadow-фазы.
 
 Примеры используют конкретные синтетические данные и помечены `exportIntegrity.sampleData=true`.
 
 ## Статус реализации
+
+Версия `2.81.163` вводит shadow preset `No delivery`. Registry `6.0.0`, report
+`3.0.0` и generator `2.0.0` разделяют доказательство occurrence и объяснение
+cause, связывают source и expected card через attempt/payload identity и общую
+нормализацию, публикуют evaluation boundary/resolution и четыре независимые
+cause axes. `Empty` временно сохраняется; оба reports используют один ledger,
+а расхождения записываются для cutover review.
 
 Версия `2.81.157` реализует третью итерацию semantic review. Registry `5.6.0`,
 report `2.8.0` и generator `1.9.0` вводят настоящее post-failure absence window,

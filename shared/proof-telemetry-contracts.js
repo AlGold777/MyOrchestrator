@@ -4,7 +4,7 @@
 
   const EVENT_SCHEMA_VERSION = 6;
   const CLOCK_CONTRACT_VERSION = '1.0';
-  const REGISTRY_VERSION = '5.9.0';
+  const REGISTRY_VERSION = '6.0.0';
   const THRESHOLDS = Object.freeze({
     generationStartTimeoutMs: 15000,
     minimumExtractionCoveragePct: 98,
@@ -115,6 +115,32 @@
         ['observer_context', 'conditional', ['PAGE_HEALTH_OBSERVED', 'OBSERVER_HEALTH_OBSERVED', 'OBSERVER_HEALTH_INTERVAL_CLOSED'], ['$.stateAxes.observationReliability', 'in', ['degraded', 'stale', 'unavailable']]]
       ]
     },
+    'no-delivery': {
+      question: 'Почему материализованный ответ текущего запроса не оказался в правильной карточке?',
+      refutationModel: 'independent_delivery_confirmation',
+      refutation: {
+        any: [
+          ['$.derivedViews.noDeliveryEvidence', 'eq', false]
+        ]
+      },
+      applicability: {
+        all: [
+          ['$.derivedViews.noDeliveryEvidence', 'eq', true]
+        ]
+      },
+      slots: [
+        ['incident_identity', 'critical', ['ANSWER_SOURCE_MATERIALIZED']],
+        ['source_answer_materialized', 'critical', ['ANSWER_SOURCE_MATERIALIZED']],
+        ['expected_card_binding', 'critical', ['ANSWER_CARD_RENDER_EVALUATED']],
+        ['card_delivery_outcome', 'critical', ['ANSWER_CARD_RENDER_EVALUATED']],
+        ['source_to_card_comparison', 'critical', ['ANSWER_CARD_RENDER_EVALUATED']],
+        ['delivery_boundary', 'required', ['ANSWER_DELIVERY_ACKNOWLEDGED', 'ANSWER_DELIVERY_REJECTED']],
+        ['commit_boundary', 'required', ['ANSWER_COMMIT_EVALUATED']],
+        ['extraction_boundary', 'conditional', ['EXTRACTION_ATTEMPTED', 'EXTRACTION_COMPLETED']],
+        ['terminal_boundary', 'conditional', ['MODEL_TERMINAL_RECORDED']],
+        ['observer_context', 'conditional', ['OBSERVER_HEALTH_OBSERVED', 'OBSERVER_HEALTH_INTERVAL_CLOSED', 'MISSING_EVIDENCE_RECORDED']]
+      ]
+    },
     'prompt-not-inserted': {
       question: 'Почему prompt не вставился в поле ввода?',
       refutationModel: 'independent_positive_delivery_evidence',
@@ -199,6 +225,11 @@
     'old-answer.candidate_identity': { fact: { kind: 'candidate_identity', states: ['previous', 'previous_dispatch', 'stale', 'stale_accepted'] } },
     'old-answer.extraction_result': { fact: { kind: 'extraction', states: ['completed'] } },
     'old-answer.accepted_answer_boundary': { fact: { kind: 'terminal_action', states: ['success'] } },
+    'no-delivery.incident_identity': { fact: { kind: 'source_answer', states: ['materialized'] } },
+    'no-delivery.source_answer_materialized': { fact: { kind: 'source_answer', states: ['materialized'] } },
+    'no-delivery.expected_card_binding': { fact: { kind: 'render', states: ['matched', 'empty', 'mismatched', 'wrong_card', 'incomparable'] } },
+    'no-delivery.card_delivery_outcome': { fact: { kind: 'render', states: ['matched', 'empty', 'mismatched', 'wrong_card', 'incomparable'] } },
+    'no-delivery.source_to_card_comparison': { fact: { kind: 'render', states: ['matched', 'empty', 'mismatched', 'wrong_card', 'incomparable'] } },
     'prompt-not-inserted.insertion_outcome': { fact: { kind: 'prompt_insertion', states: ['failed', 'inserted', 'confirmed'] } },
     'prompt-not-sent.acceptance_evidence': { fact: { kind: 'submission', states: ['confirmed', 'failed'] } },
     'late-end.stable_boundary': { fact: { kind: 'text', states: ['stable'] }, temporal: { closestBeforeEventType: 'MODEL_TERMINAL_RECORDED' } },
@@ -210,6 +241,7 @@
     'false-success': ['MODEL_TERMINAL_RECORDED', 'TEXT_STATE_CHANGED', 'GENERATION_SIGNAL_CHANGED', 'POST_TERMINAL_AUDIT_COMPLETED', 'MISSING_EVIDENCE_RECORDED'],
     'old-answer': ['CANDIDATE_IDENTITY_INFERRED', 'EXTRACTION_COMPLETED', 'MODEL_TERMINAL_RECORDED', 'DECISION_RECORDED'],
     empty: ['GENERATION_START_EVALUATED', 'GENERATION_SIGNAL_CHANGED', 'TEXT_STATE_CHANGED', 'EXTRACTION_COMPLETED', 'CANDIDATE_IDENTITY_INFERRED', 'STRUCTURAL_VERIFICATION_EVALUATED', 'MISSING_EVIDENCE_RECORDED'],
+    'no-delivery': ['ANSWER_SOURCE_MATERIALIZED', 'ANSWER_DELIVERY_ACKNOWLEDGED', 'ANSWER_DELIVERY_REJECTED', 'ANSWER_COMMIT_EVALUATED', 'ANSWER_CARD_RENDER_EVALUATED', 'MODEL_TERMINAL_RECORDED', 'MISSING_EVIDENCE_RECORDED'],
     'prompt-not-inserted': ['PROMPT_INSERTION_EVALUATED', 'SUBMISSION_EVIDENCE_CHANGED', 'SUBMISSION_INFERRED', 'GENERATION_START_EVALUATED', 'GENERATION_SIGNAL_CHANGED', 'TEXT_STATE_CHANGED', 'EXTRACTION_COMPLETED', 'MODEL_TERMINAL_RECORDED'],
     'prompt-not-sent': ['SUBMISSION_EVIDENCE_CHANGED', 'SUBMISSION_INFERRED', 'GENERATION_START_EVALUATED', 'GENERATION_SIGNAL_CHANGED', 'TEXT_STATE_CHANGED', 'EXTRACTION_COMPLETED', 'MODEL_TERMINAL_RECORDED'],
     'late-end': ['STABILITY_INTERVAL_CLOSED', 'TEXT_STATE_CHANGED', 'GENERATION_SIGNAL_CHANGED', 'DECISION_RECORDED', 'TERMINAL_DEADLINE_REACHED', 'FINALIZATION_POLICY_EVALUATED', 'MODEL_TERMINAL_RECORDED']

@@ -1,5 +1,17 @@
 # CHANGELOG — Project
 
+### 2026-07-29 — No delivery shadow contract, version 2.81.163
+
+- Added a shadow `No delivery` report that proves provider-surface answer
+  materialization and expected-card outcome for the same attempt and payload.
+- Occurrence, cause, evaluation boundary and resolution state are independent;
+  unknown identity or normalization produces `unknown`, not a guessed failure.
+- The attempt graph exposes six initially provable mechanisms and separate
+  observability/recovery findings.
+- `Empty` and `No delivery` are built from one canonical ledger and their
+  per-incident verdict differences are recorded for migration review.
+- Registry 6.0.0, report 3.0.0 and generator 2.0.0 define the shadow contract.
+
 ### 2026-07-29 — Answer commit and card render boundaries, version 2.81.162
 
 - Accepted answers pass through one commit-evidence owner before SUCCESS is

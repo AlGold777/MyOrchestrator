@@ -14,13 +14,14 @@
   const Clock = root.ProofTelemetryClock || (typeof require === 'function' ? require('./proof-telemetry-clock.js') : null);
   const SCHEMA_VERSION = '5.0';
   const EVENT_SCHEMA_VERSION = Contracts?.EVENT_SCHEMA_VERSION || 6;
-  const GENERATOR_VERSION = 'proof-export@1.12.0';
-  const REPORT_VERSION = '2.11.0';
+  const GENERATOR_VERSION = 'proof-export@2.0.0';
+  const REPORT_VERSION = '3.0.0';
   const REPORT_TYPES = Object.freeze([
     'cutted',
     'false-success',
     'old-answer',
     'empty',
+    'no-delivery',
     'prompt-not-inserted',
     'prompt-not-sent',
     'late-end'
@@ -116,9 +117,7 @@
     COMPOSER_NOT_FOUND: { kind: 'observation', state: 'degraded' },
     ANSWER_SOURCE_MATERIALIZED: { kind: 'source_answer', state: 'materialized' },
     ANSWER_DELIVERY_ACKNOWLEDGED: { kind: 'delivery', state: 'accepted', outcome: 'accepted' },
-    ANSWER_DELIVERY_REJECTED: { kind: 'delivery', state: 'rejected', outcome: 'rejected' },
-    ANSWER_COMMIT_EVALUATED: { kind: 'commit', state: 'accepted', outcome: 'accepted' },
-    ANSWER_CARD_RENDER_EVALUATED: { kind: 'render', state: 'evaluated' }
+    ANSWER_DELIVERY_REJECTED: { kind: 'delivery', state: 'rejected', outcome: 'rejected' }
   });
 
   const OPERATIONAL_EVENT_PATTERN = /^(?:ADAPTIVE_PROBE_TICK|MANUAL_PING(?:_FAIL|_START|_RESULT)?|PING_(?:TRANSPORT_ERROR|RETRY|TICK)|ROUND4_GATE_WAIT|MODEL_RUN_TRANSITION|STATE_PROJECTION_COMMITTED|DETECTOR_TICK|SELECTOR_STATS|RECOVERY_BUDGET_(?:EXHAUSTED|CONSUMED|WAIT)|FOCUS_(?:WAIT|RETRY|CHECK)|LEASE_(?:WAIT|RETRY|CHECK)|POLL(?:ING)?_TICK|WATCHDOG_TICK)$/;
@@ -448,6 +447,143 @@
     return { event: null, resolution: 'ambiguous_pre_terminal_extraction' };
   }
 
+  function deriveNoDelivery(events, terminalEvent, axes) {
+    const sources = events.filter((event) => event.eventType === 'ANSWER_SOURCE_MATERIALIZED');
+    const renders = events.filter((event) => event.eventType === 'ANSWER_CARD_RENDER_EVALUATED');
+    const source = sources[sources.length - 1] || null;
+    const sourceProofLevel = String(eventValue(source, ['sourceProofLevel']) || 'unproven').toLowerCase();
+    const sourceProven = source
+      ? ['direct_preterminal', 'direct_postterminal', 'retrospective_identity_proven'].includes(sourceProofLevel)
+      : null;
+    const sourcePayloadId = eventValue(source, ['payloadEvidenceId']);
+    const sourceAttemptId = eventValue(source, ['attemptId', 'sourceRevisionId']);
+    const comparableRender = [...renders].reverse().find((event) => {
+      const payloadId = eventValue(event, ['payloadEvidenceId']);
+      const attemptId = eventValue(event, ['attemptId', 'sourceRevisionId']);
+      if (sourcePayloadId && payloadId) return String(sourcePayloadId) === String(payloadId);
+      if (sourceAttemptId && attemptId) return String(sourceAttemptId) === String(attemptId);
+      return false;
+    }) || null;
+    const latestRender = renders[renders.length - 1] || null;
+    const render = comparableRender || latestRender;
+    const declaredRenderOutcome = String(eventValue(render, ['outcome']) || '').toLowerCase() || null;
+    const renderContentClass = String(eventValue(render, ['contentClass']) || '').toLowerCase() || null;
+    const renderOutcome = renderContentClass && renderContentClass !== 'answer' && declaredRenderOutcome !== 'empty'
+      ? (renderContentClass === 'previous_answer' ? 'mismatched' : renderContentClass)
+      : declaredRenderOutcome;
+    const identityComparable = Boolean(source && comparableRender);
+    const expectedCardId = eventValue(render, ['expectedCardId']);
+    const observedCardId = eventValue(render, ['observedCardId']);
+    const expectedCardKnown = Boolean(expectedCardId);
+    const sourceNormalizationVersion = eventValue(source, ['normalizationVersion']);
+    const expectedNormalizationVersion = eventValue(render, ['expectedNormalizationVersion'])
+      || sourceNormalizationVersion;
+    const renderNormalizationVersion = eventValue(render, ['normalizationVersion']);
+    const normalizationComparable = Boolean(sourceNormalizationVersion && expectedNormalizationVersion
+      && sourceNormalizationVersion === expectedNormalizationVersion
+      && (renderOutcome === 'empty' || (renderNormalizationVersion && renderNormalizationVersion === sourceNormalizationVersion)));
+    const negativeOutcomes = new Set(['empty', 'mismatched', 'wrong_card', 'technical_message', 'provider_error', 'prompt_echo', 'placeholder', 'non_text']);
+    const positiveDelivery = renderOutcome === 'matched'
+      && renderContentClass === 'answer'
+      && String(expectedCardId) === String(observedCardId);
+    const noDeliveryEvidence = sourceProven !== true || !render || !expectedCardKnown
+      ? null
+      : (!identityComparable || !normalizationComparable
+        ? null
+        : (positiveDelivery ? false : (negativeOutcomes.has(renderOutcome) ? true : null)));
+    const attemptId = sourceAttemptId || eventValue(render, ['attemptId', 'sourceRevisionId']) || null;
+    const payloadEvidenceId = sourcePayloadId || eventValue(render, ['payloadEvidenceId']) || null;
+    const pathEvents = events.filter((event) => {
+      const eventAttempt = eventValue(event, ['attemptId', 'sourceRevisionId']);
+      const eventPayload = eventValue(event, ['payloadEvidenceId']);
+      return (attemptId && eventAttempt && String(attemptId) === String(eventAttempt))
+        || (payloadEvidenceId && eventPayload && String(payloadEvidenceId) === String(eventPayload));
+    });
+    const deliveryRejected = [...pathEvents].reverse().find((event) => event.eventType === 'ANSWER_DELIVERY_REJECTED') || null;
+    const commit = [...pathEvents].reverse().find((event) => event.eventType === 'ANSWER_COMMIT_EVALUATED') || null;
+    const extraction = [...pathEvents].reverse().find((event) => event.eventType === 'EXTRACTION_COMPLETED') || null;
+    const rejectionReason = String(eventValue(deliveryRejected, ['reason']) || '').toLowerCase();
+    const extractionOutcome = String(eventValue(extraction, ['outcome', 'status']) || '').toLowerCase();
+    let mechanismCauseCode = null;
+    let failureStageCode = null;
+    if (extractionOutcome === 'empty') {
+      mechanismCauseCode = 'extraction_empty';
+      failureStageCode = 'extraction';
+    } else if (extractionOutcome === 'unsupported') {
+      mechanismCauseCode = 'extraction_unsupported_source';
+      failureStageCode = 'extraction';
+    } else if (rejectionReason === 'post_terminal_noise') {
+      mechanismCauseCode = 'delivery_rejected_post_terminal';
+      failureStageCode = 'delivery';
+    } else if (/correlation|dispatch_mismatch|run_session_mismatch/.test(rejectionReason)
+      || deliveryRejected?.payload?.sourceEventType === 'LIFECYCLE_CORRELATION_REJECTED') {
+      mechanismCauseCode = 'delivery_rejected_correlation';
+      failureStageCode = 'delivery';
+    } else if (eventBoolean(commit, ['overwrite']) === true) {
+      mechanismCauseCode = 'commit_overwritten';
+      failureStageCode = 'commit';
+    } else if (renderOutcome === 'empty') {
+      mechanismCauseCode = 'card_render_empty';
+      failureStageCode = 'render';
+    }
+    const observabilityLimitationCodes = [];
+    if (!attemptId || !payloadEvidenceId) observabilityLimitationCodes.push('attempt_identity_missing');
+    if (render && !normalizationComparable) observabilityLimitationCodes.push('normalization_incomparable');
+    if (axes?.observationReliability && axes.observationReliability !== 'reliable') observabilityLimitationCodes.push('observer_gap');
+    const sourceRecovery = sourceProofLevel === 'retrospective_identity_proven';
+    const recoveryFindingCode = sourceRecovery ? 'manual_recovery_found_answer' : null;
+    const orderedStages = [
+      ['source', source],
+      ['extraction', extraction],
+      ['delivery', pathEvents.find((event) => ['ANSWER_DELIVERY_ACKNOWLEDGED', 'ANSWER_DELIVERY_REJECTED'].includes(event.eventType)) || null],
+      ['commit', commit],
+      ['render', render]
+    ];
+    const observedStages = orderedStages.filter(([, event]) => event).map(([stage]) => stage);
+    const failureIndex = orderedStages.findIndex(([stage]) => stage === failureStageCode);
+    const lastSuccessfulStage = failureIndex >= 0
+      ? orderedStages.slice(0, failureIndex).filter(([, event]) => event).map(([stage]) => stage).slice(-1)[0] || null
+      : observedStages.slice(-1)[0] || null;
+    const causeVerdict = noDeliveryEvidence === false
+      ? 'not_applicable'
+      : (noDeliveryEvidence !== true
+        ? 'unknown'
+        : (mechanismCauseCode ? 'confirmed' : (observedStages.length > 1 ? 'supported_but_incomplete' : 'unknown')));
+    const evaluationBoundaryId = eventValue(render, ['evaluationBoundaryId']) || render?.eventId || terminalEvent?.eventId || null;
+    const evaluationBoundaryType = eventValue(render, ['evaluationBoundaryType'])
+      || (terminalEvent && render && Number(render.seq) >= Number(terminalEvent.seq) ? 'automatic_terminal' : 'delivery_deadline');
+    return {
+      noDeliveryEvidence,
+      sourceAnswerMaterializedEvidence: sourceProven,
+      sourceProofLevel,
+      sourceEvidenceEventId: source?.eventId || null,
+      cardDeliveryOutcome: renderOutcome,
+      expectedCardId: expectedCardId || null,
+      observedCardId: observedCardId || null,
+      cardContentClass: renderContentClass,
+      cardRenderEvidenceEventId: render?.eventId || null,
+      sourceToCardComparison: identityComparable && normalizationComparable ? renderOutcome : 'incomparable',
+      evaluationBoundaryId,
+      evaluationBoundaryType,
+      resolutionState: eventValue(render, ['resolutionState']) || (renderOutcome === 'matched' ? 'delivered' : 'unresolved'),
+      deliveryAttemptGraph: {
+        attemptId,
+        payloadEvidenceId,
+        observedStages,
+        eventIds: pathEvents.map((event) => event.eventId)
+      },
+      lastSuccessfulStage,
+      firstObservedUnsuccessfulStage: failureStageCode,
+      failureRange: failureStageCode ? [lastSuccessfulStage, failureStageCode] : (noDeliveryEvidence === true ? [lastSuccessfulStage, 'render'] : null),
+      failureStageCode,
+      mechanismCauseCode,
+      observabilityLimitationCodes,
+      recoveryFindingCode,
+      causeVerdict,
+      unexplainedByCatalogue: noDeliveryEvidence === true && !mechanismCauseCode
+    };
+  }
+
   function deriveAxes(events) {
     const submitted = includesSource(events, /PROMPT_SUBMITTED_(ACCEPTED|INFERRED)|SUBMISSION_CONFIRMED|DISPATCH_CONFIRMED/);
     const submitFailed = includesSource(events, /PROMPT_SUBMITTED_(REJECTED|TIMEOUT)|DISPATCH_COMMAND_NOT_ACCEPTED|NO_SEND/);
@@ -745,6 +881,7 @@
         : (eligibilityDelay.comparable
           ? eligibilityDelay.durationMs > lateEndToleranceMs
           : (blockingDecisions.length && !policyEligibilityEvent ? false : null)));
+    const noDelivery = deriveNoDelivery(events, terminalEvent, axes);
     return {
       modelId,
       stateAxes: axes,
@@ -812,6 +949,7 @@
       lateEndCandidateBinding,
       policyEligibleToTerminalMs: eligibilityDelay.comparable ? eligibilityDelay.durationMs : null,
       lateEndPolicyToleranceMs: lateEndToleranceMs,
+      ...noDelivery,
       postStabilityObservationCovered: postStabilityWindowCovered,
       postStabilityMutationObserved: postStabilityWindowCovered ? invalidatingAfterStable : null,
       lateEndEvidence
@@ -902,6 +1040,16 @@
         : (statuses.length && statuses.every((status) => status === 'not_confirmed') ? 'not_confirmed' : 'unknown'));
   }
 
+  function aggregateCauseVerdicts(values) {
+    const verdicts = (values || []).filter(Boolean);
+    if (verdicts.includes('confirmed')) return 'confirmed';
+    if (verdicts.includes('supported_but_incomplete')) return 'supported_but_incomplete';
+    if (verdicts.includes('unknown')) return 'unknown';
+    return verdicts.length && verdicts.every((value) => value === 'not_applicable')
+      ? 'not_applicable'
+      : 'unknown';
+  }
+
   function diagnosticVerdict(applicability, evidence, invariantViolations = [], reportType = null) {
     const status = applicability?.status || 'unknown';
     if (status !== 'confirmed') return status;
@@ -956,13 +1104,18 @@
     priorAnswerComparison: ['EXTRACTION_COMPLETED', 'MODEL_TERMINAL_RECORDED'],
     promptNotSentEvidence: ['SUBMISSION_EVIDENCE_CHANGED', 'SUBMISSION_INFERRED', 'GENERATION_START_EVALUATED', 'GENERATION_SIGNAL_CHANGED', 'TEXT_STATE_CHANGED', 'EXTRACTION_COMPLETED', 'MODEL_TERMINAL_RECORDED'],
     promptNotInsertedEvidence: ['PROMPT_INSERTION_EVALUATED', 'SUBMISSION_EVIDENCE_CHANGED', 'SUBMISSION_INFERRED', 'GENERATION_START_EVALUATED', 'GENERATION_SIGNAL_CHANGED', 'EXTRACTION_COMPLETED', 'MODEL_TERMINAL_RECORDED'],
-    lateEndEvidence: ['STABILITY_INTERVAL_CLOSED', 'TEXT_STATE_CHANGED', 'GENERATION_SIGNAL_CHANGED', 'DECISION_RECORDED', 'TERMINAL_DEADLINE_REACHED', 'FINALIZATION_POLICY_EVALUATED', 'MODEL_TERMINAL_RECORDED']
+    lateEndEvidence: ['STABILITY_INTERVAL_CLOSED', 'TEXT_STATE_CHANGED', 'GENERATION_SIGNAL_CHANGED', 'DECISION_RECORDED', 'TERMINAL_DEADLINE_REACHED', 'FINALIZATION_POLICY_EVALUATED', 'MODEL_TERMINAL_RECORDED'],
+    noDeliveryEvidence: ['ANSWER_SOURCE_MATERIALIZED', 'ANSWER_DELIVERY_ACKNOWLEDGED', 'ANSWER_DELIVERY_REJECTED', 'ANSWER_COMMIT_EVALUATED', 'ANSWER_CARD_RENDER_EVALUATED'],
+    sourceAnswerMaterializedEvidence: ['ANSWER_SOURCE_MATERIALIZED'],
+    cardDeliveryOutcome: ['ANSWER_CARD_RENDER_EVALUATED'],
+    mechanismCauseCode: ['EXTRACTION_COMPLETED', 'ANSWER_DELIVERY_REJECTED', 'ANSWER_COMMIT_EVALUATED', 'ANSWER_CARD_RENDER_EVALUATED']
   });
 
   function buildFieldProvenance(view, events) {
     const fields = [...Object.keys(view.stateAxes || {}),
       'postTerminalGrowthProven', 'incompleteCaptureEvidence', 'extractionProblemEvidence',
       'oldAnswerEvidence', 'priorAnswerComparison', 'promptNotSentEvidence', 'promptNotInsertedEvidence', 'lateEndEvidence'];
+    fields.push('noDeliveryEvidence', 'sourceAnswerMaterializedEvidence', 'cardDeliveryOutcome', 'mechanismCauseCode');
     return Object.fromEntries(fields.map((field) => {
       const accepted = new Set(PROVENANCE_EVENT_TYPES[field] || []);
       return [field, {
@@ -977,15 +1130,18 @@
     'false-success': [['cutted', '$.derivedViews.incompleteCaptureEvidence', 'eq', true], ['late-end', '$.derivedViews.lateEndEvidence', 'eq', true]],
     'old-answer': [['empty', '$.derivedViews.emptyExtractionEvidence', 'eq', true], ['cutted', '$.derivedViews.incompleteCaptureEvidence', 'eq', true]],
     empty: [['old-answer', '$.derivedViews.oldAnswerEvidence', 'eq', true], ['cutted', '$.derivedViews.incompleteCaptureEvidence', 'eq', true]],
+    'no-delivery': [['old-answer', '$.derivedViews.oldAnswerEvidence', 'eq', true], ['empty', '$.derivedViews.emptyExtractionEvidence', 'eq', true], ['cutted', '$.derivedViews.incompleteCaptureEvidence', 'eq', true]],
     'prompt-not-inserted': [['prompt-not-sent', '$.derivedViews.promptNotSentEvidence', 'eq', true]],
     'prompt-not-sent': [['prompt-not-inserted', '$.derivedViews.promptNotInsertedEvidence', 'eq', true]],
     'late-end': [['false-success', '$.derivedViews.postTerminalGrowthProven', 'eq', true]]
   });
 
-  const DIAGNOSIS_PRIORITY = Object.freeze(['false-success', 'old-answer', 'prompt-not-inserted', 'prompt-not-sent', 'empty', 'cutted', 'late-end']);
+  const DIAGNOSIS_PRIORITY = Object.freeze(['false-success', 'old-answer', 'prompt-not-inserted', 'prompt-not-sent', 'empty', 'no-delivery', 'cutted', 'late-end']);
   const DIAGNOSIS_CAUSAL_RULES = Object.freeze([
     Object.freeze({ cause: 'false-success', consequence: 'cutted', when: { path: '$.derivedViews.postTerminalGrowthProven', operator: 'eq', value: true } }),
-    Object.freeze({ cause: 'prompt-not-inserted', consequence: 'prompt-not-sent', when: { path: '$.derivedViews.promptNotInsertedEvidence', operator: 'eq', value: true } })
+    Object.freeze({ cause: 'prompt-not-inserted', consequence: 'prompt-not-sent', when: { path: '$.derivedViews.promptNotInsertedEvidence', operator: 'eq', value: true } }),
+    Object.freeze({ cause: 'empty', consequence: 'no-delivery', when: { path: '$.derivedViews.emptyExtractionEvidence', operator: 'eq', value: true } }),
+    Object.freeze({ cause: 'old-answer', consequence: 'no-delivery', when: { path: '$.derivedViews.oldAnswerEvidence', operator: 'eq', value: true } })
   ]);
 
   const siblingPairKey = (left, right) => [left, right].sort().join('|');
@@ -995,7 +1151,9 @@
     [siblingPairKey('cutted', 'old-answer')]: Object.freeze({ relation: 'co-occurring', causalClaim: false }),
     [siblingPairKey('cutted', 'empty')]: Object.freeze({ relation: 'co-occurring', causalClaim: false }),
     [siblingPairKey('false-success', 'late-end')]: Object.freeze({ relation: 'co-occurring', causalClaim: false }),
-    [siblingPairKey('old-answer', 'empty')]: Object.freeze({ relation: 'co-occurring', causalClaim: false })
+    [siblingPairKey('old-answer', 'empty')]: Object.freeze({ relation: 'co-occurring', causalClaim: false }),
+    [siblingPairKey('empty', 'no-delivery')]: Object.freeze({ relation: 'causal', cause: 'empty', consequence: 'no-delivery' }),
+    [siblingPairKey('old-answer', 'no-delivery')]: Object.freeze({ relation: 'causal', cause: 'old-answer', consequence: 'no-delivery' })
   });
 
   function diagnosisRelation(reportType, primaryDiagnosis, confirmedDiagnoses = []) {
@@ -1028,6 +1186,38 @@
         causalRules: DIAGNOSIS_CAUSAL_RULES,
         siblingRelationClassifications: SIBLING_RELATION_CLASSIFICATIONS
       }
+    };
+  }
+
+  function noDeliveryReportProjection(view, evidence = null, diagnosticVerdictValue = null) {
+    const occurrenceSlots = (evidence?.slots || []).filter((slot) => slot.effectiveCriticality === 'critical');
+    const causeSlots = (evidence?.slots || []).filter((slot) => slot.effectiveCriticality === 'required');
+    const completenessFor = (slots) => ({
+      level: !slots.length ? 'unknown' : (slots.every((slot) => slot.status === 'satisfied') ? 'complete' : 'bounded'),
+      missingSlotIds: slots.filter((slot) => slot.status !== 'satisfied').map((slot) => slot.slotId)
+    });
+    return {
+      occurrenceVerdict: diagnosticVerdictValue,
+      causeVerdict: view?.causeVerdict || 'unknown',
+      occurrenceCompleteness: completenessFor(occurrenceSlots),
+      causeCompleteness: completenessFor(causeSlots),
+      evaluationBoundary: {
+        id: view?.evaluationBoundaryId || null,
+        type: view?.evaluationBoundaryType || null
+      },
+      resolutionState: view?.resolutionState || 'unknown_persistence',
+      deliveryStages: view?.deliveryAttemptGraph?.observedStages || [],
+      lastSuccessfulStage: view?.lastSuccessfulStage || null,
+      firstObservedUnsuccessfulStage: view?.firstObservedUnsuccessfulStage || null,
+      failureRange: view?.failureRange || null,
+      failureStageCode: view?.failureStageCode || null,
+      mechanismCauseCode: view?.mechanismCauseCode || null,
+      observabilityLimitationCodes: view?.observabilityLimitationCodes || [],
+      recoveryFindingCode: view?.recoveryFindingCode || null,
+      unexplainedByCatalogue: view?.unexplainedByCatalogue === true,
+      sourceToCardComparison: view?.sourceToCardComparison || 'incomparable',
+      expectedCardId: view?.expectedCardId || null,
+      observedCardId: view?.observedCardId || null
     };
   }
 
@@ -1169,6 +1359,13 @@
         (event.includedFor || []).forEach((reason) => selectedEvents.get(event.eventId).includedFor.add(reason));
       }));
       const orderedSelectedEvents = [...selectedEvents.values()].sort((left, right) => Number(left.seq) - Number(right.seq));
+      const noDeliveryByIncident = reportType === 'no-delivery'
+        ? Object.fromEntries(allViews.map((view) => [view.incidentId, noDeliveryReportProjection(
+          view,
+          slotResults[view.incidentId],
+          verdicts[reportType][view.incidentId]
+        )]))
+        : null;
       return [reportType, {
         reportDescriptor: {
           reportId: `rpt-${reportType}-${eventFingerprint(ledgerHash)}`,
@@ -1181,12 +1378,19 @@
           canDiagnose: conclusions.safe,
           cannotDiagnoseAlone: conclusions.blocked,
           completeness,
+          ...(reportType === 'no-delivery' ? {
+            occurrenceVerdict: diagnosticStatus,
+            causeVerdict: aggregateCauseVerdicts(Object.values(noDeliveryByIncident).map((item) => item.causeVerdict)),
+            occurrenceCompleteness: Object.fromEntries(Object.entries(noDeliveryByIncident).map(([incidentId, item]) => [incidentId, item.occurrenceCompleteness])),
+            causeCompleteness: Object.fromEntries(Object.entries(noDeliveryByIncident).map(([incidentId, item]) => [incidentId, item.causeCompleteness]))
+          } : {}),
           diagnosisArbitrationRef: 'diagnosisArbitration.byIncident',
           reportMode: 'embedded-in-all-presets',
           dependencyRegistryVersion: Contracts?.REGISTRY_VERSION || '5.0.0',
           dependencyRegistryHash: registryHash
         },
         diagnosticSummary: {
+          ...(reportType === 'no-delivery' ? { noDeliveryByIncident } : {}),
           incidents: Object.fromEntries(allViews.map((view) => [view.incidentId, {
             applicabilityStatus: applicabilityByIncident[view.incidentId].status,
             diagnosticVerdict: applicabilityByIncident[view.incidentId].diagnosticVerdict,
@@ -1339,8 +1543,27 @@
     Object.values(reports).forEach((report) => {
       report.reportDescriptor.limitations = compatibility.limitations;
     });
+    const shadowComparison = Object.fromEntries(Object.entries(incidentViews).map(([incidentId, view]) => {
+      const emptyVerdict = reports.empty?.reportDescriptor?.applicability?.byIncident?.[incidentId]?.diagnosticVerdict || 'unknown';
+      const noDeliveryVerdict = reports['no-delivery']?.reportDescriptor?.applicability?.byIncident?.[incidentId]?.diagnosticVerdict || 'unknown';
+      const classification = emptyVerdict === noDeliveryVerdict
+        ? 'aligned'
+        : (noDeliveryVerdict === 'confirmed' ? 'no_delivery_only'
+          : (emptyVerdict === 'confirmed' ? 'empty_only' : 'different_uncertain'));
+      return [incidentId, {
+        modelId: view.modelId,
+        emptyVerdict,
+        noDeliveryVerdict,
+        classification,
+        noDeliveryCauseVerdict: view.causeVerdict,
+        noDeliveryMechanismCauseCode: view.mechanismCauseCode,
+        eventSeqCount: reports['no-delivery']?.eventSeqs?.length || 0
+      }];
+    }));
     const viewsHash = await sha256(derivedViews);
-    const reportsHash = await sha256(reports);
+    // Hash the serialized artifact shape. Optional undefined values do not
+    // survive JSON export and therefore cannot be part of the offline hash.
+    const reportsHash = await sha256(JSON.parse(JSON.stringify(reports)));
     const invariantViolations = [
       ...validateLedger(ledgerEvents),
       ...(Array.isArray(replayResult?.invariantViolations) ? replayResult.invariantViolations : [])
@@ -1404,6 +1627,11 @@
       derivedViews,
       reports,
       diagnosisArbitration: { byIncident: reportBuild.arbitrationByIncident },
+      migration: {
+        phase: 'empty-no-delivery-shadow',
+        shadowComparison,
+        canonicalLedgerShared: true
+      },
       attachments,
       exportAudit: {
         sampleData: options.sampleData === true,
@@ -1580,6 +1808,9 @@
       blockedConclusions: ['complete', 'not_applicable'].includes(standaloneCompletenessLevel) ? [] : closure.missingEvidence.map((item) => `blocked by ${item.slotId}`)
     };
     const conclusions = buildConclusions(reportType, verdict, effectiveSlots, closure.missingEvidence);
+    const noDeliveryProjection = reportType === 'no-delivery'
+      ? noDeliveryReportProjection(modelView, closure, verdict)
+      : null;
     const report = {
       schemaVersion: SCHEMA_VERSION,
       fileKind: 'diagnostic-report',
@@ -1595,6 +1826,14 @@
         canDiagnose: conclusions.safe,
         cannotDiagnoseAlone: conclusions.blocked,
         completeness,
+        ...(noDeliveryProjection ? {
+          occurrenceVerdict: noDeliveryProjection.occurrenceVerdict,
+          causeVerdict: noDeliveryProjection.causeVerdict,
+          occurrenceCompleteness: noDeliveryProjection.occurrenceCompleteness,
+          causeCompleteness: noDeliveryProjection.causeCompleteness,
+          evaluationBoundary: noDeliveryProjection.evaluationBoundary,
+          resolutionState: noDeliveryProjection.resolutionState
+        } : {}),
         reportMode: 'standalone',
         dependencyRegistryVersion: registrySnapshot.registryVersion,
         dependencyRegistryHash: registryHash,
@@ -1628,7 +1867,8 @@
         evidenceSlots: closure.slots,
         evidenceLanes: closure.evidenceLanes,
         safeConclusions: completeness.safeConclusions,
-        blockedConclusions: completeness.blockedConclusions
+        blockedConclusions: completeness.blockedConclusions,
+        ...(noDeliveryProjection || {})
       },
       stateAxes: axes,
       eventSelection: {
