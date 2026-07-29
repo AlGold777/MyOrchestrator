@@ -11,6 +11,13 @@
 
 ## Статус реализации
 
+Версия `2.81.155` реализует результаты независимого cross-review V1–V21.
+Registry `5.4.0`, report `2.6.0` и generator `1.7.0` включают composite verdict,
+fact/temporal slot rules, verdict-preserving compaction, candidate continuity,
+явную prior-incident lane для Old answer, refutation predicates, effective-slot
+coverage и точный field provenance. All tasks и семь standalone examples
+проходят schema, replay, hash, slot и verdict validation.
+
 В версии `2.81.150` добавлен отдельный `Prompt not inserted`: runtime сохраняет
 typed failure вставки prompt в composer и отличает её от последующего сбоя
 отправки. Подтверждённая отправка, генерация, extraction или SUCCESS служат

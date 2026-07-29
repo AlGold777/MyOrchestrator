@@ -97,6 +97,19 @@ describe('proof telemetry incident index and evidence graph', () => {
     expect(slots.slots.find((slot) => slot.slotId === 'post_terminal_audit').status).toBe('unavailable');
   });
 
+  test('rejects extraction after terminal without explicit recovery lineage', () => {
+    const terminal = event('event-1', 'MODEL_TERMINAL_RECORDED', {
+      payload: { typed: { kind: 'terminal_action', state: 'SUCCESS' } }
+    });
+    const extraction = event('event-2', 'EXTRACTION_COMPLETED', {
+      payload: { typed: { kind: 'extraction', state: 'completed' } }
+    });
+    const incident = Incidents.indexIncidents([terminal, extraction])[0];
+    expect(Incidents.validateTemporalInvariants([terminal, extraction], incident)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ invariantId: 'TEMPORAL_EXTRACTION_AFTER_TERMINAL', eventId: 'event-2' })
+    ]));
+  });
+
   test('builds recursive closure without unrelated run-wide SYSTEM context', () => {
     const events = [
       event('event-1', 'RUN_CONFIG_RECORDED', { modelId: 'SYSTEM', dispatchId: undefined }),

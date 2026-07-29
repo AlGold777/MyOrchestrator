@@ -190,3 +190,11 @@ incidentId; applicability confirmed при отсутствующих critical-�
 observer `degraded|stale|unavailable`.
 *Приёмка:* каждый пункт §2 закрыт регрессионным тестом, который падает на
 текущем коде и проходит после соответствующей задачи.
+
+## 5. Статус реализации
+
+План выполнен в версиях `2.81.152`–`2.81.155`. Все V1–V21 закрыты executable
+contracts и adversarial regressions; итоговые registry/report/generator версии
+— `5.4.0` / `2.6.0` / `1.7.0`. All tasks и семь standalone examples проходят
+offline validation без ошибок. Focused gate: 8 suites / 88 tests; полный gate:
+186 suites / 1292 tests.

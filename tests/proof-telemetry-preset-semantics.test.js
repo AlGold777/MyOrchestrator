@@ -147,6 +147,27 @@ describe('proof telemetry preset semantic applicability', () => {
     expect(container.diagnosisArbitration.byIncident[incidentId].primaryDiagnosis).toBeNull();
   });
 
+  test('an unrelated insufficient incident does not degrade relevant report completeness', async () => {
+    const relevant = [
+      event('DISPATCH_BASELINE_CAPTURED', 1),
+      event('SUBMIT_ACTION_OBSERVED', 2, { typed: { kind: 'submission', state: 'attempted' } }),
+      event('SUBMISSION_INFERRED', 3, { typed: { kind: 'submission', state: 'failed' } }),
+      event('PAGE_CONTEXT_OBSERVED', 4)
+    ];
+    const unrelated = event('MODEL_TERMINAL_RECORDED', 5, {
+      metadata: { terminalStatus: 'SUCCESS' },
+      typed: { kind: 'terminal_action', state: 'SUCCESS' }
+    });
+    unrelated.dispatchId = 'dispatch-unrelated';
+    unrelated.generationEpoch = 2;
+    const container = await ProofTelemetry.buildAllPresets([...relevant, unrelated], { canonicalLedger: true, exportedAt: 2000 });
+    const report = container.reports['prompt-not-sent'];
+    const relevantIncident = Object.entries(report.reportDescriptor.applicability.byIncident)
+      .find(([, result]) => result.status === 'confirmed');
+    expect(relevantIncident[1].sufficiency).toBe('complete');
+    expect(report.reportDescriptor.completeness.level).toBe('complete');
+  });
+
   test('All tasks derives applicability independently for every incident', async () => {
     const firstTerminal = event('MODEL_TERMINAL_RECORDED', 1, {
       metadata: { terminalStatus: 'SUCCESS', answerLen: 100 },
@@ -467,6 +488,14 @@ describe('proof telemetry preset semantic applicability', () => {
     ]);
     expect(belowTolerance.view.lateEndEvidence).toBe(false);
     expect(belowTolerance.result.status).toBe('not_confirmed');
+
+    const atTolerance = applicability('late-end', [
+      event('STABILITY_INTERVAL_CLOSED', 1, { typed: { kind: 'text', state: 'stable' }, clock: { observedAtLocalMonoMs: 1000 } }),
+      event('DECISION_RECORDED', 2, { payload: { accepted: false }, typed: { kind: 'decision', state: 'rejected' }, clock: { observedAtLocalMonoMs: 1500 } }),
+      event('MODEL_TERMINAL_RECORDED', 3, { metadata: { terminalStatus: 'SUCCESS' }, typed: { kind: 'terminal_action', state: 'SUCCESS' }, clock: { observedAtLocalMonoMs: 2000 } })
+    ]);
+    expect(atTolerance.view.stableToTerminalMs).toBe(atTolerance.view.lateEndPolicyToleranceMs);
+    expect(atTolerance.result.status).toBe('confirmed');
 
     const positive = applicability('late-end', [
       event('STABILITY_INTERVAL_CLOSED', 1, { typed: { kind: 'text', state: 'stable' }, clock: { observedAtLocalMonoMs: 1000 } }),

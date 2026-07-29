@@ -3,6 +3,7 @@ const path = require('path');
 const Ajv2020 = require('ajv/dist/2020');
 const Contracts = require('../shared/proof-telemetry-contracts.js');
 const ProofTelemetry = require('../shared/proof-oriented-telemetry.js');
+const Incidents = require('../shared/proof-telemetry-incidents.js');
 
 describe('proof telemetry executable contracts', () => {
   test('scope equality includes run generation and identity vocabulary is normalized', () => {
@@ -12,6 +13,28 @@ describe('proof telemetry executable contracts', () => {
     expect(Contracts.normalizeIdentityState('stale')).toBe('previous');
     expect(Contracts.normalizeIdentityState('previous_dispatch')).toBe('previous');
     expect(Contracts.normalizeIdentityState('current_dispatch')).toBe('current');
+  });
+
+  test('every protected fact-level slot rejects a malformed fact', () => {
+    Object.entries(Contracts.SLOT_MATCH_RULES).forEach(([key, rule]) => {
+      const [reportType, slotId] = key.split('.');
+      const slot = Contracts.normalizedSlots(reportType).find((item) => item.slotId === slotId);
+      const malformed = {
+        schemaVersion: 6,
+        eventId: `event-malformed-${reportType}-${slotId}`,
+        eventType: slot.eventTypes[0],
+        seq: 2,
+        ingestSeq: 2,
+        runGeneration: 1,
+        runSessionId: 'run',
+        modelId: 'GPT',
+        dispatchId: 'd1',
+        generationEpoch: 1,
+        payload: { typed: { kind: 'malformed', state: 'malformed' } }
+      };
+      expect(Incidents.eventMatchesSlot(malformed, slot, [malformed])).toBe(false);
+      expect(rule.fact || rule.temporal).toBeTruthy();
+    });
   });
 
   test('defines evidence-slot contracts for the seven user diagnostic questions', () => {

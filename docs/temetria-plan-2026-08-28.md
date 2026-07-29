@@ -501,4 +501,11 @@ per-field diagnostic provenance. - Done
 19.12. Reject unknown explicit incident IDs without fallback. - Done
 
 19.13. Add the full adversarial test matrix, update schemas/validator/examples,
-versions and documentation, then run focused and complete gates. - Pending
+versions and documentation, then run focused and complete gates. - Done
+
+Section 19 evidence: every V1–V21 finding in the independent cross-check is
+covered by executable contracts and regression tests. Registry 5.4.0, report
+2.6.0 and generator 1.7.0 produce All tasks plus seven standalone examples;
+all validate without errors. The focused cross-review gate passes 8 suites /
+88 tests and the complete project gate passes 186 suites / 1292 tests. Every
+section 19 task is Done.

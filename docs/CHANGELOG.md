@@ -17,7 +17,8 @@
   success question.
 - Coverage excludes inactive conditional slots, completeness states are
   enumerated, conclusions cite slot IDs, and each diagnostic field has narrow
-  event provenance. Focused gate passes 8 suites / 85 tests.
+  event provenance. Focused gate passes 8 suites / 88 tests; the complete gate
+  passes 186 suites / 1292 tests.
 
 ### 2026-07-29 — Verdict-preserving compaction, version 2.81.154
 

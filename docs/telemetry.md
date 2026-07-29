@@ -1,5 +1,16 @@
 # Telemetry - tab/session diagnostics
 
+## Cross-review semantic corrections v2.81.155 - 2026-07-29
+
+Registry 5.4.0, report 2.6.0 and generator 1.7.0 close all V1–V21 findings from
+the independent preset cross-check. Standalone verdicts are frozen on the full
+incident and proven equivalent after compaction; fact-level slots, temporal and
+causal invariants, composite verdicts, candidate continuity, prior-incident
+evidence, explicit refutations and field-specific provenance are executable and
+offline-replayable. All tasks and seven standalone examples validate cleanly.
+The focused gate passes 8 suites / 88 tests and the full project gate passes
+186 suites / 1292 tests.
+
 ## Prompt insertion diagnosis v2.81.150 - 2026-07-29
 
 Telemetry Tasks now includes `Prompt not inserted` for the specific failure in
