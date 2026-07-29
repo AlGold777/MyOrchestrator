@@ -1,5 +1,16 @@
 # Telemetry - tab/session diagnostics
 
+## Preset evidence semantics v2.81.147 - 2026-08-28
+
+Preset applicability now follows positive and opposing evidence inside one
+incident. Old answer respects explicit identity before normalized identifier
+comparison; False success needs completed audited length growth; Cutted uses
+pre-terminal extraction coverage without inferred extraction length. Empty
+resolves the extraction accepted by terminal and reports either `empty_result`
+or `wrong_node`. Prompt not sent is refuted by proof that the model received and
+answered the request. Late end requires an explicit policy decision to wait and
+an uninterrupted stable interval rather than an arbitrary millisecond target.
+
 ## Incident-scoped embedded applicability v2.81.146 - 2026-08-28
 
 `All tasks` evaluates each diagnosis independently for every exact incident.

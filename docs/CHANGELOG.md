@@ -1,5 +1,20 @@
 # CHANGELOG — Project
 
+### 2026-08-28 — Preset evidence semantics, version 2.81.147
+
+- Old answer now gives explicit current-dispatch identity precedence and
+  compares normalized dispatch identifiers only when both are known.
+- False success distinguishes completed, pending, impossible and absent audit;
+  only audited positive length growth confirms the diagnosis.
+- Cutted measures extraction coverage only before terminal and never substitutes
+  terminal length for missing extraction evidence.
+- Prompt not sent is refuted by confirmed submission, observed generation,
+  non-empty accepted extraction or SUCCESS in the same incident.
+- Empty resolves the extraction actually accepted by terminal and distinguishes
+  empty-result from wrong-node evidence.
+- Late end requires an explicit policy decision to wait, comparable clocks and
+  no later text mutation or active-generation evidence.
+
 ### 2026-08-28 — Incident-scoped embedded applicability, version 2.81.146
 
 - All tasks now derives every semantic view from one exact incident scope

@@ -55,7 +55,7 @@ describe('proof telemetry preset semantic applicability', () => {
     const next = Object.values(incidents).find((view) => view.incidentScope.dispatchId === 'dispatch-next');
     expect(first).toEqual(expect.objectContaining({
       acceptedTextLength: 100,
-      maxObservedTextLength: 100,
+      maxObservedTextLength: null,
       postTerminalGrowthChars: 0
     }));
     expect(next).toEqual(expect.objectContaining({
@@ -109,7 +109,7 @@ describe('proof telemetry preset semantic applicability', () => {
       event('TEXT_STATE_CHANGED', 2, { metadata: { textLength: 130 } })
     ]);
     expect(unauditedGrowth.view.postTerminalGrowthChars).toBe(30);
-    expect(unauditedGrowth.result.status).toBe('not_confirmed');
+    expect(unauditedGrowth.result.status).toBe('unknown');
   });
 
   test('Old answer requires an accepted answer identity that conflicts with the current dispatch', () => {
@@ -121,6 +121,16 @@ describe('proof telemetry preset semantic applicability', () => {
       event('EXTRACTION_COMPLETED', 1, { metadata: { length: 100, answerIdentity: 'current_dispatch' }, typed: { kind: 'extraction', state: 'completed' } }),
       event('MODEL_TERMINAL_RECORDED', 2, { metadata: { terminalStatus: 'SUCCESS', answerEvidenceDispatchId: 'dispatch-current' }, typed: { kind: 'terminal_action', state: 'SUCCESS' } })
     ]).result.status).toBe('not_confirmed');
+    expect(applicability('old-answer', [
+      event('EXTRACTION_COMPLETED', 1, { metadata: { length: 100 }, typed: { kind: 'extraction', state: 'completed' } }),
+      event('MODEL_TERMINAL_RECORDED', 2, { metadata: { terminalStatus: 'SUCCESS', answerEvidenceDispatchId: 'GPT:dispatch-current' }, typed: { kind: 'terminal_action', state: 'SUCCESS' } })
+    ]).result.status).toBe('not_confirmed');
+    const terminalWithoutDispatch = event('MODEL_TERMINAL_RECORDED', 2, {
+      metadata: { terminalStatus: 'SUCCESS', answerEvidenceDispatchId: 'dispatch-old' },
+      typed: { kind: 'terminal_action', state: 'SUCCESS' }
+    });
+    delete terminalWithoutDispatch.dispatchId;
+    expect(applicability('old-answer', [terminalWithoutDispatch]).result.status).toBe('unknown');
   });
 
   test('Empty requires observed generated text and an empty or failed extraction', () => {
@@ -130,8 +140,33 @@ describe('proof telemetry preset semantic applicability', () => {
     ]).result.status).toBe('confirmed');
     expect(applicability('empty', [
       event('GENERATION_SIGNAL_CHANGED', 1, { metadata: { textLength: 100 }, typed: { kind: 'generation', state: 'active' } }),
-      event('EXTRACTION_COMPLETED', 2, { metadata: { length: 100 }, typed: { kind: 'extraction', state: 'completed' } })
+      event('EXTRACTION_COMPLETED', 2, { metadata: { length: 100, verified: true, answerIdentity: 'current_dispatch' }, typed: { kind: 'extraction', state: 'completed' } })
     ]).result.status).toBe('not_confirmed');
+    const wrongNode = applicability('empty', [
+      event('GENERATION_SIGNAL_CHANGED', 1, { metadata: { textLength: 100 }, typed: { kind: 'generation', state: 'active' } }),
+      event('EXTRACTION_COMPLETED', 2, { metadata: { length: 30, verification: 'rejected' }, typed: { kind: 'extraction', state: 'completed' } })
+    ]);
+    expect(wrongNode.result.status).toBe('confirmed');
+    expect(wrongNode.view.emptyExtractionBranch).toBe('wrong_node');
+    const accepted = event('EXTRACTION_COMPLETED', 2, {
+      metadata: { length: 100, verified: true, answerIdentity: 'current_dispatch' },
+      typed: { kind: 'extraction', state: 'completed' }
+    });
+    const laterFailedAttempt = event('EXTRACTION_COMPLETED', 3, { typed: { kind: 'extraction', state: 'failed' } });
+    const terminal = event('MODEL_TERMINAL_RECORDED', 4, {
+      metadata: { terminalStatus: 'SUCCESS', answerLen: 100 },
+      typed: { kind: 'terminal_action', state: 'SUCCESS' }
+    });
+    terminal.evidenceRefs = [accepted.eventId];
+    expect(applicability('empty', [
+      event('GENERATION_SIGNAL_CHANGED', 1, { metadata: { textLength: 100 }, typed: { kind: 'generation', state: 'active' } }),
+      accepted,
+      laterFailedAttempt,
+      terminal
+    ]).result.status).toBe('not_confirmed');
+    expect(applicability('empty', [
+      event('GENERATION_SIGNAL_CHANGED', 1, { metadata: { textLength: 100 }, typed: { kind: 'generation', state: 'active' } })
+    ]).result.status).toBe('unknown');
   });
 
   test('Prompt not sent requires explicit failed submission and treats absence as unknown', () => {
@@ -141,20 +176,40 @@ describe('proof telemetry preset semantic applicability', () => {
     expect(applicability('prompt-not-sent', [
       event('SUBMISSION_INFERRED', 1, { typed: { kind: 'submission', state: 'confirmed' } })
     ]).result.status).toBe('not_confirmed');
+    expect(applicability('prompt-not-sent', [
+      event('SUBMISSION_INFERRED', 1, { typed: { kind: 'submission', state: 'failed' } }),
+      event('GENERATION_SIGNAL_CHANGED', 2, { metadata: { textLength: 100 }, typed: { kind: 'generation', state: 'active' } }),
+      event('MODEL_TERMINAL_RECORDED', 3, { metadata: { terminalStatus: 'SUCCESS', answerLen: 100 }, typed: { kind: 'terminal_action', state: 'SUCCESS' } })
+    ]).result.status).toBe('not_confirmed');
+    expect(applicability('prompt-not-sent', [
+      event('SUBMISSION_INFERRED', 1, { typed: { kind: 'submission', state: 'confirmed' } }),
+      event('SUBMISSION_INFERRED', 2, { typed: { kind: 'submission', state: 'failed' } })
+    ]).result.status).toBe('not_confirmed');
     expect(applicability('prompt-not-sent', []) .result.status).toBe('unknown');
   });
 
   test('Late end uses comparable monotonic clocks and preserves incomparable time as unknown', () => {
     const positive = applicability('late-end', [
       event('STABILITY_INTERVAL_CLOSED', 1, { clock: { observedAtLocalMonoMs: 1000 } }),
-      event('MODEL_TERMINAL_RECORDED', 2, { metadata: { terminalStatus: 'SUCCESS' }, clock: { observedAtLocalMonoMs: 5000 } })
+      event('DECISION_RECORDED', 2, { payload: { accepted: false }, typed: { kind: 'decision', state: 'rejected' }, clock: { observedAtLocalMonoMs: 1100 } }),
+      event('MODEL_TERMINAL_RECORDED', 3, { metadata: { terminalStatus: 'SUCCESS' }, clock: { observedAtLocalMonoMs: 5000 } })
     ]);
     expect(positive.view.stableToTerminalMs).toBe(4000);
     expect(positive.result.status).toBe('confirmed');
 
+    const interrupted = applicability('late-end', [
+      event('STABILITY_INTERVAL_CLOSED', 1, { clock: { observedAtLocalMonoMs: 1000 } }),
+      event('DECISION_RECORDED', 2, { payload: { accepted: false }, typed: { kind: 'decision', state: 'rejected' } }),
+      event('TEXT_STATE_CHANGED', 3, { metadata: { textLength: 200 } }),
+      event('MODEL_TERMINAL_RECORDED', 4, { metadata: { terminalStatus: 'SUCCESS' }, clock: { observedAtLocalMonoMs: 5000 } })
+    ]);
+    expect(interrupted.view.postStabilityMutationObserved).toBe(true);
+    expect(interrupted.result.status).toBe('not_confirmed');
+
     const incomparable = applicability('late-end', [
       event('STABILITY_INTERVAL_CLOSED', 1, { clock: { producerEpochId: 'document-a', ingestEpochId: 'worker-a' } }),
-      event('MODEL_TERMINAL_RECORDED', 2, { clock: { producerEpochId: 'document-b', ingestEpochId: 'worker-b' } })
+      event('DECISION_RECORDED', 2, { payload: { accepted: false }, typed: { kind: 'decision', state: 'rejected' } }),
+      event('MODEL_TERMINAL_RECORDED', 3, { clock: { producerEpochId: 'document-b', ingestEpochId: 'worker-b' } })
     ]);
     expect(incomparable.view.stableToTerminalMs).toBeNull();
     expect(incomparable.result.status).toBe('unknown');

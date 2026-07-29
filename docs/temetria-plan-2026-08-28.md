@@ -366,21 +366,21 @@ aggregate them to Platform with explicit incident references. - Done
 16.3. Make post-terminal audit require exact incident scope and known comparable
 length/hash evidence; missing measurement must remain unknown. - Done
 
-16.4. Correct Old answer identity precedence and normalized dispatch identity. - Pending
+16.4. Correct Old answer identity precedence and normalized dispatch identity. - Done
 
 16.5. Correct False success tri-state audit semantics and measured zero-growth
-opposition evidence. - Pending
+opposition evidence. - Done
 
 16.6. Separate Cutted boundary coverage from False success post-terminal growth
-and forbid extraction-length substitution. - Pending
+and forbid extraction-length substitution. - Done
 
-16.7. Add counter-evidence and causal ordering to Prompt not sent. - Pending
+16.7. Add counter-evidence and causal ordering to Prompt not sent. - Done
 
 16.8. Resolve the accepted extraction and implement both Empty branches: empty
-result and wrong-node result. - Pending
+result and wrong-node result. - Done
 
 16.9. Derive Late end from the effective policy eligibility boundary and prove
-the absence of later relevant mutations. - Pending
+the absence of later relevant mutations. - Done
 
 16.10. Use REPORT_CONTRACTS as the single source of truth for embedded and
 standalone applicability, evidence slots and sufficiency. - Pending

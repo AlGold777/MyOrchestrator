@@ -320,6 +320,57 @@
     return { comparable: false, durationMs: null, basis: producerComparison?.reason || 'clock_unavailable' };
   }
 
+  function normalizeDispatchIdentity(value, modelId) {
+    if (value === undefined || value === null || value === '') return null;
+    const normalized = String(value).trim();
+    const prefix = `${String(modelId || '').trim()}:`;
+    return prefix !== ':' && normalized.toLowerCase().startsWith(prefix.toLowerCase())
+      ? normalized.slice(prefix.length)
+      : normalized;
+  }
+
+  function eventBoolean(event, keys) {
+    const value = eventValue(event, keys);
+    if (value === true || value === false) return value;
+    if (String(value).toLowerCase() === 'true') return true;
+    if (String(value).toLowerCase() === 'false') return false;
+    return null;
+  }
+
+  function resolveAcceptedExtraction(events, terminalEvent) {
+    const terminalSeq = Number(terminalEvent?.seq ?? Infinity);
+    const candidates = events.filter((event) => event.eventType === 'EXTRACTION_COMPLETED'
+      && Number(event.seq) <= terminalSeq);
+    if (!candidates.length) return { event: null, resolution: 'not_observed' };
+    const byId = new Map(events.map((event) => [event.eventId, event]));
+    const visited = new Set();
+    const queue = [...(terminalEvent?.evidenceRefs || [])];
+    while (queue.length) {
+      const eventId = queue.shift();
+      if (visited.has(eventId)) continue;
+      visited.add(eventId);
+      const linked = byId.get(eventId);
+      if (!linked) continue;
+      if (linked.eventType === 'EXTRACTION_COMPLETED') return { event: linked, resolution: 'terminal_evidence_ref' };
+      queue.push(...(linked.evidenceRefs || []));
+    }
+    const explicitlyAccepted = candidates.filter((event) => eventBoolean(event, ['accepted', 'usedForTerminal']) === true
+      || ['accepted', 'selected'].includes(String(eventValue(event, ['selectionStatus', 'acceptanceStatus']) || '').toLowerCase()));
+    if (explicitlyAccepted.length === 1) return { event: explicitlyAccepted[0], resolution: 'explicit_acceptance' };
+    const terminalEvidenceLength = eventValue(terminalEvent, ['answerEvidenceLength']);
+    const terminalEvidenceSource = eventValue(terminalEvent, ['answerEvidenceSource']);
+    const evidenceMatches = candidates.filter((event) => {
+      const lengths = numericMeta([event], ['extractedTextLength', 'capturedTextLength', 'textLength', 'answerLength', 'answerLen', 'length']);
+      const source = eventValue(event, ['source', 'answerEvidenceSource']);
+      const lengthMatches = terminalEvidenceLength !== null && lengths.some((length) => length === Number(terminalEvidenceLength));
+      const sourceMatches = terminalEvidenceSource !== null && source !== null && String(source) === String(terminalEvidenceSource);
+      return lengthMatches && (terminalEvidenceSource === null || sourceMatches);
+    });
+    if (evidenceMatches.length === 1) return { event: evidenceMatches[0], resolution: 'terminal_evidence_match' };
+    if (candidates.length === 1) return { event: candidates[0], resolution: 'unique_pre_terminal_extraction' };
+    return { event: null, resolution: 'ambiguous_pre_terminal_extraction' };
+  }
+
   function deriveAxes(events) {
     const submitted = includesSource(events, /PROMPT_SUBMITTED_(ACCEPTED|INFERRED)|SUBMISSION_CONFIRMED|DISPATCH_CONFIRMED/);
     const submitFailed = includesSource(events, /PROMPT_SUBMITTED_(REJECTED|TIMEOUT)|DISPATCH_COMMAND_NOT_ACCEPTED|NO_SEND/);
@@ -342,7 +393,11 @@
     return {
       submission: submitted ? 'confirmed' : submitFailed ? 'failed' : submitAttempted ? 'evidence_partial' : 'not_attempted',
       generationStart: started ? 'started' : submitted && terminal ? 'unknown' : submitted ? 'not_started' : 'not_evaluated',
-      answerIdentity: started && events.some((event) => event.dispatchId) ? 'current_dispatch' : started ? 'candidate' : 'none',
+      answerIdentity: (() => {
+        const identities = events.map((event) => Contracts?.factOf?.(event))
+          .filter((fact) => fact?.kind === 'candidate_identity' && fact.state && fact.state !== 'unknown');
+        return identities.length ? identities[identities.length - 1].state : (started ? 'candidate' : 'none');
+      })(),
       observedGeneration: active && !terminal ? 'active' : stable && !terminal ? 'quiescent' : terminal ? 'inactive' : started ? 'unknown' : 'not_started',
       textEvolution: regressed ? 'regressed' : active ? 'changing' : stable ? 'stable' : 'none',
       answerCompleteness: regressed ? 'probably_truncated' : tier >= 3 ? 'probably_complete' : terminal ? 'unknown' : 'not_evaluated',
@@ -359,26 +414,37 @@
 
   function deriveModelView(modelId, events) {
     const axes = deriveAxes(events);
-    const lengths = numericMeta(events, ['textLength', 'answerLength', 'answerLen', 'latestObservedTextLength']);
     const terminalEvent = [...events].reverse().find((event) => event.eventType === 'MODEL_TERMINAL_RECORDED');
+    const terminalSeq = Number(terminalEvent?.seq ?? Infinity);
+    const observedTextTypes = new Set(['GENERATION_START_EVALUATED', 'GENERATION_SIGNAL_CHANGED', 'OBSERVATION_FRAME_CAPTURED', 'TEXT_STATE_CHANGED', 'STABILITY_INTERVAL_CLOSED']);
+    const observedTextEvents = events.filter((event) => observedTextTypes.has(event.eventType));
+    const preTerminalObservedEvents = observedTextEvents.filter((event) => Number(event.seq) <= terminalSeq);
+    const preTerminalLengths = numericMeta(preTerminalObservedEvents, ['textLength', 'answerLength', 'answerLen', 'latestObservedTextLength']);
     const stableEvents = events.filter((event) => event.eventType === 'STABILITY_INTERVAL_CLOSED');
     const lastStableBeforeTerminal = terminalEvent
       ? stableEvents.filter((event) => Number(event.seq) <= Number(terminalEvent.seq)).slice(-1)[0]
       : stableEvents.slice(-1)[0];
-    const postTerminalLengths = terminalEvent ? numericMeta(events.filter((event) => event.seq > terminalEvent.seq), ['textLength', 'answerLength', 'answerLen']) : [];
+    const postTerminalObservedEvents = terminalEvent
+      ? observedTextEvents.filter((event) => Number(event.seq) > Number(terminalEvent.seq))
+      : [];
+    const postTerminalLengths = numericMeta(postTerminalObservedEvents, ['textLength', 'answerLength', 'answerLen', 'latestObservedTextLength']);
     const terminalLengths = terminalEvent ? numericMeta([terminalEvent], ['textLength', 'answerLength', 'answerLen']) : [];
     const acceptedLength = terminalLengths.length ? terminalLengths[0] : null;
-    const extractionEvents = events.filter((event) => event.eventType === 'EXTRACTION_COMPLETED');
-    const latestExtraction = extractionEvents[extractionEvents.length - 1] || null;
-    const extractionLengths = latestExtraction
-      ? numericMeta([latestExtraction], ['extractedTextLength', 'capturedTextLength', 'textLength', 'answerLength', 'answerLen', 'length'])
+    const acceptedExtraction = resolveAcceptedExtraction(events, terminalEvent);
+    const extractionEvent = acceptedExtraction.event;
+    const extractionLengths = extractionEvent
+      ? numericMeta([extractionEvent], ['extractedTextLength', 'capturedTextLength', 'textLength', 'answerLength', 'answerLen', 'length'])
       : [];
-    const extractedTextLength = extractionLengths.length ? extractionLengths[extractionLengths.length - 1] : acceptedLength;
-    const maxObservedLength = lengths.length ? Math.max(...lengths) : 0;
+    const extractedTextLength = extractionLengths.length ? extractionLengths[extractionLengths.length - 1] : null;
+    const maxObservedLength = preTerminalLengths.length ? Math.max(...preTerminalLengths) : null;
     const postTerminalMax = postTerminalLengths.length ? Math.max(...postTerminalLengths) : acceptedLength;
     const latestAudit = [...events].reverse().find((event) => event.eventType === 'POST_TERMINAL_AUDIT_COMPLETED');
     const pendingAudit = events.some((event) => event.eventType === 'MISSING_EVIDENCE_RECORDED'
-      && eventValue(event, ['missingEvidence']) === 'post_terminal_observation');
+      && eventValue(event, ['missingEvidence']) === 'post_terminal_observation'
+      && String(eventValue(event, ['status']) || '').toLowerCase() === 'pending');
+    const impossibleAudit = events.some((event) => event.eventType === 'MISSING_EVIDENCE_RECORDED'
+      && ['post_terminal_observation', 'post_terminal_comparable_measurement'].includes(eventValue(event, ['missingEvidence']))
+      && ['unavailable', 'impossible'].includes(String(eventValue(event, ['status']) || '').toLowerCase()));
     const auditGrowthCharsRaw = eventValue(latestAudit, ['growthChars']);
     const auditGrowthPctRaw = eventValue(latestAudit, ['growthPct']);
     const auditGrowthChars = auditGrowthCharsRaw === null ? null : Number(auditGrowthCharsRaw);
@@ -390,17 +456,40 @@
     const postTerminalGrowthChars = Number.isFinite(auditGrowthChars) && auditGrowthChars >= 0 ? auditGrowthChars : computedGrowthChars;
     const postTerminalGrowthPct = Number.isFinite(auditGrowthPct) && auditGrowthPct >= 0 ? auditGrowthPct : computedGrowthPct;
     const auditConclusion = String(eventValue(latestAudit, ['conclusion']) || '').toLowerCase() || null;
-    const postTerminalGrowthProven = latestAudit
-      ? auditConclusion === 'contradicted' && postTerminalGrowthChars > 0
-      : (postTerminalLengths.length && postTerminalGrowthChars > 0 ? true : null);
-    const extractionFact = latestExtraction ? Contracts?.factOf?.(latestExtraction) : null;
+    const auditPossible = latestAudit ? eventBoolean(latestAudit, ['auditPossible']) : null;
+    const postTerminalGrowthProven = latestAudit && auditPossible !== false
+      ? (auditConclusion === 'contradicted' && Number.isFinite(auditGrowthChars) && auditGrowthChars > 0
+        ? true
+        : (Number.isFinite(auditGrowthChars) && auditGrowthChars === 0 ? false : null))
+      : null;
+    const extractionFact = extractionEvent ? Contracts?.factOf?.(extractionEvent) : null;
     const extractionFailed = extractionFact?.state === 'failed';
     const generationEvents = events.filter((event) => ['GENERATION_START_EVALUATED', 'GENERATION_SIGNAL_CHANGED', 'OBSERVATION_FRAME_CAPTURED', 'TEXT_STATE_CHANGED'].includes(event.eventType));
     const generationLengths = numericMeta(generationEvents, ['textLength', 'answerLength', 'answerLen', 'latestObservedTextLength']);
     const generationTextObserved = generationLengths.length ? Math.max(...generationLengths) > 0 : null;
-    const emptyExtractionEvidence = generationTextObserved === true && latestExtraction
-      ? (extractionFailed || extractedTextLength === 0 ? true : (extractedTextLength > 0 ? false : null))
+    const extractionIdentity = String(eventValue(extractionEvent, ['answerIdentity']) || '').toLowerCase() || null;
+    const extractionVerified = eventBoolean(extractionEvent, ['verified', 'structuralVerified']);
+    const extractionVerification = String(eventValue(extractionEvent, ['verification']) || '').toLowerCase() || null;
+    const wrongNodeEvidence = extractionEvent && extractedTextLength > 0
+      ? (extractionVerified === false
+        || extractionVerification === 'rejected'
+        || ['ambiguous', 'rejected', 'stale'].includes(extractionIdentity)
+          ? true
+          : (extractionVerified === true || extractionVerification === 'verified' || extractionIdentity === 'current_dispatch' ? false : null))
       : null;
+    const emptyResultEvidence = extractionEvent
+      ? (extractionFailed || extractedTextLength === 0
+        ? true
+        : (extractedTextLength > 0 && extractionFact?.state === 'completed' ? false : null))
+      : null;
+    const extractionProblemEvidence = generationTextObserved === true
+      ? (emptyResultEvidence === true || wrongNodeEvidence === true
+        ? true
+        : (emptyResultEvidence === false && wrongNodeEvidence === false ? false : null))
+      : null;
+    const emptyExtractionBranch = emptyResultEvidence === true
+      ? 'empty_result'
+      : (wrongNodeEvidence === true ? 'wrong_node' : null);
     const terminalOutcomeRaw = eventValue(terminalEvent, ['terminalStatus', 'finalStatus', 'status']);
     const terminalOutcome = terminalOutcomeRaw ? String(terminalOutcomeRaw).toUpperCase() : null;
     const completenessStates = events
@@ -409,23 +498,54 @@
     const extractionCoveragePct = maxObservedLength > 0 && extractedTextLength !== null
       ? Math.min(100, (extractedTextLength / maxObservedLength) * 100) : null;
     const explicitIncomplete = completenessStates.some((state) => /truncat|partial|incomplete/.test(state));
-    const incompleteCaptureEvidence = postTerminalGrowthProven === true
-      || explicitIncomplete
+    const explicitComplete = completenessStates.some((state) => /verified_complete|probably_complete/.test(state));
+    const incompleteCaptureEvidence = explicitIncomplete
       || (extractionCoveragePct !== null && extractionCoveragePct < Number(Contracts?.THRESHOLDS?.minimumExtractionCoveragePct || 98))
       ? true
-      : (latestAudit && auditConclusion === 'confirmed' && extractionCoveragePct !== null ? false : null);
+      : (extractionCoveragePct !== null && extractionCoveragePct >= Number(Contracts?.THRESHOLDS?.minimumExtractionCoveragePct || 98)
+        ? false
+        : (explicitComplete ? false : null));
     const terminalAnswerDispatchId = eventValue(terminalEvent, ['answerEvidenceDispatchId', 'acceptedAnswerDispatchId']);
-    const extractionIdentity = String(eventValue(latestExtraction, ['answerIdentity']) || '').toLowerCase() || null;
-    const oldAnswerEvidence = terminalEvent && terminalAnswerDispatchId
-      ? String(terminalAnswerDispatchId) !== String(terminalEvent.dispatchId || '')
-      : (['previous_dispatch', 'stale_accepted'].includes(extractionIdentity)
+    const explicitAnswerIdentity = String(eventValue(terminalEvent, ['answerIdentity']) || extractionIdentity || '').toLowerCase() || null;
+    const currentDispatchIdentity = normalizeDispatchIdentity(terminalEvent?.dispatchId, modelId);
+    const acceptedAnswerIdentity = normalizeDispatchIdentity(terminalAnswerDispatchId, modelId);
+    const oldAnswerEvidence = explicitAnswerIdentity === 'current_dispatch'
+      ? false
+      : (['previous_dispatch', 'stale_accepted'].includes(explicitAnswerIdentity)
         ? true
-        : (extractionIdentity === 'current_dispatch' ? false : null));
-    const submissionFacts = events.map((event) => Contracts?.factOf?.(event)).filter((fact) => fact?.kind === 'submission');
-    const latestSubmission = submissionFacts[submissionFacts.length - 1] || null;
-    const promptNotSentEvidence = latestSubmission?.state === 'failed'
-      ? true : (latestSubmission?.state === 'confirmed' ? false : null);
+        : (currentDispatchIdentity !== null && acceptedAnswerIdentity !== null
+          ? currentDispatchIdentity !== acceptedAnswerIdentity
+          : null));
+    const submissionEntries = events.map((event) => ({ event, fact: Contracts?.factOf?.(event) }))
+      .filter(({ fact }) => fact?.kind === 'submission');
+    const submissionFailed = submissionEntries.some(({ fact }) => fact.state === 'failed');
+    const submissionConfirmed = submissionEntries.some(({ fact }) => fact.state === 'confirmed');
+    const promptReceivedCounterEvidence = submissionConfirmed
+      || generationTextObserved === true
+      || (extractedTextLength !== null && extractedTextLength > 0)
+      || terminalOutcome === 'SUCCESS';
+    const promptNotSentEvidence = promptReceivedCounterEvidence
+      ? false
+      : (submissionFailed ? true : null);
     const stableDelay = exactEventDuration(lastStableBeforeTerminal, terminalEvent);
+    const lastStableSeq = Number(lastStableBeforeTerminal?.seq ?? -Infinity);
+    const terminalBoundarySeq = Number(terminalEvent?.seq ?? Infinity);
+    const blockingDecisions = events.filter((event) => event.eventType === 'DECISION_RECORDED'
+      && Number(event.seq) >= lastStableSeq
+      && Number(event.seq) <= terminalBoundarySeq
+      && eventBoolean(event, ['accepted', 'decisionAccepted']) === false);
+    const acceptingDecisions = events.filter((event) => event.eventType === 'DECISION_RECORDED'
+      && Number(event.seq) >= lastStableSeq
+      && Number(event.seq) <= terminalBoundarySeq
+      && eventBoolean(event, ['accepted', 'decisionAccepted']) === true);
+    const invalidatingAfterStable = events.some((event) => Number(event.seq) > lastStableSeq
+      && Number(event.seq) < terminalBoundarySeq
+      && (event.eventType === 'TEXT_STATE_CHANGED'
+        || (event.eventType === 'GENERATION_SIGNAL_CHANGED' && Contracts?.factOf?.(event)?.state === 'active')));
+    const policyWaitObserved = blockingDecisions.length ? true : (acceptingDecisions.length ? false : null);
+    const lateEndEvidence = stableDelay.comparable && stableDelay.durationMs > 0 && policyWaitObserved === true
+      ? (invalidatingAfterStable ? false : true)
+      : (policyWaitObserved === false && stableDelay.comparable ? false : null);
     return {
       modelId,
       stateAxes: axes,
@@ -440,13 +560,25 @@
       postTerminalGrowthChars,
       postTerminalGrowthPct,
       postTerminalGrowthProven,
-      postTerminalAuditStatus: latestAudit ? 'completed' : pendingAudit ? 'pending' : 'not_applicable',
+      postTerminalAuditStatus: latestAudit
+        ? (auditPossible === false || auditConclusion === 'unknown' ? 'impossible' : 'completed')
+        : (impossibleAudit ? 'impossible' : (pendingAudit ? 'pending' : null)),
       postTerminalAuditConclusion: auditConclusion,
       extractionCoveragePct,
       incompleteCaptureEvidence,
       generationTextObserved,
-      emptyExtractionEvidence,
+      acceptedExtractionEventId: extractionEvent?.eventId || null,
+      acceptedExtractionResolution: acceptedExtraction.resolution,
+      emptyResultEvidence,
+      wrongNodeEvidence,
+      extractionProblemEvidence,
+      emptyExtractionEvidence: extractionProblemEvidence,
+      emptyExtractionBranch,
       oldAnswerEvidence,
+      normalizedCurrentDispatchId: currentDispatchIdentity,
+      normalizedAnswerEvidenceDispatchId: acceptedAnswerIdentity,
+      submissionFailed,
+      promptReceivedCounterEvidence,
       promptNotSentEvidence,
       hiddenRelevantTextLength: 0,
       candidateCount: new Set(events.map((event) => event.candidateId).filter(Boolean)).size,
@@ -455,7 +587,10 @@
       terminalOutcome,
       stableToTerminalMs: stableDelay.comparable ? stableDelay.durationMs : null,
       stableToTerminalComparable: stableDelay.comparable ? true : null,
-      stableToTerminalClockBasis: stableDelay.basis
+      stableToTerminalClockBasis: stableDelay.basis,
+      policyWaitObserved,
+      postStabilityMutationObserved: invalidatingAfterStable,
+      lateEndEvidence
     };
   }
 
@@ -514,12 +649,20 @@
       incompleteCaptureEvidence: view.incompleteCaptureEvidence,
       generationTextObserved: view.generationTextObserved,
       emptyExtractionEvidence: view.emptyExtractionEvidence,
+      emptyResultEvidence: view.emptyResultEvidence,
+      wrongNodeEvidence: view.wrongNodeEvidence,
+      extractionProblemEvidence: view.extractionProblemEvidence,
+      emptyExtractionBranch: view.emptyExtractionBranch,
       oldAnswerEvidence: view.oldAnswerEvidence,
+      promptReceivedCounterEvidence: view.promptReceivedCounterEvidence,
       promptNotSentEvidence: view.promptNotSentEvidence,
       terminalOutcome: view.terminalOutcome,
       stableToTerminalMs: view.stableToTerminalMs,
       stableToTerminalComparable: view.stableToTerminalComparable,
-      stableToTerminalClockBasis: view.stableToTerminalClockBasis
+      stableToTerminalClockBasis: view.stableToTerminalClockBasis,
+      policyWaitObserved: view.policyWaitObserved,
+      postStabilityMutationObserved: view.postStabilityMutationObserved,
+      lateEndEvidence: view.lateEndEvidence
     };
   }
 

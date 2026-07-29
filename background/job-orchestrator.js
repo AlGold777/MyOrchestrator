@@ -7161,6 +7161,7 @@ function emitFinalizationDecision(llmName, evidence = {}) {
     meta: {
       finalStatus: evidence.finalStatus || null,
       finalReason: evidence.finalReason || null,
+      decisionAccepted: evidence.accepted === true,
       modelFinalStatus: evidence.modelFinalStatus || null,
       doneReason: evidence.doneReason || null,
       dispatchId: evidence.dispatchId || null,

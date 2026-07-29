@@ -77,7 +77,7 @@
       applicability: {
         all: [
           ['$.derivedViews.generationTextObserved', 'eq', true],
-          ['$.derivedViews.emptyExtractionEvidence', 'eq', true]
+          ['$.derivedViews.extractionProblemEvidence', 'eq', true]
         ]
       },
       slots: [
@@ -108,8 +108,7 @@
       question: 'Текст давно стабилен — почему система ждала ещё N секунд?',
       applicability: {
         all: [
-          ['$.derivedViews.stableToTerminalComparable', 'eq', true],
-          ['$.derivedViews.stableToTerminalMs', 'gt', 0]
+          ['$.derivedViews.lateEndEvidence', 'eq', true]
         ]
       },
       slots: [
