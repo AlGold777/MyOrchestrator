@@ -11,6 +11,11 @@
 
 ## Статус реализации
 
+Версия `2.81.165` уточняет границу `No delivery`/`Cutted`: один hash mismatch
+при непустом пригодном answer остаётся `unknown`. Положительный verdict требует
+independent unusability, empty/wrong-card outcome либо классифицированный
+непригодный content. Registry `6.2.0`, report `3.2.0`, generator `2.2.0`.
+
 Версия `2.81.164` завершает product cutover. Registry `6.1.0`, report `3.1.0`
 и generator `2.1.0` заменяют `Empty` на `No delivery` в текущем UI, All tasks,
 standalone generator и dependency registry. Старые Empty reports registries

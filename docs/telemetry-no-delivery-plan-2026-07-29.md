@@ -1,7 +1,7 @@
 # No delivery: план proof-oriented telemetry preset
 
 Дата: 2026-07-29  
-Статус: согласованный план реализации; выполнение начато.
+Статус: реализация завершена; все нормативные этапы выполнены.
 
 ## 1. Назначение
 
@@ -688,7 +688,7 @@ Standalone No delivery report включает только:
 13. Запустить shadow comparison с `Empty`. — Done
 14. Переключить UI/export на `No delivery`, сохранить legacy validation и
     удалить текущий `Empty`. — Done
-15. Обновить версии/документацию и пройти полный regression gate. — Pending
+15. Обновить версии/документацию и пройти полный regression gate. — Done
 
 ## 20. Test matrix
 

@@ -840,6 +840,11 @@ Source и card используют одну normalization version; отсутс
 несовместимые версии и непроверенная карточка дают `unknown`. Matched answer в
 expected card является независимым опровержением.
 
+Один hash mismatch непустого пригодного `answer` не подтверждает No delivery:
+это может быть `Cutted` или допустимое преобразование представления. Нужен
+независимый `usableResult=false`, wrong-card outcome либо content class
+`empty|technical_message|provider_error|prompt_echo|placeholder|non_text`.
+
 `occurrenceVerdict` и `causeVerdict` независимы. Missing cause boundaries не
 понижают уже доказанный occurrence. Cause summary содержит attempt graph,
 последнюю успешную и первую неуспешную границы, а также четыре ортогональные

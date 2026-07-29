@@ -16228,6 +16228,7 @@ document.addEventListener('click', (event) => {
                     expectedNormalizationVersion: meta.normalizationVersion || null,
                     expectedNormalizedHash: meta.normalizedHash || null,
                     contentClass: !renderedText ? 'empty' : (isErrorOutput(renderedText) ? 'technical_message' : 'answer'),
+                    usableResult: Boolean(renderedText && !isErrorOutput(renderedText)),
                     evaluationBoundaryId,
                     evaluationBoundaryType,
                     resolutionState

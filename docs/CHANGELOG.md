@@ -1,5 +1,17 @@
 # CHANGELOG — Project
 
+### 2026-07-29 — No delivery usability boundary, version 2.81.165
+
+- A bare normalized-hash mismatch with a usable answer no longer confirms No
+  delivery, preventing semantic overlap with Cutted.
+- Card render evidence now records usability independently from content class
+  and source/card comparison.
+- The explicit producer inventory includes current-dispatch resolution, stale
+  baseline rejection, selector failure and provider finish-reason labels; they
+  are covered as literals without restoring heuristic regex promotion.
+- Registry 6.2.0, report 3.2.0 and generator 2.2.0 encode the tightened
+  applicability semantics.
+
 ### 2026-07-29 — No delivery product cutover, version 2.81.164
 
 - Replaced `Empty` with `No delivery` in both Telemetry Task filters and the

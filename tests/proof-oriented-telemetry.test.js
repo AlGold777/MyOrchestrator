@@ -45,6 +45,7 @@ describe('Proof-oriented telemetry schema 6 event export', () => {
       observedCardId: 'panel-gpt',
       outcome: renderOutcome,
       contentClass: renderOutcome === 'empty' ? 'empty' : 'answer',
+      usableResult: renderOutcome !== 'empty',
       normalizationVersion: 'answer-proof-normalization@1.0.0',
       expectedNormalizationVersion: 'answer-proof-normalization@1.0.0',
       normalizedHash: renderOutcome === 'matched' ? 'fnv1a:12345678' : null,
@@ -189,8 +190,21 @@ describe('Proof-oriented telemetry schema 6 event export', () => {
     expect(view.noDeliveryEvidence).toBeNull();
   });
 
+  test('does not turn a usable hash mismatch into No delivery without independent unusability proof', () => {
+    const view = ProofTelemetry.deriveModelView('GPT', noDeliveryLedger('mismatched'));
+    expect(view.noDeliveryEvidence).toBeNull();
+    expect(view.cardUsableResult).toBe(true);
+  });
+
+  test('confirms No delivery when the card contains an independently classified technical message', () => {
+    const view = ProofTelemetry.deriveModelView('GPT', noDeliveryLedger('mismatched', {
+      render: { contentClass: 'technical_message', usableResult: false }
+    }));
+    expect(view.noDeliveryEvidence).toBe(true);
+  });
+
   test('keeps occurrence confirmed when the failing stage cannot be localized', async () => {
-    const ledger = noDeliveryLedger('mismatched', { middle: [] });
+    const ledger = noDeliveryLedger('wrong_card', { middle: [], render: { usableResult: false } });
     const report = await ProofTelemetry.buildStandaloneReport(ledger, {
       canonicalLedger: true,
       modelId: 'GPT',

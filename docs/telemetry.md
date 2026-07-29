@@ -1,5 +1,16 @@
 # Telemetry - tab/session diagnostics
 
+## No delivery usability boundary v2.81.165 - 2026-07-29
+
+A card hash mismatch alone no longer confirms No delivery. A non-empty usable
+answer may be a Cutted case or an allowed representation difference, so the
+verdict remains `unknown` until independent unusability or wrong-card evidence
+exists. Empty, technical/provider/prompt-echo/placeholder/non-text content and
+explicit wrong-card outcomes remain positive delivery-failure evidence.
+Legitimate current-dispatch, stale-baseline, selector-failure and provider
+finish-reason producers remain explicit canonical mappings; unknown labels
+still stay outside proof evidence.
+
 ## No delivery cutover v2.81.164 - 2026-07-29
 
 The Platform/Tasks telemetry UI and JSON export now expose `No delivery` in

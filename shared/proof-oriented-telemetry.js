@@ -14,8 +14,8 @@
   const Clock = root.ProofTelemetryClock || (typeof require === 'function' ? require('./proof-telemetry-clock.js') : null);
   const SCHEMA_VERSION = '5.0';
   const EVENT_SCHEMA_VERSION = Contracts?.EVENT_SCHEMA_VERSION || 6;
-  const GENERATOR_VERSION = 'proof-export@2.1.0';
-  const REPORT_VERSION = '3.1.0';
+  const GENERATOR_VERSION = 'proof-export@2.2.0';
+  const REPORT_VERSION = '3.2.0';
   const REPORT_TYPES = Object.freeze([
     'cutted',
     'false-success',
@@ -59,6 +59,8 @@
     ANSWER_LENGTH_DECREASED: 'TEXT_STATE_CHANGED',
     ANSWER_LENGTH_REGRESSION_RECOVERED: 'TEXT_STATE_CHANGED',
     ANSWER_NODE_REPLACED: 'CANDIDATE_SET_CHANGED',
+    STALE_BASELINE_ANSWER_IGNORED: 'CANDIDATE_SET_CHANGED',
+    TURN_RESOLUTION_ACCEPTED: 'CANDIDATE_IDENTITY_INFERRED',
     ANSWER_COMPLETE_DETECTED: 'COMPLETION_HYPOTHESIS_EVALUATED',
     ANSWER_COMPLETE_TIMEOUT: 'TERMINAL_DEADLINE_REACHED',
     ANSWER_PARTIAL_ON_TIMEOUT: 'ANSWER_COMPLETENESS_EVALUATED',
@@ -76,6 +78,7 @@
     SPA_NAVIGATION: 'PAGE_CONTEXT_OBSERVED',
     PAGE_READY_STATE: 'PAGE_HEALTH_OBSERVED',
     SCRIPT_HEALTH_FAIL: 'OBSERVER_HEALTH_OBSERVED',
+    SELECTOR_RESOLVE_FAIL: 'OBSERVER_HEALTH_OBSERVED',
     FOCUS_STUCK: 'OBSERVER_HEALTH_OBSERVED',
     LEASE_GRANTED: 'OBSERVATION_SLOT_GRANTED',
     LEASE_DENIED: 'OBSERVATION_SLOT_DENIED',
@@ -96,7 +99,8 @@
     ANSWER_DELIVERY_ACKNOWLEDGED: 'ANSWER_DELIVERY_ACKNOWLEDGED',
     ANSWER_DELIVERY_REJECTED: 'ANSWER_DELIVERY_REJECTED',
     ANSWER_COMMIT_EVALUATED: 'ANSWER_COMMIT_EVALUATED',
-    ANSWER_CARD_RENDER_EVALUATED: 'ANSWER_CARD_RENDER_EVALUATED'
+    ANSWER_CARD_RENDER_EVALUATED: 'ANSWER_CARD_RENDER_EVALUATED',
+    PROVIDER_FINISH_REASON: 'GENERATION_SIGNAL_CHANGED'
   });
 
   const RUNTIME_TYPED_FACTS = Object.freeze({
@@ -113,10 +117,14 @@
     DOM_FALLBACK_TIMEOUT: { kind: 'extraction', state: 'failed', outcome: 'failed', mode: 'fallback' },
     ANSWER_EXTRACTION_COMPLETED: { kind: 'extraction', state: 'completed', outcome: 'completed', mode: 'primary' },
     MULTIPLE_CANDIDATES_AMBIGUOUS: { kind: 'candidate_identity', state: 'ambiguous' },
+    STALE_BASELINE_ANSWER_IGNORED: { kind: 'candidate_identity', state: 'stale' },
+    TURN_RESOLUTION_ACCEPTED: { kind: 'candidate_identity', state: 'current_dispatch' },
     COMPOSER_NOT_FOUND: { kind: 'observation', state: 'degraded' },
+    SELECTOR_RESOLVE_FAIL: { kind: 'observation', state: 'degraded' },
     ANSWER_SOURCE_MATERIALIZED: { kind: 'source_answer', state: 'materialized' },
     ANSWER_DELIVERY_ACKNOWLEDGED: { kind: 'delivery', state: 'accepted', outcome: 'accepted' },
-    ANSWER_DELIVERY_REJECTED: { kind: 'delivery', state: 'rejected', outcome: 'rejected' }
+    ANSWER_DELIVERY_REJECTED: { kind: 'delivery', state: 'rejected', outcome: 'rejected' },
+    PROVIDER_FINISH_REASON: { kind: 'provider_terminal', state: 'completed' }
   });
 
   const OPERATIONAL_EVENT_PATTERN = /^(?:ADAPTIVE_PROBE_TICK|MANUAL_PING(?:_FAIL|_START|_RESULT)?|PING_(?:TRANSPORT_ERROR|RETRY|TICK)|ROUND4_GATE_WAIT|MODEL_RUN_TRANSITION|STATE_PROJECTION_COMMITTED|DETECTOR_TICK|SELECTOR_STATS|RECOVERY_BUDGET_(?:EXHAUSTED|CONSUMED|WAIT)|FOCUS_(?:WAIT|RETRY|CHECK)|LEASE_(?:WAIT|RETRY|CHECK)|POLL(?:ING)?_TICK|WATCHDOG_TICK)$/;
@@ -467,6 +475,7 @@
     const render = comparableRender || latestRender;
     const declaredRenderOutcome = String(eventValue(render, ['outcome']) || '').toLowerCase() || null;
     const renderContentClass = String(eventValue(render, ['contentClass']) || '').toLowerCase() || null;
+    const usableResult = eventBoolean(render, ['usableResult']);
     const renderOutcome = renderContentClass && renderContentClass !== 'answer' && declaredRenderOutcome !== 'empty'
       ? (renderContentClass === 'previous_answer' ? 'mismatched' : renderContentClass)
       : declaredRenderOutcome;
@@ -481,7 +490,10 @@
     const normalizationComparable = Boolean(sourceNormalizationVersion && expectedNormalizationVersion
       && sourceNormalizationVersion === expectedNormalizationVersion
       && (renderOutcome === 'empty' || (renderNormalizationVersion && renderNormalizationVersion === sourceNormalizationVersion)));
-    const negativeOutcomes = new Set(['empty', 'mismatched', 'wrong_card', 'technical_message', 'provider_error', 'prompt_echo', 'placeholder', 'non_text']);
+    const independentlyUnusable = usableResult === false
+      || ['empty', 'technical_message', 'provider_error', 'prompt_echo', 'previous_answer', 'placeholder', 'non_text'].includes(renderContentClass);
+    const negativeOutcomeProven = ['empty', 'wrong_card'].includes(renderOutcome)
+      || independentlyUnusable;
     const positiveDelivery = renderOutcome === 'matched'
       && renderContentClass === 'answer'
       && String(expectedCardId) === String(observedCardId);
@@ -489,7 +501,7 @@
       ? null
       : (!identityComparable || !normalizationComparable
         ? null
-        : (positiveDelivery ? false : (negativeOutcomes.has(renderOutcome) ? true : null)));
+        : (positiveDelivery ? false : (negativeOutcomeProven ? true : null)));
     const attemptId = sourceAttemptId || eventValue(render, ['attemptId', 'sourceRevisionId']) || null;
     const payloadEvidenceId = sourcePayloadId || eventValue(render, ['payloadEvidenceId']) || null;
     const pathEvents = events.filter((event) => {
@@ -560,6 +572,7 @@
       expectedCardId: expectedCardId || null,
       observedCardId: observedCardId || null,
       cardContentClass: renderContentClass,
+      cardUsableResult: usableResult,
       cardRenderEvidenceEventId: render?.eventId || null,
       sourceToCardComparison: identityComparable && normalizationComparable ? renderOutcome : 'incomparable',
       evaluationBoundaryId,
@@ -1533,7 +1546,9 @@
     const reportBuild = buildReports(ledgerEvents, modelViews, incidentViews, ledgerHash, registryHash, {
       legacyMode: compatibility.mode === 'legacy-runtime-adapter'
     });
-    const reports = reportBuild.reports;
+    // Freeze the exact JSON representation before it is hashed and returned so
+    // in-memory validation and validation after file export see identical data.
+    const reports = JSON.parse(JSON.stringify(reportBuild.reports));
     Object.values(reports).forEach((report) => {
       report.reportDescriptor.limitations = compatibility.limitations;
     });
