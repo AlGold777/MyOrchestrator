@@ -1,5 +1,15 @@
 # CHANGELOG — Project
 
+### 2026-08-28 — Incident-scoped embedded applicability, version 2.81.146
+
+- All tasks now derives every semantic view from one exact incident scope
+  `(run, run generation, Platform, dispatch, generation epoch)`.
+- Embedded applicability is recorded and aggregated from explicit incident
+  results; a later request can no longer change the diagnosis of an earlier
+  request on the same Platform.
+- Added an incident timeline while retaining the latest per-Platform timeline
+  as a compatibility projection.
+
 ### 2026-08-28 — Incident-safe post-terminal audit, version 2.81.145
 
 - Post-terminal audit now requires the exact run generation, model, dispatch

@@ -1,5 +1,13 @@
 # Telemetry - tab/session diagnostics
 
+## Incident-scoped embedded applicability v2.81.146 - 2026-08-28
+
+`All tasks` evaluates each diagnosis independently for every exact incident.
+The incident key includes run identity, run generation, Platform, dispatch and
+generation epoch. Per-Platform status is only an explicit aggregation of those
+incident results, so events from a later request cannot prove growth,
+truncation or another diagnosis for an earlier request.
+
 ## Incident-safe post-terminal audit v2.81.145 - 2026-08-28
 
 Post-terminal observations can audit only a terminal from the exact same run

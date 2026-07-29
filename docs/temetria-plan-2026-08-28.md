@@ -361,7 +361,7 @@ dispatch mismatch and incomparable Late end clocks. Full gate passes 185 suites
 reject arbitrary size/time targets and false diagnosis exclusivity. - Done
 
 16.2. Compute derived views and applicability per exact incident scope, then
-aggregate them to Platform with explicit incident references. - Pending
+aggregate them to Platform with explicit incident references. - Done
 
 16.3. Make post-terminal audit require exact incident scope and known comparable
 length/hash evidence; missing measurement must remain unknown. - Done

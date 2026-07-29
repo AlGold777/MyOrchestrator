@@ -37,6 +37,37 @@ function applicability(reportType, events) {
 }
 
 describe('proof telemetry preset semantic applicability', () => {
+  test('All tasks derives applicability independently for every incident', async () => {
+    const firstTerminal = event('MODEL_TERMINAL_RECORDED', 1, {
+      metadata: { terminalStatus: 'SUCCESS', answerLen: 100 },
+      typed: { kind: 'terminal_action', state: 'SUCCESS' }
+    });
+    const nextText = event('TEXT_STATE_CHANGED', 2, { metadata: { textLength: 900 } });
+    nextText.dispatchId = 'dispatch-next';
+    nextText.generationEpoch = 2;
+    const container = await ProofTelemetry.buildAllPresets([firstTerminal, nextText], {
+      canonicalLedger: true,
+      exportedAt: 2000
+    });
+    const incidents = container.derivedViews['incident-timeline'].data;
+    expect(Object.keys(incidents)).toHaveLength(2);
+    const first = Object.values(incidents).find((view) => view.incidentScope.dispatchId === 'dispatch-current');
+    const next = Object.values(incidents).find((view) => view.incidentScope.dispatchId === 'dispatch-next');
+    expect(first).toEqual(expect.objectContaining({
+      acceptedTextLength: 100,
+      maxObservedTextLength: 100,
+      postTerminalGrowthChars: 0
+    }));
+    expect(next).toEqual(expect.objectContaining({
+      acceptedTextLength: null,
+      maxObservedTextLength: 900
+    }));
+    expect(Object.values(container.reports['false-success'].reportDescriptor.applicability.byIncident)
+      .some((result) => result.status === 'confirmed')).toBe(false);
+    expect(Object.values(container.reports.cutted.reportDescriptor.applicability.byIncident)
+      .some((result) => result.status === 'confirmed')).toBe(false);
+  });
+
   test('Cutted requires SUCCESS and positive incomplete-capture evidence', () => {
     const positive = applicability('cutted', [
       event('TEXT_STATE_CHANGED', 1, { metadata: { textLength: 120 } }),

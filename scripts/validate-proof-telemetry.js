@@ -112,16 +112,20 @@ async function validateContainer(container, { verifyContainerHash = true } = {})
     }
     if (report?.reportDescriptor?.reportMode !== 'embedded-in-all-presets') addError('REPORT_MODE', `${reportType} is not embedded`);
     if (Object.prototype.hasOwnProperty.call(report, 'materializedEvents')) addError('EVENT_DUPLICATION', `${reportType} materializes canonical events`);
-    const recordedApplicabilityByModel = report?.reportDescriptor?.applicability?.byModel || {};
-    const recomputedApplicabilityByModel = {};
-    Object.entries(report?.diagnosticSummary?.models || {}).forEach(([modelId, model]) => {
-      const recomputed = ProofTelemetry.evaluateApplicability(reportType, { stateAxes: model.stateAxes, derivedViews: model });
-      recomputedApplicabilityByModel[modelId] = recomputed;
-      if (ProofTelemetry.stableStringify(recordedApplicabilityByModel[modelId]) !== ProofTelemetry.stableStringify(recomputed)) {
-        addError('APPLICABILITY_MISMATCH', `${reportType} applicability mismatch for ${modelId}`);
+    const recordedApplicabilityByIncident = report?.reportDescriptor?.applicability?.byIncident || {};
+    const recomputedApplicabilityByIncident = {};
+    Object.entries(report?.diagnosticSummary?.incidents || {}).forEach(([incidentId, incident]) => {
+      const recomputed = ProofTelemetry.evaluateApplicability(reportType, { stateAxes: incident.stateAxes, derivedViews: incident });
+      recomputedApplicabilityByIncident[incidentId] = {
+        modelId: incident.incidentScope?.modelId,
+        incidentScope: incident.incidentScope,
+        ...recomputed
+      };
+      if (ProofTelemetry.stableStringify(recordedApplicabilityByIncident[incidentId]) !== ProofTelemetry.stableStringify(recomputedApplicabilityByIncident[incidentId])) {
+        addError('APPLICABILITY_MISMATCH', `${reportType} applicability mismatch for ${incidentId}`);
       }
     });
-    const applicabilityStatuses = Object.values(recomputedApplicabilityByModel).map((item) => item.status);
+    const applicabilityStatuses = Object.values(recomputedApplicabilityByIncident).map((item) => item.status);
     const expectedApplicabilityStatus = applicabilityStatuses.includes('confirmed')
       ? 'confirmed'
       : (applicabilityStatuses.length && applicabilityStatuses.every((status) => status === 'not_confirmed') ? 'not_confirmed' : 'unknown');
@@ -133,10 +137,10 @@ async function validateContainer(container, { verifyContainerHash = true } = {})
     });
     (report.siblings || []).forEach((rule) => {
       (rule?.evaluation?.predicateResults || []).forEach((recorded) => {
-        const model = report?.diagnosticSummary?.models?.[recorded.modelId];
-        if (!model) return;
-        const recomputed = ProofTelemetry.evaluatePredicate({ stateAxes: model.stateAxes, derivedViews: model }, recorded.predicate);
-        if (recomputed.matched !== recorded.matched || recomputed.known !== recorded.known) addError('REQUEST_IF_MISMATCH', `${reportType} requestIf mismatch for ${recorded.modelId}`);
+        const incident = report?.diagnosticSummary?.incidents?.[recorded.incidentId];
+        if (!incident) return;
+        const recomputed = ProofTelemetry.evaluatePredicate({ stateAxes: incident.stateAxes, derivedViews: incident }, recorded.predicate);
+        if (recomputed.matched !== recorded.matched || recomputed.known !== recorded.known) addError('REQUEST_IF_MISMATCH', `${reportType} requestIf mismatch for ${recorded.incidentId}`);
       });
     });
   });

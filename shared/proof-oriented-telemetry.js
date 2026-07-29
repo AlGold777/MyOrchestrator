@@ -491,6 +491,38 @@
     return { status, mode: 'all', predicateResults: predicates };
   }
 
+  function aggregateApplicability(results) {
+    const statuses = (results || []).map((item) => item?.status).filter(Boolean);
+    return statuses.includes('confirmed')
+      ? 'confirmed'
+      : (statuses.length && statuses.every((status) => status === 'not_confirmed') ? 'not_confirmed' : 'unknown');
+  }
+
+  function summarizeModelView(view) {
+    return {
+      incidentId: view.incidentId || null,
+      incidentScope: view.incidentScope || null,
+      stateAxes: view.stateAxes,
+      completionEvidenceTier: view.completionEvidenceTier,
+      acceptedTextLength: view.acceptedTextLength,
+      extractedTextLength: view.extractedTextLength,
+      maxObservedTextLength: view.maxObservedTextLength,
+      extractionCoveragePct: view.extractionCoveragePct,
+      postTerminalGrowthPct: view.postTerminalGrowthPct,
+      postTerminalGrowthProven: view.postTerminalGrowthProven,
+      postTerminalAuditStatus: view.postTerminalAuditStatus,
+      incompleteCaptureEvidence: view.incompleteCaptureEvidence,
+      generationTextObserved: view.generationTextObserved,
+      emptyExtractionEvidence: view.emptyExtractionEvidence,
+      oldAnswerEvidence: view.oldAnswerEvidence,
+      promptNotSentEvidence: view.promptNotSentEvidence,
+      terminalOutcome: view.terminalOutcome,
+      stableToTerminalMs: view.stableToTerminalMs,
+      stableToTerminalComparable: view.stableToTerminalComparable,
+      stableToTerminalClockBasis: view.stableToTerminalClockBasis
+    };
+  }
+
   const SIBLING_RULES = Object.freeze({
     cutted: [['false-success', '$.derivedViews.postTerminalGrowthProven', 'eq', true], ['old-answer', '$.derivedViews.oldAnswerEvidence', 'eq', true], ['empty', '$.derivedViews.emptyExtractionEvidence', 'eq', true]],
     'false-success': [['cutted', '$.derivedViews.incompleteCaptureEvidence', 'eq', true], ['late-end', '$.derivedViews.stableToTerminalMs', 'gt', 0]],
@@ -500,39 +532,49 @@
     'late-end': [['false-success', '$.derivedViews.postTerminalGrowthProven', 'eq', true]]
   });
 
-  function buildReports(ledger, modelViews, ledgerHash, registryHash) {
-    const allViews = Object.values(modelViews);
+  function buildReports(ledger, modelViews, incidentViews, ledgerHash, registryHash) {
+    const allViews = Object.values(incidentViews);
     return Object.fromEntries(REPORT_TYPES.map((reportType) => {
       const [primaryQuestion, relevantTypes] = REPORT_INFO[reportType];
       const relevant = ledger.filter((event) => relevantTypes.includes(event.eventType));
-      const applicabilityByModel = Object.fromEntries(allViews.map((view) => [view.modelId,
-        evaluateApplicability(reportType, { stateAxes: view.stateAxes, derivedViews: view })]));
-      const applicabilityStatuses = Object.values(applicabilityByModel).map((item) => item.status);
-      const applicabilityStatus = applicabilityStatuses.includes('confirmed')
-        ? 'confirmed'
-        : (applicabilityStatuses.length && applicabilityStatuses.every((status) => status === 'not_confirmed') ? 'not_confirmed' : 'unknown');
+      const applicabilityByIncident = Object.fromEntries(allViews.map((view) => [view.incidentId, {
+        modelId: view.modelId,
+        incidentScope: view.incidentScope,
+        ...evaluateApplicability(reportType, { stateAxes: view.stateAxes, derivedViews: view })
+      }]));
+      const applicabilityByModel = Object.fromEntries(Object.keys(modelViews).map((modelId) => {
+        const incidentResults = Object.entries(applicabilityByIncident)
+          .filter(([, result]) => result.modelId === modelId);
+        return [modelId, {
+          status: aggregateApplicability(incidentResults.map(([, result]) => result)),
+          incidentIds: incidentResults.map(([incidentId]) => incidentId),
+          confirmedIncidentIds: incidentResults.filter(([, result]) => result.status === 'confirmed').map(([incidentId]) => incidentId),
+          unknownIncidentIds: incidentResults.filter(([, result]) => result.status === 'unknown').map(([incidentId]) => incidentId)
+        }];
+      }));
+      const applicabilityStatus = aggregateApplicability(Object.values(applicabilityByIncident));
       const siblingEvaluations = (SIBLING_RULES[reportType] || []).map(([target, path, operator, value]) => {
-        const perModel = allViews.map((view) => {
+        const perIncident = allViews.map((view) => {
           const result = evaluatePredicate({ stateAxes: view.stateAxes, derivedViews: view }, { path, operator, value });
-          return { modelId: view.modelId, ...result };
+          return { modelId: view.modelId, incidentId: view.incidentId, ...result };
         });
         return {
           reportType: target,
           relation: 'diagnostic-dependency',
           priority: 'required',
           requestIf: { any: [{ path, operator, value }] },
-          evaluation: { matched: perModel.some((result) => result.matched), predicateResults: perModel }
+          evaluation: { matched: perIncident.some((result) => result.matched), predicateResults: perIncident }
         };
       });
       const evidenceCoveragePct = ledger.length ? Math.round((relevant.length / ledger.length) * 10000) / 100 : 0;
       return [reportType, {
-        reportDescriptor: {
+          reportDescriptor: {
           reportId: `rpt-${reportType}-${eventFingerprint(ledgerHash)}`,
           reportType,
           reportVersion: REPORT_VERSION,
           title: primaryQuestion,
           primaryQuestion,
-          applicability: { status: applicabilityStatus, byModel: applicabilityByModel },
+          applicability: { status: applicabilityStatus, byModel: applicabilityByModel, byIncident: applicabilityByIncident },
           canDiagnose: [],
           cannotDiagnoseAlone: [],
           completeness: {
@@ -548,28 +590,10 @@
           dependencyRegistryHash: registryHash
         },
         diagnosticSummary: {
-          models: Object.fromEntries(allViews.map((view) => [view.modelId, {
-            stateAxes: view.stateAxes,
-            completionEvidenceTier: view.completionEvidenceTier,
-            acceptedTextLength: view.acceptedTextLength,
-            extractedTextLength: view.extractedTextLength,
-            maxObservedTextLength: view.maxObservedTextLength,
-            extractionCoveragePct: view.extractionCoveragePct,
-            postTerminalGrowthPct: view.postTerminalGrowthPct,
-            postTerminalGrowthProven: view.postTerminalGrowthProven,
-            postTerminalAuditStatus: view.postTerminalAuditStatus,
-            incompleteCaptureEvidence: view.incompleteCaptureEvidence,
-            generationTextObserved: view.generationTextObserved,
-            emptyExtractionEvidence: view.emptyExtractionEvidence,
-            oldAnswerEvidence: view.oldAnswerEvidence,
-            promptNotSentEvidence: view.promptNotSentEvidence,
-            terminalOutcome: view.terminalOutcome,
-            stableToTerminalMs: view.stableToTerminalMs,
-            stableToTerminalComparable: view.stableToTerminalComparable,
-            stableToTerminalClockBasis: view.stableToTerminalClockBasis
-          }]))
+          models: Object.fromEntries(Object.entries(modelViews).map(([modelId, view]) => [modelId, summarizeModelView(view)])),
+          incidents: Object.fromEntries(allViews.map((view) => [view.incidentId, summarizeModelView(view)]))
         },
-        stateAxes: Object.fromEntries(allViews.map((view) => [view.modelId, view.stateAxes])),
+        stateAxes: Object.fromEntries(Object.entries(modelViews).map(([modelId, view]) => [modelId, view.stateAxes])),
         eventSeqs: relevant.map((event) => event.seq),
         derivedViewRef: 'model-timeline',
         siblings: siblingEvaluations,
@@ -604,18 +628,31 @@
       : buildLedger(input, { ...options, exportedAt });
     const ledgerHash = await sha256(ledgerEvents);
     const runSessionId = ledgerEvents[0]?.runSessionId || String(options.runSessionId || `export-${exportedAt}`);
-    const byModel = {};
-    ledgerEvents.forEach((event) => {
-      if (!byModel[event.modelId]) byModel[event.modelId] = [];
-      byModel[event.modelId].push(event);
-    });
     const replayResult = root.ProofTelemetryPolicy?.replay
       ? root.ProofTelemetryPolicy.replay(ledgerEvents)
       : null;
-    const modelViews = Object.fromEntries(Object.entries(byModel).map(([modelId, events]) => {
-      const view = deriveModelView(modelId, events);
-      if (replayResult?.models?.[modelId]?.stateAxes) view.stateAxes = replayResult.models[modelId].stateAxes;
-      return [modelId, view];
+    const indexedIncidents = Incidents?.indexIncidents?.(ledgerEvents) || [];
+    const incidentViews = Object.fromEntries(indexedIncidents.map((incident) => {
+      const scopedEvents = ledgerEvents.filter((event) => Incidents.exactScope(event, incident.scope));
+      const view = deriveModelView(incident.scope.modelId, scopedEvents);
+      if (root.ProofTelemetryPolicy?.deriveAxes) {
+        view.stateAxes = root.ProofTelemetryPolicy.deriveAxes(scopedEvents, scopedEvents[scopedEvents.length - 1]);
+      }
+      view.incidentId = incident.incidentId;
+      view.incidentScope = incident.scope;
+      return [incident.incidentId, view];
+    }));
+    const byModelIncidentViews = {};
+    Object.values(incidentViews).forEach((view) => {
+      if (!byModelIncidentViews[view.modelId]) byModelIncidentViews[view.modelId] = [];
+      byModelIncidentViews[view.modelId].push(view);
+    });
+    const modelViews = Object.fromEntries(Object.entries(byModelIncidentViews).map(([modelId, views]) => {
+      const ordered = views.slice().sort((left, right) => Number(left.lastSeq || 0) - Number(right.lastSeq || 0));
+      const latest = { ...ordered[ordered.length - 1] };
+      latest.incidentIds = ordered.map((view) => view.incidentId);
+      latest.incidentCount = ordered.length;
+      return [modelId, latest];
     }));
     const registrySnapshot = {
       version: Contracts?.REGISTRY_VERSION || '4.0.0',
@@ -649,9 +686,16 @@
         generatorVersion: GENERATOR_VERSION,
         ledgerHash,
         data: modelViews
+      },
+      'incident-timeline': {
+        viewType: 'incident-timeline',
+        derivedFromEventSeqs: ledgerEvents.map((event) => event.seq),
+        generatorVersion: GENERATOR_VERSION,
+        ledgerHash,
+        data: incidentViews
       }
     };
-    const reports = buildReports(ledgerEvents, modelViews, ledgerHash, registryHash);
+    const reports = buildReports(ledgerEvents, modelViews, incidentViews, ledgerHash, registryHash);
     const viewsHash = await sha256(derivedViews);
     const reportsHash = await sha256(reports);
     const invariantViolations = [
