@@ -4,6 +4,9 @@
 (function initAnswerEvidence(root) {
   'use strict';
 
+  const ProofNormalization = root.AnswerProofNormalization
+    || (typeof require === 'function' ? require('./answer-proof-normalization.js') : null);
+
   // Defaults come from shared/answer-length-policy.js when it is loaded first;
   // the literal fallbacks are the same numbers and exist for legacy load orders.
   const lengthPolicyDefaults = root.AnswerLengthPolicy?.DEFAULTS || null;
@@ -12,6 +15,7 @@
   const DEFAULT_SNAPSHOT_TERMINAL_MIN_CHARS = lengthPolicyDefaults?.snapshotTerminalMinChars || 1200;
 
   function hashText(value = '') {
+    if (ProofNormalization?.hashText) return ProofNormalization.hashText(value);
     const text = String(value || '');
     let hash = 2166136261;
     for (let i = 0; i < text.length; i += 1) {
@@ -69,6 +73,10 @@
     const hardStopReason = input.hardStopReason || responseMeta.hardStopReason || null;
     const normalizedHardStopReason = normalizeSource(hardStopReason);
     const length = text.length;
+    const proofIdentity = ProofNormalization?.evidence?.(text, {
+      dispatchId: input.dispatchId || responseMeta.dispatchId || null,
+      attemptId: input.attemptId || responseMeta.attemptId || responseMeta.sourceRevisionId || null
+    }) || null;
     const minChars = Number(input.minChars || DEFAULT_MIN_CHARS);
     const stableMinChars = Number(input.stableMinChars || DEFAULT_STABLE_MIN_CHARS);
     const snapshotTerminalMinChars = Number(input.snapshotTerminalMinChars || responseMeta.snapshotTerminalMinChars || DEFAULT_SNAPSHOT_TERMINAL_MIN_CHARS);
@@ -156,6 +164,11 @@
       htmlLength: String(input.html || '').length,
       length,
       hash: length ? hashText(text) : null,
+      normalizationVersion: proofIdentity?.normalizationVersion || null,
+      normalizedLength: proofIdentity?.normalizedLength ?? null,
+      normalizedHash: proofIdentity?.normalizedHash || null,
+      payloadEvidenceId: proofIdentity?.payloadEvidenceId || null,
+      attemptId: input.attemptId || responseMeta.attemptId || responseMeta.sourceRevisionId || null,
       promptConfirmed,
       promptSubmittedInferred: !!input.promptSubmittedInferred || !!responseMeta.promptSubmittedInferred,
       generationActive,

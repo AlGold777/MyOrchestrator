@@ -1,5 +1,14 @@
 # CHANGELOG — Project
 
+### 2026-07-29 — Shared answer proof normalization, version 2.81.160
+
+- Added one versioned normalization and hashing implementation shared by
+  provider scripts, background and result pages.
+- Evidence comparisons are explicitly incomparable when normalization versions
+  differ or hashes are missing.
+- Payload evidence identity includes the dispatch and attempt, so two identical
+  payload transmissions remain distinct without exporting answer text.
+
 ### 2026-07-29 — Proof-event mapping sanitation, version 2.81.159
 
 - Replaced heuristic runtime-label promotion with an explicit proof-event

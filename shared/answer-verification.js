@@ -2,6 +2,9 @@
 (function initAnswerVerification(root) {
   'use strict';
 
+  const ProofNormalization = root.AnswerProofNormalization
+    || (typeof require === 'function' ? require('./answer-proof-normalization.js') : null);
+
   const VERIFICATION_STATES = Object.freeze({
     NONE: 'none',
     CANDIDATE: 'candidate',
@@ -15,10 +18,13 @@
   const REQUIRED_IDENTITY_KEYS = Object.freeze(['runSessionId', 'dispatchId', 'generationEpoch', 'turnAnchor']);
 
   function normalizeText(value = '') {
-    return String(value || '').replace(/\u00a0/g, ' ').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+    return ProofNormalization?.normalizeText
+      ? ProofNormalization.normalizeText(value)
+      : String(value || '').replace(/\u00a0/g, ' ').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
   }
 
   function hashText(value = '') {
+    if (ProofNormalization?.hashText) return ProofNormalization.hashText(value);
     const text = normalizeText(value);
     let hash = 2166136261;
     for (let i = 0; i < text.length; i += 1) {
@@ -65,9 +71,18 @@
   function appendRevision(entry, revision = {}) {
     if (!entry || typeof entry !== 'object') return null;
     const normalized = normalizeText(revision.text || '');
+    const attemptId = revision.attemptId || revision.sourceRevisionId || `revision-${Number(entry.answerRevisionCounter || 0) + 1}`;
+    const proofIdentity = ProofNormalization?.evidence?.(normalized, {
+      dispatchId: revision.dispatchId || entry.confirmedDispatchId || entry.lastDispatchMeta?.dispatchId || null,
+      attemptId
+    }) || null;
     const item = {
       revision: Number(entry.answerRevisionCounter || 0) + 1,
       hash: revision.hash || (normalized ? hashText(normalized) : null),
+      normalizationVersion: proofIdentity?.normalizationVersion || null,
+      normalizedHash: proofIdentity?.normalizedHash || null,
+      payloadEvidenceId: revision.payloadEvidenceId || proofIdentity?.payloadEvidenceId || null,
+      attemptId,
       length: Number(revision.length ?? normalized.length) || 0,
       channel: revision.channel || revision.source || 'unknown',
       decision: revision.decision || 'observed',

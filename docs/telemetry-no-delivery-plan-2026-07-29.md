@@ -677,8 +677,8 @@ Standalone No delivery report включает только:
 2. Санировать broad mapping и неизвестные runtime labels. — Done
 3. Исправить canonical semantics rejection-событий. — Done
 4. Разделить extraction attempt/outcome/mode. — Done
-5. Ввести shared versioned normalization. — Pending
-6. Ввести раннюю attempt/payload identity. — Pending
+5. Ввести shared versioned normalization. — Done
+6. Ввести раннюю attempt/payload identity. — Done
 7. Ввести `ANSWER_SOURCE_MATERIALIZED`. — Pending
 8. Инструментировать reception/rejection, включая post-terminal. — Pending
 9. Ввести единого владельца commit evidence. — Pending

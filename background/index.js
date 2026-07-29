@@ -174,6 +174,7 @@ importScripts(
   '../shared/status-contract.js',
   '../shared/model-run-state.js',
   '../shared/answer-length-policy.js',
+  '../shared/answer-proof-normalization.js',
   '../shared/answer-evidence.js',
   '../shared/answer-verification.js',
   '../shared/answer-content-classifier.js',

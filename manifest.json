@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "A_Fable",
-  "version": "2.81.159",
+  "version": "2.81.160",
   "description": "Compares LLMs with stable Debate pipelines, structured state maps, and optional synthesis.",
   "permissions": [
     "storage",
@@ -90,6 +90,7 @@
         "content-scripts/semantic-finder.js",
         "selector-manager.js",
         "content-scripts/pipeline-config.js",
+        "shared/answer-proof-normalization.js",
         "shared/answer-verification.js",
         "shared/secret-redaction.js",
         "content-scripts/answer-pipeline-selectors.js",

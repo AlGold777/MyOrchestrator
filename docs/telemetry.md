@@ -1,5 +1,12 @@
 # Telemetry - tab/session diagnostics
 
+## Shared answer proof normalization v2.81.160 - 2026-07-29
+
+Source, extraction, delivery, commit and card evidence use
+`answer-proof-normalization@1.0.0`. Identity consists of normalization version,
+normalized length/hash and an attempt-scoped `payloadEvidenceId`; differing
+versions are incomparable rather than mismatched.
+
 ## Proof-event mapping sanitation v2.81.159 - 2026-07-29
 
 Only explicitly registered runtime labels enter canonical diagnostic evidence.
