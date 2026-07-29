@@ -4,7 +4,7 @@
 
   const EVENT_SCHEMA_VERSION = 6;
   const CLOCK_CONTRACT_VERSION = '1.0';
-  const REGISTRY_VERSION = '3.0.0';
+  const REGISTRY_VERSION = '4.0.0';
   const THRESHOLDS = Object.freeze({
     generationStartTimeoutMs: 15000,
     minimumExtractionCoveragePct: 98,
@@ -16,52 +16,86 @@
   const REPORT_CONTRACTS = Object.freeze({
     cutted: {
       question: 'Почему зафиксирован SUCCESS, а текст явно неполный?',
+      applicability: {
+        all: [
+          ['$.derivedViews.terminalOutcome', 'eq', 'SUCCESS'],
+          ['$.derivedViews.incompleteCaptureEvidence', 'eq', true]
+        ]
+      },
       slots: [
-        ['success_decision', 'critical', ['DECISION_RECORDED', 'MODEL_TERMINAL_RECORDED']],
+        ['success_terminal', 'critical', ['MODEL_TERMINAL_RECORDED']],
         ['text_evolution', 'critical', ['TEXT_STATE_CHANGED']],
         ['completeness', 'critical', ['ANSWER_COMPLETENESS_EVALUATED', 'POST_TERMINAL_AUDIT_COMPLETED']],
         ['extraction_boundary', 'required', ['EXTRACTION_COMPLETED', 'STRUCTURAL_VERIFICATION_EVALUATED']],
         ['candidate_identity', 'required', ['CANDIDATE_SET_CHANGED', 'CANDIDATE_IDENTITY_INFERRED']],
-        ['decision_lineage', 'required', ['FINALIZATION_POLICY_EVALUATED', 'POLICY_OVERRIDE_APPLIED', 'DECISION_RECORDED']],
+        ['decision_lineage', 'required', ['DECISION_RECORDED']],
+        ['finalization_policy', 'conditional', ['FINALIZATION_POLICY_EVALUATED', 'POLICY_OVERRIDE_APPLIED']],
         ['missing_evidence', 'conditional', ['MISSING_EVIDENCE_RECORDED']]
       ]
     },
     'false-success': {
       question: 'Почему система решила «готово», а ответ продолжил расти?',
+      applicability: {
+        all: [
+          ['$.derivedViews.terminalOutcome', 'eq', 'SUCCESS'],
+          ['$.derivedViews.postTerminalAuditStatus', 'eq', 'completed'],
+          ['$.derivedViews.postTerminalGrowthProven', 'eq', true]
+        ]
+      },
       slots: [
-        ['terminal_decision', 'critical', ['DECISION_RECORDED', 'MODEL_TERMINAL_RECORDED']],
-        ['generation_state', 'critical', ['GENERATION_SIGNAL_CHANGED', 'OBSERVATION_FRAME_CAPTURED']],
-        ['post_terminal_growth', 'critical', ['TEXT_STATE_CHANGED', 'POST_TERMINAL_AUDIT_COMPLETED']],
+        ['success_terminal', 'critical', ['MODEL_TERMINAL_RECORDED']],
+        ['post_terminal_audit', 'critical', ['POST_TERMINAL_AUDIT_COMPLETED']],
+        ['terminal_decision', 'required', ['DECISION_RECORDED']],
+        ['generation_state', 'required', ['GENERATION_SIGNAL_CHANGED', 'OBSERVATION_FRAME_CAPTURED']],
+        ['post_terminal_mutation', 'required', ['TEXT_STATE_CHANGED']],
         ['completion_proof', 'required', ['COMPLETION_HYPOTHESIS_EVALUATED', 'ANSWER_COMPLETENESS_EVALUATED']],
-        ['finalization_policy', 'required', ['TERMINAL_DEADLINE_REACHED', 'FINALIZATION_POLICY_EVALUATED', 'POLICY_OVERRIDE_APPLIED']],
+        ['finalization_policy', 'conditional', ['TERMINAL_DEADLINE_REACHED', 'FINALIZATION_POLICY_EVALUATED', 'POLICY_OVERRIDE_APPLIED']],
         ['missing_evidence', 'conditional', ['MISSING_EVIDENCE_RECORDED']]
       ]
     },
     'old-answer': {
       question: 'Почему принят текст от предыдущего запроса?',
+      applicability: {
+        all: [
+          ['$.derivedViews.oldAnswerEvidence', 'eq', true]
+        ]
+      },
       slots: [
         ['dispatch_baseline', 'critical', ['DISPATCH_BASELINE_CAPTURED']],
-        ['candidate_lineage', 'critical', ['CANDIDATE_SET_CHANGED']],
         ['candidate_identity', 'critical', ['CANDIDATE_IDENTITY_INFERRED']],
         ['extraction_result', 'critical', ['EXTRACTION_COMPLETED']],
+        ['accepted_answer_boundary', 'critical', ['MODEL_TERMINAL_RECORDED']],
+        ['candidate_lineage', 'required', ['CANDIDATE_SET_CHANGED']],
         ['turn_context', 'required', ['PAGE_CONTEXT_OBSERVED', 'OBSERVATION_FRAME_CAPTURED']],
         ['structural_verification', 'required', ['STRUCTURAL_VERIFICATION_EVALUATED']],
-        ['text_boundary', 'conditional', ['TEXT_STATE_CHANGED']]
+        ['text_boundary', 'conditional', ['TEXT_STATE_CHANGED']],
+        ['post_terminal_audit', 'conditional', ['POST_TERMINAL_AUDIT_COMPLETED', 'MISSING_EVIDENCE_RECORDED']]
       ]
     },
     empty: {
       question: 'Почему генерация была, но extraction вернул пусто или не тот узел?',
+      applicability: {
+        all: [
+          ['$.derivedViews.generationTextObserved', 'eq', true],
+          ['$.derivedViews.emptyExtractionEvidence', 'eq', true]
+        ]
+      },
       slots: [
         ['generation_observed', 'critical', ['GENERATION_START_EVALUATED', 'GENERATION_SIGNAL_CHANGED']],
         ['extraction_result', 'critical', ['EXTRACTION_COMPLETED']],
         ['candidate_selection', 'critical', ['CANDIDATE_SET_CHANGED', 'CANDIDATE_IDENTITY_INFERRED']],
-        ['text_boundary', 'required', ['TEXT_STATE_CHANGED']],
+        ['text_boundary', 'critical', ['TEXT_STATE_CHANGED', 'OBSERVATION_FRAME_CAPTURED']],
         ['structural_verification', 'required', ['STRUCTURAL_VERIFICATION_EVALUATED', 'ANSWER_COMPLETENESS_EVALUATED']],
         ['observer_context', 'conditional', ['PAGE_HEALTH_OBSERVED', 'OBSERVER_HEALTH_OBSERVED', 'OBSERVER_HEALTH_INTERVAL_CLOSED']]
       ]
     },
     'prompt-not-sent': {
       question: 'Почему модель не получила запрос?',
+      applicability: {
+        all: [
+          ['$.derivedViews.promptNotSentEvidence', 'eq', true]
+        ]
+      },
       slots: [
         ['dispatch_baseline', 'critical', ['DISPATCH_BASELINE_CAPTURED']],
         ['submit_action', 'critical', ['SUBMIT_ACTION_OBSERVED']],
@@ -72,6 +106,12 @@
     },
     'late-end': {
       question: 'Текст давно стабилен — почему система ждала ещё N секунд?',
+      applicability: {
+        all: [
+          ['$.derivedViews.stableToTerminalComparable', 'eq', true],
+          ['$.derivedViews.stableToTerminalMs', 'gt', 0]
+        ]
+      },
       slots: [
         ['stable_boundary', 'critical', ['STABILITY_INTERVAL_CLOSED']],
         ['terminal_boundary', 'critical', ['MODEL_TERMINAL_RECORDED']],
@@ -162,6 +202,13 @@
     }));
   }
 
+  function normalizedApplicability(reportType) {
+    const contract = REPORT_CONTRACTS[reportType]?.applicability || { all: [] };
+    return {
+      all: (contract.all || []).map(([path, operator, value]) => ({ path, operator, value }))
+    };
+  }
+
   const api = Object.freeze({
     EVENT_SCHEMA_VERSION,
     CLOCK_CONTRACT_VERSION,
@@ -172,7 +219,8 @@
     adaptLegacyEvent,
     factOf,
     sameIncidentScope,
-    normalizedSlots
+    normalizedSlots,
+    normalizedApplicability
   });
   root.ProofTelemetryContracts = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

@@ -288,3 +288,69 @@ Section 14 evidence: All tasks and all six generated standalone examples pass
 the offline validator; full gate passes 184 suites / 1250 tests. Runtime writes
 remain a single canonical segmented ledger, with All tasks and standalone Tasks
 implemented as export projections.
+
+## 15. Semantic applicability review of user presets
+
+### Review findings
+
+15.1. Separate evidence availability from proof that the selected problem
+actually occurred. A report can have every event family present and still be
+about a normal run. - Done
+
+15.2. Cutted currently accepts any terminal/decision and any text event; it
+does not require SUCCESS plus positive incomplete-capture evidence. - Done
+
+15.3. False success currently accepts text activity anywhere in the incident;
+it does not require measured growth after the SUCCESS terminal boundary. - Done
+
+15.4. Old answer currently treats the presence of candidate identity evidence
+as sufficient; a confirmed current-dispatch candidate can therefore satisfy
+the same slots as an old candidate. - Done
+
+15.5. Empty currently proves only that generation and extraction events both
+exist; it does not prove that observed generated text was non-empty while the
+extracted result was empty or failed. - Done
+
+15.6. Prompt not sent currently accepts a confirmed submission event as slot
+coverage; it does not distinguish failed/not-confirmed submission from unknown
+observation. - Done
+
+15.7. Late end currently subtracts wall timestamps and clamps reversed values
+to zero; it does not prove clock comparability or preserve an unknown delay. - Done
+
+15.8. Sibling rules currently use negative/unknown values such as
+`answerIdentity != current_dispatch`, which can request another diagnosis from
+missing evidence rather than positive anomaly evidence. - Done
+
+### Change plan
+
+15.9. Add executable per-preset applicability predicates with tri-state
+`confirmed`, `not_confirmed`, and `unknown` outcomes. - Done
+
+15.10. Add positive derived proof facts for terminal SUCCESS, extracted length,
+incomplete capture, post-terminal growth, old-answer identity, empty extraction
+after observed generation, failed submission, and comparable stability delay. - Done
+
+15.11. Make standalone and embedded reports expose applicability independently
+from evidence-slot sufficiency. - Done
+
+15.12. Replace sibling predicates with positive anomaly facts and prevent
+unknown values from matching ordinary comparison operators. - Done
+
+15.13. Extend the offline validator to replay applicability and reject stale
+or contradictory recorded applicability. - Done
+
+15.14. Add normal-run negative controls and positive semantic scenarios for
+all six presets, including incomparable clocks for Late end. - Done
+
+15.15. Regenerate and independently validate All tasks plus all six standalone
+examples. - Done
+
+15.16. Synchronize specification, telemetry documentation, changelog, project
+version and final acceptance evidence. - Done
+
+Section 15 evidence: All tasks and all six standalone examples pass schema,
+hash, replay, registry, slot and applicability validation. Six positive and six
+normal/unknown semantic controls cover the user questions, including old-answer
+dispatch mismatch and incomparable Late end clocks. Full gate passes 185 suites
+/ 1258 tests.

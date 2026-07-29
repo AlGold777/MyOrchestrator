@@ -112,6 +112,22 @@ async function validateContainer(container, { verifyContainerHash = true } = {})
     }
     if (report?.reportDescriptor?.reportMode !== 'embedded-in-all-presets') addError('REPORT_MODE', `${reportType} is not embedded`);
     if (Object.prototype.hasOwnProperty.call(report, 'materializedEvents')) addError('EVENT_DUPLICATION', `${reportType} materializes canonical events`);
+    const recordedApplicabilityByModel = report?.reportDescriptor?.applicability?.byModel || {};
+    const recomputedApplicabilityByModel = {};
+    Object.entries(report?.diagnosticSummary?.models || {}).forEach(([modelId, model]) => {
+      const recomputed = ProofTelemetry.evaluateApplicability(reportType, { stateAxes: model.stateAxes, derivedViews: model });
+      recomputedApplicabilityByModel[modelId] = recomputed;
+      if (ProofTelemetry.stableStringify(recordedApplicabilityByModel[modelId]) !== ProofTelemetry.stableStringify(recomputed)) {
+        addError('APPLICABILITY_MISMATCH', `${reportType} applicability mismatch for ${modelId}`);
+      }
+    });
+    const applicabilityStatuses = Object.values(recomputedApplicabilityByModel).map((item) => item.status);
+    const expectedApplicabilityStatus = applicabilityStatuses.includes('confirmed')
+      ? 'confirmed'
+      : (applicabilityStatuses.length && applicabilityStatuses.every((status) => status === 'not_confirmed') ? 'not_confirmed' : 'unknown');
+    if (report?.reportDescriptor?.applicability?.status !== expectedApplicabilityStatus) {
+      addError('APPLICABILITY_MISMATCH', `${reportType} aggregate applicability mismatch`);
+    }
     (report.eventSeqs || []).forEach((eventSeq) => {
       if (!seqs.has(eventSeq)) addError('REPORT_EVENT_REF', `${reportType} references missing event seq ${eventSeq}`);
     });
@@ -120,7 +136,7 @@ async function validateContainer(container, { verifyContainerHash = true } = {})
         const model = report?.diagnosticSummary?.models?.[recorded.modelId];
         if (!model) return;
         const recomputed = ProofTelemetry.evaluatePredicate({ stateAxes: model.stateAxes, derivedViews: model }, recorded.predicate);
-        if (recomputed.matched !== recorded.matched) addError('REQUEST_IF_MISMATCH', `${reportType} requestIf mismatch for ${recorded.modelId}`);
+        if (recomputed.matched !== recorded.matched || recomputed.known !== recorded.known) addError('REQUEST_IF_MISMATCH', `${reportType} requestIf mismatch for ${recorded.modelId}`);
       });
     });
   });
@@ -238,6 +254,14 @@ async function validateStandaloneReport(report) {
   const resolved = Incidents.resolveEvidenceSlots(events, incident, report?.reportDescriptor?.reportType);
   const recordedSlots = report?.diagnosticSummary?.evidenceSlots || [];
   if (ProofTelemetry.stableStringify(resolved.slots) !== ProofTelemetry.stableStringify(recordedSlots)) addError('EVIDENCE_SLOT_MISMATCH', 'evidence slots cannot be rebuilt');
+  const recomputedApplicability = ProofTelemetry.evaluateApplicability(report?.reportDescriptor?.reportType, {
+    stateAxes: report.stateAxes,
+    derivedViews: report.derivedViews?.modelTimeline?.data
+  });
+  if (ProofTelemetry.stableStringify(recomputedApplicability) !== ProofTelemetry.stableStringify(report?.reportDescriptor?.applicability)
+    || ProofTelemetry.stableStringify(recomputedApplicability) !== ProofTelemetry.stableStringify(report?.diagnosticSummary?.applicability)) {
+    addError('APPLICABILITY_MISMATCH', 'standalone applicability does not replay');
+  }
   const semanticEvents = events.map((event) => {
     const copy = JSON.parse(JSON.stringify(event));
     delete copy.wallTs;
@@ -257,7 +281,7 @@ async function validateStandaloneReport(report) {
   (report?.siblings || []).forEach((rule) => {
     (rule?.evaluation?.predicateResults || []).forEach((recorded) => {
       const recomputed = ProofTelemetry.evaluatePredicate({ stateAxes: report.stateAxes, derivedViews: report.derivedViews?.modelTimeline?.data }, recorded.predicate);
-      if (recomputed.matched !== recorded.matched) addError('REQUEST_IF_MISMATCH', `sibling ${rule.reportType} predicate mismatch`);
+      if (recomputed.matched !== recorded.matched || recomputed.known !== recorded.known) addError('REQUEST_IF_MISMATCH', `sibling ${rule.reportType} predicate mismatch`);
     });
     if (rule.reportType === report?.reportDescriptor?.reportType) addError('SIBLING_LOOP', 'report requests itself');
   });

@@ -1,5 +1,34 @@
 # Telemetry - tab/session diagnostics
 
+## Semantic preset applicability v2.81.144 - 2026-08-28
+
+Every Task now reports two independent results:
+
+- `completeness.level`: whether the report contains the required evidence
+  slots;
+- `applicability.status`: whether that evidence actually confirms the selected
+  user problem (`confirmed`, `not_confirmed`, or `unknown`).
+
+This prevents a normal SUCCESS, a current-dispatch candidate, a successful
+extraction, or a confirmed submission from making a problem report appear
+semantically complete. Ordinary comparisons no longer match missing/null
+values, so absence of observation cannot trigger a sibling diagnosis.
+
+| Task | Positive applicability proof |
+|---|---|
+| Cutted | terminal outcome is SUCCESS and incomplete capture is positively proven |
+| False success | terminal outcome is SUCCESS and a post-terminal audit proves positive text-length growth |
+| Old answer | the accepted answer evidence identifies a dispatch different from the current dispatch |
+| Empty | generated text was observed and extraction explicitly failed or returned length zero |
+| Prompt not sent | typed submission evidence explicitly concludes `failed`; missing evidence remains unknown |
+| Late end | stability and terminal boundaries have comparable monotonic clocks and a positive measured delay |
+
+`Late end` no longer subtracts wall timestamps or clamps reversed/unavailable
+time to zero. It prefers a shared producer monotonic epoch, falls back to the
+shared worker ingestion epoch, and otherwise records the delay as unknown.
+`MODEL_FINAL` now retains privacy-safe accepted-answer identity fields needed to
+prove Old answer without exporting answer text.
+
 ## User-question preset catalog v2.81.143 - 2026-08-28
 
 Telemetry Tasks now contains six user-facing diagnostic questions:

@@ -122,11 +122,13 @@ describe('offline proof telemetry validator', () => {
     standalone.eventSelection.materializedEvents[0].includedFor = [];
     standalone.derivedViews.fieldProvenance.submission.derivedFromEventIds.push('missing-event');
     standalone.exportIntegrity.semanticHash = 'sha256:tampered';
+    standalone.reportDescriptor.applicability.status = 'confirmed';
     const result = await validateStandaloneReport(standalone);
     expect(result.errors).toEqual(expect.arrayContaining([
       expect.objectContaining({ code: 'INCLUDED_FOR_MISSING' }),
       expect.objectContaining({ code: 'DERIVED_REF' }),
-      expect.objectContaining({ code: 'SEMANTIC_HASH_MISMATCH' })
+      expect.objectContaining({ code: 'SEMANTIC_HASH_MISMATCH' }),
+      expect.objectContaining({ code: 'APPLICABILITY_MISMATCH' })
     ]));
   });
 

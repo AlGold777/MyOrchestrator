@@ -721,6 +721,43 @@ LLM MUST:
 lineage поэтому объединены в `false-success`; candidate identity и extraction
 lineage используются внутри проблемно-ориентированных отчётов.
 
+## 29. Semantic applicability contract
+
+Evidence-slot sufficiency и applicability MUST оцениваться независимо:
+
+- sufficiency отвечает, доступны ли необходимые доказательства;
+- applicability отвечает, подтверждают ли они выбранную проблему;
+- заполненные слоты MUST NOT автоматически означать обнаруженную проблему.
+
+Каждый report MUST содержать `reportDescriptor.applicability` со статусом:
+
+- `confirmed` — все applicability predicates известны и выполнены;
+- `not_confirmed` — хотя бы один известный predicate опровергает проблему;
+- `unknown` — проблема не опровергнута, но хотя бы один обязательный predicate
+  нельзя вычислить.
+
+Операторы `eq`, `ne`, `in`, `not_in`, `lt`, `lte`, `gt`, `gte` MUST возвращать
+`known=false, matched=false` для отсутствующего или `null` значения. Missing
+observation нельзя превращать в positive anomaly. Исключение составляют только
+явные операторы `exists` и `missing`.
+
+| Report | Обязательные applicability predicates |
+|---|---|
+| `cutted` | `terminalOutcome == SUCCESS` и `incompleteCaptureEvidence == true` |
+| `false-success` | `terminalOutcome == SUCCESS`, completed post-terminal audit и `postTerminalGrowthProven == true` |
+| `old-answer` | `oldAnswerEvidence == true` на основании accepted-answer dispatch mismatch |
+| `empty` | `generationTextObserved == true` и `emptyExtractionEvidence == true` |
+| `prompt-not-sent` | `promptNotSentEvidence == true` из typed failed submission |
+| `late-end` | comparable monotonic boundaries и `stableToTerminalMs > 0` |
+
+Sibling rule MUST использовать только positive anomaly fact либо известную
+положительную величину. Предикаты вида `identity != current_dispatch` запрещены,
+поскольку unknown identity не является доказательством старого ответа.
+
+`stableToTerminalMs` MUST вычисляться только в общей producer monotonic epoch
+или общей worker ingest epoch. Wall-clock subtraction и замена несопоставимого
+интервала нулём запрещены.
+
 ## 30. `cutted`
 
 **Primary question:** почему зафиксирован `SUCCESS`, а текст явно неполный?
@@ -730,6 +767,9 @@ lineage используются внутри проблемно-ориенти�
 post-terminal audit. Диагностирует обрезку сохранённого ответа, но не подмену
 ответом другого запроса — это задача `old-answer`.
 
+Critical evidence: `MODEL_TERMINAL_RECORDED`, text evolution и explicit
+completeness/audit evidence. Одного события SUCCESS недостаточно.
+
 ## 31. `false-success`
 
 **Primary question:** почему система решила «готово», а ответ продолжил расти?
@@ -738,12 +778,20 @@ post-terminal audit. Диагностирует обрезку сохранён�
 `forced-finalization`: показывает признаки активности, основание completion,
 policy/override, terminal decision и рост текста после terminal.
 
+Critical evidence: SUCCESS terminal и `POST_TERMINAL_AUDIT_COMPLETED` с
+положительным text-length growth. Hash-only mutation и text mutation до
+terminal не подходят.
+
 ## 32. `old-answer`
 
 **Primary question:** почему принят текст от предыдущего запроса?
 
 Проверяет dispatch baseline, candidate lineage и identity, принадлежность
 выбранного DOM-блока текущему turn, extraction result и structural verification.
+
+Событие о том, что stale candidate был корректно отклонён, не подтверждает Old
+answer. Нужна identity принятого answer evidence: alternate dispatch ID либо
+explicit `previous_dispatch|stale_accepted` extraction identity.
 
 ## 33. `empty`
 
@@ -753,6 +801,9 @@ policy/override, terminal decision и рост текста после terminal.
 Связывает доказательство начавшейся генерации с candidate selection, text
 boundaries, extraction result, structural verification и observer health.
 
+Наличие успешного extraction event опровергает Empty. Подтверждение требует
+ненулевой наблюдавшейся генерации и failed/zero-length extraction result.
+
 ## 34. `prompt-not-sent`
 
 **Primary question:** почему модель не получила запрос?
@@ -760,6 +811,9 @@ boundaries, extraction result, structural verification и observer health.
 Проверяет dispatch baseline, submit action, внешние признаки принятия запроса,
 page context и observer health. Отсутствующее acceptance evidence обозначается
 как неизвестное, а не автоматически как доказательство неотправки.
+
+Confirmed submission явно опровергает preset; partial/absent observation даёт
+`unknown`; только typed failed submission подтверждает проблему.
 
 ## 35. `late-end`
 
@@ -770,6 +824,9 @@ page context и observer health. Отсутствующее acceptance evidence 
 `STABILITY_INTERVAL_CLOSED` и `MODEL_TERMINAL_RECORDED`, затем показывает
 generation signals, completion policy, deadlines, observer delays и decision
 lineage, объясняющие этот интервал.
+
+Интервал обязан иметь `stableToTerminalClockBasis=producer_monotonic` либо
+`ingest_monotonic`; при разных epochs значение остаётся `null`.
 
 ---
 

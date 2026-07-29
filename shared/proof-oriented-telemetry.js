@@ -11,10 +11,11 @@
 
   const Contracts = root.ProofTelemetryContracts || (typeof require === 'function' ? require('./proof-telemetry-contracts.js') : null);
   const Incidents = root.ProofTelemetryIncidents || (typeof require === 'function' ? require('./proof-telemetry-incidents.js') : null);
+  const Clock = root.ProofTelemetryClock || (typeof require === 'function' ? require('./proof-telemetry-clock.js') : null);
   const SCHEMA_VERSION = '5.0';
   const EVENT_SCHEMA_VERSION = Contracts?.EVENT_SCHEMA_VERSION || 6;
-  const GENERATOR_VERSION = 'proof-export@1.1.0';
-  const REPORT_VERSION = '2.0.0';
+  const GENERATOR_VERSION = 'proof-export@1.2.0';
+  const REPORT_VERSION = '2.1.0';
   const REPORT_TYPES = Object.freeze([
     'cutted',
     'false-success',
@@ -27,7 +28,7 @@
   const REPORT_INFO = Object.freeze({
     cutted: ['Почему зафиксирован SUCCESS, а текст явно неполный?', ['CANDIDATE_SET_CHANGED', 'CANDIDATE_IDENTITY_INFERRED', 'TEXT_STATE_CHANGED', 'EXTRACTION_COMPLETED', 'ANSWER_COMPLETENESS_EVALUATED', 'STRUCTURAL_VERIFICATION_EVALUATED', 'FINALIZATION_POLICY_EVALUATED', 'POLICY_OVERRIDE_APPLIED', 'DECISION_RECORDED', 'MODEL_TERMINAL_RECORDED', 'POST_TERMINAL_AUDIT_COMPLETED']],
     'false-success': ['Почему система решила «готово», а ответ продолжил расти?', ['GENERATION_SIGNAL_CHANGED', 'OBSERVATION_FRAME_CAPTURED', 'TEXT_STATE_CHANGED', 'ANSWER_COMPLETENESS_EVALUATED', 'COMPLETION_HYPOTHESIS_EVALUATED', 'TERMINAL_DEADLINE_REACHED', 'FINALIZATION_POLICY_EVALUATED', 'POLICY_OVERRIDE_APPLIED', 'DECISION_RECORDED', 'MODEL_TERMINAL_RECORDED', 'POST_TERMINAL_AUDIT_COMPLETED']],
-    'old-answer': ['Почему принят текст от предыдущего запроса?', ['DISPATCH_BASELINE_CAPTURED', 'CANDIDATE_SET_CHANGED', 'CANDIDATE_IDENTITY_INFERRED', 'EXTRACTION_COMPLETED', 'PAGE_CONTEXT_OBSERVED', 'OBSERVATION_FRAME_CAPTURED', 'STRUCTURAL_VERIFICATION_EVALUATED', 'TEXT_STATE_CHANGED']],
+    'old-answer': ['Почему принят текст от предыдущего запроса?', ['DISPATCH_BASELINE_CAPTURED', 'CANDIDATE_SET_CHANGED', 'CANDIDATE_IDENTITY_INFERRED', 'EXTRACTION_COMPLETED', 'MODEL_TERMINAL_RECORDED', 'PAGE_CONTEXT_OBSERVED', 'OBSERVATION_FRAME_CAPTURED', 'STRUCTURAL_VERIFICATION_EVALUATED', 'TEXT_STATE_CHANGED', 'POST_TERMINAL_AUDIT_COMPLETED', 'MISSING_EVIDENCE_RECORDED']],
     empty: ['Почему генерация была, но extraction вернул пусто или не тот узел?', ['GENERATION_START_EVALUATED', 'GENERATION_SIGNAL_CHANGED', 'CANDIDATE_SET_CHANGED', 'CANDIDATE_IDENTITY_INFERRED', 'TEXT_STATE_CHANGED', 'EXTRACTION_COMPLETED', 'STRUCTURAL_VERIFICATION_EVALUATED', 'ANSWER_COMPLETENESS_EVALUATED', 'PAGE_HEALTH_OBSERVED', 'OBSERVER_HEALTH_OBSERVED']],
     'prompt-not-sent': ['Почему модель не получила запрос?', ['DISPATCH_BASELINE_CAPTURED', 'SUBMIT_ACTION_OBSERVED', 'SUBMISSION_EVIDENCE_CHANGED', 'SUBMISSION_INFERRED', 'PAGE_CONTEXT_OBSERVED', 'PAGE_HEALTH_OBSERVED', 'OBSERVER_HEALTH_OBSERVED']],
     'late-end': ['Текст давно стабилен — почему система ждала ещё N секунд?', ['STABILITY_INTERVAL_CLOSED', 'GENERATION_SIGNAL_CHANGED', 'OBSERVATION_FRAME_CAPTURED', 'TEXT_STATE_CHANGED', 'COMPLETION_HYPOTHESIS_EVALUATED', 'FINALIZATION_POLICY_EVALUATED', 'TERMINAL_DEADLINE_REACHED', 'DECISION_RECORDED', 'MODEL_TERMINAL_RECORDED', 'OBSERVER_HEALTH_OBSERVED', 'POST_TERMINAL_AUDIT_COMPLETED', 'MISSING_EVIDENCE_RECORDED']]
@@ -283,11 +284,40 @@
     const values = [];
     events.forEach((event) => {
       keys.forEach((key) => {
-        const value = Number(event?.payload?.metadata?.[key]);
+        const raw = event?.payload?.[key] ?? event?.payload?.metadata?.[key];
+        if (raw === null || raw === undefined || raw === '') return;
+        const value = Number(raw);
         if (Number.isFinite(value) && value >= 0) values.push(value);
       });
     });
     return values;
+  }
+
+  function eventValue(event, keys) {
+    for (const key of keys) {
+      const value = event?.payload?.[key] ?? event?.payload?.metadata?.[key];
+      if (value !== undefined && value !== null && value !== '') return value;
+    }
+    return null;
+  }
+
+  function exactEventDuration(left, right) {
+    if (!left || !right) return { comparable: false, durationMs: null, basis: 'missing_boundary' };
+    const producerComparison = Clock?.compareClockPoints?.(
+      Clock.point(left.clock, 'observedAtLocalMonoMs'),
+      Clock.point(right.clock, 'observedAtLocalMonoMs')
+    );
+    if (producerComparison?.kind === 'exact') {
+      return { comparable: true, durationMs: producerComparison.durationMs, basis: 'producer_monotonic' };
+    }
+    const leftIngest = Number(left?.clock?.ingestMonoMs);
+    const rightIngest = Number(right?.clock?.ingestMonoMs);
+    if (left?.clock?.ingestEpochId && left.clock.ingestEpochId !== 'legacy-adapter'
+      && left.clock.ingestEpochId === right?.clock?.ingestEpochId
+      && Number.isFinite(leftIngest) && Number.isFinite(rightIngest)) {
+      return { comparable: true, durationMs: rightIngest - leftIngest, basis: 'ingest_monotonic' };
+    }
+    return { comparable: false, durationMs: null, basis: producerComparison?.reason || 'clock_unavailable' };
   }
 
   function deriveAxes(events) {
@@ -330,19 +360,72 @@
   function deriveModelView(modelId, events) {
     const axes = deriveAxes(events);
     const lengths = numericMeta(events, ['textLength', 'answerLength', 'answerLen', 'latestObservedTextLength']);
-    const terminalEvent = events.find((event) => event.eventType === 'MODEL_TERMINAL_RECORDED');
+    const terminalEvent = [...events].reverse().find((event) => event.eventType === 'MODEL_TERMINAL_RECORDED');
     const stableEvents = events.filter((event) => event.eventType === 'STABILITY_INTERVAL_CLOSED');
     const lastStableBeforeTerminal = terminalEvent
       ? stableEvents.filter((event) => Number(event.seq) <= Number(terminalEvent.seq)).slice(-1)[0]
       : stableEvents.slice(-1)[0];
     const postTerminalLengths = terminalEvent ? numericMeta(events.filter((event) => event.seq > terminalEvent.seq), ['textLength', 'answerLength', 'answerLen']) : [];
-    const acceptedLength = terminalEvent
-      ? (numericMeta([terminalEvent], ['textLength', 'answerLength', 'answerLen'])[0] || 0)
-      : (lengths.length ? lengths[lengths.length - 1] : 0);
+    const terminalLengths = terminalEvent ? numericMeta([terminalEvent], ['textLength', 'answerLength', 'answerLen']) : [];
+    const acceptedLength = terminalLengths.length ? terminalLengths[0] : null;
+    const extractionEvents = events.filter((event) => event.eventType === 'EXTRACTION_COMPLETED');
+    const latestExtraction = extractionEvents[extractionEvents.length - 1] || null;
+    const extractionLengths = latestExtraction
+      ? numericMeta([latestExtraction], ['extractedTextLength', 'capturedTextLength', 'textLength', 'answerLength', 'answerLen', 'length'])
+      : [];
+    const extractedTextLength = extractionLengths.length ? extractionLengths[extractionLengths.length - 1] : acceptedLength;
     const maxObservedLength = lengths.length ? Math.max(...lengths) : 0;
     const postTerminalMax = postTerminalLengths.length ? Math.max(...postTerminalLengths) : acceptedLength;
     const latestAudit = [...events].reverse().find((event) => event.eventType === 'POST_TERMINAL_AUDIT_COMPLETED');
-    const pendingAudit = events.some((event) => event.eventType === 'MISSING_EVIDENCE_RECORDED' && event?.payload?.missingEvidence === 'post_terminal_observation');
+    const pendingAudit = events.some((event) => event.eventType === 'MISSING_EVIDENCE_RECORDED'
+      && eventValue(event, ['missingEvidence']) === 'post_terminal_observation');
+    const auditGrowthCharsRaw = eventValue(latestAudit, ['growthChars']);
+    const auditGrowthPctRaw = eventValue(latestAudit, ['growthPct']);
+    const auditGrowthChars = auditGrowthCharsRaw === null ? null : Number(auditGrowthCharsRaw);
+    const auditGrowthPct = auditGrowthPctRaw === null ? null : Number(auditGrowthPctRaw);
+    const computedGrowthChars = acceptedLength !== null && postTerminalMax !== null
+      ? Math.max(0, postTerminalMax - acceptedLength) : null;
+    const computedGrowthPct = acceptedLength > 0 && computedGrowthChars !== null
+      ? Math.max(0, (computedGrowthChars / acceptedLength) * 100) : (computedGrowthChars > 0 ? 100 : null);
+    const postTerminalGrowthChars = Number.isFinite(auditGrowthChars) && auditGrowthChars >= 0 ? auditGrowthChars : computedGrowthChars;
+    const postTerminalGrowthPct = Number.isFinite(auditGrowthPct) && auditGrowthPct >= 0 ? auditGrowthPct : computedGrowthPct;
+    const auditConclusion = String(eventValue(latestAudit, ['conclusion']) || '').toLowerCase() || null;
+    const postTerminalGrowthProven = latestAudit
+      ? auditConclusion === 'contradicted' && postTerminalGrowthChars > 0
+      : (postTerminalLengths.length && postTerminalGrowthChars > 0 ? true : null);
+    const extractionFact = latestExtraction ? Contracts?.factOf?.(latestExtraction) : null;
+    const extractionFailed = extractionFact?.state === 'failed';
+    const generationEvents = events.filter((event) => ['GENERATION_START_EVALUATED', 'GENERATION_SIGNAL_CHANGED', 'OBSERVATION_FRAME_CAPTURED', 'TEXT_STATE_CHANGED'].includes(event.eventType));
+    const generationLengths = numericMeta(generationEvents, ['textLength', 'answerLength', 'answerLen', 'latestObservedTextLength']);
+    const generationTextObserved = generationLengths.length ? Math.max(...generationLengths) > 0 : null;
+    const emptyExtractionEvidence = generationTextObserved === true && latestExtraction
+      ? (extractionFailed || extractedTextLength === 0 ? true : (extractedTextLength > 0 ? false : null))
+      : null;
+    const terminalOutcomeRaw = eventValue(terminalEvent, ['terminalStatus', 'finalStatus', 'status']);
+    const terminalOutcome = terminalOutcomeRaw ? String(terminalOutcomeRaw).toUpperCase() : null;
+    const completenessStates = events
+      .filter((event) => event.eventType === 'ANSWER_COMPLETENESS_EVALUATED')
+      .map((event) => String(Contracts?.factOf?.(event)?.state || '').toLowerCase());
+    const extractionCoveragePct = maxObservedLength > 0 && extractedTextLength !== null
+      ? Math.min(100, (extractedTextLength / maxObservedLength) * 100) : null;
+    const explicitIncomplete = completenessStates.some((state) => /truncat|partial|incomplete/.test(state));
+    const incompleteCaptureEvidence = postTerminalGrowthProven === true
+      || explicitIncomplete
+      || (extractionCoveragePct !== null && extractionCoveragePct < Number(Contracts?.THRESHOLDS?.minimumExtractionCoveragePct || 98))
+      ? true
+      : (latestAudit && auditConclusion === 'confirmed' && extractionCoveragePct !== null ? false : null);
+    const terminalAnswerDispatchId = eventValue(terminalEvent, ['answerEvidenceDispatchId', 'acceptedAnswerDispatchId']);
+    const extractionIdentity = String(eventValue(latestExtraction, ['answerIdentity']) || '').toLowerCase() || null;
+    const oldAnswerEvidence = terminalEvent && terminalAnswerDispatchId
+      ? String(terminalAnswerDispatchId) !== String(terminalEvent.dispatchId || '')
+      : (['previous_dispatch', 'stale_accepted'].includes(extractionIdentity)
+        ? true
+        : (extractionIdentity === 'current_dispatch' ? false : null));
+    const submissionFacts = events.map((event) => Contracts?.factOf?.(event)).filter((fact) => fact?.kind === 'submission');
+    const latestSubmission = submissionFacts[submissionFacts.length - 1] || null;
+    const promptNotSentEvidence = latestSubmission?.state === 'failed'
+      ? true : (latestSubmission?.state === 'confirmed' ? false : null);
+    const stableDelay = exactEventDuration(lastStableBeforeTerminal, terminalEvent);
     return {
       modelId,
       stateAxes: axes,
@@ -352,20 +435,27 @@
       submissionEvidenceCount: events.filter((event) => /SUBMISSION|SUBMIT_ACTION/.test(event.eventType)).length,
       completionEvidenceTier: axes.completionEvidenceTier,
       acceptedTextLength: acceptedLength,
+      extractedTextLength,
       maxObservedTextLength: maxObservedLength,
-      postTerminalGrowthChars: Math.max(0, postTerminalMax - acceptedLength),
-      postTerminalGrowthPct: acceptedLength > 0 ? Math.max(0, ((postTerminalMax - acceptedLength) / acceptedLength) * 100) : 0,
+      postTerminalGrowthChars,
+      postTerminalGrowthPct,
+      postTerminalGrowthProven,
       postTerminalAuditStatus: latestAudit ? 'completed' : pendingAudit ? 'pending' : 'not_applicable',
-      postTerminalAuditConclusion: latestAudit?.payload?.conclusion || null,
-      extractionCoveragePct: maxObservedLength > 0 ? Math.min(100, (acceptedLength / maxObservedLength) * 100) : 0,
+      postTerminalAuditConclusion: auditConclusion,
+      extractionCoveragePct,
+      incompleteCaptureEvidence,
+      generationTextObserved,
+      emptyExtractionEvidence,
+      oldAnswerEvidence,
+      promptNotSentEvidence,
       hiddenRelevantTextLength: 0,
       candidateCount: new Set(events.map((event) => event.candidateId).filter(Boolean)).size,
       captureBeforeTerminal: false,
       terminalBeforeLastRelevantMutation: Boolean(terminalEvent && events.some((event) => event.seq > terminalEvent.seq && event.eventType === 'TEXT_STATE_CHANGED')),
-      terminalOutcome: terminalEvent?.payload?.metadata?.finalStatus || terminalEvent?.payload?.metadata?.status || null,
-      stableToTerminalMs: terminalEvent && lastStableBeforeTerminal
-        ? Math.max(0, Number(terminalEvent.wallTs || 0) - Number(lastStableBeforeTerminal.wallTs || 0))
-        : null
+      terminalOutcome,
+      stableToTerminalMs: stableDelay.comparable ? stableDelay.durationMs : null,
+      stableToTerminalComparable: stableDelay.comparable ? true : null,
+      stableToTerminalClockBasis: stableDelay.basis
     };
   }
 
@@ -376,7 +466,8 @@
   function evaluatePredicate(context, predicate) {
     const observedValue = getPath(context, predicate.path);
     const expected = predicate.value;
-    const matched = ({
+    const known = ['exists', 'missing'].includes(predicate.operator) || (observedValue !== undefined && observedValue !== null);
+    const matched = known && ({
       eq: () => observedValue === expected,
       ne: () => observedValue !== expected,
       in: () => Array.isArray(expected) && expected.includes(observedValue),
@@ -388,16 +479,25 @@
       exists: () => observedValue !== undefined,
       missing: () => observedValue === undefined
     }[predicate.operator] || (() => false))();
-    return { predicate, observedValue: observedValue === undefined ? null : observedValue, matched };
+    return { predicate, observedValue: observedValue === undefined ? null : observedValue, known, matched };
+  }
+
+  function evaluateApplicability(reportType, context) {
+    const predicates = (Contracts?.normalizedApplicability?.(reportType)?.all || [])
+      .map((predicate) => evaluatePredicate(context, predicate));
+    const status = predicates.some((result) => result.known && !result.matched)
+      ? 'not_confirmed'
+      : (predicates.some((result) => !result.known) ? 'unknown' : 'confirmed');
+    return { status, mode: 'all', predicateResults: predicates };
   }
 
   const SIBLING_RULES = Object.freeze({
-    cutted: [['false-success', '$.derivedViews.postTerminalGrowthPct', 'gt', 0.5], ['old-answer', '$.stateAxes.answerIdentity', 'ne', 'current_dispatch'], ['empty', '$.derivedViews.acceptedTextLength', 'eq', 0]],
-    'false-success': [['cutted', '$.derivedViews.extractionCoveragePct', 'lt', 98], ['late-end', '$.derivedViews.stableToTerminalMs', 'gt', 0]],
-    'old-answer': [['empty', '$.derivedViews.acceptedTextLength', 'eq', 0], ['cutted', '$.derivedViews.extractionCoveragePct', 'lt', 98]],
-    empty: [['old-answer', '$.stateAxes.answerIdentity', 'ne', 'current_dispatch'], ['cutted', '$.derivedViews.maxObservedTextLength', 'gt', 0]],
+    cutted: [['false-success', '$.derivedViews.postTerminalGrowthProven', 'eq', true], ['old-answer', '$.derivedViews.oldAnswerEvidence', 'eq', true], ['empty', '$.derivedViews.emptyExtractionEvidence', 'eq', true]],
+    'false-success': [['cutted', '$.derivedViews.incompleteCaptureEvidence', 'eq', true], ['late-end', '$.derivedViews.stableToTerminalMs', 'gt', 0]],
+    'old-answer': [['empty', '$.derivedViews.emptyExtractionEvidence', 'eq', true], ['cutted', '$.derivedViews.incompleteCaptureEvidence', 'eq', true]],
+    empty: [['old-answer', '$.derivedViews.oldAnswerEvidence', 'eq', true], ['cutted', '$.derivedViews.incompleteCaptureEvidence', 'eq', true]],
     'prompt-not-sent': [],
-    'late-end': [['false-success', '$.derivedViews.postTerminalGrowthPct', 'gt', 0.5]]
+    'late-end': [['false-success', '$.derivedViews.postTerminalGrowthProven', 'eq', true]]
   });
 
   function buildReports(ledger, modelViews, ledgerHash, registryHash) {
@@ -405,6 +505,12 @@
     return Object.fromEntries(REPORT_TYPES.map((reportType) => {
       const [primaryQuestion, relevantTypes] = REPORT_INFO[reportType];
       const relevant = ledger.filter((event) => relevantTypes.includes(event.eventType));
+      const applicabilityByModel = Object.fromEntries(allViews.map((view) => [view.modelId,
+        evaluateApplicability(reportType, { stateAxes: view.stateAxes, derivedViews: view })]));
+      const applicabilityStatuses = Object.values(applicabilityByModel).map((item) => item.status);
+      const applicabilityStatus = applicabilityStatuses.includes('confirmed')
+        ? 'confirmed'
+        : (applicabilityStatuses.length && applicabilityStatuses.every((status) => status === 'not_confirmed') ? 'not_confirmed' : 'unknown');
       const siblingEvaluations = (SIBLING_RULES[reportType] || []).map(([target, path, operator, value]) => {
         const perModel = allViews.map((view) => {
           const result = evaluatePredicate({ stateAxes: view.stateAxes, derivedViews: view }, { path, operator, value });
@@ -426,6 +532,7 @@
           reportVersion: REPORT_VERSION,
           title: primaryQuestion,
           primaryQuestion,
+          applicability: { status: applicabilityStatus, byModel: applicabilityByModel },
           canDiagnose: [],
           cannotDiagnoseAlone: [],
           completeness: {
@@ -437,7 +544,7 @@
             blockedConclusions: relevant.length ? [] : ['causal verdict']
           },
           reportMode: 'embedded-in-all-presets',
-          dependencyRegistryVersion: '1.0.0',
+          dependencyRegistryVersion: Contracts?.REGISTRY_VERSION || '4.0.0',
           dependencyRegistryHash: registryHash
         },
         diagnosticSummary: {
@@ -445,10 +552,21 @@
             stateAxes: view.stateAxes,
             completionEvidenceTier: view.completionEvidenceTier,
             acceptedTextLength: view.acceptedTextLength,
+            extractedTextLength: view.extractedTextLength,
             maxObservedTextLength: view.maxObservedTextLength,
             extractionCoveragePct: view.extractionCoveragePct,
             postTerminalGrowthPct: view.postTerminalGrowthPct,
-            stableToTerminalMs: view.stableToTerminalMs
+            postTerminalGrowthProven: view.postTerminalGrowthProven,
+            postTerminalAuditStatus: view.postTerminalAuditStatus,
+            incompleteCaptureEvidence: view.incompleteCaptureEvidence,
+            generationTextObserved: view.generationTextObserved,
+            emptyExtractionEvidence: view.emptyExtractionEvidence,
+            oldAnswerEvidence: view.oldAnswerEvidence,
+            promptNotSentEvidence: view.promptNotSentEvidence,
+            terminalOutcome: view.terminalOutcome,
+            stableToTerminalMs: view.stableToTerminalMs,
+            stableToTerminalComparable: view.stableToTerminalComparable,
+            stableToTerminalClockBasis: view.stableToTerminalClockBasis
           }]))
         },
         stateAxes: Object.fromEntries(allViews.map((view) => [view.modelId, view.stateAxes])),
@@ -499,7 +617,13 @@
       if (replayResult?.models?.[modelId]?.stateAxes) view.stateAxes = replayResult.models[modelId].stateAxes;
       return [modelId, view];
     }));
-    const registrySnapshot = { version: Contracts?.REGISTRY_VERSION || '3.0.0', predicateLanguageVersion: '1.0.0', maxEscalationDepth: 2, rules: SIBLING_RULES };
+    const registrySnapshot = {
+      version: Contracts?.REGISTRY_VERSION || '4.0.0',
+      predicateLanguageVersion: '1.0.0',
+      maxEscalationDepth: 2,
+      applicability: Object.fromEntries(REPORT_TYPES.map((reportType) => [reportType, Contracts?.normalizedApplicability?.(reportType) || { all: [] }])),
+      rules: SIBLING_RULES
+    };
     const registryHash = await sha256(registrySnapshot);
     const sharedConfig = {
       extensionVersion: String(options.extensionVersion || 'unknown'),
@@ -653,9 +777,10 @@
       ? root.ProofTelemetryPolicy.deriveAxes(materializedEvents, materializedEvents.filter((event) => event.modelId === modelId).slice(-1)[0])
       : modelView.stateAxes;
     modelView.stateAxes = axes;
-    const registrySnapshot = { version: Contracts?.REGISTRY_VERSION || '2.0.0', reports: Contracts?.REPORT_CONTRACTS || {} };
+    const registrySnapshot = { version: Contracts?.REGISTRY_VERSION || '4.0.0', reports: Contracts?.REPORT_CONTRACTS || {} };
     const registryHash = await sha256(registrySnapshot);
     const context = { stateAxes: axes, derivedViews: modelView };
+    const applicability = evaluateApplicability(reportType, context);
     const siblings = (SIBLING_RULES[reportType] || []).map(([target, path, operator, value]) => {
       const result = evaluatePredicate(context, { path, operator, value });
       return {
@@ -700,6 +825,7 @@
         reportVersion: REPORT_VERSION,
         title: REPORT_INFO[reportType][0],
         primaryQuestion: REPORT_INFO[reportType][0],
+        applicability,
         canDiagnose: completeness.safeConclusions.map((claim) => ({ claim })),
         cannotDiagnoseAlone: completeness.blockedConclusions.map((claim) => ({ claim })),
         completeness,
@@ -728,6 +854,7 @@
       },
       diagnosticSummary: {
         incidentId: selection.selected.incidentId,
+        applicability,
         sufficiency: closure.sufficiency,
         evidenceSlots: closure.slots,
         safeConclusions: completeness.safeConclusions,
@@ -835,6 +962,7 @@
     deriveAxes,
     deriveModelView,
     evaluatePredicate,
+    evaluateApplicability,
     validateLedger,
     buildAllPresets,
     buildStandaloneReport

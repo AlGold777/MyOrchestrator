@@ -11,6 +11,12 @@
 
 ## Статус реализации
 
+В версии `2.81.144` slot sufficiency отделена от semantic applicability.
+Каждый preset имеет исполняемые tri-state predicates (`confirmed`,
+`not_confirmed`, `unknown`), validator независимо воспроизводит их, sibling
+rules требуют положительных anomaly facts, а Late end использует только
+сопоставимые monotonic clocks.
+
 В версии `2.81.143` восемь технически пересекавшихся Tasks заменены шестью
 пользовательскими диагнозами: `Cutted`, `False success`, `Old answer`, `Empty`,
 `Prompt not sent`, `Late end`. `Late end` содержит измеренный

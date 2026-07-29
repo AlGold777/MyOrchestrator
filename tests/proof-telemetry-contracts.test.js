@@ -18,6 +18,9 @@ describe('proof telemetry executable contracts', () => {
       expect(slots.length).toBeGreaterThan(0);
       expect(new Set(slots.map((slot) => slot.slotId)).size).toBe(slots.length);
       expect(slots.some((slot) => slot.criticality === 'critical')).toBe(true);
+      const applicability = Contracts.normalizedApplicability(reportType);
+      expect(applicability.all.length).toBeGreaterThan(0);
+      expect(applicability.all.every((predicate) => predicate.path.startsWith('$.derivedViews.'))).toBe(true);
     });
   });
 

@@ -1,5 +1,21 @@
 # CHANGELOG — Project
 
+### 2026-08-28 — Semantic preset applicability, version 2.81.144
+
+- Separated evidence-slot completeness from proof that the selected problem
+  occurred; every Task now reports tri-state semantic applicability.
+- Cutted requires SUCCESS plus positive incomplete-capture evidence, and False
+  success requires audited growth after the SUCCESS terminal boundary.
+- Old answer requires accepted-answer dispatch mismatch; Empty requires
+  observed generated text plus failed/zero extraction; Prompt not sent requires
+  explicit failed submission evidence.
+- Late end uses comparable producer/worker monotonic clocks and preserves
+  unavailable time as unknown instead of subtracting wall timestamps.
+- Sibling diagnoses now require positive anomaly facts; missing/null values do
+  not satisfy ordinary comparison predicates.
+- MODEL_FINAL retains privacy-safe answer-evidence identity/length fields, and
+  the offline validator independently replays applicability.
+
 ### 2026-08-28 — User-question telemetry presets, version 2.81.143
 
 - Replaced eight overlapping technical Tasks with six user-facing diagnoses:

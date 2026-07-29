@@ -8400,6 +8400,16 @@ function handleLLMResponse(llmName, answer, error = null, meta = null, answerHtm
         finalReason,
         dispatchId,
         tabId,
+        answerEvidenceLength: finalizationEvidence?.answerEvidence
+          ? Number(finalizationEvidence.answerEvidence.length || finalizationEvidence.answerEvidence.textLength || 0)
+          : null,
+        answerEvidenceDispatchId: finalizationEvidence?.answerEvidence?.dispatchId || null,
+        answerEvidenceSource: finalizationEvidence?.answerEvidence?.source || null,
+        answerEvidenceVerified: finalizationEvidence?.answerEvidence ? finalizationEvidence.answerVerified === true : null,
+        answerEvidenceFreshTurnEvidence: finalizationEvidence?.answerEvidence?.freshTurnEvidence ?? null,
+        answerIdentity: finalizationEvidence?.answerEvidence?.dispatchId && dispatchId
+          ? (String(finalizationEvidence.answerEvidence.dispatchId) === String(dispatchId) ? 'current_dispatch' : 'previous_dispatch')
+          : null,
         finalizationEvidence: summarizeFinalizationEvidenceForTelemetry(finalizationEvidence)
       },
       force: true

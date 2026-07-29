@@ -238,7 +238,18 @@ describe('native proof telemetry ledger', () => {
     await global.ProofTelemetryLedger.record({ ts: 1100, label: 'PROMPT_SUBMITTED_ACCEPTED', meta }, 'Grok');
     await global.ProofTelemetryLedger.record({ ts: 1200, label: 'ANSWER_START_DETECTED', meta: { ...meta, textLength: 10 } }, 'Grok');
     await global.ProofTelemetryLedger.record({ ts: 2000, label: 'FINALIZATION_DECISION', details: 'SUCCESS:accepted', meta }, 'Grok');
-    await global.ProofTelemetryLedger.record({ ts: 2100, label: 'MODEL_FINAL', details: 'SUCCESS', meta: { ...meta, finalStatus: 'SUCCESS' } }, 'Grok');
+    await global.ProofTelemetryLedger.record({
+      ts: 2100,
+      label: 'MODEL_FINAL',
+      details: 'SUCCESS',
+      meta: {
+        ...meta,
+        finalStatus: 'SUCCESS',
+        answerEvidenceDispatchId: 'Grok:previous',
+        answerEvidenceLength: 120,
+        answerIdentity: 'previous_dispatch'
+      }
+    }, 'Grok');
 
     const snapshot = await global.ProofTelemetryLedger.snapshot();
     const policy = snapshot.events.find((event) => event.eventType === 'FINALIZATION_POLICY_EVALUATED');
@@ -250,6 +261,11 @@ describe('native proof telemetry ledger', () => {
     expect(decision.payload).toEqual(expect.objectContaining({ accepted: true, mode: 'forced' }));
     expect(terminal.evidenceRefs).toContain(decision.eventId);
     expect(terminal.payload.metadata.decisionId).toBe(decision.eventId);
+    expect(terminal.payload.metadata).toEqual(expect.objectContaining({
+      answerEvidenceDispatchId: 'Grok:previous',
+      answerEvidenceLength: 120,
+      answerIdentity: 'previous_dispatch'
+    }));
     expect(global.ProofTelemetryPolicy.replay(snapshot.events).invariantViolations).toEqual([]);
     const container = await global.ProofOrientedTelemetry.buildAllPresets(snapshot.events, {
       canonicalLedger: true,

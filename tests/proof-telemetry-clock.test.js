@@ -7,6 +7,11 @@ describe('proof telemetry clock contract', () => {
     expect(Clock.compareClockPoints(left, right)).toEqual({ kind: 'exact', durationMs: 25 });
   });
 
+  test('null monotonic values remain unavailable instead of becoming zero', () => {
+    expect(Clock.point({ producerEpochId: 'producer-a', observedAtLocalMonoMs: null })).toBeNull();
+    expect(Clock.point({ producerEpochId: 'producer-a' })).toBeNull();
+  });
+
   test('cross epoch comparison requires a validated bridge', () => {
     const left = { epochId: 'producer-a', monoMs: 10 };
     const right = { epochId: 'producer-b', monoMs: 5 };

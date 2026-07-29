@@ -240,7 +240,14 @@ describe('Proof-oriented telemetry schema 6 event export', () => {
       evt('GPT', 'ANSWER_TEXT_STABLE', 2000, { generationEpoch: 1, textLength: 120 }),
       evt('GPT', 'FINALIZATION_DECISION', 6800, { generationEpoch: 1, finalStatus: 'SUCCESS' }),
       evt('GPT', 'MODEL_FINAL', 7000, { generationEpoch: 1, finalStatus: 'SUCCESS', answerLen: 120 })
-    ], { runSessionId: 42 });
+    ], { runSessionId: 42 }).map((event) => ({
+      ...event,
+      clock: {
+        ...event.clock,
+        producerEpochId: 'test-document-epoch',
+        observedAtLocalMonoMs: event.wallTs - 1000
+      }
+    }));
     const report = await ProofTelemetry.buildStandaloneReport(ledger, {
       canonicalLedger: true,
       modelId: 'GPT',

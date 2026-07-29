@@ -20,12 +20,12 @@
       "eventCount": 19
     },
     "reportSchemas": {
-      "cutted": "2.0.0",
-      "false-success": "2.0.0",
-      "old-answer": "2.0.0",
-      "empty": "2.0.0",
-      "prompt-not-sent": "2.0.0",
-      "late-end": "2.0.0"
+      "cutted": "2.1.0",
+      "false-success": "2.1.0",
+      "old-answer": "2.1.0",
+      "empty": "2.1.0",
+      "prompt-not-sent": "2.1.0",
+      "late-end": "2.1.0"
     },
     "deduplication": {
       "canonicalEventsStoredOnce": true,
@@ -45,15 +45,15 @@
     "mode": "same_export",
     "exactMatch": {
       "runSessionId": "synthetic-run",
-      "ledgerHash": "sha256:cf61ad87db67de9abc0cbe0d3981aefa53840eab7f52c0d0324e78e1b4e1bee3",
+      "ledgerHash": "sha256:a68e904eaab9e25f1723b2cce10909a408f3316b06336803927a826a0f5fd086",
       "ledgerCompleteThroughSeq": 19
     }
   },
   "sharedConfig": {
-    "extensionVersion": "2.81.143",
+    "extensionVersion": "2.81.144",
     "generationWaitProfile": "unknown",
     "schemaVersion": "5.0",
-    "generatorVersion": "proof-export@1.1.0",
+    "generatorVersion": "proof-export@1.2.0",
     "policy": {
       "policyId": "proof-default-v1",
       "automaticMinimumEvidenceTier": 3,
@@ -65,36 +65,117 @@
       "urlMode": "hash-only"
     },
     "dependencyRegistry": {
-      "version": "3.0.0",
+      "version": "4.0.0",
       "predicateLanguageVersion": "1.0.0",
       "maxEscalationDepth": 2,
+      "applicability": {
+        "cutted": {
+          "all": [
+            {
+              "path": "$.derivedViews.terminalOutcome",
+              "operator": "eq",
+              "value": "SUCCESS"
+            },
+            {
+              "path": "$.derivedViews.incompleteCaptureEvidence",
+              "operator": "eq",
+              "value": true
+            }
+          ]
+        },
+        "false-success": {
+          "all": [
+            {
+              "path": "$.derivedViews.terminalOutcome",
+              "operator": "eq",
+              "value": "SUCCESS"
+            },
+            {
+              "path": "$.derivedViews.postTerminalAuditStatus",
+              "operator": "eq",
+              "value": "completed"
+            },
+            {
+              "path": "$.derivedViews.postTerminalGrowthProven",
+              "operator": "eq",
+              "value": true
+            }
+          ]
+        },
+        "old-answer": {
+          "all": [
+            {
+              "path": "$.derivedViews.oldAnswerEvidence",
+              "operator": "eq",
+              "value": true
+            }
+          ]
+        },
+        "empty": {
+          "all": [
+            {
+              "path": "$.derivedViews.generationTextObserved",
+              "operator": "eq",
+              "value": true
+            },
+            {
+              "path": "$.derivedViews.emptyExtractionEvidence",
+              "operator": "eq",
+              "value": true
+            }
+          ]
+        },
+        "prompt-not-sent": {
+          "all": [
+            {
+              "path": "$.derivedViews.promptNotSentEvidence",
+              "operator": "eq",
+              "value": true
+            }
+          ]
+        },
+        "late-end": {
+          "all": [
+            {
+              "path": "$.derivedViews.stableToTerminalComparable",
+              "operator": "eq",
+              "value": true
+            },
+            {
+              "path": "$.derivedViews.stableToTerminalMs",
+              "operator": "gt",
+              "value": 0
+            }
+          ]
+        }
+      },
       "rules": {
         "cutted": [
           [
             "false-success",
-            "$.derivedViews.postTerminalGrowthPct",
-            "gt",
-            0.5
+            "$.derivedViews.postTerminalGrowthProven",
+            "eq",
+            true
           ],
           [
             "old-answer",
-            "$.stateAxes.answerIdentity",
-            "ne",
-            "current_dispatch"
+            "$.derivedViews.oldAnswerEvidence",
+            "eq",
+            true
           ],
           [
             "empty",
-            "$.derivedViews.acceptedTextLength",
+            "$.derivedViews.emptyExtractionEvidence",
             "eq",
-            0
+            true
           ]
         ],
         "false-success": [
           [
             "cutted",
-            "$.derivedViews.extractionCoveragePct",
-            "lt",
-            98
+            "$.derivedViews.incompleteCaptureEvidence",
+            "eq",
+            true
           ],
           [
             "late-end",
@@ -106,38 +187,38 @@
         "old-answer": [
           [
             "empty",
-            "$.derivedViews.acceptedTextLength",
+            "$.derivedViews.emptyExtractionEvidence",
             "eq",
-            0
+            true
           ],
           [
             "cutted",
-            "$.derivedViews.extractionCoveragePct",
-            "lt",
-            98
+            "$.derivedViews.incompleteCaptureEvidence",
+            "eq",
+            true
           ]
         ],
         "empty": [
           [
             "old-answer",
-            "$.stateAxes.answerIdentity",
-            "ne",
-            "current_dispatch"
+            "$.derivedViews.oldAnswerEvidence",
+            "eq",
+            true
           ],
           [
             "cutted",
-            "$.derivedViews.maxObservedTextLength",
-            "gt",
-            0
+            "$.derivedViews.incompleteCaptureEvidence",
+            "eq",
+            true
           ]
         ],
         "prompt-not-sent": [],
         "late-end": [
           [
             "false-success",
-            "$.derivedViews.postTerminalGrowthPct",
-            "gt",
-            0.5
+            "$.derivedViews.postTerminalGrowthProven",
+            "eq",
+            true
           ]
         ]
       }
@@ -155,7 +236,7 @@
     "firstSeq": 1,
     "lastSeq": 19,
     "eventCount": 19,
-    "ledgerHash": "sha256:cf61ad87db67de9abc0cbe0d3981aefa53840eab7f52c0d0324e78e1b4e1bee3",
+    "ledgerHash": "sha256:a68e904eaab9e25f1723b2cce10909a408f3316b06336803927a826a0f5fd086",
     "events": [
       {
         "schemaVersion": 6,
@@ -170,13 +251,13 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.1.0"
+          "version": "proof-export@1.2.0"
         },
         "clock": {
           "contractVersion": "1.0",
-          "producerEpochId": "legacy-clockless",
+          "producerEpochId": "synthetic-document-epoch",
           "producerSequence": null,
-          "observedAtLocalMonoMs": null,
+          "observedAtLocalMonoMs": 0,
           "sentAtLocalMonoMs": null,
           "originKind": "unknown",
           "ingestEpochId": "legacy-adapter",
@@ -213,13 +294,13 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.1.0"
+          "version": "proof-export@1.2.0"
         },
         "clock": {
           "contractVersion": "1.0",
-          "producerEpochId": "legacy-clockless",
+          "producerEpochId": "synthetic-document-epoch",
           "producerSequence": null,
-          "observedAtLocalMonoMs": null,
+          "observedAtLocalMonoMs": 500,
           "sentAtLocalMonoMs": null,
           "originKind": "unknown",
           "ingestEpochId": "legacy-adapter",
@@ -256,13 +337,13 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.1.0"
+          "version": "proof-export@1.2.0"
         },
         "clock": {
           "contractVersion": "1.0",
-          "producerEpochId": "legacy-clockless",
+          "producerEpochId": "synthetic-document-epoch",
           "producerSequence": null,
-          "observedAtLocalMonoMs": null,
+          "observedAtLocalMonoMs": 1000,
           "sentAtLocalMonoMs": null,
           "originKind": "unknown",
           "ingestEpochId": "legacy-adapter",
@@ -270,8 +351,8 @@
         },
         "payload": {
           "typed": {
-            "kind": "unknown",
-            "state": "unknown"
+            "kind": "submission",
+            "state": "confirmed"
           },
           "sourceEventType": "SUBMISSION_EVIDENCE_CHANGED",
           "sourceLevel": "info",
@@ -299,13 +380,13 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.1.0"
+          "version": "proof-export@1.2.0"
         },
         "clock": {
           "contractVersion": "1.0",
-          "producerEpochId": "legacy-clockless",
+          "producerEpochId": "synthetic-document-epoch",
           "producerSequence": null,
-          "observedAtLocalMonoMs": null,
+          "observedAtLocalMonoMs": 1500,
           "sentAtLocalMonoMs": null,
           "originKind": "unknown",
           "ingestEpochId": "legacy-adapter",
@@ -342,13 +423,13 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.1.0"
+          "version": "proof-export@1.2.0"
         },
         "clock": {
           "contractVersion": "1.0",
-          "producerEpochId": "legacy-clockless",
+          "producerEpochId": "synthetic-document-epoch",
           "producerSequence": null,
-          "observedAtLocalMonoMs": null,
+          "observedAtLocalMonoMs": 2000,
           "sentAtLocalMonoMs": null,
           "originKind": "unknown",
           "ingestEpochId": "legacy-adapter",
@@ -385,13 +466,13 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.1.0"
+          "version": "proof-export@1.2.0"
         },
         "clock": {
           "contractVersion": "1.0",
-          "producerEpochId": "legacy-clockless",
+          "producerEpochId": "synthetic-document-epoch",
           "producerSequence": null,
-          "observedAtLocalMonoMs": null,
+          "observedAtLocalMonoMs": 2500,
           "sentAtLocalMonoMs": null,
           "originKind": "unknown",
           "ingestEpochId": "legacy-adapter",
@@ -428,13 +509,13 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.1.0"
+          "version": "proof-export@1.2.0"
         },
         "clock": {
           "contractVersion": "1.0",
-          "producerEpochId": "legacy-clockless",
+          "producerEpochId": "synthetic-document-epoch",
           "producerSequence": null,
-          "observedAtLocalMonoMs": null,
+          "observedAtLocalMonoMs": 3000,
           "sentAtLocalMonoMs": null,
           "originKind": "unknown",
           "ingestEpochId": "legacy-adapter",
@@ -452,7 +533,8 @@
             "dispatchId": "synthetic-dispatch",
             "generationEpoch": 1,
             "runGeneration": 1,
-            "runSessionId": "synthetic-run"
+            "runSessionId": "synthetic-run",
+            "textLength": 120
           }
         },
         "dispatchId": "synthetic-dispatch",
@@ -471,13 +553,13 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.1.0"
+          "version": "proof-export@1.2.0"
         },
         "clock": {
           "contractVersion": "1.0",
-          "producerEpochId": "legacy-clockless",
+          "producerEpochId": "synthetic-document-epoch",
           "producerSequence": null,
-          "observedAtLocalMonoMs": null,
+          "observedAtLocalMonoMs": 3500,
           "sentAtLocalMonoMs": null,
           "originKind": "unknown",
           "ingestEpochId": "legacy-adapter",
@@ -514,13 +596,13 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.1.0"
+          "version": "proof-export@1.2.0"
         },
         "clock": {
           "contractVersion": "1.0",
-          "producerEpochId": "legacy-clockless",
+          "producerEpochId": "synthetic-document-epoch",
           "producerSequence": null,
-          "observedAtLocalMonoMs": null,
+          "observedAtLocalMonoMs": 4000,
           "sentAtLocalMonoMs": null,
           "originKind": "unknown",
           "ingestEpochId": "legacy-adapter",
@@ -557,13 +639,13 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.1.0"
+          "version": "proof-export@1.2.0"
         },
         "clock": {
           "contractVersion": "1.0",
-          "producerEpochId": "legacy-clockless",
+          "producerEpochId": "synthetic-document-epoch",
           "producerSequence": null,
-          "observedAtLocalMonoMs": null,
+          "observedAtLocalMonoMs": 4500,
           "sentAtLocalMonoMs": null,
           "originKind": "unknown",
           "ingestEpochId": "legacy-adapter",
@@ -601,13 +683,13 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.1.0"
+          "version": "proof-export@1.2.0"
         },
         "clock": {
           "contractVersion": "1.0",
-          "producerEpochId": "legacy-clockless",
+          "producerEpochId": "synthetic-document-epoch",
           "producerSequence": null,
-          "observedAtLocalMonoMs": null,
+          "observedAtLocalMonoMs": 5000,
           "sentAtLocalMonoMs": null,
           "originKind": "unknown",
           "ingestEpochId": "legacy-adapter",
@@ -645,13 +727,13 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.1.0"
+          "version": "proof-export@1.2.0"
         },
         "clock": {
           "contractVersion": "1.0",
-          "producerEpochId": "legacy-clockless",
+          "producerEpochId": "synthetic-document-epoch",
           "producerSequence": null,
-          "observedAtLocalMonoMs": null,
+          "observedAtLocalMonoMs": 5500,
           "sentAtLocalMonoMs": null,
           "originKind": "unknown",
           "ingestEpochId": "legacy-adapter",
@@ -689,13 +771,13 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.1.0"
+          "version": "proof-export@1.2.0"
         },
         "clock": {
           "contractVersion": "1.0",
-          "producerEpochId": "legacy-clockless",
+          "producerEpochId": "synthetic-document-epoch",
           "producerSequence": null,
-          "observedAtLocalMonoMs": null,
+          "observedAtLocalMonoMs": 6000,
           "sentAtLocalMonoMs": null,
           "originKind": "unknown",
           "ingestEpochId": "legacy-adapter",
@@ -703,8 +785,8 @@
         },
         "payload": {
           "typed": {
-            "kind": "unknown",
-            "state": "unknown"
+            "kind": "extraction",
+            "state": "completed"
           },
           "sourceEventType": "EXTRACTION_COMPLETED",
           "sourceLevel": "info",
@@ -714,7 +796,8 @@
             "generationEpoch": 1,
             "runGeneration": 1,
             "runSessionId": "synthetic-run",
-            "textLength": 120
+            "textLength": 120,
+            "length": 120
           }
         },
         "dispatchId": "synthetic-dispatch",
@@ -733,13 +816,13 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.1.0"
+          "version": "proof-export@1.2.0"
         },
         "clock": {
           "contractVersion": "1.0",
-          "producerEpochId": "legacy-clockless",
+          "producerEpochId": "synthetic-document-epoch",
           "producerSequence": null,
-          "observedAtLocalMonoMs": null,
+          "observedAtLocalMonoMs": 6500,
           "sentAtLocalMonoMs": null,
           "originKind": "unknown",
           "ingestEpochId": "legacy-adapter",
@@ -776,13 +859,13 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.1.0"
+          "version": "proof-export@1.2.0"
         },
         "clock": {
           "contractVersion": "1.0",
-          "producerEpochId": "legacy-clockless",
+          "producerEpochId": "synthetic-document-epoch",
           "producerSequence": null,
-          "observedAtLocalMonoMs": null,
+          "observedAtLocalMonoMs": 7000,
           "sentAtLocalMonoMs": null,
           "originKind": "unknown",
           "ingestEpochId": "legacy-adapter",
@@ -790,7 +873,7 @@
         },
         "payload": {
           "typed": {
-            "kind": "unknown",
+            "kind": "answer_completeness",
             "state": "unknown"
           },
           "sourceEventType": "ANSWER_COMPLETENESS_EVALUATED",
@@ -819,13 +902,13 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.1.0"
+          "version": "proof-export@1.2.0"
         },
         "clock": {
           "contractVersion": "1.0",
-          "producerEpochId": "legacy-clockless",
+          "producerEpochId": "synthetic-document-epoch",
           "producerSequence": null,
-          "observedAtLocalMonoMs": null,
+          "observedAtLocalMonoMs": 7500,
           "sentAtLocalMonoMs": null,
           "originKind": "unknown",
           "ingestEpochId": "legacy-adapter",
@@ -862,13 +945,13 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.1.0"
+          "version": "proof-export@1.2.0"
         },
         "clock": {
           "contractVersion": "1.0",
-          "producerEpochId": "legacy-clockless",
+          "producerEpochId": "synthetic-document-epoch",
           "producerSequence": null,
-          "observedAtLocalMonoMs": null,
+          "observedAtLocalMonoMs": 8000,
           "sentAtLocalMonoMs": null,
           "originKind": "unknown",
           "ingestEpochId": "legacy-adapter",
@@ -905,13 +988,13 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.1.0"
+          "version": "proof-export@1.2.0"
         },
         "clock": {
           "contractVersion": "1.0",
-          "producerEpochId": "legacy-clockless",
+          "producerEpochId": "synthetic-document-epoch",
           "producerSequence": null,
-          "observedAtLocalMonoMs": null,
+          "observedAtLocalMonoMs": 8500,
           "sentAtLocalMonoMs": null,
           "originKind": "unknown",
           "ingestEpochId": "legacy-adapter",
@@ -948,13 +1031,13 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@1.1.0"
+          "version": "proof-export@1.2.0"
         },
         "clock": {
           "contractVersion": "1.0",
-          "producerEpochId": "legacy-clockless",
+          "producerEpochId": "synthetic-document-epoch",
           "producerSequence": null,
-          "observedAtLocalMonoMs": null,
+          "observedAtLocalMonoMs": 9000,
           "sentAtLocalMonoMs": null,
           "originKind": "unknown",
           "ingestEpochId": "legacy-adapter",
@@ -1004,19 +1087,19 @@
         18,
         19
       ],
-      "generatorVersion": "proof-export@1.1.0",
-      "ledgerHash": "sha256:cf61ad87db67de9abc0cbe0d3981aefa53840eab7f52c0d0324e78e1b4e1bee3",
+      "generatorVersion": "proof-export@1.2.0",
+      "ledgerHash": "sha256:a68e904eaab9e25f1723b2cce10909a408f3316b06336803927a826a0f5fd086",
       "data": {
         "GPT": {
           "modelId": "GPT",
           "stateAxes": {
-            "submission": "evidence_partial",
-            "generationStart": "not_evaluated",
+            "submission": "confirmed",
+            "generationStart": "not_started",
             "answerIdentity": "current_dispatch",
             "observedGeneration": "quiescent",
             "textEvolution": "stable",
             "answerCompleteness": "not_evaluated",
-            "extraction": "none",
+            "extraction": "completed",
             "verification": "verified",
             "completionDetection": "not_evaluated",
             "completionEvidenceTier": 1,
@@ -1050,19 +1133,28 @@
           "lastSeq": 19,
           "submissionEvidenceCount": 2,
           "completionEvidenceTier": 1,
-          "acceptedTextLength": 120,
+          "acceptedTextLength": null,
+          "extractedTextLength": 120,
           "maxObservedTextLength": 120,
-          "postTerminalGrowthChars": 0,
-          "postTerminalGrowthPct": 0,
+          "postTerminalGrowthChars": null,
+          "postTerminalGrowthPct": null,
+          "postTerminalGrowthProven": null,
           "postTerminalAuditStatus": "not_applicable",
           "postTerminalAuditConclusion": null,
           "extractionCoveragePct": 100,
+          "incompleteCaptureEvidence": null,
+          "generationTextObserved": true,
+          "emptyExtractionEvidence": false,
+          "oldAnswerEvidence": null,
+          "promptNotSentEvidence": false,
           "hiddenRelevantTextLength": 0,
           "candidateCount": 0,
           "captureBeforeTerminal": false,
           "terminalBeforeLastRelevantMutation": false,
           "terminalOutcome": null,
-          "stableToTerminalMs": null
+          "stableToTerminalMs": null,
+          "stableToTerminalComparable": null,
+          "stableToTerminalClockBasis": "missing_boundary"
         }
       }
     }
@@ -1070,11 +1162,42 @@
   "reports": {
     "cutted": {
       "reportDescriptor": {
-        "reportId": "rpt-cutted-625f210c",
+        "reportId": "rpt-cutted-82e9c368",
         "reportType": "cutted",
-        "reportVersion": "2.0.0",
+        "reportVersion": "2.1.0",
         "title": "Почему зафиксирован SUCCESS, а текст явно неполный?",
         "primaryQuestion": "Почему зафиксирован SUCCESS, а текст явно неполный?",
+        "applicability": {
+          "status": "unknown",
+          "byModel": {
+            "GPT": {
+              "status": "unknown",
+              "mode": "all",
+              "predicateResults": [
+                {
+                  "predicate": {
+                    "path": "$.derivedViews.terminalOutcome",
+                    "operator": "eq",
+                    "value": "SUCCESS"
+                  },
+                  "observedValue": null,
+                  "known": false,
+                  "matched": false
+                },
+                {
+                  "predicate": {
+                    "path": "$.derivedViews.incompleteCaptureEvidence",
+                    "operator": "eq",
+                    "value": true
+                  },
+                  "observedValue": null,
+                  "known": false,
+                  "matched": false
+                }
+              ]
+            }
+          }
+        },
         "canDiagnose": [],
         "cannotDiagnoseAlone": [],
         "completeness": {
@@ -1086,20 +1209,20 @@
           "blockedConclusions": []
         },
         "reportMode": "embedded-in-all-presets",
-        "dependencyRegistryVersion": "1.0.0",
-        "dependencyRegistryHash": "sha256:b0e80779a69713e47171c678f6d7874be4b80e4f31fdca403059f5d3111d86ea"
+        "dependencyRegistryVersion": "4.0.0",
+        "dependencyRegistryHash": "sha256:9a8697755d887caa0a1f0a21dcce53d9c1bb93af53271b9dbac63356f09fa214"
       },
       "diagnosticSummary": {
         "models": {
           "GPT": {
             "stateAxes": {
-              "submission": "evidence_partial",
-              "generationStart": "not_evaluated",
+              "submission": "confirmed",
+              "generationStart": "not_started",
               "answerIdentity": "current_dispatch",
               "observedGeneration": "quiescent",
               "textEvolution": "stable",
               "answerCompleteness": "not_evaluated",
-              "extraction": "none",
+              "extraction": "completed",
               "verification": "verified",
               "completionDetection": "not_evaluated",
               "completionEvidenceTier": 1,
@@ -1109,23 +1232,34 @@
               "terminationCause": "unknown"
             },
             "completionEvidenceTier": 1,
-            "acceptedTextLength": 120,
+            "acceptedTextLength": null,
+            "extractedTextLength": 120,
             "maxObservedTextLength": 120,
             "extractionCoveragePct": 100,
-            "postTerminalGrowthPct": 0,
-            "stableToTerminalMs": null
+            "postTerminalGrowthPct": null,
+            "postTerminalGrowthProven": null,
+            "postTerminalAuditStatus": "not_applicable",
+            "incompleteCaptureEvidence": null,
+            "generationTextObserved": true,
+            "emptyExtractionEvidence": false,
+            "oldAnswerEvidence": null,
+            "promptNotSentEvidence": false,
+            "terminalOutcome": null,
+            "stableToTerminalMs": null,
+            "stableToTerminalComparable": null,
+            "stableToTerminalClockBasis": "missing_boundary"
           }
         }
       },
       "stateAxes": {
         "GPT": {
-          "submission": "evidence_partial",
-          "generationStart": "not_evaluated",
+          "submission": "confirmed",
+          "generationStart": "not_started",
           "answerIdentity": "current_dispatch",
           "observedGeneration": "quiescent",
           "textEvolution": "stable",
           "answerCompleteness": "not_evaluated",
-          "extraction": "none",
+          "extraction": "completed",
           "verification": "verified",
           "completionDetection": "not_evaluated",
           "completionEvidenceTier": 1,
@@ -1154,9 +1288,9 @@
           "requestIf": {
             "any": [
               {
-                "path": "$.derivedViews.postTerminalGrowthPct",
-                "operator": "gt",
-                "value": 0.5
+                "path": "$.derivedViews.postTerminalGrowthProven",
+                "operator": "eq",
+                "value": true
               }
             ]
           },
@@ -1166,11 +1300,12 @@
               {
                 "modelId": "GPT",
                 "predicate": {
-                  "path": "$.derivedViews.postTerminalGrowthPct",
-                  "operator": "gt",
-                  "value": 0.5
+                  "path": "$.derivedViews.postTerminalGrowthProven",
+                  "operator": "eq",
+                  "value": true
                 },
-                "observedValue": 0,
+                "observedValue": null,
+                "known": false,
                 "matched": false
               }
             ]
@@ -1183,9 +1318,9 @@
           "requestIf": {
             "any": [
               {
-                "path": "$.stateAxes.answerIdentity",
-                "operator": "ne",
-                "value": "current_dispatch"
+                "path": "$.derivedViews.oldAnswerEvidence",
+                "operator": "eq",
+                "value": true
               }
             ]
           },
@@ -1195,11 +1330,12 @@
               {
                 "modelId": "GPT",
                 "predicate": {
-                  "path": "$.stateAxes.answerIdentity",
-                  "operator": "ne",
-                  "value": "current_dispatch"
+                  "path": "$.derivedViews.oldAnswerEvidence",
+                  "operator": "eq",
+                  "value": true
                 },
-                "observedValue": "current_dispatch",
+                "observedValue": null,
+                "known": false,
                 "matched": false
               }
             ]
@@ -1212,9 +1348,9 @@
           "requestIf": {
             "any": [
               {
-                "path": "$.derivedViews.acceptedTextLength",
+                "path": "$.derivedViews.emptyExtractionEvidence",
                 "operator": "eq",
-                "value": 0
+                "value": true
               }
             ]
           },
@@ -1224,11 +1360,12 @@
               {
                 "modelId": "GPT",
                 "predicate": {
-                  "path": "$.derivedViews.acceptedTextLength",
+                  "path": "$.derivedViews.emptyExtractionEvidence",
                   "operator": "eq",
-                  "value": 0
+                  "value": true
                 },
-                "observedValue": 120,
+                "observedValue": false,
+                "known": true,
                 "matched": false
               }
             ]
@@ -1239,11 +1376,52 @@
     },
     "false-success": {
       "reportDescriptor": {
-        "reportId": "rpt-false-success-625f210c",
+        "reportId": "rpt-false-success-82e9c368",
         "reportType": "false-success",
-        "reportVersion": "2.0.0",
+        "reportVersion": "2.1.0",
         "title": "Почему система решила «готово», а ответ продолжил расти?",
         "primaryQuestion": "Почему система решила «готово», а ответ продолжил расти?",
+        "applicability": {
+          "status": "not_confirmed",
+          "byModel": {
+            "GPT": {
+              "status": "not_confirmed",
+              "mode": "all",
+              "predicateResults": [
+                {
+                  "predicate": {
+                    "path": "$.derivedViews.terminalOutcome",
+                    "operator": "eq",
+                    "value": "SUCCESS"
+                  },
+                  "observedValue": null,
+                  "known": false,
+                  "matched": false
+                },
+                {
+                  "predicate": {
+                    "path": "$.derivedViews.postTerminalAuditStatus",
+                    "operator": "eq",
+                    "value": "completed"
+                  },
+                  "observedValue": "not_applicable",
+                  "known": true,
+                  "matched": false
+                },
+                {
+                  "predicate": {
+                    "path": "$.derivedViews.postTerminalGrowthProven",
+                    "operator": "eq",
+                    "value": true
+                  },
+                  "observedValue": null,
+                  "known": false,
+                  "matched": false
+                }
+              ]
+            }
+          }
+        },
         "canDiagnose": [],
         "cannotDiagnoseAlone": [],
         "completeness": {
@@ -1255,20 +1433,20 @@
           "blockedConclusions": []
         },
         "reportMode": "embedded-in-all-presets",
-        "dependencyRegistryVersion": "1.0.0",
-        "dependencyRegistryHash": "sha256:b0e80779a69713e47171c678f6d7874be4b80e4f31fdca403059f5d3111d86ea"
+        "dependencyRegistryVersion": "4.0.0",
+        "dependencyRegistryHash": "sha256:9a8697755d887caa0a1f0a21dcce53d9c1bb93af53271b9dbac63356f09fa214"
       },
       "diagnosticSummary": {
         "models": {
           "GPT": {
             "stateAxes": {
-              "submission": "evidence_partial",
-              "generationStart": "not_evaluated",
+              "submission": "confirmed",
+              "generationStart": "not_started",
               "answerIdentity": "current_dispatch",
               "observedGeneration": "quiescent",
               "textEvolution": "stable",
               "answerCompleteness": "not_evaluated",
-              "extraction": "none",
+              "extraction": "completed",
               "verification": "verified",
               "completionDetection": "not_evaluated",
               "completionEvidenceTier": 1,
@@ -1278,23 +1456,34 @@
               "terminationCause": "unknown"
             },
             "completionEvidenceTier": 1,
-            "acceptedTextLength": 120,
+            "acceptedTextLength": null,
+            "extractedTextLength": 120,
             "maxObservedTextLength": 120,
             "extractionCoveragePct": 100,
-            "postTerminalGrowthPct": 0,
-            "stableToTerminalMs": null
+            "postTerminalGrowthPct": null,
+            "postTerminalGrowthProven": null,
+            "postTerminalAuditStatus": "not_applicable",
+            "incompleteCaptureEvidence": null,
+            "generationTextObserved": true,
+            "emptyExtractionEvidence": false,
+            "oldAnswerEvidence": null,
+            "promptNotSentEvidence": false,
+            "terminalOutcome": null,
+            "stableToTerminalMs": null,
+            "stableToTerminalComparable": null,
+            "stableToTerminalClockBasis": "missing_boundary"
           }
         }
       },
       "stateAxes": {
         "GPT": {
-          "submission": "evidence_partial",
-          "generationStart": "not_evaluated",
+          "submission": "confirmed",
+          "generationStart": "not_started",
           "answerIdentity": "current_dispatch",
           "observedGeneration": "quiescent",
           "textEvolution": "stable",
           "answerCompleteness": "not_evaluated",
-          "extraction": "none",
+          "extraction": "completed",
           "verification": "verified",
           "completionDetection": "not_evaluated",
           "completionEvidenceTier": 1,
@@ -1323,9 +1512,9 @@
           "requestIf": {
             "any": [
               {
-                "path": "$.derivedViews.extractionCoveragePct",
-                "operator": "lt",
-                "value": 98
+                "path": "$.derivedViews.incompleteCaptureEvidence",
+                "operator": "eq",
+                "value": true
               }
             ]
           },
@@ -1335,11 +1524,12 @@
               {
                 "modelId": "GPT",
                 "predicate": {
-                  "path": "$.derivedViews.extractionCoveragePct",
-                  "operator": "lt",
-                  "value": 98
+                  "path": "$.derivedViews.incompleteCaptureEvidence",
+                  "operator": "eq",
+                  "value": true
                 },
-                "observedValue": 100,
+                "observedValue": null,
+                "known": false,
                 "matched": false
               }
             ]
@@ -1369,6 +1559,7 @@
                   "value": 0
                 },
                 "observedValue": null,
+                "known": false,
                 "matched": false
               }
             ]
@@ -1379,11 +1570,32 @@
     },
     "old-answer": {
       "reportDescriptor": {
-        "reportId": "rpt-old-answer-625f210c",
+        "reportId": "rpt-old-answer-82e9c368",
         "reportType": "old-answer",
-        "reportVersion": "2.0.0",
+        "reportVersion": "2.1.0",
         "title": "Почему принят текст от предыдущего запроса?",
         "primaryQuestion": "Почему принят текст от предыдущего запроса?",
+        "applicability": {
+          "status": "unknown",
+          "byModel": {
+            "GPT": {
+              "status": "unknown",
+              "mode": "all",
+              "predicateResults": [
+                {
+                  "predicate": {
+                    "path": "$.derivedViews.oldAnswerEvidence",
+                    "operator": "eq",
+                    "value": true
+                  },
+                  "observedValue": null,
+                  "known": false,
+                  "matched": false
+                }
+              ]
+            }
+          }
+        },
         "canDiagnose": [],
         "cannotDiagnoseAlone": [],
         "completeness": {
@@ -1395,20 +1607,20 @@
           "blockedConclusions": []
         },
         "reportMode": "embedded-in-all-presets",
-        "dependencyRegistryVersion": "1.0.0",
-        "dependencyRegistryHash": "sha256:b0e80779a69713e47171c678f6d7874be4b80e4f31fdca403059f5d3111d86ea"
+        "dependencyRegistryVersion": "4.0.0",
+        "dependencyRegistryHash": "sha256:9a8697755d887caa0a1f0a21dcce53d9c1bb93af53271b9dbac63356f09fa214"
       },
       "diagnosticSummary": {
         "models": {
           "GPT": {
             "stateAxes": {
-              "submission": "evidence_partial",
-              "generationStart": "not_evaluated",
+              "submission": "confirmed",
+              "generationStart": "not_started",
               "answerIdentity": "current_dispatch",
               "observedGeneration": "quiescent",
               "textEvolution": "stable",
               "answerCompleteness": "not_evaluated",
-              "extraction": "none",
+              "extraction": "completed",
               "verification": "verified",
               "completionDetection": "not_evaluated",
               "completionEvidenceTier": 1,
@@ -1418,23 +1630,34 @@
               "terminationCause": "unknown"
             },
             "completionEvidenceTier": 1,
-            "acceptedTextLength": 120,
+            "acceptedTextLength": null,
+            "extractedTextLength": 120,
             "maxObservedTextLength": 120,
             "extractionCoveragePct": 100,
-            "postTerminalGrowthPct": 0,
-            "stableToTerminalMs": null
+            "postTerminalGrowthPct": null,
+            "postTerminalGrowthProven": null,
+            "postTerminalAuditStatus": "not_applicable",
+            "incompleteCaptureEvidence": null,
+            "generationTextObserved": true,
+            "emptyExtractionEvidence": false,
+            "oldAnswerEvidence": null,
+            "promptNotSentEvidence": false,
+            "terminalOutcome": null,
+            "stableToTerminalMs": null,
+            "stableToTerminalComparable": null,
+            "stableToTerminalClockBasis": "missing_boundary"
           }
         }
       },
       "stateAxes": {
         "GPT": {
-          "submission": "evidence_partial",
-          "generationStart": "not_evaluated",
+          "submission": "confirmed",
+          "generationStart": "not_started",
           "answerIdentity": "current_dispatch",
           "observedGeneration": "quiescent",
           "textEvolution": "stable",
           "answerCompleteness": "not_evaluated",
-          "extraction": "none",
+          "extraction": "completed",
           "verification": "verified",
           "completionDetection": "not_evaluated",
           "completionEvidenceTier": 1,
@@ -1463,9 +1686,9 @@
           "requestIf": {
             "any": [
               {
-                "path": "$.derivedViews.acceptedTextLength",
+                "path": "$.derivedViews.emptyExtractionEvidence",
                 "operator": "eq",
-                "value": 0
+                "value": true
               }
             ]
           },
@@ -1475,11 +1698,12 @@
               {
                 "modelId": "GPT",
                 "predicate": {
-                  "path": "$.derivedViews.acceptedTextLength",
+                  "path": "$.derivedViews.emptyExtractionEvidence",
                   "operator": "eq",
-                  "value": 0
+                  "value": true
                 },
-                "observedValue": 120,
+                "observedValue": false,
+                "known": true,
                 "matched": false
               }
             ]
@@ -1492,9 +1716,9 @@
           "requestIf": {
             "any": [
               {
-                "path": "$.derivedViews.extractionCoveragePct",
-                "operator": "lt",
-                "value": 98
+                "path": "$.derivedViews.incompleteCaptureEvidence",
+                "operator": "eq",
+                "value": true
               }
             ]
           },
@@ -1504,11 +1728,12 @@
               {
                 "modelId": "GPT",
                 "predicate": {
-                  "path": "$.derivedViews.extractionCoveragePct",
-                  "operator": "lt",
-                  "value": 98
+                  "path": "$.derivedViews.incompleteCaptureEvidence",
+                  "operator": "eq",
+                  "value": true
                 },
-                "observedValue": 100,
+                "observedValue": null,
+                "known": false,
                 "matched": false
               }
             ]
@@ -1519,11 +1744,42 @@
     },
     "empty": {
       "reportDescriptor": {
-        "reportId": "rpt-empty-625f210c",
+        "reportId": "rpt-empty-82e9c368",
         "reportType": "empty",
-        "reportVersion": "2.0.0",
+        "reportVersion": "2.1.0",
         "title": "Почему генерация была, но extraction вернул пусто или не тот узел?",
         "primaryQuestion": "Почему генерация была, но extraction вернул пусто или не тот узел?",
+        "applicability": {
+          "status": "not_confirmed",
+          "byModel": {
+            "GPT": {
+              "status": "not_confirmed",
+              "mode": "all",
+              "predicateResults": [
+                {
+                  "predicate": {
+                    "path": "$.derivedViews.generationTextObserved",
+                    "operator": "eq",
+                    "value": true
+                  },
+                  "observedValue": true,
+                  "known": true,
+                  "matched": true
+                },
+                {
+                  "predicate": {
+                    "path": "$.derivedViews.emptyExtractionEvidence",
+                    "operator": "eq",
+                    "value": true
+                  },
+                  "observedValue": false,
+                  "known": true,
+                  "matched": false
+                }
+              ]
+            }
+          }
+        },
         "canDiagnose": [],
         "cannotDiagnoseAlone": [],
         "completeness": {
@@ -1535,20 +1791,20 @@
           "blockedConclusions": []
         },
         "reportMode": "embedded-in-all-presets",
-        "dependencyRegistryVersion": "1.0.0",
-        "dependencyRegistryHash": "sha256:b0e80779a69713e47171c678f6d7874be4b80e4f31fdca403059f5d3111d86ea"
+        "dependencyRegistryVersion": "4.0.0",
+        "dependencyRegistryHash": "sha256:9a8697755d887caa0a1f0a21dcce53d9c1bb93af53271b9dbac63356f09fa214"
       },
       "diagnosticSummary": {
         "models": {
           "GPT": {
             "stateAxes": {
-              "submission": "evidence_partial",
-              "generationStart": "not_evaluated",
+              "submission": "confirmed",
+              "generationStart": "not_started",
               "answerIdentity": "current_dispatch",
               "observedGeneration": "quiescent",
               "textEvolution": "stable",
               "answerCompleteness": "not_evaluated",
-              "extraction": "none",
+              "extraction": "completed",
               "verification": "verified",
               "completionDetection": "not_evaluated",
               "completionEvidenceTier": 1,
@@ -1558,23 +1814,34 @@
               "terminationCause": "unknown"
             },
             "completionEvidenceTier": 1,
-            "acceptedTextLength": 120,
+            "acceptedTextLength": null,
+            "extractedTextLength": 120,
             "maxObservedTextLength": 120,
             "extractionCoveragePct": 100,
-            "postTerminalGrowthPct": 0,
-            "stableToTerminalMs": null
+            "postTerminalGrowthPct": null,
+            "postTerminalGrowthProven": null,
+            "postTerminalAuditStatus": "not_applicable",
+            "incompleteCaptureEvidence": null,
+            "generationTextObserved": true,
+            "emptyExtractionEvidence": false,
+            "oldAnswerEvidence": null,
+            "promptNotSentEvidence": false,
+            "terminalOutcome": null,
+            "stableToTerminalMs": null,
+            "stableToTerminalComparable": null,
+            "stableToTerminalClockBasis": "missing_boundary"
           }
         }
       },
       "stateAxes": {
         "GPT": {
-          "submission": "evidence_partial",
-          "generationStart": "not_evaluated",
+          "submission": "confirmed",
+          "generationStart": "not_started",
           "answerIdentity": "current_dispatch",
           "observedGeneration": "quiescent",
           "textEvolution": "stable",
           "answerCompleteness": "not_evaluated",
-          "extraction": "none",
+          "extraction": "completed",
           "verification": "verified",
           "completionDetection": "not_evaluated",
           "completionEvidenceTier": 1,
@@ -1604,9 +1871,9 @@
           "requestIf": {
             "any": [
               {
-                "path": "$.stateAxes.answerIdentity",
-                "operator": "ne",
-                "value": "current_dispatch"
+                "path": "$.derivedViews.oldAnswerEvidence",
+                "operator": "eq",
+                "value": true
               }
             ]
           },
@@ -1616,11 +1883,12 @@
               {
                 "modelId": "GPT",
                 "predicate": {
-                  "path": "$.stateAxes.answerIdentity",
-                  "operator": "ne",
-                  "value": "current_dispatch"
+                  "path": "$.derivedViews.oldAnswerEvidence",
+                  "operator": "eq",
+                  "value": true
                 },
-                "observedValue": "current_dispatch",
+                "observedValue": null,
+                "known": false,
                 "matched": false
               }
             ]
@@ -1633,24 +1901,25 @@
           "requestIf": {
             "any": [
               {
-                "path": "$.derivedViews.maxObservedTextLength",
-                "operator": "gt",
-                "value": 0
+                "path": "$.derivedViews.incompleteCaptureEvidence",
+                "operator": "eq",
+                "value": true
               }
             ]
           },
           "evaluation": {
-            "matched": true,
+            "matched": false,
             "predicateResults": [
               {
                 "modelId": "GPT",
                 "predicate": {
-                  "path": "$.derivedViews.maxObservedTextLength",
-                  "operator": "gt",
-                  "value": 0
+                  "path": "$.derivedViews.incompleteCaptureEvidence",
+                  "operator": "eq",
+                  "value": true
                 },
-                "observedValue": 120,
-                "matched": true
+                "observedValue": null,
+                "known": false,
+                "matched": false
               }
             ]
           }
@@ -1660,11 +1929,32 @@
     },
     "prompt-not-sent": {
       "reportDescriptor": {
-        "reportId": "rpt-prompt-not-sent-625f210c",
+        "reportId": "rpt-prompt-not-sent-82e9c368",
         "reportType": "prompt-not-sent",
-        "reportVersion": "2.0.0",
+        "reportVersion": "2.1.0",
         "title": "Почему модель не получила запрос?",
         "primaryQuestion": "Почему модель не получила запрос?",
+        "applicability": {
+          "status": "not_confirmed",
+          "byModel": {
+            "GPT": {
+              "status": "not_confirmed",
+              "mode": "all",
+              "predicateResults": [
+                {
+                  "predicate": {
+                    "path": "$.derivedViews.promptNotSentEvidence",
+                    "operator": "eq",
+                    "value": true
+                  },
+                  "observedValue": false,
+                  "known": true,
+                  "matched": false
+                }
+              ]
+            }
+          }
+        },
         "canDiagnose": [],
         "cannotDiagnoseAlone": [],
         "completeness": {
@@ -1676,20 +1966,20 @@
           "blockedConclusions": []
         },
         "reportMode": "embedded-in-all-presets",
-        "dependencyRegistryVersion": "1.0.0",
-        "dependencyRegistryHash": "sha256:b0e80779a69713e47171c678f6d7874be4b80e4f31fdca403059f5d3111d86ea"
+        "dependencyRegistryVersion": "4.0.0",
+        "dependencyRegistryHash": "sha256:9a8697755d887caa0a1f0a21dcce53d9c1bb93af53271b9dbac63356f09fa214"
       },
       "diagnosticSummary": {
         "models": {
           "GPT": {
             "stateAxes": {
-              "submission": "evidence_partial",
-              "generationStart": "not_evaluated",
+              "submission": "confirmed",
+              "generationStart": "not_started",
               "answerIdentity": "current_dispatch",
               "observedGeneration": "quiescent",
               "textEvolution": "stable",
               "answerCompleteness": "not_evaluated",
-              "extraction": "none",
+              "extraction": "completed",
               "verification": "verified",
               "completionDetection": "not_evaluated",
               "completionEvidenceTier": 1,
@@ -1699,23 +1989,34 @@
               "terminationCause": "unknown"
             },
             "completionEvidenceTier": 1,
-            "acceptedTextLength": 120,
+            "acceptedTextLength": null,
+            "extractedTextLength": 120,
             "maxObservedTextLength": 120,
             "extractionCoveragePct": 100,
-            "postTerminalGrowthPct": 0,
-            "stableToTerminalMs": null
+            "postTerminalGrowthPct": null,
+            "postTerminalGrowthProven": null,
+            "postTerminalAuditStatus": "not_applicable",
+            "incompleteCaptureEvidence": null,
+            "generationTextObserved": true,
+            "emptyExtractionEvidence": false,
+            "oldAnswerEvidence": null,
+            "promptNotSentEvidence": false,
+            "terminalOutcome": null,
+            "stableToTerminalMs": null,
+            "stableToTerminalComparable": null,
+            "stableToTerminalClockBasis": "missing_boundary"
           }
         }
       },
       "stateAxes": {
         "GPT": {
-          "submission": "evidence_partial",
-          "generationStart": "not_evaluated",
+          "submission": "confirmed",
+          "generationStart": "not_started",
           "answerIdentity": "current_dispatch",
           "observedGeneration": "quiescent",
           "textEvolution": "stable",
           "answerCompleteness": "not_evaluated",
-          "extraction": "none",
+          "extraction": "completed",
           "verification": "verified",
           "completionDetection": "not_evaluated",
           "completionEvidenceTier": 1,
@@ -1738,11 +2039,42 @@
     },
     "late-end": {
       "reportDescriptor": {
-        "reportId": "rpt-late-end-625f210c",
+        "reportId": "rpt-late-end-82e9c368",
         "reportType": "late-end",
-        "reportVersion": "2.0.0",
+        "reportVersion": "2.1.0",
         "title": "Текст давно стабилен — почему система ждала ещё N секунд?",
         "primaryQuestion": "Текст давно стабилен — почему система ждала ещё N секунд?",
+        "applicability": {
+          "status": "unknown",
+          "byModel": {
+            "GPT": {
+              "status": "unknown",
+              "mode": "all",
+              "predicateResults": [
+                {
+                  "predicate": {
+                    "path": "$.derivedViews.stableToTerminalComparable",
+                    "operator": "eq",
+                    "value": true
+                  },
+                  "observedValue": null,
+                  "known": false,
+                  "matched": false
+                },
+                {
+                  "predicate": {
+                    "path": "$.derivedViews.stableToTerminalMs",
+                    "operator": "gt",
+                    "value": 0
+                  },
+                  "observedValue": null,
+                  "known": false,
+                  "matched": false
+                }
+              ]
+            }
+          }
+        },
         "canDiagnose": [],
         "cannotDiagnoseAlone": [],
         "completeness": {
@@ -1754,20 +2086,20 @@
           "blockedConclusions": []
         },
         "reportMode": "embedded-in-all-presets",
-        "dependencyRegistryVersion": "1.0.0",
-        "dependencyRegistryHash": "sha256:b0e80779a69713e47171c678f6d7874be4b80e4f31fdca403059f5d3111d86ea"
+        "dependencyRegistryVersion": "4.0.0",
+        "dependencyRegistryHash": "sha256:9a8697755d887caa0a1f0a21dcce53d9c1bb93af53271b9dbac63356f09fa214"
       },
       "diagnosticSummary": {
         "models": {
           "GPT": {
             "stateAxes": {
-              "submission": "evidence_partial",
-              "generationStart": "not_evaluated",
+              "submission": "confirmed",
+              "generationStart": "not_started",
               "answerIdentity": "current_dispatch",
               "observedGeneration": "quiescent",
               "textEvolution": "stable",
               "answerCompleteness": "not_evaluated",
-              "extraction": "none",
+              "extraction": "completed",
               "verification": "verified",
               "completionDetection": "not_evaluated",
               "completionEvidenceTier": 1,
@@ -1777,23 +2109,34 @@
               "terminationCause": "unknown"
             },
             "completionEvidenceTier": 1,
-            "acceptedTextLength": 120,
+            "acceptedTextLength": null,
+            "extractedTextLength": 120,
             "maxObservedTextLength": 120,
             "extractionCoveragePct": 100,
-            "postTerminalGrowthPct": 0,
-            "stableToTerminalMs": null
+            "postTerminalGrowthPct": null,
+            "postTerminalGrowthProven": null,
+            "postTerminalAuditStatus": "not_applicable",
+            "incompleteCaptureEvidence": null,
+            "generationTextObserved": true,
+            "emptyExtractionEvidence": false,
+            "oldAnswerEvidence": null,
+            "promptNotSentEvidence": false,
+            "terminalOutcome": null,
+            "stableToTerminalMs": null,
+            "stableToTerminalComparable": null,
+            "stableToTerminalClockBasis": "missing_boundary"
           }
         }
       },
       "stateAxes": {
         "GPT": {
-          "submission": "evidence_partial",
-          "generationStart": "not_evaluated",
+          "submission": "confirmed",
+          "generationStart": "not_started",
           "answerIdentity": "current_dispatch",
           "observedGeneration": "quiescent",
           "textEvolution": "stable",
           "answerCompleteness": "not_evaluated",
-          "extraction": "none",
+          "extraction": "completed",
           "verification": "verified",
           "completionDetection": "not_evaluated",
           "completionEvidenceTier": 1,
@@ -1821,9 +2164,9 @@
           "requestIf": {
             "any": [
               {
-                "path": "$.derivedViews.postTerminalGrowthPct",
-                "operator": "gt",
-                "value": 0.5
+                "path": "$.derivedViews.postTerminalGrowthProven",
+                "operator": "eq",
+                "value": true
               }
             ]
           },
@@ -1833,11 +2176,12 @@
               {
                 "modelId": "GPT",
                 "predicate": {
-                  "path": "$.derivedViews.postTerminalGrowthPct",
-                  "operator": "gt",
-                  "value": 0.5
+                  "path": "$.derivedViews.postTerminalGrowthProven",
+                  "operator": "eq",
+                  "value": true
                 },
-                "observedValue": 0,
+                "observedValue": null,
+                "known": false,
                 "matched": false
               }
             ]
@@ -1859,12 +2203,12 @@
       "frozenAt": 12000
     },
     "hashes": {
-      "ledger": "sha256:cf61ad87db67de9abc0cbe0d3981aefa53840eab7f52c0d0324e78e1b4e1bee3",
-      "sharedConfig": "sha256:a9bff338ad30671e0c32d52ddf73a89b6b662c669a82824f359a6b0e26a9c31d",
-      "derivedViews": "sha256:42ea20fa4a984ac868521ef3d6cb4c7626490c1e4afb84e1d1e25f642bd69209",
-      "reports": "sha256:bb4574c58fcc223e1c67c794032c2606d062d37b2bd824bc5a9dd505e08949bb",
+      "ledger": "sha256:a68e904eaab9e25f1723b2cce10909a408f3316b06336803927a826a0f5fd086",
+      "sharedConfig": "sha256:8ae791301d659611c630ee424eb6923d6ad38bfa601c93170357b902821f457f",
+      "derivedViews": "sha256:47c0d1b05387d46eab33ff576f92524244dd64a9c12c99f5e261bb8b0b4c6639",
+      "reports": "sha256:56531506bc4396499fd8b376b0335090b754833341b718851a488d8270831b0f",
       "attachments": "sha256:b1968c832915f5cdc3320b65fc5ad56f2c9f3a9d20eaa0919b749ad664b9c18a",
-      "container": "sha256:faf381747dad5d067113f50e81aac450846768f4824e4d3069cfa5c0f6bd8c4b"
+      "container": "sha256:91ada0b2dc4bb4ad883bf607f06eae720a848391d3aac25bfce74846acaae77a"
     },
     "schemaValidation": {
       "valid": true,
@@ -1878,7 +2222,7 @@
     },
     "budget": {
       "limitBytes": 1000000,
-      "measuredBytes": 36436,
+      "measuredBytes": 42538,
       "withinBudget": true,
       "status": "within_budget"
     },

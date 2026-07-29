@@ -5,6 +5,7 @@
   const CONTRACT_VERSION = '1.0';
 
   function finite(value) {
+    if (value === null || value === undefined || value === '') return null;
     return Number.isFinite(Number(value)) ? Number(value) : null;
   }
 

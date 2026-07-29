@@ -32,6 +32,7 @@
         "reportVersion",
         "title",
         "primaryQuestion",
+        "applicability",
         "canDiagnose",
         "cannotDiagnoseAlone",
         "completeness",
@@ -54,6 +55,30 @@
         },
         "primaryQuestion": {
           "type": "string"
+        },
+        "applicability": {
+          "type": "object",
+          "required": [
+            "status",
+            "mode",
+            "predicateResults"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "confirmed",
+                "not_confirmed",
+                "unknown"
+              ]
+            },
+            "mode": {
+              "const": "all"
+            },
+            "predicateResults": {
+              "type": "array"
+            }
+          },
+          "additionalProperties": false
         },
         "canDiagnose": {
           "type": "array",
