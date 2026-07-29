@@ -1,5 +1,12 @@
 # Telemetry - tab/session diagnostics
 
+## Source and delivery boundaries v2.81.161 - 2026-07-29
+
+Validated lifecycle snapshots emit separate source-materialization and
+background-reception facts sharing the same attempt-scoped payload identity.
+Post-terminal responses are exported as explicit delivery rejections. The
+claim is provider-surface materialization, never internal model creation.
+
 ## Shared answer proof normalization v2.81.160 - 2026-07-29
 
 Source, extraction, delivery, commit and card evidence use

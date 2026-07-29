@@ -852,7 +852,17 @@ const isTerminalRouterEntry = (entry = null) => {
 // (LLM_RESPONSE_READY -> lifecycleReadyAt) for the active run.
 // Non-tab senders (extension pages, background self-calls) and models without
 // an active binding keep their existing behaviour.
-const validateLifecycleSender = (llmName, sender, messageType) => {
+const deliveryIdentityMeta = (meta = {}) => ({
+    dispatchId: meta.dispatchId || null,
+    attemptId: meta.attemptId || null,
+    payloadEvidenceId: meta.payloadEvidenceId || null,
+    normalizedHash: meta.normalizedHash || meta.answerHash || null,
+    normalizedLength: Number.isFinite(Number(meta.normalizedLength ?? meta.textLength))
+        ? Number(meta.normalizedLength ?? meta.textLength) : null,
+    normalizationVersion: meta.normalizationVersion || null
+});
+
+const validateLifecycleSender = (llmName, sender, messageType, messageMeta = {}) => {
     const senderTabId = Number(sender?.tab?.id || 0) || null;
     if (!senderTabId) {
         return { ok: true, reason: 'non_tab_sender', senderTabId: null, boundTabId: null };
@@ -865,7 +875,7 @@ const validateLifecycleSender = (llmName, sender, messageType) => {
         emitTelemetry(llmName, 'SENDER_WITHOUT_BINDING_REJECTED', {
             level: 'warning',
             details: `${messageType} from tab ${senderTabId} without active binding`,
-            meta: { messageType, senderTabId },
+            meta: { messageType, senderTabId, ...deliveryIdentityMeta(messageMeta) },
             force: true
         });
         return { ok: false, reason: 'no_bound_tab', senderTabId, boundTabId: null };
@@ -874,7 +884,7 @@ const validateLifecycleSender = (llmName, sender, messageType) => {
         emitTelemetry(llmName, 'SENDER_TAB_MISMATCH_REJECTED', {
             level: 'warning',
             details: `${messageType} from tab ${senderTabId} != bound ${boundTabId}`,
-            meta: { messageType, senderTabId, boundTabId },
+            meta: { messageType, senderTabId, boundTabId, ...deliveryIdentityMeta(messageMeta) },
             force: true
         });
         return { ok: false, reason: 'sender_tab_mismatch', senderTabId, boundTabId };
@@ -894,7 +904,7 @@ const validateLifecycleCorrelation = (llmName, message, messageType) => {
         emitTelemetry(llmName, 'LIFECYCLE_CORRELATION_REJECTED', {
             level: 'warning',
             details: `${messageType}:dispatch_mismatch`,
-            meta: { messageType, expectedDispatchId, incomingDispatchId },
+            meta: { messageType, expectedDispatchId, incomingDispatchId, ...deliveryIdentityMeta(meta) },
             force: true
         });
         return { ok: false, reason: incomingDispatchId ? 'dispatch_mismatch' : 'missing_dispatch_id' };
@@ -903,7 +913,7 @@ const validateLifecycleCorrelation = (llmName, message, messageType) => {
         emitTelemetry(llmName, 'LIFECYCLE_CORRELATION_REJECTED', {
             level: 'warning',
             details: `${messageType}:run_session_mismatch`,
-            meta: { messageType, expectedRunSessionId, incomingRunSessionId },
+            meta: { messageType, expectedRunSessionId, incomingRunSessionId, ...deliveryIdentityMeta(meta) },
             force: true
         });
         return { ok: false, reason: incomingRunSessionId ? 'run_session_mismatch' : 'missing_run_session_id' };
@@ -2997,7 +3007,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
             case 'LLM_RESPONSE_READY':
                 {
-                    const senderGate = validateLifecycleSender(message.llmName, sender, 'LLM_RESPONSE_READY');
+                    const senderGate = validateLifecycleSender(message.llmName, sender, 'LLM_RESPONSE_READY', message.meta || {});
                     if (!senderGate.ok) {
                         sendResponse({ status: 'response_ready_rejected', reason: senderGate.reason });
                         break;
@@ -3014,6 +3024,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     const entry = jobState?.llms?.[message.llmName];
                     const isTerminal = isTerminalRouterEntry(entry);
                     if (isTerminal) {
+                        emitTelemetry(message.llmName, 'ANSWER_DELIVERY_REJECTED', {
+                            level: 'warning',
+                            details: 'post_terminal_noise',
+                            meta: {
+                                messageType: 'LLM_RESPONSE_READY',
+                                reason: 'post_terminal_noise',
+                                terminalStatus: entry?.finalStatus || entry?.status || null,
+                                ...deliveryIdentityMeta(message.meta || {})
+                            },
+                            force: true
+                        });
                         if (self.commitModelRunTransition) {
                             self.commitModelRunTransition(message.llmName, entry, 'POST_TERMINAL_NOISE', {
                                 label: 'LLM_RESPONSE_READY',
@@ -3050,15 +3071,47 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                             })
                             : { valid: false, rejectReason: lifecycleAnswerText ? 'validator_unavailable' : 'empty' };
                         if (lifecycleValidation.valid) {
+                            const receivedProof = self.AnswerProofNormalization?.evidence?.(lifecycleAnswerText, {
+                                dispatchId: lifecycleDispatchId,
+                                attemptId: message?.meta?.attemptId || null
+                            }) || null;
                             entry.lifecycleAnswerCandidate = {
                                 text: lifecycleAnswerText,
                                 length: lifecycleAnswerText.length,
-                                hash: lifecycleValidation.hash || message?.meta?.answerHash || null,
+                                hash: receivedProof?.normalizedHash || lifecycleValidation.hash || message?.meta?.answerHash || null,
                                 source: 'lifecycle_complete_snapshot',
                                 dispatchId: lifecycleDispatchId,
                                 capturedAt: Number(message?.meta?.completedAt || Date.now())
                             };
                             entry.pendingFinalAnswer = lifecycleAnswerText;
+                            emitTelemetry(message.llmName, 'ANSWER_SOURCE_MATERIALIZED', {
+                                level: 'success',
+                                details: 'direct_preterminal',
+                                meta: {
+                                    dispatchId: lifecycleDispatchId,
+                                    sourceProofLevel: 'direct_preterminal',
+                                    attemptId: message?.meta?.attemptId || null,
+                                    payloadEvidenceId: receivedProof?.payloadEvidenceId || message?.meta?.payloadEvidenceId || null,
+                                    normalizedLength: receivedProof?.normalizedLength ?? lifecycleAnswerText.length,
+                                    normalizedHash: receivedProof?.normalizedHash || message?.meta?.normalizedHash || null,
+                                    normalizationVersion: receivedProof?.normalizationVersion || message?.meta?.normalizationVersion || null
+                                },
+                                force: true
+                            });
+                            emitTelemetry(message.llmName, 'ANSWER_DELIVERY_ACKNOWLEDGED', {
+                                level: 'success',
+                                details: 'accepted',
+                                meta: {
+                                    dispatchId: lifecycleDispatchId,
+                                    outcome: 'accepted',
+                                    attemptId: message?.meta?.attemptId || null,
+                                    payloadEvidenceId: receivedProof?.payloadEvidenceId || message?.meta?.payloadEvidenceId || null,
+                                    normalizedLength: receivedProof?.normalizedLength ?? lifecycleAnswerText.length,
+                                    normalizedHash: receivedProof?.normalizedHash || message?.meta?.normalizedHash || null,
+                                    normalizationVersion: receivedProof?.normalizationVersion || message?.meta?.normalizationVersion || null
+                                },
+                                force: true
+                            });
                             emitTelemetry(message.llmName, 'LIFECYCLE_SNAPSHOT_ACCEPTED', {
                                 level: 'success',
                                 details: `len=${lifecycleAnswerText.length}`,

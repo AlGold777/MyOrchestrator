@@ -2,8 +2,9 @@
 (function initAnswerVerification(root) {
   'use strict';
 
-  const ProofNormalization = root.AnswerProofNormalization
-    || (typeof require === 'function' ? require('./answer-proof-normalization.js') : null);
+  const ProofNormalization = root.AnswerProofNormalization || (() => {
+    try { return typeof require === 'function' ? require('./answer-proof-normalization.js') : null; } catch (_) { return null; }
+  })();
 
   const VERIFICATION_STATES = Object.freeze({
     NONE: 'none',

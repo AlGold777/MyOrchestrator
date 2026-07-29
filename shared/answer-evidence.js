@@ -4,8 +4,9 @@
 (function initAnswerEvidence(root) {
   'use strict';
 
-  const ProofNormalization = root.AnswerProofNormalization
-    || (typeof require === 'function' ? require('./answer-proof-normalization.js') : null);
+  const ProofNormalization = root.AnswerProofNormalization || (() => {
+    try { return typeof require === 'function' ? require('./answer-proof-normalization.js') : null; } catch (_) { return null; }
+  })();
 
   // Defaults come from shared/answer-length-policy.js when it is loaded first;
   // the literal fallbacks are the same numbers and exist for legacy load orders.

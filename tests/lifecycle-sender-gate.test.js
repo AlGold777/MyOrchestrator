@@ -6,6 +6,7 @@
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const AnswerProofNormalization = require('../shared/answer-proof-normalization.js');
 
 const MESSAGE_ROUTER_SOURCE = fs.readFileSync(
   path.join(__dirname, '..', 'background', 'message-router.js'),
@@ -59,6 +60,7 @@ function createRouterSandbox() {
     writeDiagnosticsEventsToStorage: jest.fn(() => Promise.resolve()),
     handleLLMResponse: jest.fn(),
     recordPipelineAnswerVerification: jest.fn(),
+    AnswerProofNormalization,
     validateMaterializedAnswerEvidence: jest.fn((_llmName, text) => ({
       valid: String(text || '').trim().length >= 80,
       rejectReason: String(text || '').trim().length >= 80 ? null : 'too_short',
@@ -335,6 +337,52 @@ describe('lifecycle sender gate', () => {
       }),
       ''
     );
+  });
+
+  test('LLM_RESPONSE_READY records source materialization and receiver acknowledgement with one payload identity', async () => {
+    const { telemetryEvents, sendMessage } = createRouterSandbox();
+    const answerText = 'Materialized current answer. '.repeat(12);
+    await sendMessage({
+      type: 'LLM_RESPONSE_READY',
+      llmName: 'GPT',
+      answerText,
+      meta: { ...META, attemptId: 'ready-1' }
+    }, BOUND_SENDER);
+
+    const source = telemetryEvents.find((event) => event.event === 'ANSWER_SOURCE_MATERIALIZED');
+    const delivery = telemetryEvents.find((event) => event.event === 'ANSWER_DELIVERY_ACKNOWLEDGED');
+    expect(source.payload.meta).toEqual(expect.objectContaining({
+      sourceProofLevel: 'direct_preterminal',
+      attemptId: 'ready-1',
+      normalizationVersion: AnswerProofNormalization.VERSION,
+      payloadEvidenceId: expect.any(String)
+    }));
+    expect(delivery.payload.meta.payloadEvidenceId).toBe(source.payload.meta.payloadEvidenceId);
+  });
+
+  test('post-terminal LLM_RESPONSE_READY exports an explicit delivery rejection', async () => {
+    const { context, telemetryEvents, sendMessage } = createRouterSandbox();
+    context.jobState.llms.GPT.status = 'SUCCESS';
+    context.jobState.llms.GPT.finalStatus = 'SUCCESS';
+    context.jobState.llms.GPT.finalStatusRecorded = true;
+    context.commitModelRunTransition = jest.fn(() => ({ ok: true, applied: true }));
+
+    const response = await sendMessage({
+      type: 'LLM_RESPONSE_READY',
+      llmName: 'GPT',
+      answerText: 'Late materialized answer. '.repeat(10),
+      meta: { ...META, attemptId: 'late-1', payloadEvidenceId: 'payload:late-1' }
+    }, BOUND_SENDER);
+
+    expect(response.status).toBe('response_ready_ignored_terminal');
+    expect(telemetryEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        event: 'ANSWER_DELIVERY_REJECTED',
+        payload: expect.objectContaining({
+          meta: expect.objectContaining({ reason: 'post_terminal_noise', attemptId: 'late-1' })
+        })
+      })
+    ]));
   });
 
   test('ANSWER_SNAPSHOT from a foreign tab is ignored', async () => {

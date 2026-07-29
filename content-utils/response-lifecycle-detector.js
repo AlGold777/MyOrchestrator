@@ -1093,6 +1093,11 @@
         const answerVerification = structuralVerification
           ? (({ selectedText: _selectedText, ...value }) => value)(structuralVerification)
           : null;
+        const answerAttemptId = `${tracker.traceId || tracker.dispatchId || modelName}:response-ready:1`;
+        const proofEvidence = window.AnswerProofNormalization?.evidence?.(completedAnswerText, {
+          dispatchId: tracker.dispatchId || null,
+          attemptId: answerAttemptId
+        }) || null;
         tracker.state = 'COMPLETE';
         if (phaseEvidence.phase === 'reasoning') {
           emitLifecycleTelemetry('LIFECYCLE_COMPLETION_PHASE_SUSPECT', {
@@ -1139,7 +1144,12 @@
               state: 'COMPLETE',
               confidence,
               textLength,
-              answerHash: shortHash(completedAnswerText),
+              answerHash: proofEvidence?.normalizedHash || shortHash(completedAnswerText),
+              normalizedHash: proofEvidence?.normalizedHash || null,
+              normalizedLength: proofEvidence?.normalizedLength ?? completedAnswerText.length,
+              normalizationVersion: proofEvidence?.normalizationVersion || null,
+              payloadEvidenceId: proofEvidence?.payloadEvidenceId || null,
+              attemptId: answerAttemptId,
               answerMethod: snapshot.method || null,
               responsePhase: phaseEvidence.phase,
               phaseEvidence,

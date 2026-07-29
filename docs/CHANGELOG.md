@@ -1,5 +1,16 @@
 # CHANGELOG — Project
 
+### 2026-07-29 — Source and delivery boundaries, version 2.81.161
+
+- Provider completion snapshots now carry attempt-scoped normalized evidence.
+- A validated current-dispatch snapshot emits `ANSWER_SOURCE_MATERIALIZED` and
+  `ANSWER_DELIVERY_ACKNOWLEDGED` with one shared payload identity.
+- A response arriving after terminal emits `ANSWER_DELIVERY_REJECTED` with
+  `post_terminal_noise`; sender and correlation failures retain their existing
+  labels but carry delivery identity and canonical delivery semantics.
+- Registry 5.8.0, report 2.10.0 and generator 1.11.0 recognize the new proof
+  boundaries without treating them as submission or text-growth evidence.
+
 ### 2026-07-29 — Shared answer proof normalization, version 2.81.160
 
 - Added one versioned normalization and hashing implementation shared by
