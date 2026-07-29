@@ -1,5 +1,20 @@
 # CHANGELOG — Project
 
+### 2026-08-28 — Unified evidence closure, version 2.81.148
+
+- Embedded and standalone reports now resolve the same executable evidence-slot
+  contracts and expose per-incident sufficiency independently from applicability.
+- Removed the duplicate report event catalog; event selection is derived only
+  from `REPORT_CONTRACTS`.
+- Conditional slots implement executable `requiredIf` and become required only
+  in the matching terminal/observation state.
+- Related diagnoses keep their truthful applicability while one primary cause
+  and explicit consequence/related roles guide analysis.
+- Standalone closure retains boundaries, extrema, state changes and explicit
+  provenance while removing repeated evidence with the same proof role.
+- Legacy exports state clock and identity limitations explicitly and never infer
+  current-answer identity from dispatch presence alone.
+
 ### 2026-08-28 — Preset evidence semantics, version 2.81.147
 
 - Old answer now gives explicit current-dispatch identity precedence and

@@ -111,10 +111,29 @@ describe('Proof-oriented telemetry schema 6 event export', () => {
       canonicalLedger: true
     });
     expect(container.ledger.events).toEqual(ledger);
-    expect(container.exportAudit.sourceCompatibility).toEqual({
+    expect(container.exportAudit.sourceCompatibility).toEqual(expect.objectContaining({
       mode: 'native-runtime-ledger',
       canonicalRuntimeEmissionPending: false
-    });
+    }));
+  });
+
+  test('records legacy clock/identity limitations without inventing current-answer identity', async () => {
+    const container = await ProofTelemetry.buildAllPresets({
+      '<GPT>': [
+        evt('GPT', 'ANSWER_START_DETECTED', 1000, { textLength: 10 })
+      ]
+    }, { runSessionId: 42, exportedAt: 2000 });
+    expect(container.exportAudit.sourceCompatibility).toEqual(expect.objectContaining({
+      mode: 'legacy-runtime-adapter',
+      limitations: expect.arrayContaining([
+        expect.objectContaining({ code: 'clock_unavailable' }),
+        expect.objectContaining({ code: 'identity_evidence_not_inferred' })
+      ])
+    }));
+    expect(container.derivedViews['model-timeline'].data.GPT.stateAxes.answerIdentity).toBe('candidate');
+    expect(container.reports['late-end'].reportDescriptor.limitations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'clock_unavailable' })
+    ]));
   });
 
   test('preserves monotonic source seq when a filtered native export has gaps', async () => {

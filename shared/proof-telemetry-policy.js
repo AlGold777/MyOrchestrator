@@ -24,6 +24,18 @@
   function observationReliability(events) {
     const threshold = Number(contracts()?.THRESHOLDS?.maximumSignalSkewMs ?? 250);
     const frames = events.filter((event) => event.eventType === 'OBSERVATION_FRAME_CAPTURED');
+    const explicitlyUnavailable = events.some((event) => {
+      const fact = contracts()?.factOf?.(event);
+      const source = contracts()?.sourceType?.(event) || '';
+      return fact?.state === 'unavailable' || /TAB_CLOSED|OBSERVER.*UNAVAILABLE/.test(source);
+    });
+    if (explicitlyUnavailable) return 'unavailable';
+    const explicitlyStale = events.some((event) => {
+      const fact = contracts()?.factOf?.(event);
+      const source = contracts()?.sourceType?.(event) || '';
+      return fact?.state === 'stale' || /OBSERVER.*STALE|STALE_OBSERVATION/.test(source);
+    });
+    if (explicitlyStale) return 'stale';
     const explicitlyDegraded = events.some((event) => {
       const fact = contracts()?.factOf?.(event);
       if (fact?.kind === 'observation' && fact.state === 'degraded') return true;

@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const Ajv2020 = require('ajv/dist/2020');
 const Contracts = require('../shared/proof-telemetry-contracts.js');
+const ProofTelemetry = require('../shared/proof-oriented-telemetry.js');
 
 describe('proof telemetry executable contracts', () => {
   test('defines evidence-slot contracts for the six user diagnostic questions', () => {
@@ -30,6 +31,14 @@ describe('proof telemetry executable contracts', () => {
     expect(Contracts.sameIncidentScope(target, { ...target, dispatchId: undefined })).toBe(false);
     expect(Contracts.sameIncidentScope(target, { ...target, dispatchId: 'd2' })).toBe(false);
     expect(Contracts.sameIncidentScope(target, { ...target, generationEpoch: 2 })).toBe(false);
+  });
+
+  test('derives every report event type from evidence slots without a second catalog', () => {
+    ProofTelemetry.REPORT_TYPES.forEach((reportType) => {
+      const fromSlots = Array.from(new Set(Contracts.normalizedSlots(reportType)
+        .flatMap((slot) => slot.eventTypes)));
+      expect(ProofTelemetry.REPORT_EVENT_TYPES[reportType]).toEqual(fromSlots);
+    });
   });
 
   test('schema 6 validates typed clock evidence', () => {

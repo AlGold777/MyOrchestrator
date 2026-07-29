@@ -39,7 +39,7 @@ describe('proof telemetry incident index and evidence graph', () => {
     expect(result.missingEvidence.some((slot) => slot.slotId === 'terminal_decision')).toBe(true);
   });
 
-  test('builds recursive closure with includedFor and run SYSTEM context', () => {
+  test('builds recursive closure without unrelated run-wide SYSTEM context', () => {
     const events = [
       event('event-1', 'RUN_CONFIG_RECORDED', { modelId: 'SYSTEM', dispatchId: undefined }),
       event('event-2', 'GENERATION_SIGNAL_CHANGED'),
@@ -50,7 +50,7 @@ describe('proof telemetry incident index and evidence graph', () => {
     ];
     const incident = Incidents.indexIncidents(events)[0];
     const result = Incidents.buildEvidenceClosure(events, incident, 'false-success');
-    expect(result.events.map((item) => item.eventId)).toEqual(['event-1', 'event-2', 'event-4', 'event-5', 'event-6']);
+    expect(result.events.map((item) => item.eventId)).toEqual(['event-2', 'event-4', 'event-5', 'event-6']);
     expect(result.events.every((item) => item.includedFor.length > 0)).toBe(true);
     expect(result.violations).toEqual([]);
   });
@@ -80,5 +80,40 @@ describe('proof telemetry incident index and evidence graph', () => {
     expect(closure.events).toEqual([
       expect.objectContaining({ eventId: 'event-1', includedFor: ['scope:incident-anchor'] })
     ]);
+  });
+
+  test('promotes a conditional slot to required only when requiredIf matches', () => {
+    const events = [event('event-1', 'MODEL_TERMINAL_RECORDED')];
+    const incident = Incidents.indexIncidents(events)[0];
+    const forced = Incidents.resolveEvidenceSlots(events, incident, 'cutted', {
+      stateAxes: { terminalMode: 'forced' }
+    });
+    expect(forced.slots.find((slot) => slot.slotId === 'finalization_policy')).toEqual(expect.objectContaining({
+      criticality: 'conditional',
+      effectiveCriticality: 'required',
+      requiredIfMatched: true,
+      status: 'unavailable'
+    }));
+    expect(forced.sufficiency).toBe('insufficient');
+    const automatic = Incidents.resolveEvidenceSlots(events, incident, 'cutted', {
+      stateAxes: { terminalMode: 'automatic' }
+    });
+    expect(automatic.slots.find((slot) => slot.slotId === 'finalization_policy')).toEqual(expect.objectContaining({
+      effectiveCriticality: 'conditional',
+      requiredIfMatched: false,
+      status: 'not_observed'
+    }));
+  });
+
+  test('compacts repeated slot events by proof role while retaining boundaries and extrema', () => {
+    const repeated = Array.from({ length: 50 }, (_, index) => event(`event-${index + 1}`, 'TEXT_STATE_CHANGED', {
+      payload: { typed: { kind: 'text', state: 'changing' }, metadata: { textLength: index === 25 ? 999 : index } }
+    }));
+    const incident = Incidents.indexIncidents(repeated)[0];
+    const resolved = Incidents.resolveEvidenceSlots(repeated, incident, 'cutted');
+    const slot = resolved.slots.find((item) => item.slotId === 'text_evolution');
+    expect(slot.matchedEventCount).toBe(50);
+    expect(slot.selectedEventCount).toBeLessThan(slot.matchedEventCount);
+    expect(slot.eventIds).toEqual(expect.arrayContaining(['event-1', 'event-26', 'event-50']));
   });
 });

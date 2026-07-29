@@ -121,7 +121,15 @@ async function validateContainer(container, { verifyContainerHash = true } = {})
         incidentScope: incident.incidentScope,
         ...recomputed
       };
-      if (ProofTelemetry.stableStringify(recordedApplicabilityByIncident[incidentId]) !== ProofTelemetry.stableStringify(recomputedApplicabilityByIncident[incidentId])) {
+      const recorded = recordedApplicabilityByIncident[incidentId] || {};
+      const recordedCore = {
+        modelId: recorded.modelId,
+        incidentScope: recorded.incidentScope,
+        status: recorded.status,
+        mode: recorded.mode,
+        predicateResults: recorded.predicateResults
+      };
+      if (ProofTelemetry.stableStringify(recordedCore) !== ProofTelemetry.stableStringify(recomputedApplicabilityByIncident[incidentId])) {
         addError('APPLICABILITY_MISMATCH', `${reportType} applicability mismatch for ${incidentId}`);
       }
     });
@@ -255,7 +263,10 @@ async function validateStandaloneReport(report) {
     addError('REGISTRY_MISMATCH', 'report dependency registry is stale');
   }
   const incident = { scope: Incidents.scopeOf(correlation) };
-  const resolved = Incidents.resolveEvidenceSlots(events, incident, report?.reportDescriptor?.reportType);
+  const resolved = Incidents.resolveEvidenceSlots(events, incident, report?.reportDescriptor?.reportType, {
+    stateAxes: report.stateAxes,
+    derivedViews: report.derivedViews?.modelTimeline?.data
+  });
   const recordedSlots = report?.diagnosticSummary?.evidenceSlots || [];
   if (ProofTelemetry.stableStringify(resolved.slots) !== ProofTelemetry.stableStringify(recordedSlots)) addError('EVIDENCE_SLOT_MISMATCH', 'evidence slots cannot be rebuilt');
   const recomputedApplicability = ProofTelemetry.evaluateApplicability(report?.reportDescriptor?.reportType, {

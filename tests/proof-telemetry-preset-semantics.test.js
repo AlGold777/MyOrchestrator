@@ -68,6 +68,73 @@ describe('proof telemetry preset semantic applicability', () => {
       .some((result) => result.status === 'confirmed')).toBe(false);
   });
 
+  test('embedded reports compute slot sufficiency and preserve causal diagnosis roles', async () => {
+    const events = [
+      event('TEXT_STATE_CHANGED', 1, { metadata: { textLength: 130 } }),
+      event('EXTRACTION_COMPLETED', 2, {
+        metadata: { length: 100, verified: true, answerIdentity: 'current_dispatch' },
+        typed: { kind: 'extraction', state: 'completed' }
+      }),
+      event('ANSWER_COMPLETENESS_EVALUATED', 3, { typed: { kind: 'answer_completeness', state: 'probably_truncated' } }),
+      event('MODEL_TERMINAL_RECORDED', 4, {
+        metadata: { terminalStatus: 'SUCCESS', answerLen: 100 },
+        typed: { kind: 'terminal_action', state: 'SUCCESS' }
+      }),
+      event('TEXT_STATE_CHANGED', 5, { metadata: { textLength: 150 } }),
+      event('POST_TERMINAL_AUDIT_COMPLETED', 6, {
+        payload: { conclusion: 'contradicted', growthChars: 50, growthPct: 50, auditPossible: true }
+      })
+    ];
+    const container = await ProofTelemetry.buildAllPresets(events, { canonicalLedger: true, exportedAt: 2000 });
+    const incidentId = Object.keys(container.derivedViews['incident-timeline'].data)[0];
+    expect(container.reports.cutted.reportDescriptor.applicability.byIncident[incidentId]).toEqual(expect.objectContaining({
+      status: 'confirmed',
+      explanationRole: 'consequence',
+      causedBy: 'false-success'
+    }));
+    expect(container.reports['false-success'].reportDescriptor.applicability.byIncident[incidentId]).toEqual(expect.objectContaining({
+      status: 'confirmed',
+      explanationRole: 'primary'
+    }));
+    expect(container.diagnosisArbitration.byIncident[incidentId].primaryDiagnosis).toBe('false-success');
+    expect(container.reports.cutted.reportDescriptor.completeness).toEqual(expect.objectContaining({
+      level: expect.stringMatching(/complete|bounded|insufficient/),
+      evidenceCoveragePct: expect.any(Number),
+      byIncident: expect.objectContaining({ [incidentId]: expect.any(Object) })
+    }));
+    expect(container.reports.cutted.diagnosticSummary.incidents[incidentId].evidenceSlots.length).toBeGreaterThan(0);
+    expect(container.reports.cutted.siblings.every((sibling) => sibling.antiLoop?.requestTargetOnlyOnce)).toBe(true);
+  });
+
+  test('standalone compaction preserves applicability, extrema and replay', async () => {
+    const repeated = Array.from({ length: 50 }, (_, index) => event('TEXT_STATE_CHANGED', index + 3, {
+      metadata: { textLength: index === 24 ? 500 : 100 + index },
+      typed: { kind: 'text', state: 'changing' }
+    }));
+    const events = [
+      event('DISPATCH_BASELINE_CAPTURED', 1),
+      event('CANDIDATE_IDENTITY_INFERRED', 2, { payload: { answerIdentity: 'current_dispatch' }, typed: { kind: 'candidate_identity', state: 'current_dispatch' } }),
+      ...repeated,
+      event('EXTRACTION_COMPLETED', 53, { metadata: { length: 100 }, typed: { kind: 'extraction', state: 'completed' } }),
+      event('ANSWER_COMPLETENESS_EVALUATED', 54, { typed: { kind: 'answer_completeness', state: 'probably_truncated' } }),
+      event('STRUCTURAL_VERIFICATION_EVALUATED', 55, { metadata: { verified: true }, typed: { kind: 'verification', state: 'verified' } }),
+      event('DECISION_RECORDED', 56, { payload: { accepted: true }, typed: { kind: 'decision', state: 'accepted' } }),
+      event('MODEL_TERMINAL_RECORDED', 57, { metadata: { terminalStatus: 'SUCCESS', answerLen: 100 }, typed: { kind: 'terminal_action', state: 'SUCCESS' } })
+    ];
+    const direct = applicability('cutted', events);
+    const standalone = await ProofTelemetry.buildStandaloneReport(events, {
+      canonicalLedger: true,
+      modelId: 'GPT',
+      reportType: 'cutted',
+      exportedAt: 9000
+    });
+    expect(direct.result.status).toBe('confirmed');
+    expect(standalone.reportDescriptor.applicability.status).toBe(direct.result.status);
+    expect(standalone.derivedViews.modelTimeline.data.maxObservedTextLength).toBe(500);
+    expect(standalone.eventSelection.materializedEvents.length).toBeLessThan(events.length);
+    expect(standalone.exportIntegrity.replay.valid).toBe(true);
+  });
+
   test('Cutted requires SUCCESS and positive incomplete-capture evidence', () => {
     const positive = applicability('cutted', [
       event('TEXT_STATE_CHANGED', 1, { metadata: { textLength: 120 } }),
@@ -185,6 +252,10 @@ describe('proof telemetry preset semantic applicability', () => {
       event('SUBMISSION_INFERRED', 1, { typed: { kind: 'submission', state: 'confirmed' } }),
       event('SUBMISSION_INFERRED', 2, { typed: { kind: 'submission', state: 'failed' } })
     ]).result.status).toBe('not_confirmed');
+    expect(applicability('prompt-not-sent', [
+      event('SUBMISSION_INFERRED', 1, { typed: { kind: 'submission', state: 'failed' } }),
+      event('OBSERVER_HEALTH_OBSERVED', 2, { typed: { kind: 'observation', state: 'unavailable' } })
+    ]).result.status).toBe('unknown');
     expect(applicability('prompt-not-sent', []) .result.status).toBe('unknown');
   });
 

@@ -383,19 +383,19 @@ result and wrong-node result. - Done
 the absence of later relevant mutations. - Done
 
 16.10. Use REPORT_CONTRACTS as the single source of truth for embedded and
-standalone applicability, evidence slots and sufficiency. - Pending
+standalone applicability, evidence slots and sufficiency. - Done
 
 16.11. Implement executable requiredIf conditions for conditional evidence
-slots and observation-reliability limitations. - Pending
+slots and observation-reliability limitations. - Done
 
 16.12. Add causal diagnosis arbitration without changing factually true
-applicability; expose primaryDiagnosis, causedBy and explanationRole. - Pending
+applicability; expose primaryDiagnosis, causedBy and explanationRole. - Done
 
 16.13. Minimize standalone evidence by proof role, boundary, extrema and
-provenance while preserving every conclusion and replay invariant. - Pending
+provenance while preserving every conclusion and replay invariant. - Done
 
 16.14. Add explicit legacy limitations and remove identity inference from the
-mere presence of dispatchId. - Pending
+mere presence of dispatchId. - Done
 
 16.15. Add positive, negative and unknown tests for all six presets plus
 cross-incident isolation, embedded sufficiency, arbitration and compaction. - Pending

@@ -1,5 +1,16 @@
 # Telemetry - tab/session diagnostics
 
+## Unified evidence closure v2.81.148 - 2026-08-28
+
+Embedded and standalone Tasks now use the same `REPORT_CONTRACTS` slots and
+report sufficiency per incident. Conditional slots are promoted to required by
+an executable `requiredIf` predicate. All tasks stores canonical events once;
+standalone closure keeps proof boundaries, extrema, state changes and explicit
+provenance while removing repeated events with the same proof role. Diagnosis
+arbitration records one primary explanation plus causal consequence/related
+roles without changing a factually true applicability result. Legacy adapters
+publish their clock and identity limitations explicitly.
+
 ## Preset evidence semantics v2.81.147 - 2026-08-28
 
 Preset applicability now follows positive and opposing evidence inside one

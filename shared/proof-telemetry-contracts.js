@@ -29,7 +29,7 @@
         ['extraction_boundary', 'required', ['EXTRACTION_COMPLETED', 'STRUCTURAL_VERIFICATION_EVALUATED']],
         ['candidate_identity', 'required', ['CANDIDATE_SET_CHANGED', 'CANDIDATE_IDENTITY_INFERRED']],
         ['decision_lineage', 'required', ['DECISION_RECORDED']],
-        ['finalization_policy', 'conditional', ['FINALIZATION_POLICY_EVALUATED', 'POLICY_OVERRIDE_APPLIED']],
+        ['finalization_policy', 'conditional', ['FINALIZATION_POLICY_EVALUATED', 'POLICY_OVERRIDE_APPLIED'], ['$.stateAxes.terminalMode', 'in', ['forced', 'recovery']]],
         ['missing_evidence', 'conditional', ['MISSING_EVIDENCE_RECORDED']]
       ]
     },
@@ -48,8 +48,8 @@
         ['terminal_decision', 'required', ['DECISION_RECORDED']],
         ['generation_state', 'required', ['GENERATION_SIGNAL_CHANGED', 'OBSERVATION_FRAME_CAPTURED']],
         ['post_terminal_mutation', 'required', ['TEXT_STATE_CHANGED']],
-        ['completion_proof', 'required', ['COMPLETION_HYPOTHESIS_EVALUATED', 'ANSWER_COMPLETENESS_EVALUATED']],
-        ['finalization_policy', 'conditional', ['TERMINAL_DEADLINE_REACHED', 'FINALIZATION_POLICY_EVALUATED', 'POLICY_OVERRIDE_APPLIED']],
+        ['completion_proof', 'conditional', ['COMPLETION_HYPOTHESIS_EVALUATED', 'ANSWER_COMPLETENESS_EVALUATED'], ['$.stateAxes.terminalMode', 'eq', 'automatic']],
+        ['finalization_policy', 'conditional', ['TERMINAL_DEADLINE_REACHED', 'FINALIZATION_POLICY_EVALUATED', 'POLICY_OVERRIDE_APPLIED'], ['$.stateAxes.terminalMode', 'in', ['forced', 'recovery']]],
         ['missing_evidence', 'conditional', ['MISSING_EVIDENCE_RECORDED']]
       ]
     },
@@ -86,7 +86,7 @@
         ['candidate_selection', 'critical', ['CANDIDATE_SET_CHANGED', 'CANDIDATE_IDENTITY_INFERRED']],
         ['text_boundary', 'critical', ['TEXT_STATE_CHANGED', 'OBSERVATION_FRAME_CAPTURED']],
         ['structural_verification', 'required', ['STRUCTURAL_VERIFICATION_EVALUATED', 'ANSWER_COMPLETENESS_EVALUATED']],
-        ['observer_context', 'conditional', ['PAGE_HEALTH_OBSERVED', 'OBSERVER_HEALTH_OBSERVED', 'OBSERVER_HEALTH_INTERVAL_CLOSED']]
+        ['observer_context', 'conditional', ['PAGE_HEALTH_OBSERVED', 'OBSERVER_HEALTH_OBSERVED', 'OBSERVER_HEALTH_INTERVAL_CLOSED'], ['$.stateAxes.observationReliability', 'in', ['degraded', 'stale', 'unavailable']]]
       ]
     },
     'prompt-not-sent': {
@@ -101,7 +101,7 @@
         ['submit_action', 'critical', ['SUBMIT_ACTION_OBSERVED']],
         ['acceptance_evidence', 'critical', ['SUBMISSION_EVIDENCE_CHANGED', 'SUBMISSION_INFERRED']],
         ['page_context', 'required', ['PAGE_CONTEXT_OBSERVED', 'PAGE_HEALTH_OBSERVED']],
-        ['observer_context', 'conditional', ['OBSERVER_HEALTH_OBSERVED', 'OBSERVER_HEALTH_INTERVAL_CLOSED', 'OBSERVATION_SLOT_DENIED']]
+        ['observer_context', 'conditional', ['OBSERVER_HEALTH_OBSERVED', 'OBSERVER_HEALTH_INTERVAL_CLOSED', 'OBSERVATION_SLOT_DENIED'], ['$.stateAxes.observationReliability', 'in', ['degraded', 'stale', 'unavailable']]]
       ]
     },
     'late-end': {
@@ -118,7 +118,7 @@
         ['text_evolution', 'required', ['TEXT_STATE_CHANGED']],
         ['completion_policy', 'required', ['COMPLETION_HYPOTHESIS_EVALUATED', 'FINALIZATION_POLICY_EVALUATED', 'TERMINAL_DEADLINE_REACHED']],
         ['decision_lineage', 'required', ['DECISION_RECORDED']],
-        ['observer_context', 'conditional', ['OBSERVER_HEALTH_OBSERVED', 'OBSERVER_HEALTH_INTERVAL_CLOSED', 'OBSERVATION_SLOT_DENIED']],
+        ['observer_context', 'conditional', ['OBSERVER_HEALTH_OBSERVED', 'OBSERVER_HEALTH_INTERVAL_CLOSED', 'OBSERVATION_SLOT_DENIED'], ['$.stateAxes.observationReliability', 'in', ['degraded', 'stale', 'unavailable']]],
         ['post_terminal_audit', 'conditional', ['POST_TERMINAL_AUDIT_COMPLETED', 'MISSING_EVIDENCE_RECORDED']]
       ]
     }
@@ -194,10 +194,11 @@
   }
 
   function normalizedSlots(reportType) {
-    return (REPORT_CONTRACTS[reportType]?.slots || []).map(([slotId, criticality, eventTypes]) => ({
+    return (REPORT_CONTRACTS[reportType]?.slots || []).map(([slotId, criticality, eventTypes, requiredIf]) => ({
       slotId,
       criticality,
-      eventTypes: eventTypes.slice()
+      eventTypes: eventTypes.slice(),
+      requiredIf: requiredIf ? { path: requiredIf[0], operator: requiredIf[1], value: requiredIf[2] } : null
     }));
   }
 

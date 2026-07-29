@@ -98,32 +98,103 @@
     };
   }
 
-  function resolveEvidenceSlots(events, incident, task) {
+  function contextValue(context, path) {
+    return String(path || '').replace(/^\$\.?/, '').split('.').filter(Boolean)
+      .reduce((current, key) => current?.[key], context);
+  }
+
+  function conditionMatches(context, predicate) {
+    if (!predicate) return false;
+    const observed = contextValue(context, predicate.path);
+    if (observed === undefined || observed === null) return false;
+    if (predicate.operator === 'eq') return observed === predicate.value;
+    if (predicate.operator === 'in') return Array.isArray(predicate.value) && predicate.value.includes(observed);
+    return false;
+  }
+
+  function numericEvidence(event) {
+    const metadata = event?.payload?.metadata || {};
+    for (const key of ['textLength', 'answerLength', 'answerLen', 'extractedTextLength', 'capturedTextLength', 'length', 'growthChars']) {
+      const raw = event?.payload?.[key] ?? metadata[key];
+      if (raw === undefined || raw === null || raw === '') continue;
+      const value = Number(raw);
+      if (Number.isFinite(value)) return value;
+    }
+    return null;
+  }
+
+  function proofRoleKey(event) {
+    const fact = contracts()?.factOf?.(event) || {};
+    return [event.eventType, fact.kind || 'unknown', fact.state || 'unknown', event.layer || 'fact'].join('|');
+  }
+
+  function selectProofEvents(matched, scoped) {
+    if (matched.length <= 2) return matched.slice();
+    const selected = new Map();
+    const include = (event) => { if (event?.eventId) selected.set(event.eventId, event); };
+    include(matched[0]);
+    include(matched[matched.length - 1]);
+    const referenced = new Set(scoped.flatMap((event) => event.evidenceRefs || []));
+    matched.filter((event) => referenced.has(event.eventId)).forEach(include);
+    const byRole = new Map();
+    matched.forEach((event) => {
+      const role = proofRoleKey(event);
+      if (!byRole.has(role)) byRole.set(role, []);
+      byRole.get(role).push(event);
+    });
+    byRole.forEach((events) => {
+      include(events[0]);
+      include(events[events.length - 1]);
+    });
+    const measured = matched.map((event) => ({ event, value: numericEvidence(event) }))
+      .filter((item) => item.value !== null);
+    if (measured.length) {
+      include(measured.reduce((best, item) => item.value < best.value ? item : best).event);
+      include(measured.reduce((best, item) => item.value > best.value ? item : best).event);
+    }
+    return [...selected.values()].sort((left, right) => Number(left.ingestSeq || left.seq) - Number(right.ingestSeq || right.seq));
+  }
+
+  function resolveEvidenceSlots(events, incident, task, context = {}) {
     const scoped = (events || []).filter((event) => exactScope(event, incident.scope));
     const slots = (contracts()?.normalizedSlots?.(task) || []).map((contract) => {
-      const matched = scoped.filter((event) => contract.eventTypes.includes(event.eventType));
+      const allMatched = scoped.filter((event) => contract.eventTypes.includes(event.eventType));
+      const matched = selectProofEvents(allMatched, scoped);
+      const conditionRequired = contract.criticality === 'conditional' && conditionMatches(context, contract.requiredIf);
+      const effectiveCriticality = conditionRequired ? 'required' : contract.criticality;
       return {
         slotId: contract.slotId,
         criticality: contract.criticality,
+        effectiveCriticality,
+        requiredIf: contract.requiredIf,
+        requiredIfMatched: conditionRequired,
         acceptedEventTypes: contract.eventTypes,
-        status: matched.length ? 'satisfied' : (contract.criticality === 'conditional' ? 'not_observed' : 'unavailable'),
+        status: matched.length ? 'satisfied' : (effectiveCriticality === 'conditional' ? 'not_observed' : 'unavailable'),
         eventIds: matched.map((event) => event.eventId),
-        impact: matched.length ? null : `${contract.criticality}_evidence_not_available`
+        matchedEventCount: allMatched.length,
+        selectedEventCount: matched.length,
+        impact: matched.length ? null : `${effectiveCriticality}_evidence_not_available`
       };
     });
-    const criticalMissing = slots.filter((slot) => slot.criticality === 'critical' && slot.status !== 'satisfied');
-    const requiredMissing = slots.filter((slot) => slot.criticality === 'required' && slot.status !== 'satisfied');
+    const criticalMissing = slots.filter((slot) => slot.effectiveCriticality === 'critical' && slot.status !== 'satisfied');
+    const requiredMissing = slots.filter((slot) => slot.effectiveCriticality === 'required' && slot.status !== 'satisfied');
     return {
       slots,
       sufficiency: criticalMissing.length ? 'insufficient' : (requiredMissing.length ? 'bounded' : 'complete'),
-      missingEvidence: [...criticalMissing, ...requiredMissing].map((slot) => ({ slotId: slot.slotId, criticality: slot.criticality, impact: slot.impact }))
+      missingEvidence: [...criticalMissing, ...requiredMissing].map((slot) => ({
+        slotId: slot.slotId,
+        criticality: slot.effectiveCriticality,
+        declaredCriticality: slot.criticality,
+        requiredIf: slot.requiredIf,
+        impact: slot.impact
+      }))
     };
   }
 
-  function buildEvidenceClosure(events, incident, task) {
+  function buildEvidenceClosure(events, incident, task, { context = {} } = {}) {
     if (!incident) return { events: [], slots: [], sufficiency: 'insufficient', missingEvidence: [{ slotId: 'incident', criticality: 'critical', impact: 'no_matching_incident' }], violations: [] };
     const eventById = new Map((events || []).map((event) => [event.eventId, event]));
-    const slotResult = resolveEvidenceSlots(events, incident, task);
+    const slotResult = resolveEvidenceSlots(events, incident, task, context);
     const reasons = new Map();
     const violations = [];
     const queue = [];
@@ -148,19 +219,12 @@
       const anchorId = incident.eventIds?.[0];
       if (anchorId) include(anchorId, 'scope:incident-anchor');
     }
-    (events || []).filter((event) => event.modelId === 'SYSTEM'
-      && String(event.runSessionId) === String(incident.scope.runSessionId)
-      && Number(event.runGeneration || 0) === Number(incident.scope.runGeneration || 0))
-      .forEach((event) => include(event.eventId, 'system:run-context'));
-    (events || []).filter((event) => exactScope(event, incident.scope)
-      && (/AUDIT|CONTRADICT|ANOMALY/.test(event.eventType) || ['DECISION_RECORDED', 'MODEL_TERMINAL_RECORDED'].includes(event.eventType)))
-      .forEach((event) => include(event.eventId, /AUDIT|CONTRADICT|ANOMALY/.test(event.eventType) ? 'audit:incident' : 'lineage:terminal'));
     while (queue.length) {
       const event = queue.shift();
       (event.evidenceRefs || []).forEach((ref) => include(ref, `evidence-ref:${event.eventId}`));
       if (event.causationId) include(event.causationId, `causation:${event.eventId}`);
       if (event.correlationId) {
-        (events || []).filter((candidate) => candidate.correlationId === event.correlationId)
+        selectProofEvents((events || []).filter((candidate) => candidate.correlationId === event.correlationId), events || [])
           .forEach((candidate) => include(candidate.eventId, `correlation:${event.correlationId}`));
       }
     }
@@ -171,7 +235,7 @@
     return { ...slotResult, events: materialized, violations };
   }
 
-  const api = Object.freeze({ scopeOf, scopeKey, exactScope, indexIncidents, selectIncident, resolveEvidenceSlots, buildEvidenceClosure });
+  const api = Object.freeze({ scopeOf, scopeKey, exactScope, indexIncidents, selectIncident, selectProofEvents, resolveEvidenceSlots, buildEvidenceClosure });
   root.ProofTelemetryIncidents = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
