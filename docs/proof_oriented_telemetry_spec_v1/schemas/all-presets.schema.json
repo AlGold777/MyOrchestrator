@@ -43,7 +43,42 @@
       "type": "object"
     },
     "reports": {
-      "type": "object"
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["reportDescriptor", "eventSeqs", "eventSelection"],
+        "properties": {
+          "reportDescriptor": {
+            "type": "object",
+            "required": ["applicability", "diagnosticVerdict", "completeness"],
+            "properties": {
+              "applicability": { "type": "object" },
+              "diagnosticVerdict": {
+                "enum": ["confirmed", "supported_but_incomplete", "not_confirmed", "unknown"]
+              },
+              "completeness": {
+                "type": "object",
+                "required": ["byIncident", "summarizedIncidentIds"],
+                "properties": {
+                  "byIncident": { "type": "object" },
+                  "summarizedIncidentIds": { "type": "array", "items": { "type": "string" } }
+                }
+              }
+            }
+          },
+          "eventSeqs": { "type": "array", "items": { "type": "number" } },
+          "eventSelection": {
+            "type": "object",
+            "required": ["bySeq"],
+            "properties": {
+              "bySeq": {
+                "type": "object",
+                "additionalProperties": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+              }
+            }
+          }
+        }
+      }
     },
     "diagnosisArbitration": {
       "type": "object"

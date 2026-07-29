@@ -628,7 +628,15 @@ incident is outside the export. - Done
 
 21.11. Add the complete W1-W12 adversarial regression matrix and synchronize
 contracts, schemas, examples, validator, specification, telemetry documentation,
-changelog and all project versions. - Pending
+changelog and all project versions. - Done
 
 21.12. Run focused semantic and full project gates, validate every generated
-preset artifact, record the evidence here and tag the completed gate. - Pending
+preset artifact, record the evidence here and tag the completed gate. - Done
+
+Section 21 evidence: the W1-W12 adversarial matrix passes together with the
+contract, incident, embedded/standalone, validator and final-acceptance suites:
+8 suites / 94 tests. The complete project gate passes 188 suites / 1319 tests.
+All tasks and all seven standalone artifacts validate independently against
+schema, privacy, registry, slot, verdict, invariant and hash checks. Registry
+5.6.0, report 2.8.0 and generator 1.9.0 ship with project version 2.81.157.
+Every section 21 task is Done.

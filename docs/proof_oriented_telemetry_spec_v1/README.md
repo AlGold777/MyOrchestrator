@@ -11,6 +11,14 @@
 
 ## Статус реализации
 
+Версия `2.81.157` реализует третью итерацию semantic review. Registry `5.6.0`,
+report `2.8.0` и generator `1.9.0` вводят настоящее post-failure absence window,
+candidate-bound Late end с первой активной eligibility-границей, canonical
+fallback и typed/canonical conflict invariant, incident-local embedded
+completeness/event selection, conditional submit evidence, финальную границу
+Cutted и явные refutation models. Weak comparability больше не даёт strong
+confirmation. Все W1–W12 закреплены adversarial regression matrix.
+
 Версия `2.81.156` реализует вторую итерацию semantic review. Registry `5.5.0`,
 report `2.7.0` и generator `1.8.0` добавляют task-local verdict preservation,
 `supported_but_incomplete`, graded measurement comparability, evidence

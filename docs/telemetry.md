@@ -1,5 +1,26 @@
 # Telemetry - tab/session diagnostics
 
+## Semantic review iteration 3 v2.81.157 - 2026-07-29
+
+Registry 5.6.0, report 2.8.0 and generator 1.9.0 close W1-W12 from the third
+independent preset review. Absence diagnoses now require a complete observation
+window after the failed action for at least `generationStartTimeoutMs`; earlier,
+short, degraded or gapped observations remain unknown. Prompt not inserted only
+requires submit counter-evidence when submit was actually observed.
+
+Late end binds stability, observations, the first still-active eligibility and
+terminal to the accepted candidate. Deadlines explain terminal mode but never
+replace eligibility time. Cutted compares extraction with the final valid
+candidate boundary, not a historical maximum. Unknown typed facts fall back to
+canonical payloads; known contradictions become localized invariants.
+
+Embedded reports expose completeness per incident and select only scoped proof
+closure events with an inclusion reason. `single_candidate` Cutted evidence and
+an Old answer prior reference outside the export remain
+`supported_but_incomplete`. Every Task declares whether refutation is a logical
+complement or independent counter-evidence, and all seven Tasks have temporal
+integrity coverage.
+
 ## Semantic review iteration 2 v2.81.156 - 2026-07-29
 
 Registry 5.5.0, report 2.7.0 and generator 1.8.0 make a preset verdict depend

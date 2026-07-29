@@ -881,13 +881,13 @@ Standalone closure MUST минимизировать повторы по док�
 ## 29. Composite verdict и межинцидентные доказательства
 
 `applicability` отвечает только на вопрос о совпадении наблюдаемых признаков.
-Сильный `diagnosticVerdict=confirmed` разрешён при `complete` sufficiency либо
-при `bounded`, если все critical/required slots присутствуют, а ограничение
-относится только к доказанной confidence boundary (`single_candidate` или
-`prior_incident_outside_export`). Положительная applicability с отсутствующим
-required slot MUST иметь `supported_but_incomplete` и MUST NOT участвовать в
-выборе primary diagnosis. Scope/temporal/causal violation блокирует только
-перечисленные в нём `affectedReportTypes`, `affectedSlotIds` и
+Сильный `diagnosticVerdict=confirmed` разрешён при `complete` sufficiency.
+`single_candidate` measurement comparability и `prior_incident_outside_export`
+не являются confirmation-grade: положительная applicability с любой из этих
+границ MUST иметь `supported_but_incomplete`. Положительная applicability с
+отсутствующим required slot также MUST иметь `supported_but_incomplete` и MUST
+NOT участвовать в выборе primary diagnosis. Scope/temporal/causal violation
+блокирует только перечисленные в нём `affectedReportTypes`, `affectedSlotIds` и
 `affectedFields`. Arbitration MUST использовать `diagnosticVerdict`, а не raw
 applicability.
 
@@ -903,14 +903,15 @@ Measurement comparability имеет четыре уровня: `candidate_prove
 `dispatch_proven`, `single_candidate`, `unknown`. Length coverage, extraction,
 structural verification и post-terminal audit MUST использовать одну candidate
 lineage либо явную supersession lineage. `single_candidate` ограничивает
-confidence, но не скрывает очевидную обрезку; `unknown` запрещает сравнение.
+confidence и запрещает strong confirmation; `unknown` запрещает сравнение.
 
 `Old answer` использует `priorIncidentRef`; при доступности prior incident его
 реальные terminal/extraction events входят в slot и отдельную evidence lane.
 Privacy-safe hashes принятого и prior ответа сравниваются, если доступны:
 различие является counter-evidence, а одинаковая длина без hash ничего не
 доказывает. Явно referenced prior за границей export даёт bounded limitation
-`prior_incident_outside_export`, а не ложное опровержение.
+`prior_incident_outside_export` и `supported_but_incomplete`, а не strong
+confirmation на одной metadata-ссылке.
 
 Audit MUST следовать после terminal и ссылаться на terminal и более позднее
 наблюдение. `impossible|pending` audit остаётся unknown; completed measurement
@@ -924,24 +925,55 @@ Completeness observations образуют supersession timeline: последн
 probably_complete` опровергает Cutted, если нет другого положительного evidence.
 
 Prompt not sent и Prompt not inserted являются absence diagnoses и MUST иметь
-`absenceObservationWindow`: baseline, границы, reliable signal coverage и
-допустимый skew. `degraded|stale|unavailable` либо пропуск сигнала даёт unknown.
+`absenceObservationWindow`, начинающееся на соответствующем failed action.
+Наблюдения до failure не засчитываются. Окно MUST быть явно закрыто либо иметь
+непрерывное покрытие не короче `generationStartTimeoutMs`; gap,
+`degraded|stale|unavailable`, короткое окно или несопоставимые clocks дают
+unknown. Для Prompt not inserted `submit_counterevidence` становится required
+только после наблюдённого `SUBMIT_ACTION_OBSERVED`.
 
 Late end MUST иметь положительное покрытие интервала после последней stability
-boundary. Same-length observation закрывает окно и не считается мутацией;
+boundary и candidate identity, общую для stability, observations, eligibility и
+terminal. Same-length observation закрывает окно и не считается мутацией;
 изменение length/hash или active generation refutes стабильность. Задержка
-считается от `policyEligibilityEventId`, который снял blockers или достиг
-terminal deadline; `lateEndPolicyToleranceMs` является допуском измерения, а не
-глобальным порогом от момента стабильности.
+считается от первой ещё действующей `policyEligibilityEventId` после финальной
+stability. Повторная accepted decision не сдвигает начало, explicit supersession
+может заменить границу, а terminal deadline только объясняет terminal mode.
+`lateEndPolicyToleranceMs` является допуском измерения.
 
 Ledger no-op identity MUST включать run generation, candidate, document, turn и
 navigation epoch. Companion events наследуют эту identity. Неоднозначный выбор
 из нескольких pre-terminal extractions MUST породить
 `MISSING_EVIDENCE_RECORDED{extraction_identity_ambiguous}`.
 
-Каждый preset MUST иметь исполняемый `refutation.any`. Каждая пара из sibling
-rules MUST быть классифицирована как causal (`cause → consequence`) либо
-`co-occurring` без causal claim; роль `related` без объяснения запрещена.
+Каждый preset MUST иметь исполняемый `refutation.any` и декларацию
+`refutationModel`: `complement` для логического дополнения либо independent-тип
+для отдельного counter-evidence. Каждая пара из sibling rules MUST быть
+классифицирована как causal (`cause → consequence`) либо `co-occurring` без
+causal claim; роль `related` без объяснения запрещена.
+
+## 30. Semantic integrity iteration 3
+
+Typed fact со значением `kind=unknown` или `state=unknown` MUST уступать
+canonical mapping по event type/payload. Если оба представления известны и
+противоречат друг другу, exporter MUST записать локализованный
+`TYPED_CANONICAL_CONFLICT`; такой факт не может поддерживать strong verdict.
+
+Cutted MUST сравнивать accepted extraction с финальной валидной измерительной
+границей принятого candidate, а не с историческим максимумом. Доказанный rollback
+с последующей стабильной границей не является обрезкой; historical maximum может
+оставаться только описательной метрикой.
+
+Embedded completeness MUST содержать `byIncident` и отдельный report summary.
+Наличие постороннего unknown incident не может ухудшать completeness уже
+подтверждённого incident. Embedded `eventSeqs` MUST строиться из scoped slot
+evidence, counter-evidence и рекурсивной proof closure; каждый seq MUST иметь
+машиночитаемый inclusion reason.
+
+Temporal integrity MUST покрывать все семь presets. Для absence diagnoses
+проверяется порядок baseline → insertion → submit → acceptance; для Late end —
+generation start → stability → eligibility → terminal. Нарушения MUST содержать
+`affectedReportTypes`, `affectedSlotIds` и `affectedFields`.
 
 ---
 

@@ -1,10 +1,11 @@
 {
-  "registryVersion": "5.5.0",
+  "registryVersion": "5.6.0",
   "predicateLanguageVersion": "1.0.0",
   "maxEscalationDepth": 2,
   "reports": {
     "cutted": {
       "question": "Почему зафиксирован SUCCESS, а текст явно неполный?",
+      "refutationModel": "complement",
       "refutation": {
         "any": [
           [
@@ -101,6 +102,7 @@
     },
     "false-success": {
       "question": "Почему система решила «готово», а ответ продолжил расти?",
+      "refutationModel": "complement",
       "refutation": {
         "any": [
           [
@@ -202,6 +204,7 @@
     },
     "old-answer": {
       "question": "Почему принят текст от предыдущего запроса?",
+      "refutationModel": "independent_terminal_outcome",
       "refutation": {
         "any": [
           [
@@ -303,6 +306,7 @@
     },
     "empty": {
       "question": "Почему генерация была, но extraction вернул пусто или не тот узел?",
+      "refutationModel": "complement",
       "refutation": {
         "any": [
           [
@@ -388,6 +392,7 @@
     },
     "prompt-not-inserted": {
       "question": "Почему prompt не вставился в поле ввода?",
+      "refutationModel": "independent_positive_delivery_evidence",
       "refutation": {
         "any": [
           [
@@ -431,20 +436,25 @@
         ],
         [
           "submit_counterevidence",
-          "required",
+          "conditional",
           [
             "SUBMISSION_EVIDENCE_CHANGED",
             "SUBMISSION_INFERRED"
+          ],
+          [
+            "$.derivedViews.submitActionObserved",
+            "eq",
+            true
           ]
         ],
         [
           "absence_observation_window",
           "critical",
           [
-            "OBSERVATION_FRAME_CAPTURED",
-            "PAGE_HEALTH_OBSERVED",
+            "OBSERVATION_INTERVAL_CLOSED",
             "OBSERVER_HEALTH_INTERVAL_CLOSED",
-            "OBSERVATION_INTERVAL_CLOSED"
+            "OBSERVATION_FRAME_CAPTURED",
+            "PAGE_HEALTH_OBSERVED"
           ]
         ],
         [
@@ -469,6 +479,7 @@
     },
     "prompt-not-sent": {
       "question": "Почему модель не получила запрос?",
+      "refutationModel": "independent_positive_delivery_evidence",
       "refutation": {
         "any": [
           [
@@ -522,10 +533,10 @@
           "absence_observation_window",
           "critical",
           [
-            "OBSERVATION_FRAME_CAPTURED",
-            "PAGE_HEALTH_OBSERVED",
+            "OBSERVATION_INTERVAL_CLOSED",
             "OBSERVER_HEALTH_INTERVAL_CLOSED",
-            "OBSERVATION_INTERVAL_CLOSED"
+            "OBSERVATION_FRAME_CAPTURED",
+            "PAGE_HEALTH_OBSERVED"
           ]
         ],
         [
@@ -550,6 +561,7 @@
     },
     "late-end": {
       "question": "Текст давно стабилен — почему система ждала ещё N секунд?",
+      "refutationModel": "complement",
       "refutation": {
         "any": [
           [
@@ -569,6 +581,16 @@
         ]
       },
       "slots": [
+        [
+          "candidate_identity",
+          "critical",
+          [
+            "CANDIDATE_SET_CHANGED",
+            "CANDIDATE_IDENTITY_INFERRED",
+            "EXTRACTION_COMPLETED",
+            "MODEL_TERMINAL_RECORDED"
+          ]
+        ],
         [
           "stable_boundary",
           "critical",
@@ -732,6 +754,7 @@
   },
   "refutations": {
     "cutted": {
+      "model": "complement",
       "any": [
         {
           "path": "$.derivedViews.incompleteCaptureEvidence",
@@ -741,6 +764,7 @@
       ]
     },
     "false-success": {
+      "model": "complement",
       "any": [
         {
           "path": "$.derivedViews.postTerminalGrowthProven",
@@ -750,6 +774,7 @@
       ]
     },
     "old-answer": {
+      "model": "independent_terminal_outcome",
       "any": [
         {
           "path": "$.derivedViews.terminalOutcome",
@@ -759,6 +784,7 @@
       ]
     },
     "empty": {
+      "model": "complement",
       "any": [
         {
           "path": "$.derivedViews.extractionProblemEvidence",
@@ -768,6 +794,7 @@
       ]
     },
     "prompt-not-inserted": {
+      "model": "independent_positive_delivery_evidence",
       "any": [
         {
           "path": "$.derivedViews.promptInsertedCounterEvidence",
@@ -777,6 +804,7 @@
       ]
     },
     "prompt-not-sent": {
+      "model": "independent_positive_delivery_evidence",
       "any": [
         {
           "path": "$.derivedViews.promptReceivedCounterEvidence",
@@ -786,6 +814,7 @@
       ]
     },
     "late-end": {
+      "model": "complement",
       "any": [
         {
           "path": "$.derivedViews.lateEndEvidence",

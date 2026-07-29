@@ -62,7 +62,8 @@
           "required": [
             "status",
             "mode",
-            "predicateResults"
+            "predicateResults",
+            "refutationResults"
           ],
           "properties": {
             "status": {

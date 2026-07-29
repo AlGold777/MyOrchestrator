@@ -1,5 +1,25 @@
 # CHANGELOG — Project
 
+### 2026-07-29 — Preset semantic review iteration 3, version 2.81.157
+
+- Absence windows now start at the failed insertion/submission action and must
+  prove at least `generationStartTimeoutMs` of complete post-failure coverage.
+- Late end is candidate-bound and measured from the first active eligibility;
+  deadlines and repeated acceptance cannot hide the real wait.
+- Unknown typed facts use canonical fallback; typed/canonical contradictions
+  are explicit localized invariants.
+- Embedded completeness is incident-local, and every embedded event sequence
+  has a scoped proof-closure inclusion reason.
+- Prompt not inserted requires submit counter-evidence only after submit was
+  observed. Cutted uses the final valid candidate boundary instead of the
+  historical maximum.
+- Refutation semantics are declared as complement or independent. Temporal
+  ordering now covers all seven Tasks.
+- `single_candidate` measurements and unresolved Old answer prior references
+  cannot produce strong confirmation.
+- Registry 5.6.0, report 2.8.0 and generator 1.9.0 add the W1-W12 adversarial
+  regression matrix and regenerate All tasks plus seven standalone reports.
+
 ### 2026-07-29 — Preset semantic review iteration 2, version 2.81.156
 
 - Standalone compaction now preserves only the selected Task's frozen

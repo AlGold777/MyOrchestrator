@@ -58,6 +58,7 @@ function ledgerForTypes(types, reportType = null) {
     }
     if (item.eventType === 'EXTRACTION_COMPLETED') {
       metadata.length = reportType === 'cutted' ? 60 : 120;
+      directPayload = { status: reportType === 'empty' ? 'failed' : 'completed' };
       typed = { kind: 'extraction', state: reportType === 'empty' ? 'failed' : 'completed' };
     }
     if (item.eventType === 'ANSWER_COMPLETENESS_EVALUATED') {
