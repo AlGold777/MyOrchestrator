@@ -80,6 +80,26 @@ function ledgerForTypes(types, reportType = null) {
     if (reportType === 'old-answer' && item.eventType === 'EXTRACTION_COMPLETED') metadata.answerIdentity = 'previous_dispatch';
     if (reportType === 'old-answer' && item.eventType === 'CANDIDATE_IDENTITY_INFERRED') typed = { kind: 'candidate_identity', state: 'previous_dispatch' };
     if (reportType === 'old-answer' && item.eventType === 'MODEL_TERMINAL_RECORDED') metadata.answerEvidenceDispatchId = 'synthetic-previous-dispatch';
+    if (reportType === 'no-delivery' && ['ANSWER_SOURCE_MATERIALIZED', 'ANSWER_DELIVERY_ACKNOWLEDGED', 'ANSWER_COMMIT_EVALUATED', 'ANSWER_CARD_RENDER_EVALUATED'].includes(item.eventType)) {
+      Object.assign(metadata, {
+        attemptId: 'synthetic-attempt-1',
+        payloadEvidenceId: 'payload:synthetic-dispatch:synthetic-attempt-1:12345678',
+        normalizationVersion: 'answer-proof-normalization@1.0.0'
+      });
+      if (item.eventType === 'ANSWER_SOURCE_MATERIALIZED') Object.assign(metadata, { sourceProofLevel: 'direct_preterminal', normalizedHash: 'fnv1a:12345678', normalizedLength: 120 });
+      if (item.eventType === 'ANSWER_DELIVERY_ACKNOWLEDGED') metadata.outcome = 'accepted';
+      if (item.eventType === 'ANSWER_COMMIT_EVALUATED') Object.assign(metadata, { outcome: 'accepted', overwrite: false });
+      if (item.eventType === 'ANSWER_CARD_RENDER_EVALUATED') Object.assign(metadata, {
+        expectedCardId: 'panel-gpt',
+        observedCardId: 'panel-gpt',
+        outcome: 'empty',
+        contentClass: 'empty',
+        expectedNormalizationVersion: 'answer-proof-normalization@1.0.0',
+        evaluationBoundaryId: 'boundary:synthetic-dispatch:synthetic-attempt-1:automatic_terminal',
+        evaluationBoundaryType: 'automatic_terminal',
+        resolutionState: 'unresolved'
+      });
+    }
     return {
       ...item,
       ...(reportType ? { candidateId: 'synthetic-candidate' } : {}),
@@ -108,17 +128,22 @@ function ledgerForTypes(types, reportType = null) {
       ['OBSERVATION_FRAME_CAPTURED', 52],
       ['CANDIDATE_SET_CHANGED', 55],
       ['CANDIDATE_IDENTITY_INFERRED', 56],
+      ['ANSWER_SOURCE_MATERIALIZED', 57],
       ['TEXT_STATE_CHANGED', 60],
       ['STABILITY_INTERVAL_CLOSED', 61],
       ['EXTRACTION_COMPLETED', 65],
       ['STRUCTURAL_VERIFICATION_EVALUATED', 66],
       ['ANSWER_COMPLETENESS_EVALUATED', 67],
+      ['ANSWER_DELIVERY_ACKNOWLEDGED', 68],
+      ['ANSWER_DELIVERY_REJECTED', 68],
+      ['ANSWER_COMMIT_EVALUATED', 69],
       ['COMPLETION_HYPOTHESIS_EVALUATED', 70],
       ['TERMINAL_DEADLINE_REACHED', 72],
       ['FINALIZATION_POLICY_EVALUATED', 73],
       ['POLICY_OVERRIDE_APPLIED', 74],
       ['DECISION_RECORDED', 75],
       ['MODEL_TERMINAL_RECORDED', 80],
+      ['ANSWER_CARD_RENDER_EVALUATED', 81],
       ['MISSING_EVIDENCE_RECORDED', 90],
       ['POST_TERMINAL_AUDIT_COMPLETED', 100]
     ]);
@@ -190,7 +215,7 @@ async function main() {
     canonicalLedger: true,
     runSessionId: 'synthetic-run',
     exportedAt: 12000,
-    extensionVersion: '2.81.163',
+    extensionVersion: '2.81.164',
     sampleData: true
   };
   const all = await ProofTelemetry.buildAllPresets(ledger, options);

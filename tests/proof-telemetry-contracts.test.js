@@ -4,6 +4,7 @@ const Ajv2020 = require('ajv/dist/2020');
 const Contracts = require('../shared/proof-telemetry-contracts.js');
 const ProofTelemetry = require('../shared/proof-oriented-telemetry.js');
 const Incidents = require('../shared/proof-telemetry-incidents.js');
+const Validator = require('../scripts/validate-proof-telemetry.js');
 
 describe('proof telemetry executable contracts', () => {
   test('scope equality includes run generation and identity vocabulary is normalized', () => {
@@ -42,7 +43,6 @@ describe('proof telemetry executable contracts', () => {
       'cutted',
       'false-success',
       'old-answer',
-      'empty',
       'no-delivery',
       'prompt-not-inserted',
       'prompt-not-sent',
@@ -57,6 +57,21 @@ describe('proof telemetry executable contracts', () => {
       expect(applicability.all.length).toBeGreaterThan(0);
       expect(applicability.all.every((predicate) => predicate.path.startsWith('$.derivedViews.'))).toBe(true);
     });
+  });
+
+  test('keeps Empty outside the current registry and routes historical artifacts to its frozen contract', () => {
+    expect(Contracts.REPORT_CONTRACTS).not.toHaveProperty('empty');
+    expect(Contracts.contractFor('empty', '5.9.0')).toBe(Contracts.LEGACY_REPORT_CONTRACTS['5.9.0'].empty);
+    expect(Validator.registryCompatibility({
+      reportType: 'empty',
+      dependencyRegistryVersion: '5.9.0',
+      dependencyRegistryHash: 'sha256:e16a251988988f24cb53b8580fbd37dd393ceba68ab9e9abfa18ddbeb066f758'
+    })).toEqual(expect.objectContaining({ mode: 'legacy-empty-frozen', valid: true }));
+    expect(Validator.registryCompatibility({
+      reportType: 'empty',
+      dependencyRegistryVersion: '5.9.0',
+      dependencyRegistryHash: 'sha256:tampered'
+    }).valid).toBe(false);
   });
 
   test('treats a missing dispatch identity as incompatible rather than wildcard', () => {

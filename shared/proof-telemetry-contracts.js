@@ -4,7 +4,7 @@
 
   const EVENT_SCHEMA_VERSION = 6;
   const CLOCK_CONTRACT_VERSION = '1.0';
-  const REGISTRY_VERSION = '6.0.0';
+  const REGISTRY_VERSION = '6.1.0';
   const THRESHOLDS = Object.freeze({
     generationStartTimeoutMs: 15000,
     minimumExtractionCoveragePct: 98,
@@ -13,6 +13,41 @@
     automaticMinimumEvidenceTier: 3,
     maximumSignalSkewMs: 250
   });
+
+  const LEGACY_EMPTY_CONTRACT = Object.freeze({
+    question: 'Почему генерация была, но extraction вернул пусто или не тот узел?',
+    refutationModel: 'complement',
+    refutation: { any: [['$.derivedViews.extractionProblemEvidence', 'eq', false]] },
+    applicability: {
+      all: [
+        ['$.derivedViews.generationTextObserved', 'eq', true],
+        ['$.derivedViews.extractionProblemEvidence', 'eq', true]
+      ]
+    },
+    slots: [
+      ['generation_observed', 'critical', ['GENERATION_START_EVALUATED', 'GENERATION_SIGNAL_CHANGED']],
+      ['extraction_result', 'critical', ['EXTRACTION_COMPLETED']],
+      ['candidate_selection', 'critical', ['CANDIDATE_SET_CHANGED', 'CANDIDATE_IDENTITY_INFERRED']],
+      ['text_boundary', 'critical', ['TEXT_STATE_CHANGED', 'OBSERVATION_FRAME_CAPTURED']],
+      ['structural_verification', 'required', ['STRUCTURAL_VERIFICATION_EVALUATED', 'ANSWER_COMPLETENESS_EVALUATED']],
+      ['observer_context', 'conditional', ['PAGE_HEALTH_OBSERVED', 'OBSERVER_HEALTH_OBSERVED', 'OBSERVER_HEALTH_INTERVAL_CLOSED'], ['$.stateAxes.observationReliability', 'in', ['degraded', 'stale', 'unavailable']]]
+    ]
+  });
+  const LEGACY_REPORT_CONTRACTS = Object.freeze({
+    '5.6.0': Object.freeze({ empty: LEGACY_EMPTY_CONTRACT }),
+    '5.7.0': Object.freeze({ empty: LEGACY_EMPTY_CONTRACT }),
+    '5.8.0': Object.freeze({ empty: LEGACY_EMPTY_CONTRACT }),
+    '5.9.0': Object.freeze({ empty: LEGACY_EMPTY_CONTRACT }),
+    '6.0.0': Object.freeze({ empty: LEGACY_EMPTY_CONTRACT })
+  });
+
+  function contractFor(reportType, registryVersion = null) {
+    if (REPORT_CONTRACTS[reportType]) return REPORT_CONTRACTS[reportType];
+    if (registryVersion && LEGACY_REPORT_CONTRACTS[registryVersion]?.[reportType]) {
+      return LEGACY_REPORT_CONTRACTS[registryVersion][reportType];
+    }
+    return reportType === 'empty' ? LEGACY_EMPTY_CONTRACT : null;
+  }
 
   const REPORT_CONTRACTS = Object.freeze({
     cutted: {
@@ -90,29 +125,6 @@
         ['structural_verification', 'required', ['STRUCTURAL_VERIFICATION_EVALUATED']],
         ['text_boundary', 'conditional', ['TEXT_STATE_CHANGED']],
         ['post_terminal_audit', 'conditional', ['POST_TERMINAL_AUDIT_COMPLETED', 'MISSING_EVIDENCE_RECORDED']]
-      ]
-    },
-    empty: {
-      question: 'Почему генерация была, но extraction вернул пусто или не тот узел?',
-      refutationModel: 'complement',
-      refutation: {
-        any: [
-          ['$.derivedViews.extractionProblemEvidence', 'eq', false]
-        ]
-      },
-      applicability: {
-        all: [
-          ['$.derivedViews.generationTextObserved', 'eq', true],
-          ['$.derivedViews.extractionProblemEvidence', 'eq', true]
-        ]
-      },
-      slots: [
-        ['generation_observed', 'critical', ['GENERATION_START_EVALUATED', 'GENERATION_SIGNAL_CHANGED']],
-        ['extraction_result', 'critical', ['EXTRACTION_COMPLETED']],
-        ['candidate_selection', 'critical', ['CANDIDATE_SET_CHANGED', 'CANDIDATE_IDENTITY_INFERRED']],
-        ['text_boundary', 'critical', ['TEXT_STATE_CHANGED', 'OBSERVATION_FRAME_CAPTURED']],
-        ['structural_verification', 'required', ['STRUCTURAL_VERIFICATION_EVALUATED', 'ANSWER_COMPLETENESS_EVALUATED']],
-        ['observer_context', 'conditional', ['PAGE_HEALTH_OBSERVED', 'OBSERVER_HEALTH_OBSERVED', 'OBSERVER_HEALTH_INTERVAL_CLOSED'], ['$.stateAxes.observationReliability', 'in', ['degraded', 'stale', 'unavailable']]]
       ]
     },
     'no-delivery': {
@@ -375,8 +387,8 @@
     return 'unknown';
   }
 
-  function normalizedSlots(reportType) {
-    return (REPORT_CONTRACTS[reportType]?.slots || []).map(([slotId, criticality, eventTypes, requiredIf]) => ({
+  function normalizedSlots(reportType, registryVersion = null) {
+    return (contractFor(reportType, registryVersion)?.slots || []).map(([slotId, criticality, eventTypes, requiredIf]) => ({
       slotId,
       criticality,
       eventTypes: eventTypes.slice(),
@@ -385,17 +397,18 @@
     }));
   }
 
-  function normalizedApplicability(reportType) {
-    const contract = REPORT_CONTRACTS[reportType]?.applicability || { all: [] };
+  function normalizedApplicability(reportType, registryVersion = null) {
+    const contract = contractFor(reportType, registryVersion)?.applicability || { all: [] };
     return {
       all: (contract.all || []).map(([path, operator, value]) => ({ path, operator, value }))
     };
   }
 
-  function normalizedRefutation(reportType) {
-    const contract = REPORT_CONTRACTS[reportType]?.refutation || { any: [] };
+  function normalizedRefutation(reportType, registryVersion = null) {
+    const selected = contractFor(reportType, registryVersion);
+    const contract = selected?.refutation || { any: [] };
     return {
-      model: REPORT_CONTRACTS[reportType]?.refutationModel || 'unspecified',
+      model: selected?.refutationModel || 'unspecified',
       any: (contract.any || []).map(([path, operator, value]) => ({ path, operator, value }))
     };
   }
@@ -410,6 +423,8 @@
     REGISTRY_VERSION,
     THRESHOLDS,
     REPORT_CONTRACTS,
+    LEGACY_REPORT_CONTRACTS,
+    contractFor,
     SLOT_MATCH_RULES,
     REPORT_COUNTEREVIDENCE_TYPES,
     sourceType,

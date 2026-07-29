@@ -387,7 +387,7 @@ Offline validator MUST уметь:
 6. проверить override и terminal lineage;
 7. определить влияние scheduler/observer degradation;
 8. выявить post-terminal change;
-9. построить все восемь reports из ledger в shadow-фазе миграции;
+9. построить все семь текущих reports из ledger;
 10. детерминированно вычислить `requestIf`;
 11. отклонить несовместимые reports;
 12. построить summaries без mutable summary state;
@@ -527,13 +527,12 @@ Chunked mode MUST содержать ordered chunk hashes и root hash.
 
 ## 22. `reports`
 
-Map с восемью диагностическими ключами на время shadow-миграции:
+Map с семью текущими пользовательскими диагностическими ключами:
 
 ```text
 cutted
 false-success
 old-answer
-empty
 no-delivery
 prompt-not-inserted
 prompt-not-sent
@@ -748,7 +747,6 @@ observation нельзя превращать в positive anomaly. Исключ�
 | `cutted` | `terminalOutcome == SUCCESS` и `incompleteCaptureEvidence == true` |
 | `false-success` | `terminalOutcome == SUCCESS`, completed post-terminal audit и `postTerminalGrowthProven == true` |
 | `old-answer` | `oldAnswerEvidence == true` на основании accepted-answer dispatch mismatch |
-| `empty` | `generationTextObserved == true` и `extractionProblemEvidence == true` |
 | `no-delivery` | `noDeliveryEvidence == true`: доказанный source payload текущей attempt отсутствует либо непригоден в однозначной expected card на зафиксированной evaluation boundary |
 | `prompt-not-inserted` | `promptNotInsertedEvidence == true` из typed failed insertion |
 | `prompt-not-sent` | `promptNotSentEvidence == true` из typed failed submission |
@@ -817,7 +815,7 @@ explicit `previous_dispatch|stale_accepted` extraction identity. Explicit
 При наличии privacy-safe hashes их различие опровергает гипотезу Old answer;
 совпадение одних длин не считается доказательством идентичности текста.
 
-## 33. `empty`
+## 33. `empty` (только legacy registries 5.6.0–6.0.0)
 
 **Primary question:** почему генерация была, но extraction вернул пусто или не
 тот узел?
@@ -831,7 +829,7 @@ boundaries, extraction result, structural verification и observer health.
 ambiguous или stale candidate). Успешный verified current-dispatch extraction
 опровергает Empty; неоднозначный выбор остаётся `unknown`.
 
-### 33.1. `no-delivery` (shadow)
+### 33.1. `no-delivery`
 
 **Primary question:** почему материализованный ответ текущего запроса не
 оказался в правильной карточке?
@@ -846,8 +844,9 @@ expected card является независимым опровержением
 понижают уже доказанный occurrence. Cause summary содержит attempt graph,
 последнюю успешную и первую неуспешную границы, а также четыре ортогональные
 оси: stage, mechanism, observability limitations и recovery finding. На время
-shadow-фазы `empty` и `no-delivery` строятся из одного ledger, а расхождения
-фиксируются в `migration.shadowComparison`.
+Завершённая shadow-фаза сравнивала `empty` и `no-delivery` из одного ledger.
+Текущий registry содержит только `no-delivery`; исторический `empty` читается
+замороженным legacy contract без переинтерпретации.
 
 ## 34. `prompt-not-inserted`
 

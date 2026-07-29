@@ -220,17 +220,12 @@ describe('Proof-oriented telemetry schema 6 event export', () => {
     }));
   });
 
-  test('shadow-builds Empty and No delivery from one canonical ledger without event duplication', async () => {
+  test('builds No delivery after cutover without Empty or duplicated canonical events', async () => {
     const ledger = noDeliveryLedger('empty');
     const container = await ProofTelemetry.buildAllPresets(ledger, { canonicalLedger: true, exportedAt: 2000 });
-    const incidentId = Object.keys(container.migration.shadowComparison)[0];
-    expect(container.reports).toHaveProperty('empty');
+    expect(container.reports).not.toHaveProperty('empty');
     expect(container.reports).toHaveProperty('no-delivery');
-    expect(container.migration).toEqual(expect.objectContaining({
-      phase: 'empty-no-delivery-shadow',
-      canonicalLedgerShared: true
-    }));
-    expect(container.migration.shadowComparison[incidentId].noDeliveryVerdict).toBe('confirmed');
+    expect(container).not.toHaveProperty('migration');
     expect(container.ledger.eventCount).toBe(ledger.length);
     expect(new Set(container.ledger.events.map((event) => event.eventId)).size).toBe(ledger.length);
   });

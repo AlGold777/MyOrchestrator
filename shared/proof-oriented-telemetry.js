@@ -14,13 +14,12 @@
   const Clock = root.ProofTelemetryClock || (typeof require === 'function' ? require('./proof-telemetry-clock.js') : null);
   const SCHEMA_VERSION = '5.0';
   const EVENT_SCHEMA_VERSION = Contracts?.EVENT_SCHEMA_VERSION || 6;
-  const GENERATOR_VERSION = 'proof-export@2.0.0';
-  const REPORT_VERSION = '3.0.0';
+  const GENERATOR_VERSION = 'proof-export@2.1.0';
+  const REPORT_VERSION = '3.1.0';
   const REPORT_TYPES = Object.freeze([
     'cutted',
     'false-success',
     'old-answer',
-    'empty',
     'no-delivery',
     'prompt-not-inserted',
     'prompt-not-sent',
@@ -1126,21 +1125,19 @@
   }
 
   const SIBLING_RULES = Object.freeze({
-    cutted: [['false-success', '$.derivedViews.postTerminalGrowthProven', 'eq', true], ['old-answer', '$.derivedViews.oldAnswerEvidence', 'eq', true], ['empty', '$.derivedViews.emptyExtractionEvidence', 'eq', true]],
+    cutted: [['false-success', '$.derivedViews.postTerminalGrowthProven', 'eq', true], ['old-answer', '$.derivedViews.oldAnswerEvidence', 'eq', true]],
     'false-success': [['cutted', '$.derivedViews.incompleteCaptureEvidence', 'eq', true], ['late-end', '$.derivedViews.lateEndEvidence', 'eq', true]],
-    'old-answer': [['empty', '$.derivedViews.emptyExtractionEvidence', 'eq', true], ['cutted', '$.derivedViews.incompleteCaptureEvidence', 'eq', true]],
-    empty: [['old-answer', '$.derivedViews.oldAnswerEvidence', 'eq', true], ['cutted', '$.derivedViews.incompleteCaptureEvidence', 'eq', true]],
-    'no-delivery': [['old-answer', '$.derivedViews.oldAnswerEvidence', 'eq', true], ['empty', '$.derivedViews.emptyExtractionEvidence', 'eq', true], ['cutted', '$.derivedViews.incompleteCaptureEvidence', 'eq', true]],
+    'old-answer': [['cutted', '$.derivedViews.incompleteCaptureEvidence', 'eq', true]],
+    'no-delivery': [['old-answer', '$.derivedViews.oldAnswerEvidence', 'eq', true], ['cutted', '$.derivedViews.incompleteCaptureEvidence', 'eq', true]],
     'prompt-not-inserted': [['prompt-not-sent', '$.derivedViews.promptNotSentEvidence', 'eq', true]],
     'prompt-not-sent': [['prompt-not-inserted', '$.derivedViews.promptNotInsertedEvidence', 'eq', true]],
     'late-end': [['false-success', '$.derivedViews.postTerminalGrowthProven', 'eq', true]]
   });
 
-  const DIAGNOSIS_PRIORITY = Object.freeze(['false-success', 'old-answer', 'prompt-not-inserted', 'prompt-not-sent', 'empty', 'no-delivery', 'cutted', 'late-end']);
+  const DIAGNOSIS_PRIORITY = Object.freeze(['false-success', 'old-answer', 'prompt-not-inserted', 'prompt-not-sent', 'no-delivery', 'cutted', 'late-end']);
   const DIAGNOSIS_CAUSAL_RULES = Object.freeze([
     Object.freeze({ cause: 'false-success', consequence: 'cutted', when: { path: '$.derivedViews.postTerminalGrowthProven', operator: 'eq', value: true } }),
     Object.freeze({ cause: 'prompt-not-inserted', consequence: 'prompt-not-sent', when: { path: '$.derivedViews.promptNotInsertedEvidence', operator: 'eq', value: true } }),
-    Object.freeze({ cause: 'empty', consequence: 'no-delivery', when: { path: '$.derivedViews.emptyExtractionEvidence', operator: 'eq', value: true } }),
     Object.freeze({ cause: 'old-answer', consequence: 'no-delivery', when: { path: '$.derivedViews.oldAnswerEvidence', operator: 'eq', value: true } })
   ]);
 
@@ -1149,10 +1146,7 @@
     [siblingPairKey('false-success', 'cutted')]: Object.freeze({ relation: 'causal', cause: 'false-success', consequence: 'cutted' }),
     [siblingPairKey('prompt-not-inserted', 'prompt-not-sent')]: Object.freeze({ relation: 'causal', cause: 'prompt-not-inserted', consequence: 'prompt-not-sent' }),
     [siblingPairKey('cutted', 'old-answer')]: Object.freeze({ relation: 'co-occurring', causalClaim: false }),
-    [siblingPairKey('cutted', 'empty')]: Object.freeze({ relation: 'co-occurring', causalClaim: false }),
     [siblingPairKey('false-success', 'late-end')]: Object.freeze({ relation: 'co-occurring', causalClaim: false }),
-    [siblingPairKey('old-answer', 'empty')]: Object.freeze({ relation: 'co-occurring', causalClaim: false }),
-    [siblingPairKey('empty', 'no-delivery')]: Object.freeze({ relation: 'causal', cause: 'empty', consequence: 'no-delivery' }),
     [siblingPairKey('old-answer', 'no-delivery')]: Object.freeze({ relation: 'causal', cause: 'old-answer', consequence: 'no-delivery' })
   });
 
@@ -1543,23 +1537,6 @@
     Object.values(reports).forEach((report) => {
       report.reportDescriptor.limitations = compatibility.limitations;
     });
-    const shadowComparison = Object.fromEntries(Object.entries(incidentViews).map(([incidentId, view]) => {
-      const emptyVerdict = reports.empty?.reportDescriptor?.applicability?.byIncident?.[incidentId]?.diagnosticVerdict || 'unknown';
-      const noDeliveryVerdict = reports['no-delivery']?.reportDescriptor?.applicability?.byIncident?.[incidentId]?.diagnosticVerdict || 'unknown';
-      const classification = emptyVerdict === noDeliveryVerdict
-        ? 'aligned'
-        : (noDeliveryVerdict === 'confirmed' ? 'no_delivery_only'
-          : (emptyVerdict === 'confirmed' ? 'empty_only' : 'different_uncertain'));
-      return [incidentId, {
-        modelId: view.modelId,
-        emptyVerdict,
-        noDeliveryVerdict,
-        classification,
-        noDeliveryCauseVerdict: view.causeVerdict,
-        noDeliveryMechanismCauseCode: view.mechanismCauseCode,
-        eventSeqCount: reports['no-delivery']?.eventSeqs?.length || 0
-      }];
-    }));
     const viewsHash = await sha256(derivedViews);
     // Hash the serialized artifact shape. Optional undefined values do not
     // survive JSON export and therefore cannot be part of the offline hash.
@@ -1627,11 +1604,6 @@
       derivedViews,
       reports,
       diagnosisArbitration: { byIncident: reportBuild.arbitrationByIncident },
-      migration: {
-        phase: 'empty-no-delivery-shadow',
-        shadowComparison,
-        canonicalLedgerShared: true
-      },
       attachments,
       exportAudit: {
         sampleData: options.sampleData === true,

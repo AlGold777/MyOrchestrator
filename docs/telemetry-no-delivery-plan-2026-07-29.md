@@ -687,7 +687,7 @@ Standalone No delivery report включает только:
 12. Реализовать attempt graph и четыре независимые cause axes. — Done
 13. Запустить shadow comparison с `Empty`. — Done
 14. Переключить UI/export на `No delivery`, сохранить legacy validation и
-    удалить текущий `Empty`. — Pending
+    удалить текущий `Empty`. — Done
 15. Обновить версии/документацию и пройти полный regression gate. — Pending
 
 ## 20. Test matrix

@@ -11,6 +11,24 @@ const Incidents = require('../shared/proof-telemetry-incidents.js');
 
 const REQUIRED_REPORTS = ProofTelemetry.REPORT_TYPES;
 const SCHEMA_DIR = path.join(__dirname, '..', 'docs', 'proof_oriented_telemetry_spec_v1', 'schemas');
+const LEGACY_EMPTY_REGISTRY_HASHES = Object.freeze({
+  '5.6.0': 'sha256:50b3e47c76283ecb1b7fa24fdbee3f679536517b353e0478149a8808740756ea',
+  '5.7.0': 'sha256:f1de9ddd5ec7f7ada74cd048dd9f7c2d4cdbcafcf5d71723882fbf56c19018e7',
+  '5.8.0': 'sha256:5c5e2ed6f28a241b6e61a4188c973ea086f25a781a367d753e4aa090c8a92156',
+  '5.9.0': 'sha256:e16a251988988f24cb53b8580fbd37dd393ceba68ab9e9abfa18ddbeb066f758',
+  '6.0.0': 'sha256:704428f96f46ef9364f86f59bb68037d30752ec22e46ed47598589808e825121'
+});
+
+function registryCompatibility(reportDescriptor = {}) {
+  const reportType = String(reportDescriptor.reportType || '');
+  const registryVersion = String(reportDescriptor.dependencyRegistryVersion || '');
+  const registryHash = String(reportDescriptor.dependencyRegistryHash || '');
+  if (registryVersion === Contracts.REGISTRY_VERSION) return { mode: 'current', valid: true };
+  const expectedHash = reportType === 'empty' ? LEGACY_EMPTY_REGISTRY_HASHES[registryVersion] : null;
+  return expectedHash
+    ? { mode: 'legacy-empty-frozen', valid: registryHash === expectedHash, expectedHash }
+    : { mode: 'unsupported', valid: false };
+}
 
 function loadSchema(name) {
   return JSON.parse(fs.readFileSync(path.join(SCHEMA_DIR, name), 'utf8'));
@@ -197,9 +215,11 @@ async function validateStandaloneReport(report) {
   const warnings = [];
   const addError = (code, message) => errors.push({ code, message });
   if (!report || typeof report !== 'object') return { valid: false, errors: [{ code: 'REPORT_INVALID', message: 'report must be an object' }], warnings };
+  const declaredRegistryCompatibility = registryCompatibility(report?.reportDescriptor);
   if (report.schemaVersion !== '5.0') addError('SCHEMA_VERSION', 'schemaVersion must equal 5.0');
   if (report.fileKind !== 'diagnostic-report') addError('FILE_KIND', 'fileKind must equal diagnostic-report');
-  if (!REQUIRED_REPORTS.includes(report?.reportDescriptor?.reportType)) addError('REPORT_TYPE', 'unsupported reportType');
+  if (!REQUIRED_REPORTS.includes(report?.reportDescriptor?.reportType)
+    && declaredRegistryCompatibility.mode !== 'legacy-empty-frozen') addError('REPORT_TYPE', 'unsupported reportType');
   if (report?.reportDescriptor?.reportMode !== 'standalone') addError('REPORT_MODE', 'reportMode must equal standalone');
   schemaErrors('diagnostic-report.schema.json', report).forEach((error) => addError(error.code, error.message));
   const events = Array.isArray(report?.eventSelection?.materializedEvents) ? report.eventSelection.materializedEvents : [];
@@ -263,11 +283,21 @@ async function validateStandaloneReport(report) {
   if (ProofTelemetry.stableStringify(recordedView?.stateAxes || {}) !== ProofTelemetry.stableStringify(report.stateAxes || {})) {
     addError('REPLAY_MISMATCH', 'recorded full-incident axes differ from report state axes');
   }
+  const compatibility = declaredRegistryCompatibility;
   const registrySnapshot = ProofTelemetry.dependencyRegistrySnapshot();
   const registryHash = await ProofTelemetry.sha256(registrySnapshot);
-  if (report?.reportDescriptor?.dependencyRegistryVersion !== Contracts.REGISTRY_VERSION
-    || report?.reportDescriptor?.dependencyRegistryHash !== registryHash) {
+  if (!compatibility.valid || (compatibility.mode === 'current'
+    && report?.reportDescriptor?.dependencyRegistryHash !== registryHash)) {
     addError('REGISTRY_MISMATCH', 'report dependency registry is stale');
+  }
+  if (compatibility.mode === 'legacy-empty-frozen') {
+    privacyViolations(report).forEach((violation) => addError(violation.code, `forbidden privacy key at ${violation.path}`));
+    return {
+      valid: errors.length === 0,
+      errors,
+      warnings: [...warnings, { code: 'LEGACY_CONTRACT', message: `validated without reinterpretation under registry ${report.reportDescriptor.dependencyRegistryVersion}` }],
+      reconstructedAxes: null
+    };
   }
   const incident = { scope: Incidents.scopeOf(correlation) };
   const resolved = Incidents.resolveEvidenceSlots(events, incident, report?.reportDescriptor?.reportType, {
@@ -405,7 +435,7 @@ async function main(argv = process.argv.slice(2)) {
   if (!result.valid) process.exitCode = 1;
 }
 
-module.exports = { validateContainer, validateStandaloneReport, validateArtifact, reconstructAtSeq, privacyViolations, semanticInvariantViolations, optimizeRepresentation };
+module.exports = { validateContainer, validateStandaloneReport, validateArtifact, reconstructAtSeq, privacyViolations, semanticInvariantViolations, optimizeRepresentation, registryCompatibility };
 if (require.main === module) main().catch((error) => {
   console.error(error?.stack || error);
   process.exitCode = 1;

@@ -1,5 +1,13 @@
 # Telemetry - tab/session diagnostics
 
+## No delivery cutover v2.81.164 - 2026-07-29
+
+The Platform/Tasks telemetry UI and JSON export now expose `No delivery` in
+place of `Empty`. Current All tasks exports contain seven reports and no
+`empty` entry. Historical `empty` standalone artifacts from registries
+5.6.0–6.0.0 are routed to the frozen legacy contract and are hash-validated
+without reinterpretation by the current semantics.
+
 ## No delivery shadow contract v2.81.163 - 2026-07-29
 
 `No delivery` is generated beside legacy `Empty` from the same immutable

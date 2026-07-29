@@ -5,11 +5,17 @@
 - `all-presets.example.json` — пример дедуплицированного контейнера.
 - `schemas/` — JSON Schemas.
 - `registry/report-dependency-registry.json` — единый реестр количественных escalation rules.
-- `presets/*.example.json` — восемь standalone reports shadow-фазы.
+- `presets/*.example.json` — семь текущих standalone reports.
 
 Примеры используют конкретные синтетические данные и помечены `exportIntegrity.sampleData=true`.
 
 ## Статус реализации
+
+Версия `2.81.164` завершает product cutover. Registry `6.1.0`, report `3.1.0`
+и generator `2.1.0` заменяют `Empty` на `No delivery` в текущем UI, All tasks,
+standalone generator и dependency registry. Старые Empty reports registries
+5.6.0–6.0.0 направляются в frozen legacy contract с проверкой registry hash и
+не переинтерпретируются актуальной семантикой.
 
 Версия `2.81.163` вводит shadow preset `No delivery`. Registry `6.0.0`, report
 `3.0.0` и generator `2.0.0` разделяют доказательство occurrence и объяснение

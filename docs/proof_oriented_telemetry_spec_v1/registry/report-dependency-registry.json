@@ -1,5 +1,5 @@
 {
-  "registryVersion": "6.0.0",
+  "registryVersion": "6.1.0",
   "predicateLanguageVersion": "1.0.0",
   "maxEscalationDepth": 2,
   "reports": {
@@ -300,92 +300,6 @@
           [
             "POST_TERMINAL_AUDIT_COMPLETED",
             "MISSING_EVIDENCE_RECORDED"
-          ]
-        ]
-      ]
-    },
-    "empty": {
-      "question": "Почему генерация была, но extraction вернул пусто или не тот узел?",
-      "refutationModel": "complement",
-      "refutation": {
-        "any": [
-          [
-            "$.derivedViews.extractionProblemEvidence",
-            "eq",
-            false
-          ]
-        ]
-      },
-      "applicability": {
-        "all": [
-          [
-            "$.derivedViews.generationTextObserved",
-            "eq",
-            true
-          ],
-          [
-            "$.derivedViews.extractionProblemEvidence",
-            "eq",
-            true
-          ]
-        ]
-      },
-      "slots": [
-        [
-          "generation_observed",
-          "critical",
-          [
-            "GENERATION_START_EVALUATED",
-            "GENERATION_SIGNAL_CHANGED"
-          ]
-        ],
-        [
-          "extraction_result",
-          "critical",
-          [
-            "EXTRACTION_COMPLETED"
-          ]
-        ],
-        [
-          "candidate_selection",
-          "critical",
-          [
-            "CANDIDATE_SET_CHANGED",
-            "CANDIDATE_IDENTITY_INFERRED"
-          ]
-        ],
-        [
-          "text_boundary",
-          "critical",
-          [
-            "TEXT_STATE_CHANGED",
-            "OBSERVATION_FRAME_CAPTURED"
-          ]
-        ],
-        [
-          "structural_verification",
-          "required",
-          [
-            "STRUCTURAL_VERIFICATION_EVALUATED",
-            "ANSWER_COMPLETENESS_EVALUATED"
-          ]
-        ],
-        [
-          "observer_context",
-          "conditional",
-          [
-            "PAGE_HEALTH_OBSERVED",
-            "OBSERVER_HEALTH_OBSERVED",
-            "OBSERVER_HEALTH_INTERVAL_CLOSED"
-          ],
-          [
-            "$.stateAxes.observationReliability",
-            "in",
-            [
-              "degraded",
-              "stale",
-              "unavailable"
-            ]
           ]
         ]
       ]
@@ -808,20 +722,6 @@
         }
       ]
     },
-    "empty": {
-      "all": [
-        {
-          "path": "$.derivedViews.generationTextObserved",
-          "operator": "eq",
-          "value": true
-        },
-        {
-          "path": "$.derivedViews.extractionProblemEvidence",
-          "operator": "eq",
-          "value": true
-        }
-      ]
-    },
     "no-delivery": {
       "all": [
         {
@@ -887,16 +787,6 @@
           "path": "$.derivedViews.terminalOutcome",
           "operator": "ne",
           "value": "SUCCESS"
-        }
-      ]
-    },
-    "empty": {
-      "model": "complement",
-      "any": [
-        {
-          "path": "$.derivedViews.extractionProblemEvidence",
-          "operator": "eq",
-          "value": false
         }
       ]
     },
@@ -978,24 +868,6 @@
           "sourceReportType": "cutted",
           "requestTargetOnlyOnce": true
         }
-      },
-      {
-        "reportType": "empty",
-        "relation": "diagnostic-dependency",
-        "priority": "required",
-        "requestIf": {
-          "any": [
-            {
-              "path": "$.derivedViews.emptyExtractionEvidence",
-              "operator": "eq",
-              "value": true
-            }
-          ]
-        },
-        "antiLoop": {
-          "sourceReportType": "cutted",
-          "requestTargetOnlyOnce": true
-        }
       }
     ],
     "false-success": [
@@ -1038,24 +910,6 @@
     ],
     "old-answer": [
       {
-        "reportType": "empty",
-        "relation": "diagnostic-dependency",
-        "priority": "required",
-        "requestIf": {
-          "any": [
-            {
-              "path": "$.derivedViews.emptyExtractionEvidence",
-              "operator": "eq",
-              "value": true
-            }
-          ]
-        },
-        "antiLoop": {
-          "sourceReportType": "old-answer",
-          "requestTargetOnlyOnce": true
-        }
-      },
-      {
         "reportType": "cutted",
         "relation": "diagnostic-dependency",
         "priority": "required",
@@ -1070,44 +924,6 @@
         },
         "antiLoop": {
           "sourceReportType": "old-answer",
-          "requestTargetOnlyOnce": true
-        }
-      }
-    ],
-    "empty": [
-      {
-        "reportType": "old-answer",
-        "relation": "diagnostic-dependency",
-        "priority": "required",
-        "requestIf": {
-          "any": [
-            {
-              "path": "$.derivedViews.oldAnswerEvidence",
-              "operator": "eq",
-              "value": true
-            }
-          ]
-        },
-        "antiLoop": {
-          "sourceReportType": "empty",
-          "requestTargetOnlyOnce": true
-        }
-      },
-      {
-        "reportType": "cutted",
-        "relation": "diagnostic-dependency",
-        "priority": "required",
-        "requestIf": {
-          "any": [
-            {
-              "path": "$.derivedViews.incompleteCaptureEvidence",
-              "operator": "eq",
-              "value": true
-            }
-          ]
-        },
-        "antiLoop": {
-          "sourceReportType": "empty",
           "requestTargetOnlyOnce": true
         }
       }
@@ -1121,24 +937,6 @@
           "any": [
             {
               "path": "$.derivedViews.oldAnswerEvidence",
-              "operator": "eq",
-              "value": true
-            }
-          ]
-        },
-        "antiLoop": {
-          "sourceReportType": "no-delivery",
-          "requestTargetOnlyOnce": true
-        }
-      },
-      {
-        "reportType": "empty",
-        "relation": "diagnostic-dependency",
-        "priority": "required",
-        "requestIf": {
-          "any": [
-            {
-              "path": "$.derivedViews.emptyExtractionEvidence",
               "operator": "eq",
               "value": true
             }
@@ -1235,7 +1033,6 @@
       "old-answer",
       "prompt-not-inserted",
       "prompt-not-sent",
-      "empty",
       "no-delivery",
       "cutted",
       "late-end"
@@ -1255,15 +1052,6 @@
         "consequence": "prompt-not-sent",
         "when": {
           "path": "$.derivedViews.promptNotInsertedEvidence",
-          "operator": "eq",
-          "value": true
-        }
-      },
-      {
-        "cause": "empty",
-        "consequence": "no-delivery",
-        "when": {
-          "path": "$.derivedViews.emptyExtractionEvidence",
           "operator": "eq",
           "value": true
         }
@@ -1293,22 +1081,9 @@
         "relation": "co-occurring",
         "causalClaim": false
       },
-      "cutted|empty": {
-        "relation": "co-occurring",
-        "causalClaim": false
-      },
       "false-success|late-end": {
         "relation": "co-occurring",
         "causalClaim": false
-      },
-      "empty|old-answer": {
-        "relation": "co-occurring",
-        "causalClaim": false
-      },
-      "empty|no-delivery": {
-        "relation": "causal",
-        "cause": "empty",
-        "consequence": "no-delivery"
       },
       "no-delivery|old-answer": {
         "relation": "causal",

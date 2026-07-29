@@ -1,5 +1,16 @@
 # CHANGELOG — Project
 
+### 2026-07-29 — No delivery product cutover, version 2.81.164
+
+- Replaced `Empty` with `No delivery` in both Telemetry Task filters and the
+  current standalone/All tasks export registry.
+- Removed `Empty` from current arbitration, dependency and sibling rules after
+  the commit/render shadow gate.
+- Historical Empty reports from registries 5.6.0–6.0.0 use a frozen contract;
+  known registry hashes are checked and their meaning is not recomputed under
+  current No delivery semantics.
+- Registry 6.1.0, report 3.1.0 and generator 2.1.0 describe the cutover.
+
 ### 2026-07-29 — No delivery shadow contract, version 2.81.163
 
 - Added a shadow `No delivery` report that proves provider-surface answer

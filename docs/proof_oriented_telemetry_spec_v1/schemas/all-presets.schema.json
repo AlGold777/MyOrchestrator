@@ -14,7 +14,6 @@
     "derivedViews",
     "reports",
     "diagnosisArbitration",
-    "migration",
     "attachments",
     "exportAudit"
   ],
@@ -83,16 +82,6 @@
     },
     "diagnosisArbitration": {
       "type": "object"
-    },
-    "migration": {
-      "type": "object",
-      "required": ["phase", "shadowComparison", "canonicalLedgerShared"],
-      "properties": {
-        "phase": { "const": "empty-no-delivery-shadow" },
-        "shadowComparison": { "type": "object" },
-        "canonicalLedgerShared": { "const": true }
-      },
-      "additionalProperties": false
     },
     "attachments": {
       "type": "object"
