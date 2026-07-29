@@ -674,9 +674,9 @@ Standalone No delivery report включает только:
 Статус меняется на `Done` только после прохождения указанной приёмки.
 
 1. Исправить определение observable claim и evaluation boundary. — Done
-2. Санировать broad mapping и неизвестные runtime labels. — Pending
-3. Исправить canonical semantics rejection-событий. — Pending
-4. Разделить extraction attempt/outcome/mode. — Pending
+2. Санировать broad mapping и неизвестные runtime labels. — Done
+3. Исправить canonical semantics rejection-событий. — Done
+4. Разделить extraction attempt/outcome/mode. — Done
 5. Ввести shared versioned normalization. — Pending
 6. Ввести раннюю attempt/payload identity. — Pending
 7. Ввести `ANSWER_SOURCE_MATERIALIZED`. — Pending

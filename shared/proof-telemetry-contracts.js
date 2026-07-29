@@ -4,7 +4,7 @@
 
   const EVENT_SCHEMA_VERSION = 6;
   const CLOCK_CONTRACT_VERSION = '1.0';
-  const REGISTRY_VERSION = '5.6.0';
+  const REGISTRY_VERSION = '5.7.0';
   const THRESHOLDS = Object.freeze({
     generationStartTimeoutMs: 15000,
     minimumExtractionCoveragePct: 98,
@@ -224,6 +224,11 @@
     const source = sourceType(event);
     const meta = event?.payload?.metadata || {};
     const typed = { kind: 'unknown', state: 'unknown' };
+    const messageType = String(meta.messageType || '').toUpperCase();
+    if (/SENDER_(?:WITHOUT_BINDING|TAB_MISMATCH)_REJECTED|LIFECYCLE_CORRELATION_REJECTED/.test(source)
+      && /^(?:LLM_RESPONSE|FINAL_LLM_RESPONSE|ANSWER_SNAPSHOT)/.test(messageType)) {
+      return { kind: 'delivery', state: 'rejected', outcome: 'rejected' };
+    }
     if (/CANDIDATE.*AMBIGUOUS|MULTIPLE_CANDIDATES/.test(source)) return { kind: 'candidate_identity', state: 'ambiguous' };
     if (/STALE_BASELINE|CANDIDATE.*STALE/.test(source)) return { kind: 'candidate_identity', state: 'stale' };
     if (/PROMPT_ECHO_REJECTED|CANDIDATE.*REJECTED/.test(source)) return { kind: 'candidate_identity', state: 'rejected' };
@@ -232,7 +237,7 @@
     if (/PROMPT_SUBMITTED_REJECTED|DISPATCH_COMMAND_NOT_ACCEPTED|NO_SEND/.test(source)) return { kind: 'submission', state: 'failed' };
     if (/PROMPT_INSERTION_FAILED|PROMPT_INJECTION_FAILED|INJECTION_FAILED/.test(source)) return { kind: 'prompt_insertion', state: 'failed' };
     if (/PROMPT_INSERTION_(?:CONFIRMED|SUCCEEDED)|PROMPT_INSERTED/.test(source)) return { kind: 'prompt_insertion', state: 'inserted' };
-    if (/DISPATCH|SUBMIT|SEND|PROMPT/.test(source)) return { kind: 'submission', state: 'attempted' };
+    if (/^(?:DISPATCH_START|DISPATCH_SEND|ROUND2_REPAIR_DISPATCH_START)$/.test(source)) return { kind: 'submission', state: 'attempted' };
     if (/STOP_(BUTTON_)?(PRESENT_TO_ABSENT|DISAPPEARED)|STREAMING_(TRUE_TO_FALSE|STOPPED)|COMPLETION_CONTROLS_APPEARED/.test(source)) return { kind: 'generation_transition', state: 'provider_ui_completed', strong: true };
     if (/ANSWER_GENERATING|STREAMING_START|GENERATION_ACTIVE/.test(source)) return { kind: 'generation', state: 'active' };
     if (/ANSWER_TEXT_STABLE|STABILITY/.test(source)) return { kind: 'text', state: 'stable' };
@@ -247,8 +252,10 @@
     if (/TIMEOUT|DEADLINE/.test(source)) return { kind: 'deadline', state: 'reached' };
     if (/MODEL_FINAL/.test(source)) return { kind: 'terminal_action', state: String(meta.finalStatus || meta.terminalStatus || 'unknown').toUpperCase() };
     if (/SCRIPT_HEALTH_FAIL|OBSERVER.*(FAIL|UNAVAILABLE)|BACKGROUND_THROTTL|SELECTOR.*(FAIL|MISS)|FOCUS_STUCK/.test(source)) return { kind: 'observation', state: 'degraded' };
-    if (/EXTRACT.*FAIL/.test(source)) return { kind: 'extraction', state: 'failed' };
-    if (/DOM_FALLBACK|MATERIALIZE_RECOVERY|FALLBACK_EXTRACTION/.test(source)) return { kind: 'extraction', state: 'fallback' };
+    if (/^EXTRACTION_.*FAIL/.test(source)) return { kind: 'extraction', state: 'failed', outcome: 'failed' };
+    if (/^DOM_FALLBACK_(?:START|JOINED)$/.test(source)) return { kind: 'extraction_attempt', state: source.endsWith('START') ? 'started' : 'joined', mode: 'fallback' };
+    if (source === 'DOM_FALLBACK_SUCCESS') return { kind: 'extraction', state: 'completed', outcome: 'completed', mode: 'fallback' };
+    if (source === 'DOM_FALLBACK_TIMEOUT') return { kind: 'extraction', state: 'failed', outcome: 'failed', mode: 'fallback' };
     return typed;
   }
 
@@ -272,7 +279,9 @@
       ANSWER_COMPLETENESS_EVALUATED: { kind: 'answer_completeness', state: payload.answerCompleteness || 'unknown' },
       STRUCTURAL_VERIFICATION_EVALUATED: { kind: 'verification', state: payload.verified === false ? 'rejected' : (payload.verification || 'verified') },
       COMPLETION_HYPOTHESIS_EVALUATED: { kind: 'completion_hypothesis', state: payload.completionDetection || 'evaluated' },
+      EXTRACTION_ATTEMPTED: { kind: 'extraction_attempt', state: payload.status || payload.typed?.state || 'started' },
       EXTRACTION_COMPLETED: { kind: 'extraction', state: payload.status || 'completed' },
+      ANSWER_DELIVERY_REJECTED: { kind: 'delivery', state: 'rejected' },
       TERMINAL_DEADLINE_REACHED: { kind: 'deadline', state: 'reached' },
       POLICY_OVERRIDE_APPLIED: { kind: 'policy_override', state: payload.mode || 'forced' },
       DECISION_RECORDED: { kind: 'decision', state: payload.accepted === true ? 'accepted' : 'rejected' },

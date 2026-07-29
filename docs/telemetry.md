@@ -1,5 +1,13 @@
 # Telemetry - tab/session diagnostics
 
+## Proof-event mapping sanitation v2.81.159 - 2026-07-29
+
+Only explicitly registered runtime labels enter canonical diagnostic evidence.
+Unknown, recovery-lifecycle, attachment and CDP-file records remain outside
+proof slots. Answer reception rejections use delivery semantics instead of
+submission/text semantics. Extraction attempt, outcome and fallback mode are
+independent facts.
+
 ## Semantic review iteration 3 v2.81.157 - 2026-07-29
 
 Registry 5.6.0, report 2.8.0 and generator 1.9.0 close W1-W12 from the third

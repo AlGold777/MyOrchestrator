@@ -1,5 +1,17 @@
 # CHANGELOG — Project
 
+### 2026-07-29 — Proof-event mapping sanitation, version 2.81.159
+
+- Replaced heuristic runtime-label promotion with an explicit proof-event
+  whitelist; unknown, recovery-planning, attachment and CDP-file labels stay
+  outside diagnostic evidence slots.
+- Answer sender/correlation rejections now become delivery rejections instead
+  of submission or text-evolution evidence.
+- Extraction attempts are distinct from extraction outcomes; fallback is a
+  mode and no longer an outcome.
+- Registry 5.7.0, report 2.9.0 and generator 1.10.0 add regression coverage for
+  false `Cutted`, `Late end` and `Empty` evidence.
+
 ### 2026-07-29 — One-click selection favorites, version 2.81.158
 
 - The star in selection toolbars now commits the favorite on `pointerdown`,

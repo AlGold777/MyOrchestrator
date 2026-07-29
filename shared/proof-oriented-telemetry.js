@@ -14,8 +14,8 @@
   const Clock = root.ProofTelemetryClock || (typeof require === 'function' ? require('./proof-telemetry-clock.js') : null);
   const SCHEMA_VERSION = '5.0';
   const EVENT_SCHEMA_VERSION = Contracts?.EVENT_SCHEMA_VERSION || 6;
-  const GENERATOR_VERSION = 'proof-export@1.9.0';
-  const REPORT_VERSION = '2.8.0';
+  const GENERATOR_VERSION = 'proof-export@1.10.0';
+  const REPORT_VERSION = '2.9.0';
   const REPORT_TYPES = Object.freeze([
     'cutted',
     'false-success',
@@ -46,6 +46,8 @@
     PROMPT_SUBMITTED_ACCEPTED: 'SUBMISSION_EVIDENCE_CHANGED',
     PROMPT_SUBMITTED_REJECTED: 'SUBMISSION_EVIDENCE_CHANGED',
     PROMPT_SUBMITTED_TIMEOUT: 'SUBMISSION_EVIDENCE_CHANGED',
+    PROMPT_SUBMITTED_STALE: 'SUBMISSION_EVIDENCE_CHANGED',
+    PROMPT_SUBMITTED_UNCONFIRMED: 'SUBMISSION_EVIDENCE_CHANGED',
     PROMPT_SUBMITTED_INFERRED: 'SUBMISSION_INFERRED',
     ANSWER_START_DETECTED: 'GENERATION_START_EVALUATED',
     ANSWER_GENERATING: 'GENERATION_SIGNAL_CHANGED',
@@ -62,6 +64,8 @@
     ANSWER_PARTIAL_ON_TIMEOUT: 'ANSWER_COMPLETENESS_EVALUATED',
     ANSWER_VERIFICATION_RECORDED: 'STRUCTURAL_VERIFICATION_EVALUATED',
     ANSWER_VERIFICATION_RESULT: 'STRUCTURAL_VERIFICATION_EVALUATED',
+    ANSWER_EXTRACTION_COMPLETED: 'EXTRACTION_COMPLETED',
+    MULTIPLE_CANDIDATES_AMBIGUOUS: 'CANDIDATE_SET_CHANGED',
     LIFECYCLE_SNAPSHOT_ACCEPTED: 'OBSERVATION_FRAME_CAPTURED',
     LIFECYCLE_SNAPSHOT_REJECTED: 'OBSERVER_HEALTH_OBSERVED',
     FINALIZATION_DECISION: 'FINALIZATION_POLICY_EVALUATED',
@@ -80,12 +84,11 @@
     PROMPT_INSERTION_FAILED: 'PROMPT_INSERTION_EVALUATED',
     SEND_DEFERRED_TRANSIENT_BLOCKER: 'SUBMISSION_EVIDENCE_CHANGED',
     SEND_DEGRADED_AFTER_SUBMIT: 'SUBMISSION_EVIDENCE_CHANGED',
-    LLM_RESPONSE_READY: 'EXTRACTION_COMPLETED',
     GEMINI_STALE_BASELINE_REJECTED: 'CANDIDATE_SET_CHANGED',
     GROK_PROMPT_ECHO_REJECTED: 'CANDIDATE_SET_CHANGED',
     GROK_SENT_PROMPT_CONFIRMED: 'SUBMISSION_EVIDENCE_CHANGED',
-    DOM_FALLBACK_START: 'EXTRACTION_COMPLETED',
-    DOM_FALLBACK_JOINED: 'EXTRACTION_COMPLETED',
+    DOM_FALLBACK_START: 'EXTRACTION_ATTEMPTED',
+    DOM_FALLBACK_JOINED: 'EXTRACTION_ATTEMPTED',
     DOM_FALLBACK_SUCCESS: 'EXTRACTION_COMPLETED',
     DOM_FALLBACK_TIMEOUT: 'EXTRACTION_COMPLETED',
     COMPOSER_NOT_FOUND: 'PAGE_HEALTH_OBSERVED'
@@ -96,31 +99,51 @@
     PROMPT_INSERTION_FAILED: { kind: 'prompt_insertion', state: 'failed' },
     SEND_DEFERRED_TRANSIENT_BLOCKER: { kind: 'submission', state: 'deferred' },
     SEND_DEGRADED_AFTER_SUBMIT: { kind: 'submission', state: 'confirmed' },
-    LLM_RESPONSE_READY: { kind: 'extraction', state: 'completed' },
     GEMINI_STALE_BASELINE_REJECTED: { kind: 'candidate_identity', state: 'stale' },
     GROK_PROMPT_ECHO_REJECTED: { kind: 'candidate_identity', state: 'rejected' },
     GROK_SENT_PROMPT_CONFIRMED: { kind: 'submission', state: 'confirmed' },
-    DOM_FALLBACK_START: { kind: 'extraction', state: 'fallback' },
-    DOM_FALLBACK_JOINED: { kind: 'extraction', state: 'fallback' },
-    DOM_FALLBACK_SUCCESS: { kind: 'extraction', state: 'completed' },
-    DOM_FALLBACK_TIMEOUT: { kind: 'extraction', state: 'failed' },
+    DOM_FALLBACK_START: { kind: 'extraction_attempt', state: 'started', mode: 'fallback' },
+    DOM_FALLBACK_JOINED: { kind: 'extraction_attempt', state: 'joined', mode: 'fallback' },
+    DOM_FALLBACK_SUCCESS: { kind: 'extraction', state: 'completed', outcome: 'completed', mode: 'fallback' },
+    DOM_FALLBACK_TIMEOUT: { kind: 'extraction', state: 'failed', outcome: 'failed', mode: 'fallback' },
+    ANSWER_EXTRACTION_COMPLETED: { kind: 'extraction', state: 'completed', outcome: 'completed', mode: 'primary' },
+    MULTIPLE_CANDIDATES_AMBIGUOUS: { kind: 'candidate_identity', state: 'ambiguous' },
     COMPOSER_NOT_FOUND: { kind: 'observation', state: 'degraded' }
   });
 
   const OPERATIONAL_EVENT_PATTERN = /^(?:ADAPTIVE_PROBE_TICK|MANUAL_PING(?:_FAIL|_START|_RESULT)?|PING_(?:TRANSPORT_ERROR|RETRY|TICK)|ROUND4_GATE_WAIT|MODEL_RUN_TRANSITION|STATE_PROJECTION_COMMITTED|DETECTOR_TICK|SELECTOR_STATS|RECOVERY_BUDGET_(?:EXHAUSTED|CONSUMED|WAIT)|FOCUS_(?:WAIT|RETRY|CHECK)|LEASE_(?:WAIT|RETRY|CHECK)|POLL(?:ING)?_TICK|WATCHDOG_TICK)$/;
+
+  function rejectionMapping(event, label) {
+    if (!['SENDER_WITHOUT_BINDING_REJECTED', 'SENDER_TAB_MISMATCH_REJECTED', 'LIFECYCLE_CORRELATION_REJECTED'].includes(label)) return null;
+    const messageType = String(event?.meta?.messageType || '').toUpperCase();
+    if (/^(?:LLM_RESPONSE|FINAL_LLM_RESPONSE|ANSWER_SNAPSHOT)/.test(messageType)) {
+      return {
+        route: 'canonical',
+        label,
+        eventType: 'ANSWER_DELIVERY_REJECTED',
+        typed: { kind: 'delivery', state: 'rejected', outcome: 'rejected' }
+      };
+    }
+    if (/^(?:PROMPT_SUBMITTED|PROVIDER_DISPATCH)/.test(messageType)) {
+      return {
+        route: 'canonical',
+        label,
+        eventType: 'SUBMISSION_EVIDENCE_CHANGED',
+        typed: { kind: 'submission', state: 'failed' }
+      };
+    }
+    return { route: 'debug', label, eventType: null };
+  }
 
   function classifyRuntimeEvent(event = {}) {
     const label = normalizeLabel(event);
     if (event?.proofEventType || event?.meta?.proofEventType) {
       return { route: 'canonical', label, eventType: String(event.proofEventType || event.meta.proofEventType) };
     }
+    const rejection = rejectionMapping(event, label);
+    if (rejection) return rejection;
     if (EVENT_MAP[label]) return { route: 'canonical', label, eventType: EVENT_MAP[label], typed: RUNTIME_TYPED_FACTS[label] || null };
     if (OPERATIONAL_EVENT_PATTERN.test(label)) return { route: 'operational', label, eventType: 'OBSERVER_HEALTH_INTERVAL_CLOSED' };
-    if (/PROVIDER_(?:FINISH_REASON|COMPLETE|TERMINAL)|TERMINAL_MARKER/.test(label)) return { route: 'canonical', label, eventType: 'COMPLETION_HYPOTHESIS_EVALUATED' };
-    if (/EXTRACT|MATERIALIZE|RESPONSE_CAPTURE/.test(label)) return { route: 'canonical', label, eventType: 'EXTRACTION_COMPLETED' };
-    if (/TURN_RESOLUTION|CANDIDATE|ANSWER_NODE/.test(label)) return { route: 'canonical', label, eventType: 'CANDIDATE_SET_CHANGED' };
-    if (/PAGE_HEALTH|SCRIPT_HEALTH|SELECTOR_(?:FAIL|MISS)|OBSERVER_(?:FAIL|UNAVAILABLE)/.test(label)) return { route: 'canonical', label, eventType: 'OBSERVER_HEALTH_OBSERVED' };
-    if (/SUBMISSION|PROMPT_SUBMITTED|DISPATCH_(?:BASELINE|SEND|START)/.test(label)) return { route: 'canonical', label, eventType: canonicalType(event) };
     return { route: 'debug', label, eventType: null };
   }
 
@@ -138,15 +161,11 @@
     const explicitType = event?.proofEventType || event?.meta?.proofEventType;
     if (explicitType) return String(explicitType).trim().toUpperCase();
     const label = normalizeLabel(event);
+    const rejection = rejectionMapping(event, label);
+    if (rejection?.eventType) return rejection.eventType;
     if (EVENT_MAP[label]) return EVENT_MAP[label];
-    if (/FINAL|TERMINAL/.test(label)) return 'FINALIZATION_POLICY_EVALUATED';
-    if (/EXTRACT|MATERIALIZE|RESPONSE/.test(label)) return 'EXTRACTION_COMPLETED';
-    if (/ANSWER|TEXT|LIFECYCLE/.test(label)) return 'TEXT_STATE_CHANGED';
-    if (/SUBMIT|DISPATCH|SEND|ACK|HANDSHAKE/.test(label)) return 'SUBMISSION_EVIDENCE_CHANGED';
-    if (/SELECTOR|CANDIDATE|TURN_RESOLUTION/.test(label)) return 'CANDIDATE_SET_CHANGED';
-    if (/PAGE|TAB|NAVIGATION/.test(label)) return 'PAGE_CONTEXT_OBSERVED';
-    if (/LEASE|FOCUS|VISIT|SCHEDUL/.test(label)) return 'OBSERVER_HEALTH_OBSERVED';
-    return 'OBSERVER_HEALTH_OBSERVED';
+    if (OPERATIONAL_EVENT_PATTERN.test(label)) return 'OBSERVER_HEALTH_INTERVAL_CLOSED';
+    return null;
   }
 
   function layerFor(type) {
@@ -223,13 +242,15 @@
 
   function buildLedger(events, options = {}) {
     const source = Array.isArray(events) ? events.slice() : flattenGroups(events);
-    const firstWallTs = Number(source[0]?.ts || options.exportedAt || Date.now());
+    const routedSource = source.map((legacy) => ({ legacy, route: classifyRuntimeEvent(legacy) }))
+      .filter(({ route }) => route.route !== 'debug' && route.eventType);
+    const firstWallTs = Number(routedSource[0]?.legacy?.ts || options.exportedAt || Date.now());
     const runSessionId = options.runSessionId || source.find((event) => event?.meta?.runSessionId)?.meta?.runSessionId || `export-${firstWallTs}`;
-    return source.map((legacy, index) => {
+    return routedSource.map(({ legacy, route }, index) => {
       const seq = index + 1;
       const wallTs = Number(legacy?.ts || firstWallTs);
       const modelId = platformOf(legacy);
-      const type = canonicalType(legacy);
+      const type = route.eventType;
       const meta = sanitizeValue(legacy?.meta || {}, 'meta') || {};
       const dispatchId = meta.dispatchId || meta.requestId || undefined;
       const identityMaterial = `${runSessionId}|${modelId}|${dispatchId || ''}|${normalizeLabel(legacy)}|${wallTs}|${seq}`;
@@ -257,7 +278,7 @@
           ingestMonoMs: seq
         },
         payload: {
-          typed: Contracts?.adaptLegacyEvent?.({ payload: { sourceEventType: normalizeLabel(legacy) || 'UNKNOWN', metadata: meta } }) || { kind: 'unknown', state: 'unknown' },
+          typed: route.typed || Contracts?.adaptLegacyEvent?.({ payload: { sourceEventType: normalizeLabel(legacy) || 'UNKNOWN', metadata: meta } }) || { kind: 'unknown', state: 'unknown' },
           sourceEventType: normalizeLabel(legacy) || 'UNKNOWN',
           sourceLevel: String(legacy?.level || 'info'),
           detailsLength: String(legacy?.details || '').length,

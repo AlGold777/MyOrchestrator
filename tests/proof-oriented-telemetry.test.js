@@ -44,6 +44,57 @@ describe('Proof-oriented telemetry schema 6 event export', () => {
     ], { runSessionId: 42 })[0].eventType).toBe('STABILITY_INTERVAL_CLOSED');
   });
 
+  test('never promotes unknown, recovery planning, file or attachment labels into proof slots', () => {
+    const unsafeLabels = [
+      'MATERIALIZE_RECOVERY_START',
+      'MATERIALIZE_RECOVERY_MISS',
+      'MATERIALIZE_LATEST_RETRY_WAIT',
+      'GEMINI_CDP_FILES_MATERIALIZED',
+      'ATTACH_CANDIDATE',
+      'UNMAPPED_LEGACY_NOISE'
+    ];
+    unsafeLabels.forEach((label) => {
+      expect(ProofTelemetry.classifyRuntimeEvent({ label }).route).toBe('debug');
+      expect(ProofTelemetry.canonicalType({ label })).toBeNull();
+    });
+    expect(ProofTelemetry.buildLedger(
+      unsafeLabels.map((label, index) => evt('GPT', label, 1000 + index)),
+      { runSessionId: 42 }
+    )).toEqual([]);
+  });
+
+  test('routes answer reception rejections by message semantics, not label substrings', () => {
+    const senderRejected = evt('GPT', 'SENDER_TAB_MISMATCH_REJECTED', 1000, {
+      messageType: 'LLM_RESPONSE_READY'
+    });
+    const correlationRejected = evt('GPT', 'LIFECYCLE_CORRELATION_REJECTED', 1010, {
+      messageType: 'LLM_RESPONSE'
+    });
+    const ledger = ProofTelemetry.buildLedger([senderRejected, correlationRejected], { runSessionId: 42 });
+    expect(ledger.map((event) => event.eventType)).toEqual([
+      'ANSWER_DELIVERY_REJECTED',
+      'ANSWER_DELIVERY_REJECTED'
+    ]);
+    expect(ledger.every((event) => event.payload.typed.kind === 'delivery')).toBe(true);
+    expect(ledger.some((event) => ['SUBMISSION_EVIDENCE_CHANGED', 'TEXT_STATE_CHANGED'].includes(event.eventType))).toBe(false);
+  });
+
+  test('keeps fallback mode separate from extraction outcome', () => {
+    const ledger = ProofTelemetry.buildLedger([
+      evt('GPT', 'DOM_FALLBACK_START', 1000),
+      evt('GPT', 'DOM_FALLBACK_SUCCESS', 1010),
+      evt('GPT', 'DOM_FALLBACK_TIMEOUT', 1020)
+    ], { runSessionId: 42 });
+    expect(ledger.map((event) => event.eventType)).toEqual([
+      'EXTRACTION_ATTEMPTED',
+      'EXTRACTION_COMPLETED',
+      'EXTRACTION_COMPLETED'
+    ]);
+    expect(ledger[0].payload.typed).toEqual(expect.objectContaining({ kind: 'extraction_attempt', mode: 'fallback' }));
+    expect(ledger[1].payload.typed).toEqual(expect.objectContaining({ outcome: 'completed', mode: 'fallback' }));
+    expect(ledger[2].payload.typed).toEqual(expect.objectContaining({ outcome: 'failed', mode: 'fallback' }));
+  });
+
   test('builds one immutable canonical ledger and all seven embedded reports', async () => {
     const container = await ProofTelemetry.buildAllPresets({
       '<GPT>': [
