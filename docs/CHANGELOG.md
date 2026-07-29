@@ -1,5 +1,34 @@
 # CHANGELOG — Project
 
+### 2026-07-29 — Preset semantic review iteration 2, version 2.81.156
+
+- Standalone compaction now preserves only the selected Task's frozen
+  applicability/refutation/slot projection. A 320-event Cutted incident is
+  reduced below 40 events without full-incident fallback.
+- Added `supported_but_incomplete`: positive applicability with missing
+  required evidence cannot win primary-diagnosis arbitration.
+- Added graded measurement comparability and candidate continuity across
+  coverage, extraction, structural verification and post-terminal growth.
+- Added active evidence supersession. The latest completeness decision wins;
+  proven growth persists until an explicit rollback invalidates it.
+- Absence diagnoses require a complete reliable observation window. Degraded
+  or incomplete observation is `unknown` with an explicit missing slot.
+- Late end requires positive interval coverage and measures from the evidenced
+  policy-eligibility event. Same-length observations no longer count as growth.
+- Ledger deduplication includes candidate/document/turn/navigation identity,
+  and companion events inherit that identity. Ambiguous accepted extraction is
+  emitted as `MISSING_EVIDENCE_RECORDED`.
+- Old answer slots contain actual prior-incident events and compare
+  privacy-safe hashes when available; an external referenced prior is a
+  bounded limitation rather than invented negative proof.
+- Every Task has explicit refutation predicates; every sibling pair is causal
+  or explicitly co-occurring. Invariant violations are localized to affected
+  reports, slots and fields, while missing legacy lineage is a limitation.
+- Registry 5.5.0, report 2.7.0 and generator 1.8.0 regenerate All tasks and all
+  seven standalone reports with task-local replay/hash validation. Focused gate
+  passes 7 suites / 91 tests; the full project gate passes 187 suites / 1308
+  tests.
+
 ### 2026-07-29 — Cross-incident and measurement semantics, version 2.81.155
 
 - Candidate continuity is required before comparing observed and extracted

@@ -11,6 +11,14 @@
 
 ## Статус реализации
 
+Версия `2.81.156` реализует вторую итерацию semantic review. Registry `5.5.0`,
+report `2.7.0` и generator `1.8.0` добавляют task-local verdict preservation,
+`supported_but_incomplete`, graded measurement comparability, evidence
+supersession, reliable absence windows, policy-relative Late end, локальные
+invariant impacts, настоящую prior-incident slot lane и полные refutation/
+sibling relation contracts. Все семь standalone examples подтверждают свой
+диагноз, не используют full-incident fallback и проходят независимую проверку.
+
 Версия `2.81.155` реализует результаты независимого cross-review V1–V21.
 Registry `5.4.0`, report `2.6.0` и generator `1.7.0` включают composite verdict,
 fact/temporal slot rules, verdict-preserving compaction, candidate continuity,

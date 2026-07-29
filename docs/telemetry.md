@@ -1,5 +1,39 @@
 # Telemetry - tab/session diagnostics
 
+## Semantic review iteration 2 v2.81.156 - 2026-07-29
+
+Registry 5.5.0, report 2.7.0 and generator 1.8.0 make a preset verdict depend
+on the complete proof contract of that specific question. Missing required
+slots now produce `supported_but_incomplete` and cannot become the primary
+diagnosis. A bounded confidence limitation may still confirm a fact when every
+required slot is present; examples include `single_candidate` measurement
+comparability and an explicitly referenced prior incident outside the export.
+
+Standalone compaction records the derived view from the full frozen incident
+and proves equivalence of the selected Task's applicability, refutation and
+slot projection. Unrelated axes and other Tasks no longer force the complete
+incident into the report. Candidate/document/turn/navigation identity survives
+ledger deduplication and is inherited by companion events.
+
+Candidate continuity now gates extraction, structural verification and
+post-terminal audit chains. Completeness decisions supersede earlier states;
+proven growth survives later measurements of the same grown answer unless an
+explicit rollback invalidates it. Impossible audit remains `unknown`, while a
+completed measurement inside tolerance is explicit counter-evidence.
+
+Prompt not sent and Prompt not inserted require a bounded reliable observation
+window. Late end requires positive observation coverage and measures excess
+wait from the event that made finalization eligible, not from an arbitrary
+global stability delay. Old answer materializes actual prior-incident evidence
+and compares privacy-safe hashes when both sides are available. Every Task has
+an executable refutation, every sibling pair is classified as causal or
+co-occurring, and invariant violations affect only their declared slots and
+fields.
+
+Acceptance: focused semantic gate 7 suites / 91 tests; complete project gate
+187 suites / 1308 tests. All tasks and all seven positive standalone examples
+pass schema, privacy, registry, slot, verdict and hash validation.
+
 ## Cross-review semantic corrections v2.81.155 - 2026-07-29
 
 Registry 5.4.0, report 2.6.0 and generator 1.7.0 close all V1–V21 findings from

@@ -810,6 +810,11 @@ explicit `previous_dispatch|stale_accepted` extraction identity. Explicit
 `current_dispatch` имеет приоритет; строковое сравнение разрешено только после
 нормализации обоих известных dispatch identifiers.
 
+Если `priorIncidentRef` доступен внутри export, slot
+`prior_incident_evidence` содержит terminal/extraction именно prior incident.
+При наличии privacy-safe hashes их различие опровергает гипотезу Old answer;
+совпадение одних длин не считается доказательством идентичности текста.
+
 ## 33. `empty`
 
 **Primary question:** почему генерация была, но extraction вернул пусто или не
@@ -829,7 +834,7 @@ ambiguous или stale candidate). Успешный verified current-dispatch ex
 **Primary question:** почему prompt не вставился в поле ввода?
 
 Проверяет явный результат composer insertion внутри точного incident. Только
-typed `prompt_insertion=failed` при пригодном observer context подтверждает
+typed `prompt_insertion=failed` при полном reliable `absenceObservationWindow` подтверждает
 диагноз. Confirmed/inserted insertion, подтверждённая отправка, наблюдавшаяся
 генерация, непустой extraction или SUCCESS terminal опровергают его. Ошибка
 вставки является возможной причиной `prompt-not-sent`, но не подменяет диагноз
@@ -844,21 +849,22 @@ page context и observer health. Отсутствующее acceptance evidence 
 как неизвестное, а не автоматически как доказательство неотправки.
 
 Confirmed submission, наблюдавшаяся генерация, непустой принятый extraction или
-SUCCESS terminal явно опровергают preset. Partial/absent/unavailable observation
-даёт `unknown`; только typed failed submission без counter-evidence подтверждает
-проблему.
+SUCCESS terminal явно опровергают preset. Partial/degraded/stale/unavailable
+observation даёт `unknown`; только typed failed submission без counter-evidence
+внутри полного reliable observation window подтверждает проблему.
 
 ## 36. `late-end`
 
 **Primary question:** текст давно стабилен — почему система ждала ещё `N`
 секунд?
 
-Отчёт вычисляет `stableToTerminalMs` между последним подтверждённым
-`STABILITY_INTERVAL_CLOSED` и `MODEL_TERMINAL_RECORDED`, но подтверждает preset
-только при явном `DECISION_RECORDED.accepted=false` после stability boundary.
-Любая последующая text mutation или active-generation signal инвалидирует
-интервал. Произвольный глобальный millisecond threshold запрещён: отчёт
-показывает фактическую policy-задержку конкретного incident.
+Отчёт сохраняет `stableToTerminalMs`, но диагноз вычисляет по
+`policyEligibleToTerminalMs`: от последнего события, доказавшего, что
+finalization разрешена, до `MODEL_TERMINAL_RECORDED`. Интервал после stability
+boundary должен быть положительно покрыт observation frames/intervals. Изменение
+length/hash или active-generation signal инвалидирует стабильность; событие с
+той же длиной лишь подтверждает наблюдение. Произвольный глобальный threshold
+от момента стабильности запрещён.
 
 Интервал обязан иметь `stableToTerminalClockBasis=producer_monotonic` либо
 `ingest_monotonic`; при разных epochs значение остаётся `null`.
@@ -875,23 +881,67 @@ Standalone closure MUST минимизировать повторы по док�
 ## 29. Composite verdict и межинцидентные доказательства
 
 `applicability` отвечает только на вопрос о совпадении наблюдаемых признаков.
-Сильный `diagnosticVerdict=confirmed` разрешён лишь при `complete|bounded`
-sufficiency и отсутствии scope/temporal/causal violations. Arbitration MUST
-использовать `diagnosticVerdict`, а не raw applicability.
+Сильный `diagnosticVerdict=confirmed` разрешён при `complete` sufficiency либо
+при `bounded`, если все critical/required slots присутствуют, а ограничение
+относится только к доказанной confidence boundary (`single_candidate` или
+`prior_incident_outside_export`). Положительная applicability с отсутствующим
+required slot MUST иметь `supported_but_incomplete` и MUST NOT участвовать в
+выборе primary diagnosis. Scope/temporal/causal violation блокирует только
+перечисленные в нём `affectedReportTypes`, `affectedSlotIds` и
+`affectedFields`. Arbitration MUST использовать `diagnosticVerdict`, а не raw
+applicability.
 
-Standalone MUST вычислять applicability на полном frozen incident. Materialized
-closure MUST воспроизводить те же state axes и результаты всех Tasks; hashes
-полной и materialized verdict-проекций обязаны совпадать. При расхождении MUST
-быть сохранён полный incident с причиной `semantic-verdict-preservation`.
+Standalone MUST вычислять applicability на полном frozen incident и сохранять
+`recordedDerivedView` с semantic commitment полного incident. Materialized
+closure MUST воспроизводить task-local projection выбранного диагноза:
+applicability, refutation, diagnostic verdict и факты его evidence slots.
+Изменения посторонних axes или остальных Tasks MUST NOT запускать fallback.
+Hashes полной и materialized task projections обязаны совпадать; полный incident
+разрешён только как аварийный fallback при реальном task-local расхождении.
 
-Length coverage MUST сравнивать значения только одной candidate lineage. При
-неподтверждённой continuity результат остаётся unknown. `Old answer` MUST иметь
-разрешимый `priorIncidentRef`; prior terminal/extraction включаются отдельной
-evidence lane и не смешиваются с derived view текущего incident.
+Measurement comparability имеет четыре уровня: `candidate_proven`,
+`dispatch_proven`, `single_candidate`, `unknown`. Length coverage, extraction,
+structural verification и post-terminal audit MUST использовать одну candidate
+lineage либо явную supersession lineage. `single_candidate` ограничивает
+confidence, но не скрывает очевидную обрезку; `unknown` запрещает сравнение.
+
+`Old answer` использует `priorIncidentRef`; при доступности prior incident его
+реальные terminal/extraction events входят в slot и отдельную evidence lane.
+Privacy-safe hashes принятого и prior ответа сравниваются, если доступны:
+различие является counter-evidence, а одинаковая длина без hash ничего не
+доказывает. Явно referenced prior за границей export даёт bounded limitation
+`prior_incident_outside_export`, а не ложное опровержение.
 
 Audit MUST следовать после terminal и ссылаться на terminal и более позднее
-наблюдение. Late end MUST опираться на policy boundary и configured tolerance.
-Hash-only mutation является изменением ответа, но не ростом для False success.
+наблюдение. `impossible|pending` audit остаётся unknown; completed measurement
+внутри growth tolerance является refutation. Доказанный рост не отменяется
+последующим zero-growth audit той же версии, пока explicit rollback не
+инвалидирует прежнее доказательство. Hash-only mutation является изменением
+ответа, но не ростом для False success.
+
+Completeness observations образуют supersession timeline: последнее действующее
+состояние заменяет прежнюю гипотезу. Поэтому `probably_truncated →
+probably_complete` опровергает Cutted, если нет другого положительного evidence.
+
+Prompt not sent и Prompt not inserted являются absence diagnoses и MUST иметь
+`absenceObservationWindow`: baseline, границы, reliable signal coverage и
+допустимый skew. `degraded|stale|unavailable` либо пропуск сигнала даёт unknown.
+
+Late end MUST иметь положительное покрытие интервала после последней stability
+boundary. Same-length observation закрывает окно и не считается мутацией;
+изменение length/hash или active generation refutes стабильность. Задержка
+считается от `policyEligibilityEventId`, который снял blockers или достиг
+terminal deadline; `lateEndPolicyToleranceMs` является допуском измерения, а не
+глобальным порогом от момента стабильности.
+
+Ledger no-op identity MUST включать run generation, candidate, document, turn и
+navigation epoch. Companion events наследуют эту identity. Неоднозначный выбор
+из нескольких pre-terminal extractions MUST породить
+`MISSING_EVIDENCE_RECORDED{extraction_identity_ambiguous}`.
+
+Каждый preset MUST иметь исполняемый `refutation.any`. Каждая пара из sibling
+rules MUST быть классифицирована как causal (`cause → consequence`) либо
+`co-occurring` без causal claim; роль `related` без объяснения запрещена.
 
 ---
 

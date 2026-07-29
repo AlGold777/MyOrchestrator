@@ -515,63 +515,71 @@ section 19 task is Done.
 20.1. Preserve a standalone preset's own frozen full-incident verdict and
 slot facts without requiring unrelated axes or the other six presets to replay
 from compacted evidence; retain full-incident fallback only for a real
-task-local semantic mismatch. - Pending
+task-local semantic mismatch. - Done
 
 20.2. Introduce graded measurement comparability (`candidate_proven`,
 `dispatch_proven`, `single_candidate`, `unknown`) and use it consistently for
-coverage, post-terminal growth, extraction and structural verification. - Pending
+coverage, post-terminal growth, extraction and structural verification. - Done
 
 20.3. Localize every temporal/causal invariant violation to affected slots and
 fields; represent missing legacy lineage as an explicit limitation instead of
-a producer-invariant violation. - Pending
+a producer-invariant violation. - Done
 
 20.4. Require positive observation-window coverage before concluding that no
-post-stability mutation occurred; make Late end text evolution critical. - Pending
+post-stability mutation occurred; make Late end text evolution critical. - Done
 
 20.5. Measure Late end from the evidenced policy-eligibility boundary and use
 the configured tolerance only as measurement allowance, not as an absolute
-delay threshold. - Pending
+delay threshold. - Done
 
 20.6. Materialize actual prior-incident events in Old answer's prior evidence
-slot and represent a referenced incident outside the export as bounded evidence. - Pending
+slot and represent a referenced incident outside the export as bounded evidence. - Done
 
 20.7. Add executable refutation contracts for Cutted, False success, Empty and
-Late end, preserving unknown when counter-evidence itself is unavailable. - Pending
+Late end, preserving unknown when counter-evidence itself is unavailable. - Done
 
 20.8. Classify every sibling relation as causal or explicitly co-occurring and
-make arbitration explain every simultaneously confirmed diagnosis. - Pending
+make arbitration explain every simultaneously confirmed diagnosis. - Done
 
 20.9. Add regression coverage for report size/fallback, comparability,
 localized invariants, Late end windows and boundaries, prior evidence,
-refutations, sibling arbitration and legacy limitations. - Pending
+refutations, sibling arbitration and legacy limitations. - Done
 
 20.10. Synchronize the specification, dependency registry, generated examples,
-project versions, telemetry documentation and changelog. - Pending
+project versions, telemetry documentation and changelog. - Done
 
 20.11. Distinguish fully confirmed diagnoses from
 `supported_but_incomplete`; required-slot omissions must prevent primary
-diagnosis selection while preserving the supported finding. - Pending
+diagnosis selection while preserving the supported finding. - Done
 
 20.12. Treat impossible/pending post-terminal measurement as unknown and a
-completed within-tolerance measurement as explicit refutation. - Pending
+completed within-tolerance measurement as explicit refutation. - Done
 
 20.13. Enforce candidate continuity across post-terminal growth, Empty,
 completeness and structural-verification evidence, unless explicit supersession
-lineage proves continuity. - Pending
+lineage proves continuity. - Done
 
 20.14. Model evidence supersession so the latest active completeness decision
 wins while a later audit cannot erase previously proven growth without explicit
-rollback evidence. - Pending
+rollback evidence. - Done
 
 20.15. Require a reliable, bounded absence-observation window for Prompt not
-sent and Prompt not inserted; degraded or incomplete coverage remains unknown. - Pending
+sent and Prompt not inserted; degraded or incomplete coverage remains unknown. - Done
 
 20.16. Include candidate, document, turn and navigation identity in ledger
-deduplication and inherit the same identity on companion events. - Pending
+deduplication and inherit the same identity on companion events. - Done
 
 20.17. Add `not_applicable` completeness when no relevant incident exists and
 rank standalone incident selection by composite diagnostic verdict before
-evidence count and recency. - Pending
+evidence count and recency. - Done
 
 20.18. Record ambiguous accepted-extraction identity as explicit missing
-evidence and carry it into the diagnostic report with dependent fields unknown. - Pending
+evidence and carry it into the diagnostic report with dependent fields unknown. - Done
+
+Section 20 evidence: task-local compaction keeps a confirmed Cutted report from
+a 320-event incident at or below 40 materialized events with no fallback. The
+focused semantic gate passes 7 suites / 91 tests; the complete project gate
+passes 187 suites / 1308 tests. Registry 5.5.0, report 2.7.0 and generator 1.8.0
+produce All tasks plus seven positive standalone examples; every artifact
+passes schema, privacy, registry, slot, verdict and hash validation. Every
+section 20 task is Done.
