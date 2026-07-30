@@ -181,3 +181,9 @@ it. Events normalized after dispatch frequently carry `dispatchId` without the
 matching epoch/attempt, empty-chat baselines are acknowledged but not emitted,
 and compacted render/commit events lose `outcome`. Version 2.81.191 fixes these
 four defects and makes duplicate reference detection part of runtime validation.
+
+The export contains no generation facts because unified-pipeline signals arrive
+as `PIPELINE_STEP` plus `meta.step`; the canonicalizer previously recognized
+only dedicated labels such as `ANSWER_GENERATING`. Version 2.81.192 maps the
+actual streaming start/end and finalization-done steps into canonical generation
+and completion events, while retaining their step/phase metadata.

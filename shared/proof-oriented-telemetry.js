@@ -161,6 +161,9 @@
     }
     const rejection = rejectionMapping(event, label);
     if (rejection) return rejection;
+    const pipelineStep = pipelineStepMapping(event, label);
+    if (pipelineStep) return pipelineStep;
+    if (CANONICAL_EVENT_TYPES.has(label)) return { route: 'canonical', label, eventType: label };
     if (EVENT_MAP[label]) return { route: 'canonical', label, eventType: EVENT_MAP[label], typed: RUNTIME_TYPED_FACTS[label] || null };
     if (OPERATIONAL_EVENT_PATTERN.test(label)) return { route: 'operational', label, eventType: 'OBSERVER_HEALTH_INTERVAL_CLOSED' };
     return { route: 'debug', label, eventType: null };
@@ -171,9 +174,36 @@
   const ACTION_TYPES = new Set(['MODEL_TERMINAL_RECORDED']);
   const AUDIT_TYPES = new Set(['POST_TERMINAL_AUDIT_COMPLETED', 'SELECTOR_FORENSIC_SNAPSHOT_CAPTURED', 'REPLAY_VALIDATION_RECORDED', 'EXPORT_AUDIT_RECORDED']);
   const SYSTEM_TYPES = new Set(['RUN_CONFIG_RECORDED', 'SELECTOR_CANARY_RESULT']);
+  const CANONICAL_EVENT_TYPES = new Set([
+    ...Object.values(EVENT_MAP),
+    ...INFERENCE_TYPES,
+    ...DECISION_TYPES,
+    ...ACTION_TYPES,
+    ...AUDIT_TYPES,
+    ...SYSTEM_TYPES
+  ]);
 
   function normalizeLabel(event) {
     return String(event?.label || event?.meta?.event || '').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  }
+
+  function pipelineStepMapping(event, label = normalizeLabel(event)) {
+    if (label !== 'PIPELINE_STEP') return null;
+    const step = String(event?.meta?.step || '').trim().toLowerCase();
+    return ({
+      streaming_start: {
+        route: 'canonical', label, eventType: 'GENERATION_START_EVALUATED',
+        typed: { kind: 'generation_start', state: 'started' }
+      },
+      streaming_done: {
+        route: 'canonical', label, eventType: 'GENERATION_SIGNAL_CHANGED',
+        typed: { kind: 'generation_transition', state: 'provider_ui_completed', strong: true }
+      },
+      finalization_done: {
+        route: 'canonical', label, eventType: 'COMPLETION_HYPOTHESIS_EVALUATED',
+        typed: { kind: 'completion_hypothesis', state: 'probably_complete' }
+      }
+    })[step] || null;
   }
 
   function canonicalType(event) {
@@ -182,6 +212,9 @@
     const label = normalizeLabel(event);
     const rejection = rejectionMapping(event, label);
     if (rejection?.eventType) return rejection.eventType;
+    const pipelineStep = pipelineStepMapping(event, label);
+    if (pipelineStep?.eventType) return pipelineStep.eventType;
+    if (CANONICAL_EVENT_TYPES.has(label)) return label;
     if (EVENT_MAP[label]) return EVENT_MAP[label];
     if (OPERATIONAL_EVENT_PATTERN.test(label)) return 'OBSERVER_HEALTH_INTERVAL_CLOSED';
     return null;

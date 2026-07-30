@@ -337,12 +337,18 @@
       DISPATCH_BASELINE_CAPTURED: { kind: 'dispatch_baseline', state: metadata.baselineState || 'captured' },
       PROMPT_INSERTION_EVALUATED: { kind: 'prompt_insertion', state: payload.insertionState || metadata.insertionState || 'unknown' },
       GENERATION_STATE_INFERRED: { kind: 'generation', state: payload.observedGeneration || metadata.observedGeneration || 'unknown' },
+      GENERATION_START_EVALUATED: { kind: 'generation_start', state: payload.typed?.state || metadata.state || 'started' },
+      GENERATION_SIGNAL_CHANGED: {
+        kind: payload.typed?.kind || 'generation_transition',
+        state: payload.typed?.state || metadata.state || (/streaming_done/i.test(String(metadata.step || '')) ? 'provider_ui_completed' : 'unknown')
+      },
       CANDIDATE_IDENTITY_INFERRED: { kind: 'candidate_identity', state: payload.answerIdentity || metadata.answerIdentity || 'unknown' },
       ANSWER_COMPLETENESS_EVALUATED: { kind: 'answer_completeness', state: payload.answerCompleteness || metadata.answerCompleteness || 'unknown' },
       STRUCTURAL_VERIFICATION_EVALUATED: { kind: 'verification', state: (payload.verified ?? metadata.verified) === false ? 'rejected' : (payload.verification || metadata.verification || 'verified') },
       COMPLETION_HYPOTHESIS_EVALUATED: {
         kind: 'completion_hypothesis',
-        state: payload.completionDetection || payload.metadata?.completionDetection || payload.typed?.state || 'unknown'
+        state: payload.completionDetection || metadata.completionDetection || payload.typed?.state
+          || (/finalization_done/i.test(String(metadata.step || '')) ? 'probably_complete' : 'unknown')
       },
       EXTRACTION_ATTEMPTED: { kind: 'extraction_attempt', state: payload.status || payload.typed?.state || 'started' },
       EXTRACTION_COMPLETED: { kind: 'extraction', state: payload.status || 'completed' },

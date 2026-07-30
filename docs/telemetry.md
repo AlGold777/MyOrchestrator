@@ -1,5 +1,14 @@
 # Telemetry - tab/session diagnostics
 
+## Pipeline generation proof routing v2.81.192 - 2026-07-30
+
+Concrete `PIPELINE_STEP` values are now canonical proof events:
+`streaming_start` becomes `GENERATION_START_EVALUATED`, `streaming_done` becomes
+`GENERATION_SIGNAL_CHANGED`, and `finalization_done` becomes
+`COMPLETION_HYPOTHESIS_EVALUATED`. Step and phase metadata survive compaction.
+Already-canonical labels are also retained directly rather than falling through
+to legacy debug storage.
+
 ## Complete dispatch identity and empty baselines v2.81.191 - 2026-07-30
 
 - Telemetry normalized against the active dispatch now inherits its

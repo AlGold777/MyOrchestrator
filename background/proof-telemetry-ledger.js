@@ -234,7 +234,7 @@
       'attemptId', 'payloadEvidenceId', 'expectedCardId', 'observedCardId',
       'evaluationBoundaryId', 'sourceRevisionId', 'decisionId'
     ]);
-    const proofKey = /(?:hash|length|len|count|status|state|outcome|reasons?|mode|tier|coverage|verified|visible|active|discarded|health|mutation|attempt|deadline|timeout|duration|delay|skew|growth|candidate|answerIdentity|finalStatus|terminalStatus|finishReason|decisionAccepted|promotedFromPending|promotedStagingIngestSeq|dispatchId|answerEvidenceDispatchId|priorIncidentRef|evidence|source|signal|version|ms)$/i;
+    const proofKey = /(?:hash|length|len|count|status|state|outcome|step|phase|reasons?|mode|tier|coverage|verified|visible|active|discarded|health|mutation|attempt|deadline|timeout|duration|delay|skew|growth|candidate|answerIdentity|finalStatus|terminalStatus|finishReason|decisionAccepted|promotedFromPending|promotedStagingIngestSeq|dispatchId|answerEvidenceDispatchId|priorIncidentRef|evidence|source|signal|version|ms)$/i;
     const compact = {};
     Object.entries(metadata || {}).forEach(([key, value]) => {
       if (staticKeys.has(key) || value === undefined || value === null) return;
@@ -513,6 +513,23 @@
         && candidate.generationEpoch === event.generationEpoch
         && candidate.candidateId);
       if (acceptedExtraction) event.candidateId = acceptedExtraction.candidateId;
+    }
+    if (eventType === 'EXTRACTION_COMPLETED') {
+      const source = String(rawMetadata.source || rawMetadata.answerSource || '').toLowerCase();
+      const isRecoveryExtraction = /recovery|retry|repair/.test(source);
+      if (isRecoveryExtraction) {
+        const priorTerminal = [...state.events].reverse().find((candidate) => candidate.eventType === 'MODEL_TERMINAL_RECORDED'
+          && candidate.modelId === event.modelId
+          && candidate.dispatchId === event.dispatchId
+          && (candidate.generationEpoch ?? null) === (event.generationEpoch ?? null));
+        const priorRecoveryDecision = [...state.events].reverse().find((candidate) => (
+          candidate.eventType === 'FINALIZATION_POLICY_EVALUATED' || candidate.eventType === 'POLICY_OVERRIDE_APPLIED'
+        ) && candidate.modelId === event.modelId
+          && candidate.dispatchId === event.dispatchId
+          && /recovery|retry|repair/i.test(JSON.stringify(candidate.payload || {})));
+        const recoveryRefs = [priorTerminal?.eventId, priorRecoveryDecision?.eventId].filter(Boolean);
+        if (recoveryRefs.length) event.evidenceRefs = Array.from(new Set([...(event.evidenceRefs || []), ...recoveryRefs])).slice(0, 50);
+      }
     }
     if (eventType === 'OBSERVATION_FRAME_CAPTURED') {
       const checks = rawMetadata.checkedAtLocalMonoMs || {};

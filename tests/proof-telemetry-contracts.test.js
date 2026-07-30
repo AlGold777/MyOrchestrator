@@ -94,6 +94,20 @@ describe('proof telemetry executable contracts', () => {
     expect(ProofTelemetry.layerFor('SELECTOR_FORENSIC_SNAPSHOT_CAPTURED')).toBe('audit');
   });
 
+  test('maps concrete pipeline steps into generation proof instead of debug noise', () => {
+    expect(ProofTelemetry.classifyRuntimeEvent({ label: 'PIPELINE_STEP', meta: { step: 'streaming_start' } }))
+      .toEqual(expect.objectContaining({ route: 'canonical', eventType: 'GENERATION_START_EVALUATED' }));
+    expect(ProofTelemetry.classifyRuntimeEvent({ label: 'PIPELINE_STEP', meta: { step: 'streaming_done' } }))
+      .toEqual(expect.objectContaining({ route: 'canonical', eventType: 'GENERATION_SIGNAL_CHANGED' }));
+    expect(ProofTelemetry.classifyRuntimeEvent({ label: 'PIPELINE_STEP', meta: { step: 'finalization_done' } }))
+      .toEqual(expect.objectContaining({ route: 'canonical', eventType: 'COMPLETION_HYPOTHESIS_EVALUATED' }));
+  });
+
+  test('accepts already-canonical event labels without demoting them to debug', () => {
+    expect(ProofTelemetry.classifyRuntimeEvent({ label: 'FINALIZATION_POLICY_EVALUATED' }))
+      .toEqual(expect.objectContaining({ route: 'canonical', eventType: 'FINALIZATION_POLICY_EVALUATED' }));
+  });
+
   test('runtime export validation includes strict scope and layer checks', () => {
     const base = {
       schemaVersion: 6,

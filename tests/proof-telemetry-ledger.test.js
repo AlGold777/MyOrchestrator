@@ -158,6 +158,20 @@ describe('native proof telemetry ledger', () => {
     expect(snapshot.queuedMutationCount).toBe(0);
   });
 
+  test('materializes unified pipeline steps as typed generation proof', async () => {
+    await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
+    const meta = { runSessionId: 42, dispatchId: 'GPT:42:1', generationEpoch: 1 };
+    await global.ProofTelemetryLedger.record({ ts: 1000, label: 'PIPELINE_STEP', meta: { ...meta, step: 'streaming_start' } }, 'GPT');
+    await global.ProofTelemetryLedger.record({ ts: 1100, label: 'PIPELINE_STEP', meta: { ...meta, step: 'streaming_done' } }, 'GPT');
+    await global.ProofTelemetryLedger.record({ ts: 1200, label: 'PIPELINE_STEP', meta: { ...meta, step: 'finalization_done' } }, 'GPT');
+    const events = (await global.ProofTelemetryLedger.snapshot()).events;
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ eventType: 'GENERATION_START_EVALUATED', payload: expect.objectContaining({ typed: { kind: 'generation_start', state: 'started' } }) }),
+      expect.objectContaining({ eventType: 'GENERATION_SIGNAL_CHANGED', payload: expect.objectContaining({ typed: { kind: 'generation_transition', state: 'provider_ui_completed' } }) }),
+      expect.objectContaining({ eventType: 'COMPLETION_HYPOTHESIS_EVALUATED', payload: expect.objectContaining({ typed: { kind: 'completion_hypothesis', state: 'probably_complete' } }) })
+    ]));
+  });
+
   test('snapshot flushes records queued immediately before export', async () => {
     await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
     const pendingRecord = global.ProofTelemetryLedger.record({
@@ -603,6 +617,32 @@ describe('native proof telemetry ledger', () => {
     const terminal = snapshot.events.find((item) => item.eventType === 'MODEL_TERMINAL_RECORDED');
     expect(terminal.payload.metadata.priorIncidentRef)
       .toBe('incident:42|1|GPT|GPT:42:prior|1');
+  });
+
+  test('links post-terminal recovery extraction to terminal and recovery decision', async () => {
+    await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
+    const meta = { runSessionId: 42, dispatchId: 'GPT:42:recovery', generationEpoch: 1, llmName: 'GPT' };
+    await global.ProofTelemetryLedger.record({
+      ts: 1000,
+      label: 'FINALIZATION_DECISION',
+      meta: { ...meta, finalReason: 'manual_recovery', source: 'manual_recovery' }
+    }, 'GPT');
+    await global.ProofTelemetryLedger.record({
+      ts: 1100,
+      label: 'MODEL_FINAL',
+      details: 'SUCCESS',
+      meta: { ...meta, finalStatus: 'SUCCESS' }
+    }, 'GPT');
+    await global.ProofTelemetryLedger.record({
+      ts: 1200,
+      label: 'ANSWER_EXTRACTION_COMPLETED',
+      meta: { ...meta, source: 'terminal_extraction_auto_recovery_1', normalizedLength: 42 }
+    }, 'GPT');
+    const snapshot = await global.ProofTelemetryLedger.snapshot();
+    const extraction = snapshot.events.find((event) => event.eventType === 'EXTRACTION_COMPLETED');
+    const terminal = snapshot.events.find((event) => event.eventType === 'MODEL_TERMINAL_RECORDED');
+    const decision = snapshot.events.find((event) => event.eventType === 'FINALIZATION_POLICY_EVALUATED');
+    expect(extraction.evidenceRefs).toEqual(expect.arrayContaining([terminal.eventId, decision.eventId]));
   });
 
   test('materializes an atomic observation frame and candidate inference', async () => {
