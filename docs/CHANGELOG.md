@@ -1,5 +1,15 @@
 # CHANGELOG — Project
 
+### 2026-07-30 — Immediate telemetry JSON snapshot, version 2.81.179
+
+- Proof telemetry keeps one normalized state cache during a service-worker
+  epoch instead of rereading the full IndexedDB ledger before every event.
+- Events emitted in the same synchronous burst are persisted in one ordered
+  transaction. Export snapshot flushes that batch first, so speed no longer
+  trades away events or the immutable snapshot boundary.
+- Added a regression test proving that 50 concurrent records require one
+  persistence write and all 50 remain present in the exported snapshot.
+
 ### 2026-07-30 — Expected-length adaptive deadlines, version 2.81.178
 
 - Pipeline and watcher deadlines now use the requested answer-size bucket

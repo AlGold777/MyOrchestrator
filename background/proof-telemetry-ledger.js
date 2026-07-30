@@ -12,10 +12,14 @@
   const OPERATIONAL_CHECKPOINT_COUNT = 50;
   let idCounter = 0;
   const HEARTBEAT_EVERY_NOOPS = 120;
-  const PRODUCER_VERSION = 'proof-runtime-ledger@2.0.0';
+  const PRODUCER_VERSION = 'proof-runtime-ledger@2.1.0';
   const WORKER_EPOCH_ID = makeId('sw');
   const WORKER_STARTED_MONO_MS = monotonicNow();
   let mutationChain = Promise.resolve();
+  let stateCache = null;
+  let stateLoadPromise = null;
+  let pendingRecordBatch = [];
+  let recordBatchScheduled = false;
 
   const proof = () => root.ProofOrientedTelemetry;
   const contracts = () => root.ProofTelemetryContracts;
@@ -59,8 +63,8 @@
   function normalizeState(value) {
     const base = emptyState();
     if (!value || typeof value !== 'object') return base;
-    const lifecycle = Array.isArray(value.lifecycle) ? value.lifecycle : [];
-    const events = Array.isArray(value.events) ? value.events : [];
+    const lifecycle = Array.isArray(value.lifecycle) ? value.lifecycle.slice() : [];
+    const events = Array.isArray(value.events) ? value.events.slice() : [];
     const maxGeneration = [...lifecycle, ...events].reduce((max, event) => Math.max(max, Number(event.runGeneration || 0)), 0);
     const maxIngest = [...lifecycle, ...events].reduce((max, event) => Math.max(max, Number(event.ingestSeq || 0)), 0);
     return {
@@ -68,17 +72,28 @@
       ...value,
       events,
       lifecycle,
-      pending: value.pending && typeof value.pending === 'object' ? value.pending : {},
-      quarantine: Array.isArray(value.quarantine) ? value.quarantine : [],
-      unattributed: Array.isArray(value.unattributed) ? value.unattributed : [],
-      stagingLosses: Array.isArray(value.stagingLosses) ? value.stagingLosses : [],
-      signalStates: value.signalStates && typeof value.signalStates === 'object' ? value.signalStates : {},
-      noopCounts: value.noopCounts && typeof value.noopCounts === 'object' ? value.noopCounts : {},
-      openObservationIntervals: value.openObservationIntervals && typeof value.openObservationIntervals === 'object' ? value.openObservationIntervals : {},
-      producerEpochs: value.producerEpochs && typeof value.producerEpochs === 'object' ? value.producerEpochs : {},
-      producerSequences: value.producerSequences && typeof value.producerSequences === 'object' ? value.producerSequences : {},
-      operationalIntervals: value.operationalIntervals && typeof value.operationalIntervals === 'object' ? value.operationalIntervals : {},
-      legacyDebugRing: Array.isArray(value.legacyDebugRing) ? value.legacyDebugRing.slice(-MAX_LEGACY_DEBUG_RECORDS) : [],
+      pending: value.pending && typeof value.pending === 'object'
+        ? Object.fromEntries(Object.entries(value.pending).map(([key, records]) => [key, Array.isArray(records) ? records.slice() : []]))
+        : {},
+      quarantine: Array.isArray(value.quarantine) ? value.quarantine.slice() : [],
+      unattributed: Array.isArray(value.unattributed) ? value.unattributed.slice() : [],
+      stagingLosses: Array.isArray(value.stagingLosses) ? value.stagingLosses.slice() : [],
+      signalStates: value.signalStates && typeof value.signalStates === 'object' ? { ...value.signalStates } : {},
+      noopCounts: value.noopCounts && typeof value.noopCounts === 'object' ? { ...value.noopCounts } : {},
+      openObservationIntervals: value.openObservationIntervals && typeof value.openObservationIntervals === 'object'
+        ? Object.fromEntries(Object.entries(value.openObservationIntervals).map(([key, interval]) => [key, { ...interval }]))
+        : {},
+      producerEpochs: value.producerEpochs && typeof value.producerEpochs === 'object' ? { ...value.producerEpochs } : {},
+      producerSequences: value.producerSequences && typeof value.producerSequences === 'object' ? { ...value.producerSequences } : {},
+      operationalIntervals: value.operationalIntervals && typeof value.operationalIntervals === 'object'
+        ? Object.fromEntries(Object.entries(value.operationalIntervals).map(([key, interval]) => [key, {
+          ...interval,
+          reasons: Array.isArray(interval?.reasons) ? interval.reasons.slice() : []
+        }]))
+        : {},
+      legacyDebugRing: Array.isArray(value.legacyDebugRing)
+        ? value.legacyDebugRing.slice(-MAX_LEGACY_DEBUG_RECORDS).map((record) => ({ ...record }))
+        : [],
       nextRunGeneration: Math.max(Number(value.nextRunGeneration || 1), maxGeneration + 1),
       nextIngestSeq: Math.max(Number(value.nextIngestSeq || 1), maxIngest + 1)
     };
@@ -99,11 +114,29 @@
     return value;
   }
 
+  async function readCurrentState() {
+    if (stateCache) return stateCache;
+    if (!stateLoadPromise) {
+      stateLoadPromise = readStored()
+        .then((stored) => {
+          stateCache = normalizeState(stored);
+          return stateCache;
+        })
+        .finally(() => {
+          stateLoadPromise = null;
+        });
+    }
+    return stateLoadPromise;
+  }
+
   function enqueue(mutator) {
     const operation = mutationChain.catch(() => {}).then(async () => {
-      const current = await readStored();
+      const current = await readCurrentState();
       const next = await mutator(current);
-      return next === current ? current : writeStored(next);
+      if (next === current) return current;
+      const persisted = await writeStored(next);
+      stateCache = normalizeState(persisted || next);
+      return stateCache;
     });
     mutationChain = operation.then(() => undefined, () => undefined);
     return operation;
@@ -260,6 +293,7 @@
   function beginRun(runSessionId, options = {}) {
     const requested = runSessionId === null || runSessionId === undefined ? null : String(runSessionId);
     if (!requested) return Promise.reject(new Error('proof telemetry beginRun requires runSessionId'));
+    flushPendingRecordBatch();
     return enqueue((current) => {
       const state = normalizeState(current);
       if (state.runSessionId === requested && state.status === 'active') return state;
@@ -315,6 +349,7 @@
   }
 
   function closeRun(reason = 'normal', options = {}) {
+    flushPendingRecordBatch();
     return enqueue((current) => {
       const state = normalizeState(current);
       if (state.status !== 'active') return state;
@@ -331,6 +366,7 @@
   function stagePending(entry = {}, llmName, runSessionId) {
     const requested = runSessionId === null || runSessionId === undefined ? null : String(runSessionId);
     if (!requested) return Promise.reject(new Error('proof telemetry pending evidence requires runSessionId'));
+    flushPendingRecordBatch();
     return enqueue((current) => {
       const state = normalizeState(current);
       const ingestSeq = state.nextIngestSeq++;
@@ -662,9 +698,8 @@
     return event;
   }
 
-  function record(entry = {}, llmName, options = {}) {
-    return enqueue((current) => {
-      const state = normalizeState(current);
+  function applyRecord(state, recordEntry = {}, llmName, options = {}) {
+      let entry = recordEntry;
       const requestedRunId = resolveRunSessionId(entry, options.runSessionId || state.runSessionId);
       if (!requestedRunId) {
         const ingestSeq = state.nextIngestSeq++;
@@ -704,10 +739,46 @@
       }
       appendRecordToState(state, entry, llmName, options);
       return state;
+  }
+
+  function flushPendingRecordBatch() {
+    if (!pendingRecordBatch.length) {
+      recordBatchScheduled = false;
+      return mutationChain;
+    }
+    const batch = pendingRecordBatch;
+    pendingRecordBatch = [];
+    recordBatchScheduled = false;
+    const operation = enqueue((current) => {
+      const state = normalizeState(current);
+      batch.forEach((item) => applyRecord(state, item.entry, item.llmName, item.options));
+      return state;
+    });
+    operation.then(
+      (state) => batch.forEach((item) => item.resolve(state)),
+      (error) => batch.forEach((item) => item.reject(error))
+    );
+    return operation;
+  }
+
+  function scheduleRecordBatchFlush() {
+    if (recordBatchScheduled) return;
+    recordBatchScheduled = true;
+    const schedule = typeof queueMicrotask === 'function'
+      ? queueMicrotask
+      : (callback) => Promise.resolve().then(callback);
+    schedule(() => flushPendingRecordBatch());
+  }
+
+  function record(entry = {}, llmName, options = {}) {
+    return new Promise((resolve, reject) => {
+      pendingRecordBatch.push({ entry, llmName, options, resolve, reject });
+      scheduleRecordBatchFlush();
     });
   }
 
   function appendCanonical(event = {}) {
+    flushPendingRecordBatch();
     return enqueue((current) => {
       const state = normalizeState(current);
       if (!event || ![5, 6].includes(Number(event.schemaVersion))) throw new Error('invalid canonical telemetry event');
@@ -720,6 +791,7 @@
   }
 
   function snapshot({ runSessionId = null } = {}) {
+    flushPendingRecordBatch();
     return enqueue((current) => {
       const state = normalizeState(current);
       return flushOperationalIntervals(state, 'export_snapshot') ? state : current;
@@ -759,6 +831,7 @@
   }
 
   function recover() {
+    flushPendingRecordBatch();
     return enqueue((current) => {
       const state = normalizeState(current);
       const opening = [...state.lifecycle].reverse().find((event) => event.eventType === 'RUN_OPEN_INTENT');
@@ -777,14 +850,16 @@
   }
 
   function clear(runSessionId = null) {
+    flushPendingRecordBatch();
     const operation = mutationChain.catch(() => {}).then(async () => {
-      const current = normalizeState(await readStored());
+      const current = normalizeState(await readCurrentState());
       if (root.ProofTelemetryStore?.clearActive) await root.ProofTelemetryStore.clearActive();
       else await chrome.storage.local.set({ [STORAGE_KEY]: null });
       const next = { ...emptyState(), nextRunGeneration: current.nextRunGeneration, nextIngestSeq: current.nextIngestSeq, runSessionId };
       if (root.ProofTelemetryStore?.saveState) await root.ProofTelemetryStore.saveState(next);
       else await chrome.storage.local.set({ [STORAGE_KEY]: next });
-      return next;
+      stateCache = normalizeState(next);
+      return stateCache;
     });
     mutationChain = operation.then(() => undefined, () => undefined);
     return operation;

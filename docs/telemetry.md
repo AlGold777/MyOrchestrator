@@ -511,6 +511,13 @@ run-summary projection или `shared/telemetry-export.js`. Единственн
 JSON — frozen `GET_PROOF_TELEMETRY_SNAPSHOT`; пустой native ledger не подменяется
 старыми событиями.
 
+С v2.81.179 ledger сохраняет внутрипроцессный нормализованный state и
+объединяет синхронный всплеск telemetry-событий в одну IndexedDB-транзакцию.
+Перед `GET_PROOF_TELEMETRY_SNAPSHOT` ожидающий batch принудительно ставится в
+очередь раньше snapshot. Поэтому экспорт сохраняет persistence barrier и все
+принятые до клика события, но не ждёт отдельное полное чтение и запись для
+каждого сигнала.
+
 - Platform/Tasks фильтруют canonical envelopes по `modelId` и безопасному
   event payload. Исходные `seq` не перенумеровываются; filtered ledger остаётся
   immutable, а export boundary равен фактическому последнему включённому `seq`.
