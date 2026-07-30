@@ -132,7 +132,7 @@
   function compactProofMetadata(metadata) {
     const staticKeys = new Set(['telemetryTaxonomy', 'extVersion', 'schemaVersion', 'event', 'legacyBefore', 'legacyAfter', 'previousState', 'nextState', 'projection', 'modelState']);
     const structuredKeys = new Set(['checkedAtLocalMonoMs']);
-    const proofKey = /(?:hash|length|len|count|status|state|reasons?|mode|tier|coverage|verified|visible|active|discarded|health|mutation|attempt|deadline|timeout|duration|delay|skew|growth|candidate|answerIdentity|finalStatus|terminalStatus|finishReason|decisionAccepted|promotedFromPending|promotedStagingIngestSeq|dispatchId|answerEvidenceDispatchId|priorIncidentRef|evidence|source|signal|ms)$/i;
+    const proofKey = /(?:hash|length|len|count|status|state|reasons?|mode|tier|coverage|verified|visible|active|discarded|health|mutation|attempt|deadline|timeout|duration|delay|skew|growth|candidate|answerIdentity|finalStatus|terminalStatus|finishReason|decisionAccepted|promotedFromPending|promotedStagingIngestSeq|dispatchId|answerEvidenceDispatchId|priorIncidentRef|evidence|source|signal|version|ms)$/i;
     const compact = {};
     Object.entries(metadata || {}).forEach(([key, value]) => {
       if (staticKeys.has(key) || value === undefined || value === null) return;

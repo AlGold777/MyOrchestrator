@@ -180,6 +180,15 @@ longer rebound to whichever dispatch is current when background receives it.
 Post-terminal audit refuses to compare events from a proven different document
 or SPA navigation epoch and records the result as unknown.
 
+## Bounded post-terminal observation v2.81.169 - 2026-07-30
+
+After lifecycle completion the same identity-bound tracker samples the accepted
+answer at 1, 3 and 8 seconds. Positive growth can confirm False success on any
+sample. An unchanged answer refutes the diagnosis only when the complete window
+closes; intermediate unchanged frames remain pending. Cancellation, SPA change
+or an unavailable answer closes the window as unknown. Legacy row conversion
+declares `native_post_terminal_audit_absent` instead of synthesizing companions.
+
 ## Unified evidence closure v2.81.148 - 2026-08-28
 
 Embedded and standalone Tasks now use the same `REPORT_CONTRACTS` slots and

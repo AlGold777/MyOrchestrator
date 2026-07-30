@@ -1,5 +1,16 @@
 # CHANGELOG — Project
 
+### 2026-07-30 — Bounded post-terminal observation, version 2.81.169
+
+- The lifecycle tracker samples at 1/3/8 seconds after completion and emits an
+  explicit changed, unchanged or unavailable window closure.
+- Intermediate zero-growth frames remain pending; only a complete unchanged
+  window refutes False success.
+- Normalization versions survive proof-ledger metadata compaction.
+- The executable matrix covers normal completion, real growth, throttling,
+  recovery, repeated dispatch, attachments, SPA navigation and tab closure.
+- Registry 6.6.0, report 3.6.0 and generator 2.6.0 describe the closed window.
+
 ### 2026-07-30 — Lifecycle proof identity, version 2.81.168
 
 - Lifecycle events carry immutable run, dispatch, generation, turn and

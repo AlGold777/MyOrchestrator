@@ -14,8 +14,8 @@
   const Clock = root.ProofTelemetryClock || (typeof require === 'function' ? require('./proof-telemetry-clock.js') : null);
   const SCHEMA_VERSION = '5.0';
   const EVENT_SCHEMA_VERSION = Contracts?.EVENT_SCHEMA_VERSION || 6;
-  const GENERATOR_VERSION = 'proof-export@2.5.0';
-  const REPORT_VERSION = '3.5.0';
+  const GENERATOR_VERSION = 'proof-export@2.6.0';
+  const REPORT_VERSION = '3.6.0';
   const REPORT_TYPES = Object.freeze([
     'cutted',
     'false-success',
@@ -101,6 +101,8 @@
     ANSWER_COMMIT_EVALUATED: 'ANSWER_COMMIT_EVALUATED',
     ANSWER_CARD_RENDER_EVALUATED: 'ANSWER_CARD_RENDER_EVALUATED',
     LATE_COLLECT_DECISION_TRACE: 'OBSERVATION_FRAME_CAPTURED',
+    POST_TERMINAL_ANSWER_OBSERVED: 'OBSERVATION_FRAME_CAPTURED',
+    POST_TERMINAL_ANSWER_WINDOW_CLOSED: 'OBSERVATION_INTERVAL_CLOSED',
     PROVIDER_FINISH_REASON: 'GENERATION_SIGNAL_CHANGED'
   });
 
@@ -726,7 +728,7 @@
       const rollback = eventBoolean(audit, ['rollbackObserved', 'contentRollback']) === true;
       const positive = possible !== false && conclusion === 'contradicted' && Number.isFinite(chars) && chars > 0
         && (!Number.isFinite(pct) || pct > growthTolerancePct);
-      const negative = possible !== false && Number.isFinite(chars) && chars >= 0
+      const negative = possible !== false && conclusion === 'confirmed' && Number.isFinite(chars) && chars >= 0
         && (!Number.isFinite(pct) || pct <= growthTolerancePct);
       if (positive) {
         growthDecision = true;
@@ -914,7 +916,9 @@
         ? 'reaffirmed_or_preserved'
         : (growthDecision === false ? 'refuted_or_invalidated' : 'unresolved'),
       postTerminalAuditStatus: latestAudit
-        ? (auditPossible === false || auditConclusion === 'unknown' ? 'impossible' : 'completed')
+        ? (auditPossible === false
+            ? 'impossible'
+            : (auditConclusion === 'unknown' ? 'pending' : 'completed'))
         : (impossibleAudit ? 'impossible' : (pendingAudit ? 'pending' : null)),
       postTerminalAuditConclusion: auditConclusion,
       extractionCoveragePct,
@@ -1463,6 +1467,10 @@
         {
           code: 'identity_evidence_not_inferred',
           impact: 'dispatch presence alone does not prove accepted-answer identity'
+        },
+        {
+          code: 'native_post_terminal_audit_absent',
+          impact: 'legacy rows do not synthesize native post-terminal companions; False success remains unknown unless explicit audit evidence exists'
         }
       ]
     };

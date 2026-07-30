@@ -79,6 +79,25 @@ describe('native proof telemetry ledger', () => {
     expect(sourceEvent.payload.metadata.answerLength).toBe(14);
   });
 
+  test('retains normalization version with privacy-safe measurements', async () => {
+    await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
+    await global.ProofTelemetryLedger.record({
+      ts: 1000,
+      label: 'ANSWER_SOURCE_MATERIALIZED',
+      meta: {
+        runSessionId: 42,
+        dispatchId: 'GPT:42:1',
+        normalizedLength: 140,
+        normalizedHash: 'hash:privacy-safe',
+        normalizationVersion: 'answer-proof-v1'
+      }
+    }, 'GPT');
+    const snapshot = await global.ProofTelemetryLedger.snapshot();
+    expect(snapshot.events.find((event) => event.eventType === 'ANSWER_SOURCE_MATERIALIZED')?.payload?.metadata).toEqual(
+      expect.objectContaining({ normalizationVersion: 'answer-proof-v1', normalizedLength: 140 })
+    );
+  });
+
   test('starts a fresh ledger when the run identity changes', async () => {
     await global.ProofTelemetryLedger.beginRun(1, { wallTs: 1000 });
     await global.ProofTelemetryLedger.record({ ts: 1000, label: 'RUN_START', meta: { runSessionId: 1 } }, 'GPT');

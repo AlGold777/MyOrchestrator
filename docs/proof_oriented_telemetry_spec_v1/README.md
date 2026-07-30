@@ -11,6 +11,11 @@
 
 ## Статус реализации
 
+Версия `2.81.169` добавляет bounded post-terminal observation window на
+1/3/8 секундах. Только закрытое неизменное окно опровергает рост; изменение
+подтверждается сразу, unavailable остаётся unknown. Registry `6.6.0`, report
+`3.6.0`, generator `2.6.0`.
+
 Версия `2.81.168` связывает lifecycle evidence с immutable dispatch/generation,
 turn и navigation identity. Доказанная смена SPA/document lineage делает audit
 несравнимым. Registry `6.5.0`, report `3.5.0`, generator `2.5.0`.

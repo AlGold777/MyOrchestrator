@@ -83,7 +83,7 @@ describe('proof telemetry post-terminal audit', () => {
     const belowAudit = Audit.planAfterEvent(below, [terminal, below])
       .find((item) => item.eventType === 'POST_TERMINAL_AUDIT_COMPLETED');
     expect(belowAudit.payload.growthPct).toBeCloseTo(0.4);
-    expect(belowAudit.payload.conclusion).toBe('confirmed');
+    expect(belowAudit.payload.conclusion).toBe('unknown');
 
     const above = canonical('ANSWER_GENERATING', 1200, { answerLength: 1006 });
     above.seq = 2;
@@ -92,6 +92,31 @@ describe('proof telemetry post-terminal audit', () => {
       .find((item) => item.eventType === 'POST_TERMINAL_AUDIT_COMPLETED');
     expect(aboveAudit.payload.growthPct).toBeCloseTo(0.6);
     expect(aboveAudit.payload.conclusion).toBe('contradicted');
+  });
+
+  test('refutes growth only after an explicit unchanged observation window closes', () => {
+    const terminal = canonical('MODEL_FINAL', 1000, { answerLength: 100 });
+    const openFrame = canonical('POST_TERMINAL_ANSWER_OBSERVED', 1100, {
+      textLength: 100,
+      observationWindowClosed: false
+    });
+    openFrame.seq = 2;
+    openFrame.ingestSeq = 2;
+    const pending = Audit.planAfterEvent(openFrame, [terminal, openFrame])
+      .find((item) => item.eventType === 'POST_TERMINAL_AUDIT_COMPLETED');
+    expect(pending.payload).toEqual(expect.objectContaining({ conclusion: 'unknown', auditPossible: true, growthChars: 0 }));
+
+    const closed = canonical('POST_TERMINAL_ANSWER_WINDOW_CLOSED', 9000, {
+      textLength: 100,
+      observationWindowClosed: true,
+      observationWindowOutcome: 'unchanged',
+      observationCoverage: 'complete'
+    });
+    closed.seq = 3;
+    closed.ingestSeq = 3;
+    const complete = Audit.planAfterEvent(closed, [terminal, openFrame, closed])
+      .find((item) => item.eventType === 'POST_TERMINAL_AUDIT_COMPLETED');
+    expect(complete.payload).toEqual(expect.objectContaining({ conclusion: 'confirmed', auditPossible: true, growthChars: 0 }));
   });
 
   test('compares normalized recovery evidence only under the same normalization version', () => {

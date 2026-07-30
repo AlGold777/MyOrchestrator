@@ -133,4 +133,44 @@ describe('lifecycle ANSWER_GENERATING telemetry throttle', () => {
 
     detector.stopResponseLifecycleTracking({ modelName: 'DeepSeek', reason: 'test_done' });
   });
+
+  test('post-terminal window samples at 1/3/8 seconds and closes as changed', async () => {
+    jest.useFakeTimers();
+    try {
+      const detector = window.ResponseLifecycleDetector;
+      const answer = document.createElement('article');
+      answer.textContent = 'Completed answer baseline.';
+      setRect(answer, { top: 540, left: 140, width: 720, height: 180 });
+      document.body.appendChild(answer);
+      detector.registerAnswerCandidate({ modelName: 'DeepSeek', element: answer, observedAt: Date.now() });
+      const tracker = detector.createTracker({
+        modelName: 'DeepSeek',
+        dispatchId: 'dispatch-post-terminal',
+        runSessionId: 42,
+        generationEpoch: 9
+      });
+      tracker.state = 'COMPLETE';
+      detector.schedulePostTerminalObservationWindow(tracker, {
+        textLength: answer.textContent.length,
+        answerHash: 'baseline-hash'
+      });
+
+      await jest.advanceTimersByTimeAsync(1000);
+      answer.textContent += ' Continued text after the system had already finalized.';
+      await jest.advanceTimersByTimeAsync(7000);
+
+      const observed = sentMessages.filter((message) => message?.event?.label === 'POST_TERMINAL_ANSWER_OBSERVED');
+      const closed = sentMessages.find((message) => message?.event?.label === 'POST_TERMINAL_ANSWER_WINDOW_CLOSED');
+      expect(observed).toHaveLength(3);
+      expect(observed.map((message) => message.event.meta.observationOffsetMs)).toEqual([1000, 3000, 8000]);
+      expect(closed?.event?.meta).toEqual(expect.objectContaining({
+        observationWindowClosed: true,
+        observationWindowOutcome: 'changed',
+        observationCoverage: 'complete',
+        observationSampleCount: 3
+      }));
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });

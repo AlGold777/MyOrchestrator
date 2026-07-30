@@ -315,7 +315,9 @@ describe('proof telemetry preset semantic applicability', () => {
       event('MODEL_TERMINAL_RECORDED', 1, { metadata: { terminalStatus: 'SUCCESS', answerLen: 100 }, typed: { kind: 'terminal_action', state: 'SUCCESS' } }),
       event('POST_TERMINAL_AUDIT_COMPLETED', 2, { payload: { conclusion: 'contradicted', growthChars: 0, growthPct: 0, hashChanged: true } })
     ]);
-    expect(hashOnlyMutation.result.status).toBe('not_confirmed');
+    // A hash-only replacement is not False success growth, but an open audit
+    // cannot refute growth that may still occur before the observation window closes.
+    expect(hashOnlyMutation.result.status).toBe('unknown');
     const unauditedGrowth = applicability('false-success', [
       event('MODEL_TERMINAL_RECORDED', 1, { metadata: { terminalStatus: 'SUCCESS', answerLen: 100 }, typed: { kind: 'terminal_action', state: 'SUCCESS' } }),
       event('TEXT_STATE_CHANGED', 2, { metadata: { textLength: 130 } })

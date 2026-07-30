@@ -1955,6 +1955,7 @@
   const VERSION = '1.0.0';
   const BODY_MUTATION_THROTTLE_MS = 500;
   const ANSWER_GENERATING_TELEMETRY_THROTTLE_MS = 15000;
+  const POST_TERMINAL_OBSERVATION_OFFSETS_MS = Object.freeze([1000, 3000, 8000]);
   const MIN_COMPLETE_CONFIDENCE = 0.75;
   const STUCK_BUSY_OVERRIDE_MIN_MS = 6000;
   const LIFECYCLE_READINESS_RESOLVER_TIMEOUT_MS = 800;
@@ -2443,6 +2444,14 @@
             state: payload.state || null,
             textLength: payload.textLength || 0,
             answerHash: payload.answerHash || tracker?.lastTextHash || null,
+            normalizedLength: payload.normalizedLength ?? null,
+            normalizedHash: payload.normalizedHash || null,
+            normalizationVersion: payload.normalizationVersion || null,
+            observationWindowClosed: payload.observationWindowClosed ?? null,
+            observationWindowOutcome: payload.observationWindowOutcome || null,
+            observationCoverage: payload.observationCoverage || null,
+            observationOffsetMs: payload.observationOffsetMs ?? null,
+            observationSampleCount: payload.observationSampleCount ?? null,
             elapsedMs: payload.elapsedMs || 0,
             stableMs: payload.stableMs || 0,
             mutationCount: payload.mutationCount || 0,
@@ -2458,6 +2467,99 @@
         }
       });
     } catch (_) {}
+  }
+
+  function closePostTerminalObservationWindow(tracker, outcome, measurement = {}) {
+    const audit = tracker?.postTerminalObservation;
+    if (!audit || audit.closed) return false;
+    audit.closed = true;
+    const unavailable = outcome === 'unavailable';
+    emitLifecycleTelemetry('POST_TERMINAL_ANSWER_WINDOW_CLOSED', {
+      modelName: tracker.modelName,
+      state: 'POST_TERMINAL_AUDIT',
+      textLength: unavailable ? 0 : Number(measurement.textLength ?? audit.lastLength ?? audit.baselineLength ?? 0),
+      answerHash: unavailable ? null : (measurement.answerHash || audit.lastHash || audit.baselineHash || null),
+      normalizedLength: unavailable ? null : (measurement.normalizedLength ?? audit.lastNormalizedLength ?? audit.baselineNormalizedLength ?? null),
+      normalizedHash: unavailable ? null : (measurement.normalizedHash || audit.lastNormalizedHash || audit.baselineNormalizedHash || null),
+      normalizationVersion: unavailable ? null : (measurement.normalizationVersion || audit.normalizationVersion || null),
+      observationWindowClosed: true,
+      observationWindowOutcome: outcome,
+      observationCoverage: unavailable ? 'unavailable' : 'complete',
+      observationOffsetMs: Math.max(0, Date.now() - audit.startedAt),
+      observationSampleCount: audit.sampleCount
+    });
+    return true;
+  }
+
+  function schedulePostTerminalObservationWindow(tracker, baseline = {}) {
+    if (!tracker || tracker.postTerminalObservation) return false;
+    tracker.postTerminalObservation = {
+      startedAt: Date.now(),
+      baselineLength: Number(baseline.textLength || 0),
+      baselineHash: baseline.answerHash || null,
+      baselineNormalizedLength: baseline.normalizedLength ?? null,
+      baselineNormalizedHash: baseline.normalizedHash || null,
+      normalizationVersion: baseline.normalizationVersion || null,
+      lastLength: Number(baseline.textLength || 0),
+      lastHash: baseline.answerHash || null,
+      lastNormalizedLength: baseline.normalizedLength ?? null,
+      lastNormalizedHash: baseline.normalizedHash || null,
+      sampleCount: 0,
+      closed: false
+    };
+    POST_TERMINAL_OBSERVATION_OFFSETS_MS.forEach((offsetMs, index) => {
+      const timerEntry = { id: null };
+      timerEntry.id = setTimeout(async () => {
+        const timers = tracker.timeoutTimers || [];
+        const timerIndex = timers.indexOf(timerEntry);
+        if (timerIndex !== -1) timers.splice(timerIndex, 1);
+        if (!isTrackerActive(tracker) || tracker.postTerminalObservation?.closed) return;
+        const snapshot = await getLatestAnswerSnapshot(tracker.modelName, tracker.traceId);
+        if (!isTrackerActive(tracker) || tracker.postTerminalObservation?.closed) return;
+        const text = String(snapshot?.rawText || snapshot?.text || '').trim();
+        if (!text) {
+          if (index === POST_TERMINAL_OBSERVATION_OFFSETS_MS.length - 1) {
+            closePostTerminalObservationWindow(tracker, 'unavailable');
+          }
+          return;
+        }
+        const attemptId = `${tracker.traceId || tracker.dispatchId || tracker.modelName}:post-terminal:${index + 1}`;
+        const proof = window.AnswerProofNormalization?.evidence?.(text, {
+          dispatchId: tracker.dispatchId || null,
+          attemptId
+        }) || null;
+        const measurement = {
+          textLength: text.length,
+          answerHash: shortHash(normalizeText(text)),
+          normalizedLength: proof?.normalizedLength ?? null,
+          normalizedHash: proof?.normalizedHash || null,
+          normalizationVersion: proof?.normalizationVersion || null
+        };
+        const audit = tracker.postTerminalObservation;
+        audit.sampleCount += 1;
+        audit.lastLength = measurement.textLength;
+        audit.lastHash = measurement.answerHash;
+        audit.lastNormalizedLength = measurement.normalizedLength;
+        audit.lastNormalizedHash = measurement.normalizedHash;
+        emitLifecycleTelemetry('POST_TERMINAL_ANSWER_OBSERVED', {
+          modelName: tracker.modelName,
+          state: 'POST_TERMINAL_AUDIT',
+          ...measurement,
+          observationWindowClosed: false,
+          observationWindowOutcome: 'observed',
+          observationCoverage: 'partial',
+          observationOffsetMs: offsetMs,
+          observationSampleCount: audit.sampleCount
+        });
+        if (index === POST_TERMINAL_OBSERVATION_OFFSETS_MS.length - 1) {
+          const growth = Number(measurement.normalizedLength ?? measurement.textLength)
+            > Number(audit.baselineNormalizedLength ?? audit.baselineLength);
+          closePostTerminalObservationWindow(tracker, growth ? 'changed' : 'unchanged', measurement);
+        }
+      }, offsetMs);
+      tracker.timeoutTimers.push(timerEntry);
+    });
+    return true;
   }
 
   function detectResponsePhaseEvidence(modelName, snapshotElement = null) {
@@ -3133,6 +3235,13 @@
             }
           });
         } catch (_) {}
+        schedulePostTerminalObservationWindow(tracker, {
+          textLength: completedAnswerText.length,
+          answerHash: shortHash(normalizeText(completedAnswerText)),
+          normalizedLength: proofEvidence?.normalizedLength ?? null,
+          normalizedHash: proofEvidence?.normalizedHash || null,
+          normalizationVersion: proofEvidence?.normalizationVersion || null
+        });
         return {
           ok: true,
           state: 'COMPLETE',
@@ -3362,6 +3471,7 @@
       if (!tracker.cancelledAt) {
         tracker.cancelledAt = Date.now();
       }
+      closePostTerminalObservationWindow(tracker, 'unavailable');
       tracker.cancelReason = reason;
       tracker.cancelled = true;
       tracker.state = 'CANCELLED';
@@ -3516,6 +3626,9 @@
     registerAnswerCandidate,
     captureTurnAnchor,
     verifyStructuralCompletion,
+    schedulePostTerminalObservationWindow,
+    closePostTerminalObservationWindow,
+    POST_TERMINAL_OBSERVATION_OFFSETS_MS,
     RESPONSE_LIFECYCLE_DEFAULTS,
     LIFECYCLE_READINESS_RESOLVER_TIMEOUT_MS,
     STUCK_BUSY_OVERRIDE_MIN_MS,
@@ -24310,6 +24423,7 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
   const VERSION = '1.0.0';
   const BODY_MUTATION_THROTTLE_MS = 500;
   const ANSWER_GENERATING_TELEMETRY_THROTTLE_MS = 15000;
+  const POST_TERMINAL_OBSERVATION_OFFSETS_MS = Object.freeze([1000, 3000, 8000]);
   const MIN_COMPLETE_CONFIDENCE = 0.75;
   const STUCK_BUSY_OVERRIDE_MIN_MS = 6000;
   const LIFECYCLE_READINESS_RESOLVER_TIMEOUT_MS = 800;
@@ -24798,6 +24912,14 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
             state: payload.state || null,
             textLength: payload.textLength || 0,
             answerHash: payload.answerHash || tracker?.lastTextHash || null,
+            normalizedLength: payload.normalizedLength ?? null,
+            normalizedHash: payload.normalizedHash || null,
+            normalizationVersion: payload.normalizationVersion || null,
+            observationWindowClosed: payload.observationWindowClosed ?? null,
+            observationWindowOutcome: payload.observationWindowOutcome || null,
+            observationCoverage: payload.observationCoverage || null,
+            observationOffsetMs: payload.observationOffsetMs ?? null,
+            observationSampleCount: payload.observationSampleCount ?? null,
             elapsedMs: payload.elapsedMs || 0,
             stableMs: payload.stableMs || 0,
             mutationCount: payload.mutationCount || 0,
@@ -24813,6 +24935,99 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
         }
       });
     } catch (_) {}
+  }
+
+  function closePostTerminalObservationWindow(tracker, outcome, measurement = {}) {
+    const audit = tracker?.postTerminalObservation;
+    if (!audit || audit.closed) return false;
+    audit.closed = true;
+    const unavailable = outcome === 'unavailable';
+    emitLifecycleTelemetry('POST_TERMINAL_ANSWER_WINDOW_CLOSED', {
+      modelName: tracker.modelName,
+      state: 'POST_TERMINAL_AUDIT',
+      textLength: unavailable ? 0 : Number(measurement.textLength ?? audit.lastLength ?? audit.baselineLength ?? 0),
+      answerHash: unavailable ? null : (measurement.answerHash || audit.lastHash || audit.baselineHash || null),
+      normalizedLength: unavailable ? null : (measurement.normalizedLength ?? audit.lastNormalizedLength ?? audit.baselineNormalizedLength ?? null),
+      normalizedHash: unavailable ? null : (measurement.normalizedHash || audit.lastNormalizedHash || audit.baselineNormalizedHash || null),
+      normalizationVersion: unavailable ? null : (measurement.normalizationVersion || audit.normalizationVersion || null),
+      observationWindowClosed: true,
+      observationWindowOutcome: outcome,
+      observationCoverage: unavailable ? 'unavailable' : 'complete',
+      observationOffsetMs: Math.max(0, Date.now() - audit.startedAt),
+      observationSampleCount: audit.sampleCount
+    });
+    return true;
+  }
+
+  function schedulePostTerminalObservationWindow(tracker, baseline = {}) {
+    if (!tracker || tracker.postTerminalObservation) return false;
+    tracker.postTerminalObservation = {
+      startedAt: Date.now(),
+      baselineLength: Number(baseline.textLength || 0),
+      baselineHash: baseline.answerHash || null,
+      baselineNormalizedLength: baseline.normalizedLength ?? null,
+      baselineNormalizedHash: baseline.normalizedHash || null,
+      normalizationVersion: baseline.normalizationVersion || null,
+      lastLength: Number(baseline.textLength || 0),
+      lastHash: baseline.answerHash || null,
+      lastNormalizedLength: baseline.normalizedLength ?? null,
+      lastNormalizedHash: baseline.normalizedHash || null,
+      sampleCount: 0,
+      closed: false
+    };
+    POST_TERMINAL_OBSERVATION_OFFSETS_MS.forEach((offsetMs, index) => {
+      const timerEntry = { id: null };
+      timerEntry.id = setTimeout(async () => {
+        const timers = tracker.timeoutTimers || [];
+        const timerIndex = timers.indexOf(timerEntry);
+        if (timerIndex !== -1) timers.splice(timerIndex, 1);
+        if (!isTrackerActive(tracker) || tracker.postTerminalObservation?.closed) return;
+        const snapshot = await getLatestAnswerSnapshot(tracker.modelName, tracker.traceId);
+        if (!isTrackerActive(tracker) || tracker.postTerminalObservation?.closed) return;
+        const text = String(snapshot?.rawText || snapshot?.text || '').trim();
+        if (!text) {
+          if (index === POST_TERMINAL_OBSERVATION_OFFSETS_MS.length - 1) {
+            closePostTerminalObservationWindow(tracker, 'unavailable');
+          }
+          return;
+        }
+        const attemptId = `${tracker.traceId || tracker.dispatchId || tracker.modelName}:post-terminal:${index + 1}`;
+        const proof = window.AnswerProofNormalization?.evidence?.(text, {
+          dispatchId: tracker.dispatchId || null,
+          attemptId
+        }) || null;
+        const measurement = {
+          textLength: text.length,
+          answerHash: shortHash(normalizeText(text)),
+          normalizedLength: proof?.normalizedLength ?? null,
+          normalizedHash: proof?.normalizedHash || null,
+          normalizationVersion: proof?.normalizationVersion || null
+        };
+        const audit = tracker.postTerminalObservation;
+        audit.sampleCount += 1;
+        audit.lastLength = measurement.textLength;
+        audit.lastHash = measurement.answerHash;
+        audit.lastNormalizedLength = measurement.normalizedLength;
+        audit.lastNormalizedHash = measurement.normalizedHash;
+        emitLifecycleTelemetry('POST_TERMINAL_ANSWER_OBSERVED', {
+          modelName: tracker.modelName,
+          state: 'POST_TERMINAL_AUDIT',
+          ...measurement,
+          observationWindowClosed: false,
+          observationWindowOutcome: 'observed',
+          observationCoverage: 'partial',
+          observationOffsetMs: offsetMs,
+          observationSampleCount: audit.sampleCount
+        });
+        if (index === POST_TERMINAL_OBSERVATION_OFFSETS_MS.length - 1) {
+          const growth = Number(measurement.normalizedLength ?? measurement.textLength)
+            > Number(audit.baselineNormalizedLength ?? audit.baselineLength);
+          closePostTerminalObservationWindow(tracker, growth ? 'changed' : 'unchanged', measurement);
+        }
+      }, offsetMs);
+      tracker.timeoutTimers.push(timerEntry);
+    });
+    return true;
   }
 
   function detectResponsePhaseEvidence(modelName, snapshotElement = null) {
@@ -25488,6 +25703,13 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
             }
           });
         } catch (_) {}
+        schedulePostTerminalObservationWindow(tracker, {
+          textLength: completedAnswerText.length,
+          answerHash: shortHash(normalizeText(completedAnswerText)),
+          normalizedLength: proofEvidence?.normalizedLength ?? null,
+          normalizedHash: proofEvidence?.normalizedHash || null,
+          normalizationVersion: proofEvidence?.normalizationVersion || null
+        });
         return {
           ok: true,
           state: 'COMPLETE',
@@ -25717,6 +25939,7 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
       if (!tracker.cancelledAt) {
         tracker.cancelledAt = Date.now();
       }
+      closePostTerminalObservationWindow(tracker, 'unavailable');
       tracker.cancelReason = reason;
       tracker.cancelled = true;
       tracker.state = 'CANCELLED';
@@ -25871,6 +26094,9 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
     registerAnswerCandidate,
     captureTurnAnchor,
     verifyStructuralCompletion,
+    schedulePostTerminalObservationWindow,
+    closePostTerminalObservationWindow,
+    POST_TERMINAL_OBSERVATION_OFFSETS_MS,
     RESPONSE_LIFECYCLE_DEFAULTS,
     LIFECYCLE_READINESS_RESOLVER_TIMEOUT_MS,
     STUCK_BUSY_OVERRIDE_MIN_MS,

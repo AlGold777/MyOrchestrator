@@ -144,13 +144,16 @@
       }
     } else if (terminal && isRelevantPostTerminalObservation(sourceEvent)) {
       const lineage = navigationLineage(terminal, sourceEvent);
-      const measurement = lineage === 'mismatch'
+      const sourceMetadata = sourceEvent?.payload?.metadata || {};
+      const unavailableWindow = sourceMetadata.observationWindowClosed === true
+        && sourceMetadata.observationWindowOutcome === 'unavailable';
+      const measurement = lineage === 'mismatch' || unavailableWindow
         ? {
             acceptedLength: null,
             observedLength: null,
             acceptedHash: null,
             observedHash: null,
-            measurementMode: 'incomparable_navigation',
+            measurementMode: lineage === 'mismatch' ? 'incomparable_navigation' : 'unavailable_window',
             normalizationVersion: null,
             normalizationMismatch: false
           }
@@ -165,6 +168,11 @@
         : null;
       const hashChanged = Boolean(acceptedHash && observedHash && acceptedHash !== observedHash);
       const contradicted = (growthPct !== null && growthPct > Number(root.ProofTelemetryContracts?.THRESHOLDS?.postTerminalGrowthTolerancePct ?? 0)) || hashChanged;
+      const observationWindowClosed = sourceMetadata.observationWindowClosed === true
+        || /POST_TERMINAL_ANSWER_WINDOW_CLOSED/.test(sourceType(sourceEvent));
+      const conclusion = auditPossible
+        ? (contradicted ? 'contradicted' : (observationWindowClosed ? 'confirmed' : 'unknown'))
+        : 'unknown';
       descriptors.push({
         eventType: 'POST_TERMINAL_AUDIT_COMPLETED',
         layer: 'audit',
@@ -181,7 +189,7 @@
           normalizationVersion: measurement.normalizationVersion,
           normalizationMismatch: measurement.normalizationMismatch,
           navigationLineage: lineage,
-          conclusion: auditPossible ? (contradicted ? 'contradicted' : 'confirmed') : 'unknown',
+          conclusion,
           auditPossible
         }
       });
