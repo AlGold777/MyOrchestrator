@@ -1002,7 +1002,32 @@
     await sleep(240);
     try { composer.focus?.({ preventScroll: true }); } catch (_) { try { composer.focus?.(); } catch (_) {} }
 
-    // Strategy 1: Button click first (LeChat default happy path).
+    // Donor 2.81.75 fast path: Le Chat ignores synthetic keyboard submission
+    // on some existing conversations, while a browser-level trusted Send is
+    // accepted immediately. The background handler validates the sender URL
+    // and tab before attaching the debugger.
+    try {
+      const beforeLen = ((composer.value || composer.textContent || '').trim()).length;
+      const trusted = await new Promise((resolve) => {
+        chrome.runtime.sendMessage({
+          type: 'PROVIDER_TRUSTED_SEND_REQUEST',
+          llmName: MODEL,
+          prompt
+        }, (response) => {
+          if (chrome.runtime.lastError) resolve({ ok: false, reason: chrome.runtime.lastError.message });
+          else resolve(response || { ok: false, reason: 'empty_response' });
+        });
+      });
+      if (trusted?.ok && await confirmLeChatSend(null, 4000, beforeLen)) {
+        console.log('[content-lechat] Trusted Send control confirmed.');
+        return true;
+      }
+      console.warn('[content-lechat] Trusted Send was not confirmed; using page fallbacks.', trusted?.reason || 'no_send_evidence');
+    } catch (e) {
+      console.warn('[content-lechat] Trusted Send failed; using page fallbacks.', e);
+    }
+
+    // Strategy 1: Button click fallback.
     // Le Chat keeps the send button disabled until React registers the
     // composer input, so wait for it to become enabled (re-nudging input
     // events meanwhile) instead of skipping the click when it starts disabled.

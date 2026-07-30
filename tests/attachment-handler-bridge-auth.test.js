@@ -343,22 +343,23 @@ describe('attachment bridge authentication', () => {
     expect(orchestrator.indexOf('const providerPipelineActive')).toBeLessThan(orchestrator.indexOf("ROUND2_REPAIR_MODELS.has(llmName)"));
   });
 
-  test('Le Chat and Perplexity submission never attaches the Chrome debugger', () => {
-    for (const source of [PROVIDER_SOURCES['Le Chat'], PROVIDER_SOURCES.Perplexity]) {
-      expect(source).not.toContain("type: 'PROVIDER_TRUSTED_INPUT_REQUEST'");
-      expect(source).not.toContain("type: 'PROVIDER_TRUSTED_SEND_REQUEST'");
-      expect(source).not.toContain("type: 'PERPLEXITY_TRUSTED_INPUT_REQUEST'");
-      expect(source).not.toContain("type: 'PERPLEXITY_TRUSTED_ENTER_REQUEST'");
-      expect(source).not.toContain("type: 'LECHAT_TRUSTED_SEND_REQUEST'");
-    }
+  test('Le Chat and Perplexity use only sender-gated trusted donor send paths', () => {
+    expect(PROVIDER_SOURCES['Le Chat']).toContain("type: 'PROVIDER_TRUSTED_SEND_REQUEST'");
+    expect(PROVIDER_SOURCES.Perplexity).toContain("type: 'PERPLEXITY_TRUSTED_ENTER_REQUEST'");
+    expect(PROVIDER_SOURCES.Perplexity).toContain("type: 'PROVIDER_TRUSTED_SEND_REQUEST'");
+    expect(ROUTER_SRC).toContain("model === 'Le Chat' && /^https:\\/\\/chat\\.mistral\\.ai\\//i.test(senderUrl)");
+    expect(ROUTER_SRC).toContain("model === 'Perplexity' && /^https:\\/\\/(?:www\\.)?perplexity\\.ai\\//i.test(senderUrl)");
+    expect(ROUTER_SRC).toContain("case 'PERPLEXITY_TRUSTED_ENTER_REQUEST'");
   });
 
   test('Le Chat keeps page button, form and keyboard fallbacks reachable', () => {
     const source = PROVIDER_SOURCES['Le Chat'];
-    const buttonAt = source.indexOf('const sendButton = await waitForSendEnabled');
+    const trustedAt = source.indexOf("type: 'PROVIDER_TRUSTED_SEND_REQUEST'");
+    const buttonAt = source.indexOf('const sendButton = await waitForSendEnabled', trustedAt);
     const formAt = source.indexOf('form.requestSubmit()', buttonAt);
     const enterAt = source.indexOf('dispatchEnter();', formAt);
-    expect(buttonAt).toBeGreaterThan(-1);
+    expect(trustedAt).toBeGreaterThan(-1);
+    expect(buttonAt).toBeGreaterThan(trustedAt);
     expect(formAt).toBeGreaterThan(buttonAt);
     expect(enterAt).toBeGreaterThan(formAt);
   });

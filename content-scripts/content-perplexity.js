@@ -1612,10 +1612,40 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
           || String(button.getAttribute?.('type') || '').toLowerCase() === 'submit';
       }) || null;
     };
-    let confirmed = false;
-    activity.heartbeat(0.4, { phase: 'page-send-control' });
+    // Donor 2.81.75 fast path: a trusted browser-level Enter is the primary
+    // Perplexity transaction. If React keeps the draft, use the trusted Send
+    // control before falling back to page-level mechanisms.
+    activity.heartbeat(0.4, { phase: 'trusted-composer-enter' });
+    const trustedEnter = await new Promise((resolve) => {
+      chrome.runtime.sendMessage({
+        type: 'PERPLEXITY_TRUSTED_ENTER_REQUEST',
+        llmName: MODEL,
+        prompt
+      }, (response) => {
+        if (chrome.runtime.lastError) resolve({ ok: false, reason: chrome.runtime.lastError.message });
+        else resolve(response || { ok: false, reason: 'empty_response' });
+      });
+    });
+    let confirmed = trustedEnter?.ok && await confirmPerplexitySend();
+    let trustedSend = null;
+    if (!confirmed && findLivePromptComposer()) {
+      activity.heartbeat(0.43, { phase: 'trusted-send-control' });
+      trustedSend = await new Promise((resolve) => {
+        chrome.runtime.sendMessage({
+          type: 'PROVIDER_TRUSTED_SEND_REQUEST',
+          llmName: MODEL,
+          prompt
+        }, (response) => {
+          if (chrome.runtime.lastError) resolve({ ok: false, reason: chrome.runtime.lastError.message });
+          else resolve(response || { ok: false, reason: 'empty_response' });
+        });
+      });
+      confirmed = trustedSend?.ok && await confirmPerplexitySend();
+    }
+
+    activity.heartbeat(0.46, { phase: 'page-send-control-fallback' });
     const sendButton = resolveSendButton();
-    if (sendButton) {
+    if (!confirmed && sendButton) {
       sendButton.click();
       confirmed = await confirmPerplexitySend();
     }
@@ -1634,7 +1664,7 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
     if (!confirmed) {
       throw {
         type: 'send_failed',
-        message: 'Perplexity submit not confirmed by page controls'
+        message: `Perplexity submit not confirmed: enter=${trustedEnter?.reason || 'no_send_evidence'}, click=${trustedSend?.reason || 'not_confirmed'}, page_controls=not_confirmed`
       };
     }
     activity.heartbeat(0.55, { phase: 'send-dispatched' });

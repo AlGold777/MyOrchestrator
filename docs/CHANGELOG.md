@@ -5039,6 +5039,14 @@ Backlog `what-to-do.md`, батч 1 (UI + Финализация).
 - Для чего: сократить длительное «красное окно» после `script_runtime_hard_stop`, когда ответ может прийти с задержкой. Изменение: добавлены модельно-зависимые defer-окна (`Gemini/Claude/Le Chat/Perplexity/Grok`) и расширен deferred-recovery не только для `GPT`; перед финальной hard-stop ошибкой добавлен дополнительный `final_ping_before_error`. Файл: `background/job-orchestrator.js`.
 - Для чего: ускорить восстановление канала при `PING_TRANSPORT_ERROR` и `message port closed`. Изменение: `sendPassiveMessageWithRetries` поддерживает явный план задержек (`transportRetryDelays`), а оркестратор использует быстрый профиль ретраев для `getResponses` ping (включая hard-stop и manual ping). Файлы: `background/dispatch-coordinator.js`, `background/job-orchestrator.js`.
 - Для чего: убрать повторяющийся flood `SELECTOR_STATS` и повысить сигнал/шум в диагностике. Изменение: в watcher добавлена дедупликация одинаковых selector-метрик в окне `selectorStatsDedupWindowMs` (по умолчанию 30s). Файл: `content-scripts/unified-answer-watcher.js`.
+# 2.81.194
+
+- Restored the proven 2.81.75 browser-level submission path for Le Chat and
+  Perplexity: trusted provider Send for Le Chat, trusted Enter followed by
+  trusted Send for Perplexity, with current proof-based confirmation retained.
+- When New pages is disabled, only Le Chat and Perplexity get one direct retry
+  against their persisted mapped conversation before a fresh tab is created.
+
 # 2.81.192
 
 - Routed concrete unified-pipeline streaming/finalization steps into canonical

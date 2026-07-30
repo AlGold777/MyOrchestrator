@@ -88,12 +88,16 @@ describe('composer transaction contract', () => {
 
   test('Perplexity does not publish submit after an unconfirmed send', () => {
     const source = read('content-scripts/content-perplexity.js');
-    const pageButtonAt = source.indexOf('const sendButton = resolveSendButton()');
+    const trustedEnterAt = source.indexOf("type: 'PERPLEXITY_TRUSTED_ENTER_REQUEST'");
+    const trustedSendAt = source.indexOf("type: 'PROVIDER_TRUSTED_SEND_REQUEST'", trustedEnterAt);
+    const pageButtonAt = source.indexOf('const sendButton = resolveSendButton()', trustedSendAt);
     const requestSubmitAt = source.indexOf('form.requestSubmit', pageButtonAt);
     const enterAt = source.indexOf('dispatchEnter();', requestSubmitAt);
     const failedAt = source.indexOf("type: 'send_failed'", enterAt);
     const submittedAt = source.indexOf("type: 'PROMPT_SUBMITTED'", failedAt);
-    expect(pageButtonAt).toBeGreaterThan(-1);
+    expect(trustedEnterAt).toBeGreaterThan(-1);
+    expect(trustedSendAt).toBeGreaterThan(trustedEnterAt);
+    expect(pageButtonAt).toBeGreaterThan(trustedSendAt);
     expect(requestSubmitAt).toBeGreaterThan(pageButtonAt);
     expect(enterAt).toBeGreaterThan(requestSubmitAt);
     expect(failedAt).toBeGreaterThan(-1);
@@ -103,8 +107,6 @@ describe('composer transaction contract', () => {
     expect(source).toContain('hasFreshGenerationEvidence()');
     expect(source).toContain('baselineGenerationEvidence');
     expect(source).not.toContain("const typing = document.querySelector('[aria-busy=\"true\"]");
-    expect(source).not.toContain("type: 'PROVIDER_TRUSTED_SEND_REQUEST'");
-    expect(source).not.toContain("type: 'PERPLEXITY_TRUSTED_ENTER_REQUEST'");
     expect(source).not.toContain("type: 'PERPLEXITY_TRUSTED_INPUT_REQUEST'");
   });
 

@@ -37,6 +37,13 @@ describe('unsafe global reuse preflight', () => {
     expect(ORCHESTRATOR_SOURCE).toContain('await setTabBinding(llmName, null);');
     expect(ORCHESTRATOR_SOURCE).not.toContain('reuseMappedTabOrCreate');
   });
+
+  test('donor sticky mapped-tab reuse is limited to Le Chat and Perplexity', () => {
+    expect(ORCHESTRATOR_SOURCE).toContain("const DONOR_STICKY_REUSE_MODELS = new Set(['Le Chat', 'Perplexity'])");
+    expect(ORCHESTRATOR_SOURCE).toContain('await reuseMappedDonorProviderTab(llmName, prompt, attachments, options)');
+    expect(ORCHESTRATOR_SOURCE).toContain("reason: 'donor_sticky_reuse'");
+    expect(ORCHESTRATOR_SOURCE).toContain("'DONOR_STICKY_TAB_REUSED'");
+  });
 });
 
 describe('legacy selector bundle removal', () => {
