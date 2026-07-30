@@ -610,7 +610,7 @@
       this.humanSession.startSession();
       this.streamingTimedOut = false;
       //-- 1.1. Адаптивный timeout: учитываем скорость модели --//
-const baseTimeouts = this.adaptiveTimeout.calculateTimeout(this.config.seedContent || '');
+const baseTimeouts = this.adaptiveTimeout.calculateTimeout(this.config.seedContent || '', { expectedLength });
 const timeouts = {
   soft: baseTimeouts.soft,
   hard: baseTimeouts.hard
@@ -862,6 +862,7 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
         adaptiveTimeout: this.config.streaming?.adaptiveTimeout,
         humanSession: this.humanSession,
         llmName: this.llmName,
+        expectedLength: this.config.streaming?.expectedLength || this.config.expectedLength || 'medium',
         verboseCriteria: this.config.streaming?.verboseCriteria === true ? true : undefined,
         baselineAnswerSignature: this.baselineAnswerSignature,
         anchorAnswerCount: this.anchorAnswerCount

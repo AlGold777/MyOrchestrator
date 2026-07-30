@@ -150,6 +150,8 @@
       this.humanSession = options.humanSession || null;
       this.criteria = new UniversalCompletionCriteria(completionConfig);
       this.timeoutManager = new AdaptiveTimeoutManager(adaptiveConfig);
+      this.expectedLength = options.expectedLength || null;
+      this.timeoutManager.setExpectedLength?.(this.expectedLength);
       this.checkInterval = completionConfig.checkInterval || 1000;
       this.minMetCriteria = completionConfig.minMetCriteria || 4;
       this.stopButtonCheckMode = completionConfig.stopButtonCheckMode || 'cached';
@@ -233,7 +235,9 @@
       this.firstStopSeenAt = 0;
       this.firstRegenerateSeenAt = 0;
       const currentLength = this.getCurrentContentLength();
-      const { soft, hard } = this.timeoutManager.calculateTimeout(currentLength);
+      const { soft, hard } = this.timeoutManager.calculateTimeout(currentLength, {
+        expectedLength: this.expectedLength
+      });
       let typingActive = true;
       const growthHistory = [];
 
@@ -341,6 +345,7 @@
           }
           this.fingerprintStable = this.fingerprintStableStreak >= this.fingerprintStableChecks;
           if (delta > 0) {
+            this.timeoutManager.recalculateOnGrowth?.(len);
             this.humanSession?.reportActivity?.('content-change');
           }
         } else {

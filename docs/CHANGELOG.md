@@ -1,5 +1,12 @@
 # CHANGELOG — Project
 
+### 2026-07-30 — Expected-length adaptive deadlines, version 2.81.178
+
+- Pipeline and watcher deadlines now use the requested answer-size bucket
+  instead of only the text already present when observation starts.
+- Continued answer growth can extend a short initial deadline up to the active
+  profile's hard maximum, without moving beyond that bound.
+
 ### 2026-07-30 — Stop-button hard guard, version 2.81.177
 
 - A visible provider Stop control blocks every successful watcher completion,

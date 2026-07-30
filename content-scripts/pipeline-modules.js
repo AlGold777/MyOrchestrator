@@ -143,17 +143,50 @@
       this.config = Object.assign({}, defaults, customConfig);
       this.softDeadline = null;
       this.hardDeadline = null;
+      this.startedAt = null;
+      this.expectedLength = null;
     }
 
-    calculateTimeout(currentContent = '') {
+    setExpectedLength(expectedLength = null) {
+      this.expectedLength = Object.prototype.hasOwnProperty.call(this.config, expectedLength)
+        ? expectedLength
+        : null;
+      return this.expectedLength;
+    }
+
+    getExpectedTimeout(expectedLength = this.expectedLength) {
+      return expectedLength && Object.prototype.hasOwnProperty.call(this.config, expectedLength)
+        ? Number(this.config[expectedLength]?.timeout || 0)
+        : 0;
+    }
+
+    calculateTimeout(currentContent = '', options = {}) {
       const length = typeof currentContent === 'string'
         ? currentContent.length
         : (Number(currentContent) || 0);
-      const base = this.getBaseTimeout(length);
+      const expectedLength = typeof options === 'string' ? options : options?.expectedLength;
+      if (expectedLength) this.setExpectedLength(expectedLength);
+      const base = Math.max(this.getBaseTimeout(length), this.getExpectedTimeout());
       const hard = Math.min(base * 2, this.config.hardMax);
-      this.softDeadline = Date.now() + base;
-      this.hardDeadline = Date.now() + hard;
-      return { soft: base, hard };
+      const soft = Math.min(base, this.config.hardMax);
+      this.startedAt = Date.now();
+      this.softDeadline = this.startedAt + soft;
+      this.hardDeadline = this.startedAt + hard;
+      return { soft, hard };
+    }
+
+    recalculateOnGrowth(currentContent = '') {
+      if (this.startedAt === null || this.softDeadline === null || this.hardDeadline === null) {
+        return this.calculateTimeout(currentContent);
+      }
+      const length = typeof currentContent === 'string'
+        ? currentContent.length
+        : (Number(currentContent) || 0);
+      const base = Math.max(this.getBaseTimeout(length), this.getExpectedTimeout());
+      const hardCap = this.startedAt + Number(this.config.hardMax || 0);
+      this.softDeadline = Math.max(this.softDeadline, Math.min(this.startedAt + base, hardCap));
+      this.hardDeadline = Math.max(this.hardDeadline, Math.min(this.startedAt + (base * 2), hardCap));
+      return this.checkExpiration();
     }
 
     getBaseTimeout(length) {

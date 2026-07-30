@@ -14229,17 +14229,50 @@ const scrollIntoViewSmoothly = async (element) => {
       this.config = Object.assign({}, defaults, customConfig);
       this.softDeadline = null;
       this.hardDeadline = null;
+      this.startedAt = null;
+      this.expectedLength = null;
     }
 
-    calculateTimeout(currentContent = '') {
+    setExpectedLength(expectedLength = null) {
+      this.expectedLength = Object.prototype.hasOwnProperty.call(this.config, expectedLength)
+        ? expectedLength
+        : null;
+      return this.expectedLength;
+    }
+
+    getExpectedTimeout(expectedLength = this.expectedLength) {
+      return expectedLength && Object.prototype.hasOwnProperty.call(this.config, expectedLength)
+        ? Number(this.config[expectedLength]?.timeout || 0)
+        : 0;
+    }
+
+    calculateTimeout(currentContent = '', options = {}) {
       const length = typeof currentContent === 'string'
         ? currentContent.length
         : (Number(currentContent) || 0);
-      const base = this.getBaseTimeout(length);
+      const expectedLength = typeof options === 'string' ? options : options?.expectedLength;
+      if (expectedLength) this.setExpectedLength(expectedLength);
+      const base = Math.max(this.getBaseTimeout(length), this.getExpectedTimeout());
       const hard = Math.min(base * 2, this.config.hardMax);
-      this.softDeadline = Date.now() + base;
-      this.hardDeadline = Date.now() + hard;
-      return { soft: base, hard };
+      const soft = Math.min(base, this.config.hardMax);
+      this.startedAt = Date.now();
+      this.softDeadline = this.startedAt + soft;
+      this.hardDeadline = this.startedAt + hard;
+      return { soft, hard };
+    }
+
+    recalculateOnGrowth(currentContent = '') {
+      if (this.startedAt === null || this.softDeadline === null || this.hardDeadline === null) {
+        return this.calculateTimeout(currentContent);
+      }
+      const length = typeof currentContent === 'string'
+        ? currentContent.length
+        : (Number(currentContent) || 0);
+      const base = Math.max(this.getBaseTimeout(length), this.getExpectedTimeout());
+      const hardCap = this.startedAt + Number(this.config.hardMax || 0);
+      this.softDeadline = Math.max(this.softDeadline, Math.min(this.startedAt + base, hardCap));
+      this.hardDeadline = Math.max(this.hardDeadline, Math.min(this.startedAt + (base * 2), hardCap));
+      return this.checkExpiration();
     }
 
     getBaseTimeout(length) {
@@ -15498,6 +15531,8 @@ const scrollIntoViewSmoothly = async (element) => {
       this.humanSession = options.humanSession || null;
       this.criteria = new UniversalCompletionCriteria(completionConfig);
       this.timeoutManager = new AdaptiveTimeoutManager(adaptiveConfig);
+      this.expectedLength = options.expectedLength || null;
+      this.timeoutManager.setExpectedLength?.(this.expectedLength);
       this.checkInterval = completionConfig.checkInterval || 1000;
       this.minMetCriteria = completionConfig.minMetCriteria || 4;
       this.stopButtonCheckMode = completionConfig.stopButtonCheckMode || 'cached';
@@ -15581,7 +15616,9 @@ const scrollIntoViewSmoothly = async (element) => {
       this.firstStopSeenAt = 0;
       this.firstRegenerateSeenAt = 0;
       const currentLength = this.getCurrentContentLength();
-      const { soft, hard } = this.timeoutManager.calculateTimeout(currentLength);
+      const { soft, hard } = this.timeoutManager.calculateTimeout(currentLength, {
+        expectedLength: this.expectedLength
+      });
       let typingActive = true;
       const growthHistory = [];
 
@@ -15689,6 +15726,7 @@ const scrollIntoViewSmoothly = async (element) => {
           }
           this.fingerprintStable = this.fingerprintStableStreak >= this.fingerprintStableChecks;
           if (delta > 0) {
+            this.timeoutManager.recalculateOnGrowth?.(len);
             this.humanSession?.reportActivity?.('content-change');
           }
         } else {
@@ -17276,7 +17314,7 @@ const scrollIntoViewSmoothly = async (element) => {
       this.humanSession.startSession();
       this.streamingTimedOut = false;
       //-- 1.1. Адаптивный timeout: учитываем скорость модели --//
-const baseTimeouts = this.adaptiveTimeout.calculateTimeout(this.config.seedContent || '');
+const baseTimeouts = this.adaptiveTimeout.calculateTimeout(this.config.seedContent || '', { expectedLength });
 const timeouts = {
   soft: baseTimeouts.soft,
   hard: baseTimeouts.hard
@@ -17528,6 +17566,7 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
         adaptiveTimeout: this.config.streaming?.adaptiveTimeout,
         humanSession: this.humanSession,
         llmName: this.llmName,
+        expectedLength: this.config.streaming?.expectedLength || this.config.expectedLength || 'medium',
         verboseCriteria: this.config.streaming?.verboseCriteria === true ? true : undefined,
         baselineAnswerSignature: this.baselineAnswerSignature,
         anchorAnswerCount: this.anchorAnswerCount

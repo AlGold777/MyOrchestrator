@@ -77,11 +77,21 @@ describe('false success: watcher completion guards', () => {
     jest.useRealTimers();
   });
 
-  // F02. После этапа 3.2 ожидание меняется на 450000.
-  test('adaptive soft/hard deadline ignores expected answer size', () => {
+  test('expected very-long answer selects the profile hard maximum', () => {
     document.body.innerHTML = `<main><article data-message-author-role="assistant"><div class="prose">x</div></article></main>`;
     const watcher = new window.AnswerPipeline.UnifiedAnswerCompletionWatcher('chatgpt', { llmName: 'GPT', expectedLength: 'veryLong' });
     const t = watcher.timeoutManager.calculateTimeout(watcher.getCurrentContentLength());
-    expect(t.soft).toBe(50000);
+    expect(t.soft).toBe(450000);
+    expect(t.hard).toBe(450000);
+  });
+
+  test('content growth extends a short deadline without exceeding hardMax', () => {
+    const watcher = new window.AnswerPipeline.UnifiedAnswerCompletionWatcher('chatgpt', { llmName: 'GPT' });
+    const initial = watcher.timeoutManager.calculateTimeout(1);
+    const grown = watcher.timeoutManager.recalculateOnGrowth(6000);
+
+    expect(initial).toEqual({ soft: 50000, hard: 100000 });
+    expect(grown.softRemaining).toBe(450000);
+    expect(grown.hardRemaining).toBe(450000);
   });
 });

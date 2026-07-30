@@ -593,6 +593,10 @@ UI сохраняет принятый ответ и добавляет свор
 deadline. Если кнопка остаётся до hard deadline, результат — незавершённый
 `hard_timeout`, а не `content_mutation_stable`.
 
+С v2.81.178 adaptive timeout учитывает `expectedLength` до запуска внешнего
+watchdog и watcher. По мере роста текста deadline может расширяться до
+`hardMax`, но никогда не сокращается и не выходит за предел профиля.
+
 ## Evidence policy and replay v2.81.127 - 2026-07-28
 
 `shared/proof-telemetry-policy.js` является чистым inference/policy engine для
