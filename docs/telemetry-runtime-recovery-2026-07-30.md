@@ -148,3 +148,10 @@ evidence-linked forensic companions without dispatch scope, propagates the
 active epoch/attempt into baseline and final boundaries, and explicitly retains
 delivery proof IDs. A new runtime export is still required to measure provider
 coverage; the old artifact cannot be repaired retroactively.
+
+The control export also contains baselines for only six of nine providers.
+Reinspection found that the adapters awaited `reportDispatchBaseline`, but the
+helper returned a boolean immediately after queuing `chrome.runtime.sendMessage`.
+Version 2.81.188 turns that helper into an acknowledgement promise with a bounded
+1.5 second fail-open timeout, so the existing adapter awaits now enforce the
+intended pre-Send ordering.

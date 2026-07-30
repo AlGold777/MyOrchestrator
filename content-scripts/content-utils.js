@@ -504,12 +504,23 @@
         capturedAt: Date.now()
       };
     } catch (_) {}
-    return safeRuntimeSendMessage({
-      type: 'DISPATCH_BASELINE_CAPTURED',
-      llmName,
-      meta: meta && typeof meta === 'object' ? meta : null,
-      signature,
-      anchorAnswerCount
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeoutId);
+        resolve(value);
+      };
+      const timeoutId = setTimeout(() => finish(false), 1500);
+      const sent = safeRuntimeSendMessage({
+        type: 'DISPATCH_BASELINE_CAPTURED',
+        llmName,
+        meta: meta && typeof meta === 'object' ? meta : null,
+        signature,
+        anchorAnswerCount
+      }, (response) => finish(response?.status === 'dispatch_baseline_ack'));
+      if (!sent) finish(false);
     });
   };
 

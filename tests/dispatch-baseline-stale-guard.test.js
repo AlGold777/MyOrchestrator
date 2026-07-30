@@ -130,6 +130,8 @@ describe('dispatch baseline stale guard (follow-up false-green)', () => {
       DEEPSEEK_SRC, PERPLEXITY_SRC, ZAI_SRC].forEach((source) => {
       expect(source).toMatch(/await window\.ContentUtils\?\.reportDispatchBaseline\?\./);
     });
+    expect(UTILS_SRC).toContain("response?.status === 'dispatch_baseline_ack'");
+    expect(UTILS_SRC).toContain('setTimeout(() => finish(false), 1500)');
   });
 
   test('pipeline calls receive the pre-send baseline text', () => {

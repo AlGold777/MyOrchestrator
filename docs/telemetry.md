@@ -1,5 +1,13 @@
 # Telemetry - tab/session diagnostics
 
+## Baseline acknowledgement barrier v2.81.188 - 2026-07-30
+
+`reportDispatchBaseline()` now resolves after the background responds with
+`dispatch_baseline_ack`, not immediately after `chrome.runtime.sendMessage()` is
+queued. All provider adapters already await this function, so Send is now
+ordered after durable background baseline handling. A 1.5 second fail-open
+timeout prevents an unavailable service worker from blocking provider dispatch.
+
 ## Canonical fact and incident identity v2.81.187 - 2026-07-30
 
 - Canonical event type now determines the typed fact before legacy metadata is
