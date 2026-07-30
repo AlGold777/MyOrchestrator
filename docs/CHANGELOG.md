@@ -1,5 +1,12 @@
 # CHANGELOG — Project
 
+### 2026-07-30 — Post-terminal answer revision UI, version 2.81.175
+
+- Late unmarked answer payloads no longer replace the accepted text of a
+  terminal debate card or its live result panel.
+- The UI appends a collapsible, source-labelled revision with the length delta;
+  explicitly marked answer revisions retain their existing update path.
+
 ### 2026-07-30 — Fail-closed lifecycle configuration, version 2.81.174
 
 - Structural lifecycle verification no longer substitutes two 25 ms snapshots

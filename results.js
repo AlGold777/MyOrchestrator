@@ -16256,7 +16256,8 @@ document.addEventListener('click', (event) => {
         const rawHtml = payload.html || '';
         const sanitizedHtml = sanitizeInlineHtml(rawHtml);
         const resolvedHtml = sanitizedHtml || (looksLikeHtml(normalizedText) ? sanitizeInlineHtml(normalizedText) : '');
-        updateDebateModelCardOutput(llmName, normalizedText, resolvedHtml, meta);
+        const debateUpdate = updateDebateModelCardOutput(llmName, normalizedText, resolvedHtml, meta);
+        if (debateUpdate?.postTerminalRevision) return debateUpdate;
         if (panel) {
             applyAttributionMarker(panel, meta);
             const outputElement = panel.querySelector('.output');
@@ -19679,6 +19680,48 @@ function checkCompareButtonState() {
         });
         return preferred;
     }
+    function appendPostTerminalAnswerRevision(session, llmName, text, html = '', meta = {}) {
+        if (!debateModelCards || !session || !llmName) return false;
+        const requestId = String(meta.requestId || '').trim();
+        const terminalCards = Array.from(debateModelCards.querySelectorAll('.debate-model-card'))
+            .filter((card) => (
+                card.dataset.sessionId === session.id
+                && card.dataset.llmName === llmName
+                && card.dataset.kind !== 'moderator'
+                && card.dataset.kind !== 'fragment'
+                && card.dataset.kind !== 'revision'
+                && (!requestId || !card.dataset.requestId || card.dataset.requestId === requestId)
+                && card.dataset.turnClosed === 'true'
+                && String(card.querySelector('.debate-model-card-output')?.textContent || '').trim()
+            ));
+        const targetCard = terminalCards[terminalCards.length - 1] || null;
+        if (!targetCard) return false;
+        const normalizedText = String(text || '').trim();
+        const normalizedHtml = sanitizeInlineHtml(String(html || '').trim());
+        if (!normalizedText && !normalizedHtml) return false;
+        const primaryOutput = targetCard.querySelector('.debate-model-card-output');
+        const primaryText = String(primaryOutput?.innerText || primaryOutput?.textContent || '').trim();
+        const revisionHash = `${normalizedText.length}:${normalizedText.slice(0, 96)}|${normalizedHtml.length}:${normalizedHtml.slice(0, 96)}`;
+        const duplicate = Array.from(targetCard.querySelectorAll('.post-terminal-answer-revision'))
+            .some((entry) => entry.dataset.revisionHash === revisionHash);
+        if (duplicate) return true;
+        const source = String(meta.source || meta.responseMeta?.source || 'unknown');
+        const delta = normalizedText.length - primaryText.length;
+        const deltaLabel = `${delta >= 0 ? '+' : ''}${delta}`;
+        const revision = document.createElement('details');
+        revision.className = 'post-terminal-answer-revision';
+        revision.dataset.revisionHash = revisionHash;
+        revision.dataset.source = source;
+        const summary = document.createElement('summary');
+        summary.textContent = `Ответ обновлён после завершения · ${source} · Δ ${deltaLabel}`;
+        const body = document.createElement('div');
+        body.className = 'post-terminal-answer-revision-body';
+        revision.append(summary, body);
+        targetCard.appendChild(revision);
+        renderDebateResponseBody(body, normalizedText, normalizedHtml);
+        targetCard.dataset.hasPostTerminalRevision = 'true';
+        return true;
+    }
     function appendDebateFeedEntry(llmName, text, html = '', meta = {}) {
         if (!debateModelCards || !llmName) return;
         const normalizedText = String(text || '').trim();
@@ -19894,10 +19937,18 @@ function checkCompareButtonState() {
     function updateDebateModelCardOutput(llmName, text, html = '', meta = {}) {
         const normalizedText = String(text || '').trim();
         const normalizedHtml = sanitizeInlineHtml(String(html || '').trim());
+        const explicitRevision = meta?.answerRevision === true || Boolean(meta?.revisionOf);
+        if (!explicitRevision) {
+            const session = ensureDebateSession(debateTabsState.activeSessionId);
+            if (appendPostTerminalAnswerRevision(session, llmName, normalizedText, normalizedHtml, meta)) {
+                return { updated: false, postTerminalRevision: true };
+            }
+        }
         appendDebateFeedEntry(llmName, normalizedText, normalizedHtml, {
             ...meta,
             role: meta?.role || ''
         });
+        return { updated: true, postTerminalRevision: false };
     }
     function approvePendingDebateCandidate() {
         const candidate = debateFeedState.pendingApproval;

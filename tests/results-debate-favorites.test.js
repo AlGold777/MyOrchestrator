@@ -992,6 +992,38 @@ describe('Pipeline debate favorites view', () => {
     card.remove();
   });
 
+  test('post-terminal partial response preserves the accepted answer and adds a marked revision', () => {
+    const debug = window.__pipelineLifecycleDebug;
+    document.getElementById('panel-gpt')?.remove();
+    const panel = document.createElement('section');
+    panel.id = 'panel-gpt';
+    panel.className = 'llm-panel';
+    panel.innerHTML = '<div class="output"></div>';
+    document.body.appendChild(panel);
+    const output = panel.querySelector('.output');
+    const original = 'Accepted terminal answer.';
+    const revised = 'Accepted terminal answer with text appended after completion.';
+
+    debug.updateLLMPanelOutput('GPT', original, '', {
+      status: 'SUCCESS',
+      requestId: 'post-terminal-lock'
+    });
+    const card = document.querySelector('.debate-model-card[data-llm-name="GPT"]');
+    expect(card.dataset.turnClosed).toBe('true');
+
+    debug.updateLLMPanelOutput('GPT', revised, '', {
+      source: 'late_partial_response',
+      requestId: 'post-terminal-lock'
+    });
+
+    expect(card.querySelector('.debate-model-card-output').textContent.trim()).toBe(original);
+    expect(output.textContent.trim()).toBe(original);
+    expect(card.querySelector('.post-terminal-answer-revision summary').textContent).toContain('Ответ обновлён после завершения');
+    expect(card.querySelector('.post-terminal-answer-revision summary').textContent).toContain('late_partial_response');
+    expect(card.querySelector('.post-terminal-answer-revision-body').textContent).toContain('text appended');
+    panel.remove();
+  });
+
   test('a model answer keeps at most one open card (no duplicate whole or partial)', () => {
     const debug = window.__pipelineLifecycleDebug;
     const container = document.getElementById('debate-model-cards');

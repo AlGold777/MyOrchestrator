@@ -1515,3 +1515,21 @@ body.llm-stream-preview-open .llm-results .llm-panel.llm-panel-session-restored:
 .disput-stage-failed td { color: #c62828; }
 .disput-stage-running td { color: #9a6700; }
 .disput-trace-table { min-width: 720px; }
+.post-terminal-answer-revision {
+    margin: 10px 14px 14px;
+    border: 1px solid color-mix(in srgb, var(--warning, #d97706) 42%, transparent);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--warning, #d97706) 8%, transparent);
+}
+
+.post-terminal-answer-revision > summary {
+    padding: 8px 10px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.post-terminal-answer-revision-body {
+    padding: 0 10px 10px;
+    font-size: 13px;
+}
