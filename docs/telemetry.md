@@ -584,6 +584,11 @@ UI сохраняет принятый ответ и добавляет свор
 после завершения» с источником и дельтой длины. Явные `answerRevision`/`revisionOf`
 остаются разрешённым каналом пересмотра.
 
+С v2.81.176 generation proof стал трёхзначным. Видимый индикатор даёт `true`,
+найденный, но неактивный узел даёт доказанное `false`, а полный промах всех
+настроенных селекторов даёт `null`. Последний случай блокирует automatic SUCCESS
+как `generation_inactive_unproven`.
+
 ## Evidence policy and replay v2.81.127 - 2026-07-28
 
 `shared/proof-telemetry-policy.js` является чистым inference/policy engine для

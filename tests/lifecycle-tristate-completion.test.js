@@ -133,6 +133,10 @@ describe('tri-state completion (stop-button)', () => {
     newAnswer.textContent = 'New stable DeepSeek answer with enough meaningful content. B2-END-S1';
     setRect(newAnswer, { top: 520, left: 140, width: 720, height: 160 });
     document.body.appendChild(newAnswer);
+    const inactiveStop = document.createElement('button');
+    inactiveStop.setAttribute('aria-label', 'Stop generating');
+    inactiveStop.disabled = true;
+    document.body.appendChild(inactiveStop);
     await trackingStarted;
     detector.registerAnswerCandidate({ modelName: 'DeepSeek', element: newAnswer, traceId: 'deepseek-proof' });
 
@@ -252,6 +256,10 @@ describe('tri-state completion (stop-button)', () => {
     unrelated.textContent = 'Persistent page service';
     setRect(unrelated, { top: 50, left: 50, width: 100, height: 20 });
     document.body.appendChild(unrelated);
+    const inactiveStop = document.createElement('button');
+    inactiveStop.setAttribute('aria-label', 'Stop generating');
+    inactiveStop.disabled = true;
+    document.body.appendChild(inactiveStop);
     const answer = document.createElement('section');
     answer.dataset.role = 'assistant';
     answer.textContent = 'New stable GPT answer that must complete despite unrelated page loading UI.';
@@ -349,7 +357,12 @@ describe('tri-state completion (stop-button)', () => {
     setTimeout(() => {
       newAnswer.textContent += ' Final.';
     }, 30);
-    setTimeout(() => stop.remove(), 90);
+    setTimeout(() => {
+      stop.disabled = true;
+      const wakeMarker = document.createElement('span');
+      wakeMarker.hidden = true;
+      document.body.appendChild(wakeMarker);
+    }, 90);
 
     const result = await completion;
     expect(result).toEqual(expect.objectContaining({ ok: true, state: 'COMPLETE' }));

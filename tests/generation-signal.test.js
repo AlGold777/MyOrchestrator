@@ -70,4 +70,15 @@ describe('per-platform generation signal', () => {
       foundCount: 1, availableCount: 1, visibleCount: 0
     }));
   });
+
+  test('no configured selector matches means generation state is unknown', () => {
+    document.body.innerHTML = '<button data-provider-control="new-stop-shape">stop</button>';
+    const result = GenerationSignal.inspect({
+      selectors: { stopButton: 'button[data-testid="old-stop-shape"]' }, document, view: window
+    });
+    expect(result.active).toBeNull();
+    expect(result.checks).toEqual([
+      expect.objectContaining({ foundCount: 0, availableCount: 0, visibleCount: 0 })
+    ]);
+  });
 });

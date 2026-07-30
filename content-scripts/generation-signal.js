@@ -68,7 +68,14 @@
         checks
       };
     }
-    return { active: false, kind: null, selector: null, node: null, checks };
+    const totalFound = checks.reduce((sum, check) => sum + Number(check.foundCount || 0), 0);
+    return {
+      active: totalFound > 0 ? false : null,
+      kind: null,
+      selector: null,
+      node: null,
+      checks
+    };
   }
 
   const api = Object.freeze({ selectorList, isAvailable, isVisible, inspect });

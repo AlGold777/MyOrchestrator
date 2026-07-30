@@ -1,5 +1,12 @@
 # CHANGELOG — Project
 
+### 2026-07-30 — Tri-state generation proof, version 2.81.176
+
+- Generation selectors now distinguish a proven inactive provider control from
+  a complete selector miss.
+- A selector miss produces `active: null`, activating the existing
+  `generation_inactive_unproven` finalization guard instead of false SUCCESS.
+
 ### 2026-07-30 — Post-terminal answer revision UI, version 2.81.175
 
 - Late unmarked answer payloads no longer replace the accepted text of a
