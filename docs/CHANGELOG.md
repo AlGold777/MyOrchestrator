@@ -1,5 +1,12 @@
 # CHANGELOG — Project
 
+### 2026-07-30 — Fail-closed lifecycle configuration, version 2.81.174
+
+- Structural lifecycle verification no longer substitutes two 25 ms snapshots
+  when the pipeline finalization configuration is unavailable.
+- Verification waits for timing-profile readiness, so Long runs use their five
+  configured stability snapshots.
+
 ### 2026-07-30 — Verification observation age, version 2.81.173
 
 - Background preserves the producer's `observedAt` timestamp for answer proof

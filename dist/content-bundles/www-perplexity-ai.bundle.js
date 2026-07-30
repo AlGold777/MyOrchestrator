@@ -2240,7 +2240,11 @@
 
   async function verifyStructuralCompletion(tracker) {
     if (!window.AnswerVerification?.verifySnapshotPair) return null;
-    const finalization = window.AnswerPipelineConfig?.finalization || {};
+    if (typeof window.AnswerPipelineTiming?.whenProfileReady === 'function') {
+      await window.AnswerPipelineTiming.whenProfileReady();
+    }
+    const finalization = window.AnswerPipelineConfig?.finalization;
+    if (!finalization) return null;
     const checks = Math.max(2, Number(finalization.stabilityChecks || 2));
     const retryBudget = Math.max(0, Number(finalization.stabilityRetryBudget || 0));
     const interval = Math.max(5, Number(finalization.stabilityInterval || 25));
@@ -24792,7 +24796,11 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
 
   async function verifyStructuralCompletion(tracker) {
     if (!window.AnswerVerification?.verifySnapshotPair) return null;
-    const finalization = window.AnswerPipelineConfig?.finalization || {};
+    if (typeof window.AnswerPipelineTiming?.whenProfileReady === 'function') {
+      await window.AnswerPipelineTiming.whenProfileReady();
+    }
+    const finalization = window.AnswerPipelineConfig?.finalization;
+    if (!finalization) return null;
     const checks = Math.max(2, Number(finalization.stabilityChecks || 2));
     const retryBudget = Math.max(0, Number(finalization.stabilityRetryBudget || 0));
     const interval = Math.max(5, Number(finalization.stabilityInterval || 25));

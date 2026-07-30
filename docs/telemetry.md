@@ -574,6 +574,11 @@ decision.
 `recordedAt`. Возраст proof теперь вычисляется от фактического DOM-наблюдения,
 а не от момента доставки сообщения.
 
+С v2.81.174 lifecycle structural verification работает fail-closed: без
+`AnswerPipelineConfig.finalization` доказательство не создаётся. Перед снимками
+детектор ждёт загрузки активного timing profile, поэтому Long использует свои
+пять проверок, а не ранние Standard-дефолты.
+
 ## Evidence policy and replay v2.81.127 - 2026-07-28
 
 `shared/proof-telemetry-policy.js` является чистым inference/policy engine для
