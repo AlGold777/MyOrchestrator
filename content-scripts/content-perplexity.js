@@ -1569,7 +1569,7 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
       generationElements: baselineGenerationEvidence
     }) || null;
 
-    const confirmPerplexitySend = async (timeout = 6000) => {
+    const confirmPerplexitySend = async (timeout = 6000, trustedBrowserDispatch = false) => {
       const deadline = Date.now() + timeout;
       while (Date.now() < deadline) {
         const liveComposer = findLivePromptComposer();
@@ -1580,7 +1580,8 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
           userTurnCount: countUserTurns(),
           responseCount: currentResponseCount,
           composerTextLength: (liveComposer?.value || liveComposer?.textContent || '').trim().length,
-          generationElements: collectGenerationEvidence()
+          generationElements: collectGenerationEvidence(),
+          trustedBrowserDispatch
         });
         if (proof?.confirmed === true) return true;
         if (!submitConfirmation && (
@@ -1626,7 +1627,7 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
         else resolve(response || { ok: false, reason: 'empty_response' });
       });
     });
-    let confirmed = trustedEnter?.ok && await confirmPerplexitySend();
+    let confirmed = trustedEnter?.ok && await confirmPerplexitySend(6000, true);
     let trustedSend = null;
     if (!confirmed && findLivePromptComposer()) {
       activity.heartbeat(0.43, { phase: 'trusted-send-control' });
@@ -1640,31 +1641,13 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
           else resolve(response || { ok: false, reason: 'empty_response' });
         });
       });
-      confirmed = trustedSend?.ok && await confirmPerplexitySend();
+      confirmed = trustedSend?.ok && await confirmPerplexitySend(6000, true);
     }
 
-    activity.heartbeat(0.46, { phase: 'page-send-control-fallback' });
-    const sendButton = resolveSendButton();
-    if (!confirmed && sendButton) {
-      sendButton.click();
-      confirmed = await confirmPerplexitySend();
-    }
-    if (!confirmed) {
-      const form = inputField.closest?.('form');
-      if (form?.requestSubmit) {
-        try { form.requestSubmit(sendButton || undefined); } catch (_) { try { form.requestSubmit(); } catch (_) {} }
-        confirmed = await confirmPerplexitySend();
-      }
-    }
-    if (!confirmed) {
-      try { inputField.focus?.({ preventScroll: true }); } catch (_) {}
-      dispatchEnter();
-      confirmed = await confirmPerplexitySend();
-    }
     if (!confirmed) {
       throw {
         type: 'send_failed',
-        message: `Perplexity submit not confirmed: enter=${trustedEnter?.reason || 'no_send_evidence'}, click=${trustedSend?.reason || 'not_confirmed'}, page_controls=not_confirmed`
+        message: `Perplexity submit not confirmed: enter=${trustedEnter?.reason || 'no_send_evidence'}, click=${trustedSend?.reason || 'not_attempted'}`
       };
     }
     activity.heartbeat(0.55, { phase: 'send-dispatched' });

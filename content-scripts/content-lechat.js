@@ -956,7 +956,7 @@
       composerTextLength: (composer.value || composer.textContent || '').trim().length,
       generationElements: baselineGenerationEvidence
     }) || null;
-    const confirmLeChatSend = async (sendButtonCandidate, timeout = 3000, beforeTextLength = 0) => {
+    const confirmLeChatSend = async (sendButtonCandidate, timeout = 3000, beforeTextLength = 0, trustedBrowserDispatch = false) => {
       const deadline = Date.now() + timeout;
       while (Date.now() < deadline) {
         const composerText = (composer.value || composer.textContent || '').trim();
@@ -965,7 +965,8 @@
           userTurnCount: countUserTurns(),
           responseCount: currentResponseCount,
           composerTextLength: composerText.length,
-          generationElements: collectGenerationEvidence()
+          generationElements: collectGenerationEvidence(),
+          trustedBrowserDispatch
         });
         if (proof?.confirmed === true) return true;
         // Fail closed if the shared evaluator is unavailable. Only direct
@@ -1011,86 +1012,20 @@
       const trusted = await new Promise((resolve) => {
         chrome.runtime.sendMessage({
           type: 'PROVIDER_TRUSTED_SEND_REQUEST',
-          llmName: MODEL,
-          prompt
+          llmName: MODEL
         }, (response) => {
           if (chrome.runtime.lastError) resolve({ ok: false, reason: chrome.runtime.lastError.message });
           else resolve(response || { ok: false, reason: 'empty_response' });
         });
       });
-      if (trusted?.ok && await confirmLeChatSend(null, 4000, beforeLen)) {
+      if (trusted?.ok && await confirmLeChatSend(null, 4000, beforeLen, true)) {
         console.log('[content-lechat] Trusted Send control confirmed.');
         return true;
       }
-      console.warn('[content-lechat] Trusted Send was not confirmed; using page fallbacks.', trusted?.reason || 'no_send_evidence');
+      throw new Error(`Le Chat trusted Send was not confirmed: ${trusted?.reason || 'no_send_evidence'}`);
     } catch (e) {
-      console.warn('[content-lechat] Trusted Send failed; using page fallbacks.', e);
-    }
-
-    // Strategy 1: Button click fallback.
-    // Le Chat keeps the send button disabled until React registers the
-    // composer input, so wait for it to become enabled (re-nudging input
-    // events meanwhile) instead of skipping the click when it starts disabled.
-    try {
-      const beforeLen = ((composer.value || composer.textContent || '').trim()).length;
-      const sendButton = await waitForSendEnabled(composer, 2500);
-      if (sendButton && !isSendButtonDisabled(sendButton)) {
-        await lechatHumanClick(sendButton);
-        if (await confirmLeChatSend(sendButton, 3000, beforeLen)) {
-          console.log('[content-lechat] Button click send confirmed.');
-          return;
-        }
-      } else {
-        console.warn('[content-lechat] Send button stayed disabled after wait; falling back to Enter.');
-      }
-    } catch (e) {
-      console.warn('[content-lechat] Button click send failed', e);
-    }
-
-    // Strategy 2: submit the composer's own form. This stays inside the page
-    // and does not attach Chrome's debugger.
-    try {
-      const form = composer.closest?.('form');
-      if (form?.requestSubmit) {
-        form.requestSubmit();
-        if (await confirmLeChatSend(null, 3000)) {
-          console.log('[content-lechat] Form submit confirmed.');
-          return;
-        }
-      }
-    } catch (e) {
-      console.warn('[content-lechat] Form submit failed', e);
-    }
-
-    // Strategy 3: Enter key.
-    try {
-      const beforeLen = ((composer.value || composer.textContent || '').trim()).length;
-      try { composer.focus?.({ preventScroll: true }); } catch (_) {}
-      dispatchEnter();
-      if (await confirmLeChatSend(null, 3000, beforeLen)) {
-        console.log('[content-lechat] Enter key send confirmed.');
-        return;
-      }
-    } catch (e) {
-      console.warn('[content-lechat] Enter key send failed', e);
-    }
-
-    // Strategy 4: Ctrl+Enter fallback.
-    try {
-      const beforeLen = ((composer.value || composer.textContent || '').trim()).length;
-      dispatchEnter({ ctrlKey: true });
-      if (await confirmLeChatSend(null, 3000, beforeLen)) {
-        console.log('[content-lechat] Ctrl+Enter send confirmed.');
-        return;
-      }
-    } catch (e) {
-      console.warn('[content-lechat] Ctrl+Enter send failed', e);
-    }
-
-    // Final check.
-    if (!(await confirmLeChatSend(null, 900))) {
-      console.error('[content-lechat] All send methods failed to confirm.');
-      throw new Error('Failed to confirm prompt submission.');
+      console.warn('[content-lechat] Trusted Send failed.', e);
+      throw e;
     }
   }
 

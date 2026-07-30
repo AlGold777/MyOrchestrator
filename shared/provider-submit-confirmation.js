@@ -23,6 +23,7 @@
     const newUserTurn = finiteCount(snapshot.userTurnCount) > finiteCount(baseline.userTurnCount);
     const newResponseNode = finiteCount(snapshot.responseCount) > finiteCount(baseline.responseCount);
     const freshGenerationElement = currentGeneration.some((element) => !baselineGeneration.has(element));
+    const trustedBrowserDispatch = snapshot.trustedBrowserDispatch === true;
     const beforeLength = finiteCount(baseline.composerTextLength);
     const currentLength = finiteCount(snapshot.composerTextLength);
     const composerCleared = beforeLength > 0 && currentLength === 0;
@@ -32,12 +33,14 @@
     if (newUserTurn) directSignals.push('new_user_turn');
     if (freshGenerationElement) directSignals.push('fresh_generation_element');
     if (newResponseNode) directSignals.push('new_response_node');
+    if (trustedBrowserDispatch) directSignals.push('trusted_browser_dispatch');
     return {
       confirmed: directSignals.length > 0,
       directSignals,
       newUserTurn,
       freshGenerationElement,
       newResponseNode,
+      trustedBrowserDispatch,
       composerCleared,
       composerShrank,
       currentComposerTextLength: currentLength

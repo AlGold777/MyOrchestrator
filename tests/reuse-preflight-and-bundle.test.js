@@ -6,6 +6,7 @@
 //    bundled INSTEAD of the real selector contract by scripts/build-bundles.js.
 const fs = require('fs');
 const path = require('path');
+const vm = require('vm');
 
 const read = (...p) => fs.readFileSync(path.join(__dirname, '..', ...p), 'utf8');
 const ORCHESTRATOR_SOURCE = read('background', 'job-orchestrator.js');
@@ -43,6 +44,41 @@ describe('unsafe global reuse preflight', () => {
     expect(ORCHESTRATOR_SOURCE).toContain('await reuseMappedDonorProviderTab(llmName, prompt, attachments, options)');
     expect(ORCHESTRATOR_SOURCE).toContain("reason: 'donor_sticky_reuse'");
     expect(ORCHESTRATOR_SOURCE).toContain("'DONOR_STICKY_TAB_REUSED'");
+    const stickyAt = ORCHESTRATOR_SOURCE.indexOf('await reuseMappedDonorProviderTab(llmName, prompt, attachments, options)');
+    const genericAt = ORCHESTRATOR_SOURCE.indexOf('await tryAttachExistingTab(llmName, prompt, attachments', stickyAt);
+    expect(stickyAt).toBeGreaterThan(-1);
+    expect(genericAt).toBeGreaterThan(stickyAt);
+  });
+
+  test('sticky reuse recovers the newest matching provider tab when mapping was cleared', async () => {
+    const start = ORCHESTRATOR_SOURCE.indexOf("const DONOR_STICKY_REUSE_MODELS = new Set");
+    const end = ORCHESTRATOR_SOURCE.indexOf('\nasync function runModelThroughTabs', start);
+    const runtime = ORCHESTRATOR_SOURCE.slice(start, end);
+    const calls = [];
+    const sandbox = {
+      Set,
+      Promise,
+      TabMapManager: { get: () => null },
+      findReusableTabsForLlm: async () => [{ id: 42, url: 'https://www.perplexity.ai/search/old' }],
+      isValidTabId: (id) => Number.isInteger(id) && id > 0,
+      isSessionActive: () => true,
+      chrome: {
+        runtime: { lastError: null },
+        tabs: { get: (id, callback) => callback({ id, url: 'https://www.perplexity.ai/search/old' }) }
+      },
+      ensureTabReadyForDispatch: async () => ({ ok: true, tab: { url: 'https://www.perplexity.ai/search/old' } }),
+      prepareTabForUse: async (id) => calls.push(['prepare', id]),
+      initRequestMetadata: (...args) => calls.push(['metadata', ...args]),
+      setTabBinding: async (...args) => calls.push(['bind', ...args]),
+      emitTelemetry: (...args) => calls.push(['telemetry', ...args]),
+      dispatchPromptToTab: (...args) => calls.push(['dispatch', ...args]),
+      LLM_TARGETS: { Perplexity: { url: 'https://www.perplexity.ai/' } }
+    };
+    vm.createContext(sandbox);
+    vm.runInContext(`${runtime}\n;globalThis.reuse = reuseMappedDonorProviderTab;`, sandbox);
+    await expect(sandbox.reuse('Perplexity', 'prompt', [], {})).resolves.toBe(true);
+    expect(calls).toContainEqual(['bind', 'Perplexity', 42]);
+    expect(calls.some((call) => call[0] === 'dispatch' && call[2] === 42)).toBe(true);
   });
 });
 

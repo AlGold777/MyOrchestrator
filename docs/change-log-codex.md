@@ -1,5 +1,28 @@
 # Codex phase change log
 
+## 2.81.195 — Make the 2.81.75 Le Chat/Perplexity dispatch path executable
+
+- 2.81.194 restored the donor RPC calls but not the donor's `debugger`
+  permission. At runtime `chrome.debugger` was unavailable, so every trusted
+  action failed before attach and the adapters fell back to their old slow
+  synthetic paths. This is why the field behaviour did not change.
+- The permission is restored, but a router allowlist enables only Le Chat and
+  Perplexity trusted Send plus Perplexity trusted Enter. Grok trusted input,
+  native input RPCs and all CDP attachment RPCs stay fail-closed, preserving the
+  behaviour of unrelated providers.
+- A completed native browser gesture is recorded as
+  `trusted_browser_dispatch` evidence. Composer clearing, shrinking, disabled
+  controls and pre-existing busy nodes remain insufficient, avoiding the false
+  success regression fixed in 2.81.111/2.81.117.
+- The slow page click/form/synthetic keyboard chains were removed from these two
+  submission transactions. A trusted failure now fails promptly instead of
+  consuming the useful session window.
+- With New pages disabled, provider-specific reuse runs before the generic
+  draft/modal probe and can recover the newest matching tab when session cleanup
+  already cleared the persisted mapping.
+- Added executable CDP dispatch tests and a runtime-style cleared-mapping reuse
+  test in addition to source-contract coverage.
+
 ## 2.81.123 — Perplexity insertion no longer trusts execCommand
 
 > Renumbered from a duplicate "2.81.122" heading: two independent sessions each

@@ -43,6 +43,21 @@ describe('provider submit proof contract', () => {
     expect(newTurn.directSignals).toContain('new_user_turn');
   });
 
+  test('a completed native browser dispatch is explicit submission evidence', () => {
+    const baseline = ORACLE.capture({
+      userTurnCount: 3, responseCount: 3, composerTextLength: 190, generationElements: []
+    });
+    const nativeDispatch = ORACLE.evaluate(baseline, {
+      userTurnCount: 3,
+      responseCount: 3,
+      composerTextLength: 190,
+      generationElements: [],
+      trustedBrowserDispatch: true
+    });
+    expect(nativeDispatch.confirmed).toBe(true);
+    expect(nativeDispatch.directSignals).toContain('trusted_browser_dispatch');
+  });
+
   test('a pre-existing generation element is not fresh evidence', () => {
     const stale = { id: 'stale-spinner' };
     const baseline = ORACLE.capture({

@@ -41,3 +41,24 @@ next request.
 - Other providers keep the current fail-closed global reuse policy.
 
 The donor directory was not modified.
+
+## 2.81.195 field correction
+
+The first 2.81.194 port was incomplete. It restored calls to the donor's trusted
+browser actions but omitted the donor's required `debugger` manifest permission.
+Those calls therefore failed before attach and silently entered the unchanged
+slow page-level fallback chain.
+
+The corrected implementation:
+
+- restores the required permission while allowing only Le Chat/Perplexity Send
+  and Perplexity Enter RPCs to use it;
+- keeps CDP attachment and other historical debugger RPCs policy-disabled;
+- treats a successfully completed native browser dispatch as explicit transport
+  evidence without treating composer clearing or a stale busy element as proof;
+- stops immediately on a failed trusted transaction instead of spending further
+  seconds in synthetic click/form/keyboard attempts;
+- reuses the persisted tab or the newest matching provider tab before generic
+  draft/modal preflight, even when session cleanup removed the persisted mapping.
+- exports `PROVIDER_TRUSTED_SEND_FAILED` / `PROVIDER_TRUSTED_ENTER_FAILED` with
+  the browser API availability flag if native dispatch still fails in the field.

@@ -5045,43 +5045,54 @@ const DONOR_STICKY_REUSE_MODELS = new Set(['Le Chat', 'Perplexity']);
 
 async function reuseMappedDonorProviderTab(llmName, prompt, attachments = [], options = {}) {
   if (!DONOR_STICKY_REUSE_MODELS.has(llmName)) return false;
-  const tabId = TabMapManager.get(llmName);
-  if (!isValidTabId(tabId)) return false;
-  const tab = await new Promise((resolve) => {
-    chrome.tabs.get(tabId, (value) => {
-      if (chrome.runtime.lastError || !value) resolve(null);
-      else resolve(value);
-    });
-  });
-  if (!tab) return false;
   if (options.sessionId && !isSessionActive(options.sessionId)) return false;
-  try {
-    const readiness = await ensureTabReadyForDispatch(tabId, llmName, {
-      reason: 'donor_sticky_reuse'
-    });
-    if (!readiness.ok) return false;
-    await prepareTabForUse(tabId, llmName);
-    initRequestMetadata(llmName, tabId, readiness.tab?.url || tab.url || LLM_TARGETS[llmName]?.url || '');
-    await setTabBinding(llmName, tabId);
-    emitTelemetry(llmName, 'DONOR_STICKY_TAB_REUSED', {
-      level: 'info',
-      details: `tab=${tabId}`,
-      meta: { tabId, reason: 'mapped_provider_reuse', donorVersion: '2.81.75' },
-      force: true
-    });
-    if (!options.deferDispatch) {
-      dispatchPromptToTab(llmName, tabId, prompt, attachments, 'donor_sticky_reuse');
+  const mappedTabId = TabMapManager.get(llmName);
+  const matchingTabs = await findReusableTabsForLlm(llmName).catch(() => []);
+  const candidateIds = Array.from(new Set([
+    isValidTabId(mappedTabId) ? mappedTabId : null,
+    ...matchingTabs.map((tab) => tab?.id)
+  ].filter(isValidTabId)));
+  for (const tabId of candidateIds) {
+    try {
+      const tab = await new Promise((resolve) => {
+        chrome.tabs.get(tabId, (value) => {
+          if (chrome.runtime.lastError || !value) resolve(null);
+          else resolve(value);
+        });
+      });
+      if (!tab) continue;
+      const readiness = await ensureTabReadyForDispatch(tabId, llmName, {
+        reason: 'donor_sticky_reuse'
+      });
+      if (!readiness.ok) continue;
+      await prepareTabForUse(tabId, llmName);
+      initRequestMetadata(llmName, tabId, readiness.tab?.url || tab.url || LLM_TARGETS[llmName]?.url || '');
+      await setTabBinding(llmName, tabId);
+      emitTelemetry(llmName, 'DONOR_STICKY_TAB_REUSED', {
+        level: 'info',
+        details: `tab=${tabId}`,
+        meta: {
+          tabId,
+          reason: 'provider_tab_reuse',
+          selection: tabId === mappedTabId ? 'persisted_mapping' : 'newest_matching_tab',
+          donorVersion: '2.81.75'
+        },
+        force: true
+      });
+      if (!options.deferDispatch) {
+        dispatchPromptToTab(llmName, tabId, prompt, attachments, 'donor_sticky_reuse');
+      }
+      return true;
+    } catch (err) {
+      emitTelemetry(llmName, 'DONOR_STICKY_TAB_REUSE_FAILED', {
+        level: 'warning',
+        details: err?.message || 'provider_tab_reuse_failed',
+        meta: { tabId, reason: 'provider_tab_reuse_failed' },
+        force: true
+      });
     }
-    return true;
-  } catch (err) {
-    emitTelemetry(llmName, 'DONOR_STICKY_TAB_REUSE_FAILED', {
-      level: 'warning',
-      details: err?.message || 'mapped_provider_reuse_failed',
-      meta: { tabId, reason: 'mapped_provider_reuse_failed' },
-      force: true
-    });
-    return false;
   }
+  return false;
 }
 
 async function runModelThroughTabs(llmName, prompt, forceNewTabs, attachments = [], options = {}) {
@@ -5092,6 +5103,13 @@ async function runModelThroughTabs(llmName, prompt, forceNewTabs, attachments = 
     detachExistingTab(llmName);
     await setTabBinding(llmName, null);
     return createNewLlmTab(llmName, prompt, attachments, { ...options, forceCreate: true });
+  }
+
+  // Le Chat and Perplexity deliberately retain the donor's sticky-conversation
+  // behaviour: if any valid provider tab exists, use it before the generic
+  // draft/modal preflight can redirect the request into a duplicate new tab.
+  if (await reuseMappedDonorProviderTab(llmName, prompt, attachments, options)) {
+    return true;
   }
 
   // This acquisition is a transaction: the caller must not advance Round 0
@@ -5107,15 +5125,6 @@ async function runModelThroughTabs(llmName, prompt, forceNewTabs, attachments = 
     if (attached) return true;
   } catch (err) {
     console.warn(`[BACKGROUND] Failed to attach existing tab for ${llmName}:`, err?.message || err);
-  }
-
-  // Donor 2.81.75 behaviour, deliberately scoped to these two providers:
-  // when New pages is disabled, a persisted mapped conversation gets one
-  // direct readiness/prepare attempt before we abandon it and create a tab.
-  // This avoids opening a duplicate page merely because the generic global
-  // takeover preflight sees the provider's existing controlled draft surface.
-  if (await reuseMappedDonorProviderTab(llmName, prompt, attachments, options)) {
-    return true;
   }
 
   await setTabBinding(llmName, null);

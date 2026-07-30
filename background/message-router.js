@@ -17,6 +17,21 @@ const trustedInputFlightsByTab = new Map();
 const geminiAttachmentFlightsByTab = new Map();
 const qwenAttachmentFlightsByTab = new Map();
 const providerAttachmentFlightsByTab = new Map();
+const DEBUGGER_RPC_TYPES = new Set([
+    'GROK_TRUSTED_INPUT_REQUEST',
+    'LECHAT_TRUSTED_SEND_REQUEST',
+    'PROVIDER_TRUSTED_SEND_REQUEST',
+    'PERPLEXITY_TRUSTED_ENTER_REQUEST',
+    'PERPLEXITY_TRUSTED_INPUT_REQUEST',
+    'PROVIDER_TRUSTED_INPUT_REQUEST',
+    'GEMINI_CDP_ATTACH_REQUEST',
+    'QWEN_CDP_ATTACH_REQUEST',
+    'PROVIDER_CDP_ATTACH_REQUEST'
+]);
+const ENABLED_DEBUGGER_RPC_TYPES = new Set([
+    'PROVIDER_TRUSTED_SEND_REQUEST',
+    'PERPLEXITY_TRUSTED_ENTER_REQUEST'
+]);
 
 const callChromeDebugger = (method, ...args) => new Promise((resolve, reject) => {
     try {
@@ -1157,6 +1172,11 @@ const DIAG_PINNED_LABELS = new Set([
     'DISPATCH_BASELINE_CAPTURED',
     'STALE_BASELINE_ANSWER_IGNORED',
     'UNSAFE_REUSE_SKIPPED',
+    'DONOR_STICKY_TAB_REUSED',
+    'PROVIDER_TRUSTED_ENTER_DISPATCHED',
+    'PROVIDER_TRUSTED_SEND_CLICKED',
+    'PROVIDER_TRUSTED_ENTER_FAILED',
+    'PROVIDER_TRUSTED_SEND_FAILED',
     'FINALIZE_BLOCKED_SUBMIT_PENDING',
     'SENDER_TAB_MISMATCH_REJECTED',
     'STALE_SNAPSHOT_SIGNATURE_EXCLUDED',
@@ -1489,6 +1509,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message?.type === 'GET_PROOF_TELEMETRY_SNAPSHOT') {
         void respondProofTelemetrySnapshot(message, sendResponse);
         return true;
+    }
+    // The debugger permission is restored only for the proven Le Chat and
+    // Perplexity submit transactions. Keep every other historical CDP route
+    // fail-closed so adding the permission cannot silently change attachments
+    // or input behaviour for unrelated providers.
+    if (DEBUGGER_RPC_TYPES.has(message?.type) && !ENABLED_DEBUGGER_RPC_TYPES.has(message.type)) {
+        sendResponse({ ok: false, reason: 'debugger_route_disabled' });
+        return false;
     }
 
     const processMessage = () => {
@@ -1951,7 +1979,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 }
                 dispatchProviderTrustedSend(tabId, model, String(message.prompt || ''))
                     .then(sendResponse)
-                    .catch((err) => sendResponse({ ok: false, reason: err?.message || 'trusted_send_failed' }));
+                    .catch((err) => {
+                        const reason = err?.message || 'trusted_send_failed';
+                        emitTelemetry(model, 'PROVIDER_TRUSTED_SEND_FAILED', {
+                            level: 'error',
+                            details: reason,
+                            meta: { tabId, debuggerApiAvailable: typeof chrome.debugger?.attach === 'function' },
+                            force: true
+                        });
+                        sendResponse({ ok: false, reason });
+                    });
                 return true;
             }
 
@@ -1964,7 +2001,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 }
                 dispatchProviderTrustedEnter(tabId, 'Perplexity', String(message.prompt || ''))
                     .then(sendResponse)
-                    .catch((err) => sendResponse({ ok: false, reason: err?.message || 'trusted_enter_failed' }));
+                    .catch((err) => {
+                        const reason = err?.message || 'trusted_enter_failed';
+                        emitTelemetry('Perplexity', 'PROVIDER_TRUSTED_ENTER_FAILED', {
+                            level: 'error',
+                            details: reason,
+                            meta: { tabId, debuggerApiAvailable: typeof chrome.debugger?.attach === 'function' },
+                            force: true
+                        });
+                        sendResponse({ ok: false, reason });
+                    });
                 return true;
             }
 
