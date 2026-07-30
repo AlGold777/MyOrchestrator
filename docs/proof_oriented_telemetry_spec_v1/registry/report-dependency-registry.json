@@ -1,5 +1,5 @@
 {
-  "registryVersion": "6.2.0",
+  "registryVersion": "6.3.0",
   "predicateLanguageVersion": "1.0.0",
   "maxEscalationDepth": 2,
   "reports": {
@@ -160,7 +160,9 @@
           "post_terminal_mutation",
           "required",
           [
-            "TEXT_STATE_CHANGED"
+            "TEXT_STATE_CHANGED",
+            "GENERATION_SIGNAL_CHANGED",
+            "OBSERVATION_FRAME_CAPTURED"
           ]
         ],
         [
@@ -169,11 +171,6 @@
           [
             "COMPLETION_HYPOTHESIS_EVALUATED",
             "ANSWER_COMPLETENESS_EVALUATED"
-          ],
-          [
-            "$.stateAxes.terminalMode",
-            "eq",
-            "automatic"
           ]
         ],
         [

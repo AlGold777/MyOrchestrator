@@ -152,6 +152,17 @@ store only their status, compact evidence-slot results and event sequence refs.
 The focused telemetry gate passes 13 suites / 99 tests and the complete project
 gate passes 185 suites / 1269 tests.
 
+## False success occurrence contract v2.81.166 - 2026-07-30
+
+False success now treats a measured post-terminal growth as the occurrence
+being diagnosed. Completion hypotheses and finalization policy explain why it
+happened but no longer erase an already proven occurrence. The
+`post_terminal_mutation` slot accepts measured generation/frame events only
+after `MODEL_TERMINAL_RECORDED`; pre-terminal activity cannot satisfy it.
+Explicit typed completion evidence no longer conflicts with a canonical
+fallback value, while contradictions between two explicit facts remain an
+integrity violation.
+
 ## Unified evidence closure v2.81.148 - 2026-08-28
 
 Embedded and standalone Tasks now use the same `REPORT_CONTRACTS` slots and

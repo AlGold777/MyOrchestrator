@@ -201,6 +201,13 @@
     }
     if (rule.temporal) {
       const eventById = new Map(scoped.map((candidate) => [candidate.eventId, candidate]));
+      if (Array.isArray(rule.temporal.requiresAnyNumericField)) {
+        const hasNumericMeasurement = rule.temporal.requiresAnyNumericField.some((key) => {
+          const raw = event?.payload?.[key] ?? event?.payload?.metadata?.[key];
+          return raw !== null && raw !== undefined && raw !== '' && Number.isFinite(Number(raw));
+        });
+        if (!hasNumericMeasurement) return false;
+      }
       if (rule.temporal.afterEventType) {
         const boundary = [...scoped].reverse().find((candidate) => candidate.eventType === rule.temporal.afterEventType
           && Number(candidate.seq) < Number(event.seq));

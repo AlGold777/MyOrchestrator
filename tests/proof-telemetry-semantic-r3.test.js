@@ -103,6 +103,68 @@ describe('telemetry preset semantic review iteration 3', () => {
     ]));
   });
 
+  test('explicit completion typed state does not conflict with an absent canonical detail', () => {
+    const completion = event('COMPLETION_HYPOTHESIS_EVALUATED', 1, {
+      typed: { kind: 'completion_hypothesis', state: 'probably_complete' },
+      payload: { sourceEventType: 'ANSWER_COMPLETE_DETECTED' }
+    });
+    expect(Contracts.factOf(completion)).toEqual({ kind: 'completion_hypothesis', state: 'probably_complete' });
+    expect(Contracts.typedCanonicalConflict(completion)).toBeNull();
+
+    const explicitConflict = event('COMPLETION_HYPOTHESIS_EVALUATED', 2, {
+      typed: { kind: 'completion_hypothesis', state: 'probably_complete' },
+      payload: { completionDetection: 'rejected' }
+    });
+    expect(Contracts.typedCanonicalConflict(explicitConflict)).toEqual(expect.objectContaining({
+      typed: { kind: 'completion_hypothesis', state: 'probably_complete' },
+      canonical: { kind: 'completion_hypothesis', state: 'rejected' }
+    }));
+  });
+
+  test('False success confirms measured post-terminal growth without cause evidence', async () => {
+    const before = event('GENERATION_SIGNAL_CHANGED', 1, {
+      candidateId: 'candidate-a',
+      typed: { kind: 'generation', state: 'active' },
+      metadata: { textLength: 100 }
+    });
+    const decision = event('DECISION_RECORDED', 2, {
+      candidateId: 'candidate-a',
+      typed: { kind: 'decision', state: 'accepted' },
+      payload: { accepted: true }
+    });
+    const terminal = event('MODEL_TERMINAL_RECORDED', 3, {
+      candidateId: 'candidate-a',
+      typed: { kind: 'terminal_action', state: 'SUCCESS' },
+      metadata: { terminalStatus: 'SUCCESS', answerLen: 100 }
+    });
+    const after = event('GENERATION_SIGNAL_CHANGED', 4, {
+      candidateId: 'candidate-a',
+      typed: { kind: 'generation', state: 'active' },
+      metadata: { textLength: 150 }
+    });
+    const audit = event('POST_TERMINAL_AUDIT_COMPLETED', 5, {
+      candidateId: 'candidate-a',
+      evidenceRefs: [terminal.eventId, after.eventId],
+      payload: { conclusion: 'contradicted', auditPossible: true, growthChars: 50, growthPct: 50 }
+    });
+    const events = [before, decision, terminal, after, audit];
+    const report = await ProofTelemetry.buildStandaloneReport(events, {
+      canonicalLedger: true,
+      modelId: 'GPT',
+      reportType: 'false-success'
+    });
+    expect(report.reportDescriptor.diagnosticVerdict).toBe('confirmed');
+    expect(report.diagnosticSummary.evidenceSlots.find((slot) => slot.slotId === 'completion_proof')).toEqual(
+      expect.objectContaining({ effectiveCriticality: 'conditional', status: 'not_observed' })
+    );
+
+    const preTerminalOnly = Incidents.resolveEvidenceSlots([before, decision, terminal, audit], Incidents.indexIncidents(events)[0], 'false-success', {
+      stateAxes: ProofTelemetry.deriveModelView('GPT', events).stateAxes,
+      derivedViews: ProofTelemetry.deriveModelView('GPT', events)
+    });
+    expect(preTerminalOnly.slots.find((slot) => slot.slotId === 'post_terminal_mutation').status).toBe('unavailable');
+  });
+
   test('embedded completeness and event selection are incident-scoped', async () => {
     const confirmed = [
       event('DISPATCH_BASELINE_CAPTURED', 1, { mono: 0 }),

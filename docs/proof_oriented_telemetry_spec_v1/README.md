@@ -11,6 +11,11 @@
 
 ## Статус реализации
 
+Версия `2.81.166` разделяет occurrence и cause для `False success`: доказанный
+post-terminal рост подтверждает incident, а отсутствие completion hypothesis
+ограничивает только объяснение причины. Registry `6.3.0`, report `3.3.0`,
+generator `2.3.0`.
+
 Версия `2.81.165` уточняет границу `No delivery`/`Cutted`: один hash mismatch
 при непустом пригодном answer остаётся `unknown`. Положительный verdict требует
 independent unusability, empty/wrong-card outcome либо классифицированный

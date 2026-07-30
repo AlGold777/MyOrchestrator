@@ -67,7 +67,7 @@ describe('proof telemetry incident index and evidence graph', () => {
     const incident = Incidents.indexIncidents([event('event-1', 'GENERATION_SIGNAL_CHANGED')])[0];
     const result = Incidents.resolveEvidenceSlots([event('event-1', 'GENERATION_SIGNAL_CHANGED')], incident, 'false-success');
     expect(result.sufficiency).toBe('insufficient');
-    expect(result.slots.find((slot) => slot.slotId === 'generation_state').status).toBe('satisfied');
+    expect(result.slots.find((slot) => slot.slotId === 'generation_state').status).toBe('unavailable');
     expect(result.missingEvidence.some((slot) => slot.slotId === 'terminal_decision')).toBe(true);
   });
 

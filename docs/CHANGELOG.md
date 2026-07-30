@@ -1,5 +1,14 @@
 # CHANGELOG — Project
 
+### 2026-07-30 — False success occurrence contract, version 2.81.166
+
+- A proven post-terminal growth confirms the False success occurrence even
+  when the reason for the premature completion is not yet known.
+- Post-terminal mutation evidence must be measured and occur after the terminal
+  boundary; pre-terminal generation cannot close that slot.
+- Typed completion facts no longer conflict with an absent canonical detail.
+- Registry 6.3.0, report 3.3.0 and generator 2.3.0 encode the new contract.
+
 ### 2026-07-29 — No delivery usability boundary, version 2.81.165
 
 - A bare normalized-hash mismatch with a usable answer no longer confirms No

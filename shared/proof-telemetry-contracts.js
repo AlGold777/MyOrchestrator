@@ -4,7 +4,7 @@
 
   const EVENT_SCHEMA_VERSION = 6;
   const CLOCK_CONTRACT_VERSION = '1.0';
-  const REGISTRY_VERSION = '6.2.0';
+  const REGISTRY_VERSION = '6.3.0';
   const THRESHOLDS = Object.freeze({
     generationStartTimeoutMs: 15000,
     minimumExtractionCoveragePct: 98,
@@ -94,8 +94,8 @@
         ['post_terminal_audit', 'critical', ['POST_TERMINAL_AUDIT_COMPLETED']],
         ['terminal_decision', 'required', ['DECISION_RECORDED']],
         ['generation_state', 'required', ['GENERATION_SIGNAL_CHANGED', 'OBSERVATION_FRAME_CAPTURED']],
-        ['post_terminal_mutation', 'required', ['TEXT_STATE_CHANGED']],
-        ['completion_proof', 'conditional', ['COMPLETION_HYPOTHESIS_EVALUATED', 'ANSWER_COMPLETENESS_EVALUATED'], ['$.stateAxes.terminalMode', 'eq', 'automatic']],
+        ['post_terminal_mutation', 'required', ['TEXT_STATE_CHANGED', 'GENERATION_SIGNAL_CHANGED', 'OBSERVATION_FRAME_CAPTURED']],
+        ['completion_proof', 'conditional', ['COMPLETION_HYPOTHESIS_EVALUATED', 'ANSWER_COMPLETENESS_EVALUATED']],
         ['finalization_policy', 'conditional', ['TERMINAL_DEADLINE_REACHED', 'FINALIZATION_POLICY_EVALUATED', 'POLICY_OVERRIDE_APPLIED'], ['$.stateAxes.terminalMode', 'in', ['forced', 'recovery']]],
         ['missing_evidence', 'conditional', ['MISSING_EVIDENCE_RECORDED']]
       ]
@@ -234,6 +234,15 @@
         requiresPostBoundaryEvidenceRef: true
       }
     },
+    'false-success.generation_state': {
+      temporal: { closestBeforeEventType: 'MODEL_TERMINAL_RECORDED' }
+    },
+    'false-success.post_terminal_mutation': {
+      temporal: {
+        afterEventType: 'MODEL_TERMINAL_RECORDED',
+        requiresAnyNumericField: ['normalizedLength', 'textLength', 'answerLength', 'answerLen', 'selectedLength']
+      }
+    },
     'old-answer.candidate_identity': { fact: { kind: 'candidate_identity', states: ['previous', 'previous_dispatch', 'stale', 'stale_accepted'] } },
     'old-answer.extraction_result': { fact: { kind: 'extraction', states: ['completed'] } },
     'old-answer.accepted_answer_boundary': { fact: { kind: 'terminal_action', states: ['success'] } },
@@ -322,7 +331,10 @@
       CANDIDATE_IDENTITY_INFERRED: { kind: 'candidate_identity', state: payload.answerIdentity || 'unknown' },
       ANSWER_COMPLETENESS_EVALUATED: { kind: 'answer_completeness', state: payload.answerCompleteness || 'unknown' },
       STRUCTURAL_VERIFICATION_EVALUATED: { kind: 'verification', state: payload.verified === false ? 'rejected' : (payload.verification || 'verified') },
-      COMPLETION_HYPOTHESIS_EVALUATED: { kind: 'completion_hypothesis', state: payload.completionDetection || 'evaluated' },
+      COMPLETION_HYPOTHESIS_EVALUATED: {
+        kind: 'completion_hypothesis',
+        state: payload.completionDetection || payload.metadata?.completionDetection || payload.typed?.state || 'unknown'
+      },
       EXTRACTION_ATTEMPTED: { kind: 'extraction_attempt', state: payload.status || payload.typed?.state || 'started' },
       EXTRACTION_COMPLETED: { kind: 'extraction', state: payload.status || 'completed' },
       ANSWER_DELIVERY_REJECTED: { kind: 'delivery', state: 'rejected' },
