@@ -96,7 +96,7 @@ describe('privacy-preserving DOM skeleton capture', () => {
       selectedAnswerLength: expect.any(Number),
       ignoredTextDelta: expect.any(Number),
       ignoredTextRatio: expect.any(Number),
-      generationActive: expect.any(Boolean)
+      generationActive: null
     }));
     expect(result.rawTextLength).toBeGreaterThan(result.linearizedTextLength);
     expect(result.html).not.toContain('Visible final answer');
