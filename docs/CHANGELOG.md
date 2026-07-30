@@ -1,5 +1,15 @@
 # CHANGELOG — Project
 
+### 2026-07-30 — Comparable terminal/recovery evidence, version 2.81.167
+
+- `MODEL_FINAL` now publishes accepted normalized length, hash, version and
+  attempt identity already computed by the answer commit.
+- Post-terminal audit compares normalized evidence only under a matching
+  normalization version and records mismatches as unknown.
+- Successful late-collect evidence participates in the audit; a recovery visit
+  without answer evidence remains transport-only.
+- Registry 6.4.0, report 3.4.0 and generator 2.4.0 describe the evidence path.
+
 ### 2026-07-30 — False success occurrence contract, version 2.81.166
 
 - A proven post-terminal growth confirms the False success occurrence even

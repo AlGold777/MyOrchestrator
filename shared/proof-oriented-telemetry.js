@@ -14,8 +14,8 @@
   const Clock = root.ProofTelemetryClock || (typeof require === 'function' ? require('./proof-telemetry-clock.js') : null);
   const SCHEMA_VERSION = '5.0';
   const EVENT_SCHEMA_VERSION = Contracts?.EVENT_SCHEMA_VERSION || 6;
-  const GENERATOR_VERSION = 'proof-export@2.3.0';
-  const REPORT_VERSION = '3.3.0';
+  const GENERATOR_VERSION = 'proof-export@2.4.0';
+  const REPORT_VERSION = '3.4.0';
   const REPORT_TYPES = Object.freeze([
     'cutted',
     'false-success',
@@ -100,6 +100,7 @@
     ANSWER_DELIVERY_REJECTED: 'ANSWER_DELIVERY_REJECTED',
     ANSWER_COMMIT_EVALUATED: 'ANSWER_COMMIT_EVALUATED',
     ANSWER_CARD_RENDER_EVALUATED: 'ANSWER_CARD_RENDER_EVALUATED',
+    LATE_COLLECT_DECISION_TRACE: 'OBSERVATION_FRAME_CAPTURED',
     PROVIDER_FINISH_REASON: 'GENERATION_SIGNAL_CHANGED'
   });
 

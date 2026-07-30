@@ -8477,6 +8477,11 @@ function handleLLMResponse(llmName, answer, error = null, meta = null, answerHtm
         answerIdentity: finalizationEvidence?.answerEvidence?.dispatchId && dispatchId
           ? (String(finalizationEvidence.answerEvidence.dispatchId) === String(dispatchId) ? 'current_dispatch' : 'previous_dispatch')
           : null,
+        attemptId: answerCommitEvidence?.attemptId || answerAttemptId || null,
+        payloadEvidenceId: answerCommitEvidence?.payloadEvidenceId || acceptedPayloadProof?.payloadEvidenceId || null,
+        normalizedLength: answerCommitEvidence?.normalizedLength ?? acceptedPayloadProof?.normalizedLength ?? (isSuccess ? trimmedAnswer.length : null),
+        normalizedHash: answerCommitEvidence?.normalizedHash || acceptedPayloadProof?.normalizedHash || null,
+        normalizationVersion: answerCommitEvidence?.normalizationVersion || acceptedPayloadProof?.normalizationVersion || null,
         finalizationEvidence: summarizeFinalizationEvidenceForTelemetry(finalizationEvidence)
       },
       force: true

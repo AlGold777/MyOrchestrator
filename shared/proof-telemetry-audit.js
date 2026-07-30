@@ -35,8 +35,53 @@
     return null;
   }
 
+  function comparableMeasurement(left, right) {
+    const leftNormalizedLength = numberFrom(left, ['normalizedLength']);
+    const rightNormalizedLength = numberFrom(right, ['normalizedLength']);
+    const leftNormalizationVersion = stringFrom(left, ['normalizationVersion']);
+    const rightNormalizationVersion = stringFrom(right, ['normalizationVersion']);
+    const normalizedVersionComparable = Boolean(
+      leftNormalizationVersion
+      && rightNormalizationVersion
+      && leftNormalizationVersion === rightNormalizationVersion
+    );
+    const leftLegacyLength = numberFrom(left, ['answerLength', 'answerLen', 'textLength']);
+    const rightLegacyLength = numberFrom(right, ['answerLength', 'answerLen', 'textLength']);
+    const useNormalizedLength = normalizedVersionComparable
+      && leftNormalizedLength !== null
+      && rightNormalizedLength !== null;
+
+    const leftNormalizedHash = stringFrom(left, ['normalizedHash']);
+    const rightNormalizedHash = stringFrom(right, ['normalizedHash']);
+    const leftLegacyHash = stringFrom(left, ['answerHash', 'textHash']);
+    const rightLegacyHash = stringFrom(right, ['answerHash', 'textHash']);
+    const normalizedEvidenceOnBoth = Boolean(
+      (leftNormalizedLength !== null || leftNormalizedHash)
+      && (rightNormalizedLength !== null || rightNormalizedHash)
+    );
+    const useNormalizedHash = normalizedVersionComparable
+      && Boolean(leftNormalizedHash && rightNormalizedHash);
+
+    return {
+      acceptedLength: useNormalizedLength ? leftNormalizedLength : (normalizedEvidenceOnBoth ? null : leftLegacyLength),
+      observedLength: useNormalizedLength ? rightNormalizedLength : (normalizedEvidenceOnBoth ? null : rightLegacyLength),
+      acceptedHash: useNormalizedHash ? leftNormalizedHash : (normalizedEvidenceOnBoth ? null : leftLegacyHash),
+      observedHash: useNormalizedHash ? rightNormalizedHash : (normalizedEvidenceOnBoth ? null : rightLegacyHash),
+      measurementMode: useNormalizedLength || useNormalizedHash ? 'normalized' : 'legacy',
+      normalizationVersion: useNormalizedLength || useNormalizedHash ? leftNormalizationVersion : null,
+      normalizationMismatch: normalizedEvidenceOnBoth && !normalizedVersionComparable
+    };
+  }
+
   function isRelevantPostTerminalObservation(event) {
-    return /(ANSWER|TEXT|RESPONSE|EXTRACT|LIFECYCLE|CANDIDATE|SELECTOR|MUTATION)/.test(sourceType(event));
+    const source = sourceType(event);
+    if (source === 'MATERIALIZE_RECOVERY_VISIT_RESULT') return false;
+    if (source === 'LATE_COLLECT_DECISION_TRACE') {
+      const metadata = event?.payload?.metadata || {};
+      return metadata.ok === true && (numberFrom(event, ['textLength', 'answerLength', 'normalizedLength']) !== null
+        || Boolean(stringFrom(event, ['textHash', 'answerHash', 'normalizedHash'])));
+    }
+    return /(ANSWER|TEXT|RESPONSE|EXTRACT|LIFECYCLE|CANDIDATE|SELECTOR|MUTATION)/.test(source);
   }
 
   function anomalyKind(event) {
@@ -83,10 +128,8 @@
         });
       }
     } else if (terminal && isRelevantPostTerminalObservation(sourceEvent)) {
-      const acceptedLength = numberFrom(terminal, ['answerLength', 'answerLen', 'textLength']);
-      const observedLength = numberFrom(sourceEvent, ['answerLength', 'answerLen', 'textLength']);
-      const acceptedHash = stringFrom(terminal, ['answerHash', 'textHash', 'normalizedHash']);
-      const observedHash = stringFrom(sourceEvent, ['answerHash', 'textHash', 'normalizedHash']);
+      const measurement = comparableMeasurement(terminal, sourceEvent);
+      const { acceptedLength, observedLength, acceptedHash, observedHash } = measurement;
       const lengthsComparable = acceptedLength !== null && observedLength !== null;
       const hashesComparable = Boolean(acceptedHash && observedHash);
       const auditPossible = lengthsComparable || hashesComparable;
@@ -108,6 +151,9 @@
           growthChars,
           growthPct,
           hashChanged,
+          measurementMode: measurement.measurementMode,
+          normalizationVersion: measurement.normalizationVersion,
+          normalizationMismatch: measurement.normalizationMismatch,
           conclusion: auditPossible ? (contradicted ? 'contradicted' : 'confirmed') : 'unknown',
           auditPossible
         }
@@ -160,6 +206,7 @@
 
   const api = Object.freeze({
     isRelevantPostTerminalObservation,
+    comparableMeasurement,
     anomalyKind,
     planAfterEvent
   });

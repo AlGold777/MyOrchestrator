@@ -215,7 +215,7 @@ async function main() {
     canonicalLedger: true,
     runSessionId: 'synthetic-run',
     exportedAt: 12000,
-    extensionVersion: '2.81.166',
+    extensionVersion: '2.81.167',
     sampleData: true
   };
   const all = await ProofTelemetry.buildAllPresets(ledger, options);

@@ -163,6 +163,15 @@ Explicit typed completion evidence no longer conflicts with a canonical
 fallback value, while contradictions between two explicit facts remain an
 integrity violation.
 
+## Comparable terminal and recovery evidence v2.81.167 - 2026-07-30
+
+`MODEL_FINAL` now carries the accepted answer's normalization version, length,
+hash, attempt and payload evidence identifiers. Post-terminal audit compares
+normalized source/recovery evidence only when both sides use the same
+normalization version. Successful `LATE_COLLECT_DECISION_TRACE` evidence can
+participate in the audit; a transport-only recovery visit cannot confirm or
+refute answer growth.
+
 ## Unified evidence closure v2.81.148 - 2026-08-28
 
 Embedded and standalone Tasks now use the same `REPORT_CONTRACTS` slots and

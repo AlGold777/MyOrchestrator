@@ -58,14 +58,14 @@ completion hypothesis остаётся объясняющим, но не бло�
 — Done
 
 2.4. Научить post-terminal audit сравнивать `normalizedLength` и
-`normalizedHash`, проверяя совместимость normalization version. — Pending
+`normalizedHash`, проверяя совместимость normalization version. — Done
 
 2.5. Добавить нормализованные length/hash/version в `MODEL_FINAL`, используя
-уже вычисленное accepted-answer proof, без повторной нормализации. — Pending
+уже вычисленное accepted-answer proof, без повторной нормализации. — Done
 
 2.6. Признать только содержательные recovery/source события post-terminal
 наблюдениями. Transport-only `MATERIALIZE_RECOVERY_VISIT_RESULT` без текста не
-должен подтверждать или опровергать рост. — Pending
+должен подтверждать или опровергать рост. — Done
 
 2.7. Передавать immutable identity lifecycle tracker во все события:
 runSessionId, dispatchId, generationEpoch, turnAnchor/candidateId и доступную
