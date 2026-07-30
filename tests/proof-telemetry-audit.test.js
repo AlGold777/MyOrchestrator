@@ -154,4 +154,27 @@ describe('proof telemetry post-terminal audit', () => {
     expect(Audit.isRelevantPostTerminalObservation(visit)).toBe(false);
     expect(Audit.planAfterEvent(visit, [terminal, visit]).some((item) => item.eventType === 'POST_TERMINAL_AUDIT_COMPLETED')).toBe(false);
   });
+
+  test('does not compare post-terminal evidence from another SPA navigation lineage', () => {
+    const terminal = {
+      ...canonical('MODEL_FINAL', 1000, { answerLength: 100 }),
+      documentInstanceId: 'document-a',
+      navigationEpoch: 1
+    };
+    const afterNavigation = {
+      ...canonical('ANSWER_GENERATING', 1100, { answerLength: 180 }),
+      seq: 2,
+      ingestSeq: 2,
+      documentInstanceId: 'document-a',
+      navigationEpoch: 2
+    };
+    const audit = Audit.planAfterEvent(afterNavigation, [terminal, afterNavigation])
+      .find((item) => item.eventType === 'POST_TERMINAL_AUDIT_COMPLETED');
+    expect(audit.payload).toEqual(expect.objectContaining({
+      auditPossible: false,
+      conclusion: 'unknown',
+      navigationLineage: 'mismatch',
+      measurementMode: 'incomparable_navigation'
+    }));
+  });
 });

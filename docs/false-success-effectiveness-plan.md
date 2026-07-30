@@ -70,10 +70,10 @@ completion hypothesis остаётся объясняющим, но не бло�
 2.7. Передавать immutable identity lifecycle tracker во все события:
 runSessionId, dispatchId, generationEpoch, turnAnchor/candidateId и доступную
 navigation lineage. Background не должен заменять присутствующую identity
-текущим dispatch. — Pending
+текущим dispatch. — Done
 
 2.8. Ограничить audit одной navigation lineage. При доказанной смене document
-или navigation epoch результат `unknown`, а не `contradicted`. — Pending
+или navigation epoch результат `unknown`, а не `contradicted`. — Done
 
 2.9. Реализовать ограниченное post-terminal окно наблюдения с изменениями на
 1/3/8 секундах и явным закрытием `unchanged | changed | unavailable`.

@@ -1,5 +1,14 @@
 # CHANGELOG — Project
 
+### 2026-07-30 — Lifecycle proof identity, version 2.81.168
+
+- Lifecycle events carry immutable run, dispatch, generation, turn and
+  navigation identity captured at tracker creation.
+- Starting a new generation epoch no longer reuses an older active tracker.
+- A proven document or SPA navigation mismatch makes post-terminal evidence
+  incomparable instead of manufacturing growth.
+- Registry 6.5.0, report 3.5.0 and generator 2.5.0 capture the identity rules.
+
 ### 2026-07-30 — Comparable terminal/recovery evidence, version 2.81.167
 
 - `MODEL_FINAL` now publishes accepted normalized length, hash, version and

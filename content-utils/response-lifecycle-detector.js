@@ -38,6 +38,8 @@
 
   const trackers = new Map();
   const registeredCandidates = new Map();
+  const lifecycleDocumentInstanceId = `lifecycle-document-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  let lifecycleNavigationEpoch = 0;
   let settingsPromise = null;
   let cachedSettings = null;
   let runtimePatched = false;
@@ -467,6 +469,8 @@
 
   function emitLifecycleTelemetry(event, payload = {}) {
     try {
+      const tracker = trackers.get(payload.modelName) || null;
+      const candidateId = payload.candidateId || tracker?.candidateId || null;
       chrome.runtime.sendMessage({
         type: 'LLM_DIAGNOSTIC_EVENT',
         llmName: payload.modelName,
@@ -477,8 +481,17 @@
           details: `state=${payload.state || 'n/a'} textLength=${payload.textLength || 0}`,
           meta: {
             modelName: payload.modelName || null,
+            runSessionId: payload.runSessionId ?? tracker?.runSessionId ?? null,
+            dispatchId: payload.dispatchId ?? tracker?.dispatchId ?? null,
+            generationEpoch: payload.generationEpoch ?? tracker?.generationEpoch ?? null,
+            turnAnchor: payload.turnAnchor ?? tracker?.turnAnchor ?? null,
+            turnId: payload.turnId || (tracker?.turnAnchor !== null && tracker?.turnAnchor !== undefined ? `turn-anchor:${tracker.turnAnchor}` : null),
+            candidateId,
+            documentInstanceId: payload.documentInstanceId || tracker?.documentInstanceId || lifecycleDocumentInstanceId,
+            navigationEpoch: payload.navigationEpoch ?? tracker?.navigationEpoch ?? lifecycleNavigationEpoch,
             state: payload.state || null,
             textLength: payload.textLength || 0,
+            answerHash: payload.answerHash || tracker?.lastTextHash || null,
             elapsedMs: payload.elapsedMs || 0,
             stableMs: payload.stableMs || 0,
             mutationCount: payload.mutationCount || 0,
@@ -759,6 +772,10 @@
     modelName,
     dispatchId = null,
     runSessionId = null,
+    generationEpoch = null,
+    candidateId = null,
+    documentInstanceId = lifecycleDocumentInstanceId,
+    navigationEpoch = lifecycleNavigationEpoch,
     promptSubmittedAt = Date.now(),
     traceId = null,
     baselineSnapshot = null
@@ -767,6 +784,10 @@
       modelName,
       dispatchId,
       runSessionId,
+      generationEpoch,
+      candidateId,
+      documentInstanceId,
+      navigationEpoch,
       traceId,
       startedAt: Date.now(),
       promptSubmittedAt,
@@ -1236,6 +1257,10 @@
     modelName,
     dispatchId = null,
     runSessionId = null,
+    generationEpoch = null,
+    candidateId = null,
+    documentInstanceId = lifecycleDocumentInstanceId,
+    navigationEpoch = lifecycleNavigationEpoch,
     promptSubmittedAt = Date.now(),
     traceId = null,
     baselineText = null,
@@ -1246,7 +1271,10 @@
     const sameDispatch = !!activeTracker
       && isTrackerActive(activeTracker)
       && (!dispatchId || !activeTracker.dispatchId || String(activeTracker.dispatchId) === String(dispatchId))
-      && (!runSessionId || !activeTracker.runSessionId || Number(activeTracker.runSessionId) === Number(runSessionId));
+      && (!runSessionId || !activeTracker.runSessionId || Number(activeTracker.runSessionId) === Number(runSessionId))
+      && (generationEpoch === null || generationEpoch === undefined
+        || activeTracker.generationEpoch === null || activeTracker.generationEpoch === undefined
+        || Number(activeTracker.generationEpoch) === Number(generationEpoch));
     if (sameDispatch) {
       return { ok: true, reused: true, tracker: activeTracker };
     }
@@ -1270,10 +1298,19 @@
       ? Math.max(0, Number(turnAnchor))
       : captureTurnAnchor(modelName);
     stopResponseLifecycleTracking({ modelName, reason: 'new_dispatch' });
+    const storedIdentity = window.ContentUtils?.ensureDispatchMeta?.({
+      runSessionId,
+      dispatchId,
+      generationEpoch
+    }, modelName) || {};
     const tracker = createTracker({
       modelName,
-      dispatchId,
-      runSessionId,
+      dispatchId: dispatchId || storedIdentity.dispatchId || null,
+      runSessionId: runSessionId || storedIdentity.runSessionId || null,
+      generationEpoch: generationEpoch ?? storedIdentity.generationEpoch ?? null,
+      candidateId: candidateId || storedIdentity.candidateId || null,
+      documentInstanceId,
+      navigationEpoch,
       promptSubmittedAt,
       traceId,
       baselineSnapshot: suppliedBaseline
@@ -1413,6 +1450,10 @@
           modelName: message.llmName,
           dispatchId: message?.meta?.dispatchId || null,
           runSessionId: message?.meta?.runSessionId || message?.meta?.sessionId || null,
+          generationEpoch: message?.meta?.generationEpoch ?? null,
+          candidateId: message?.meta?.candidateId || message?.meta?.answerCandidateId || null,
+          documentInstanceId: message?.meta?.documentInstanceId || lifecycleDocumentInstanceId,
+          navigationEpoch: message?.meta?.navigationEpoch ?? lifecycleNavigationEpoch,
           promptSubmittedAt: Date.now(),
           traceId: message?.meta?.traceId || message?.meta?.dispatchId || null
         })).catch(() => {});
@@ -1467,6 +1508,7 @@
       chrome.runtime.onMessage?.addListener?.((message) => {
         const stopTypes = new Set(['STOP_AND_CLEANUP', 'SESSION_EXPIRED', 'SPA_NAVIGATION']);
         if (stopTypes.has(message?.type)) {
+          if (message?.type === 'SPA_NAVIGATION') lifecycleNavigationEpoch += 1;
           stopResponseLifecycleTracking({ reason: String(message.type).toLowerCase() });
         } else if (message?.type === 'LATE_COLLECT_PING' || message?.action === 'LATE_COLLECT_PING') {
           wakeAllTrackers();
@@ -1475,6 +1517,7 @@
     } catch (_) {}
     try {
       window.addEventListener('LLM_CODEX_SPA_NAVIGATION', () => {
+        lifecycleNavigationEpoch += 1;
         stopResponseLifecycleTracking({ reason: 'spa_navigation' });
       }, { passive: true });
     } catch (_) {}

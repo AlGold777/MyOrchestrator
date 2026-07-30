@@ -11,6 +11,10 @@
 
 ## Статус реализации
 
+Версия `2.81.168` связывает lifecycle evidence с immutable dispatch/generation,
+turn и navigation identity. Доказанная смена SPA/document lineage делает audit
+несравнимым. Registry `6.5.0`, report `3.5.0`, generator `2.5.0`.
+
 Версия `2.81.167` унифицирует terminal и recovery measurements. Audit сравнивает
 `normalizedLength/normalizedHash` только при одинаковой версии нормализации;
 transport-only recovery не выдаётся за наблюдение ответа. Registry `6.4.0`,

@@ -18,6 +18,21 @@
     return String(event?.payload?.sourceEventType || '').toUpperCase();
   }
 
+  function navigationLineage(left, right) {
+    const leftDocument = left?.documentInstanceId || null;
+    const rightDocument = right?.documentInstanceId || null;
+    const leftNavigation = left?.navigationEpoch;
+    const rightNavigation = right?.navigationEpoch;
+    if (leftDocument && rightDocument && String(leftDocument) !== String(rightDocument)) return 'mismatch';
+    if (leftNavigation !== undefined && leftNavigation !== null
+      && rightNavigation !== undefined && rightNavigation !== null
+      && Number(leftNavigation) !== Number(rightNavigation)) return 'mismatch';
+    if ((leftDocument && rightDocument)
+      || (leftNavigation !== undefined && leftNavigation !== null
+        && rightNavigation !== undefined && rightNavigation !== null)) return 'same';
+    return 'unknown';
+  }
+
   function numberFrom(event, keys) {
     const metadata = event?.payload?.metadata || {};
     for (const key of keys) {
@@ -128,7 +143,18 @@
         });
       }
     } else if (terminal && isRelevantPostTerminalObservation(sourceEvent)) {
-      const measurement = comparableMeasurement(terminal, sourceEvent);
+      const lineage = navigationLineage(terminal, sourceEvent);
+      const measurement = lineage === 'mismatch'
+        ? {
+            acceptedLength: null,
+            observedLength: null,
+            acceptedHash: null,
+            observedHash: null,
+            measurementMode: 'incomparable_navigation',
+            normalizationVersion: null,
+            normalizationMismatch: false
+          }
+        : comparableMeasurement(terminal, sourceEvent);
       const { acceptedLength, observedLength, acceptedHash, observedHash } = measurement;
       const lengthsComparable = acceptedLength !== null && observedLength !== null;
       const hashesComparable = Boolean(acceptedHash && observedHash);
@@ -154,6 +180,7 @@
           measurementMode: measurement.measurementMode,
           normalizationVersion: measurement.normalizationVersion,
           normalizationMismatch: measurement.normalizationMismatch,
+          navigationLineage: lineage,
           conclusion: auditPossible ? (contradicted ? 'contradicted' : 'confirmed') : 'unknown',
           auditPossible
         }
@@ -207,6 +234,7 @@
   const api = Object.freeze({
     isRelevantPostTerminalObservation,
     comparableMeasurement,
+    navigationLineage,
     anomalyKind,
     planAfterEvent
   });

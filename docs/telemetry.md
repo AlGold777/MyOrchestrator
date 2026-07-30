@@ -172,6 +172,14 @@ normalization version. Successful `LATE_COLLECT_DECISION_TRACE` evidence can
 participate in the audit; a transport-only recovery visit cannot confirm or
 refute answer growth.
 
+## Lifecycle proof identity v2.81.168 - 2026-07-30
+
+Response lifecycle telemetry now keeps the run, dispatch, generation epoch,
+turn and navigation identity captured when tracking starts. A late event is no
+longer rebound to whichever dispatch is current when background receives it.
+Post-terminal audit refuses to compare events from a proven different document
+or SPA navigation epoch and records the result as unknown.
+
 ## Unified evidence closure v2.81.148 - 2026-08-28
 
 Embedded and standalone Tasks now use the same `REPORT_CONTRACTS` slots and

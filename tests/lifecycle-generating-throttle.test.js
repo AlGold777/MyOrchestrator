@@ -102,6 +102,8 @@ describe('lifecycle ANSWER_GENERATING telemetry throttle', () => {
     await detector.startResponseLifecycleTracking({
       modelName: 'DeepSeek',
       dispatchId: 'dispatch-throttle-2',
+      runSessionId: 42,
+      generationEpoch: 7,
       promptSubmittedAt: Date.now()
     });
 
@@ -121,6 +123,13 @@ describe('lifecycle ANSWER_GENERATING telemetry throttle', () => {
     const lengths = [...new Set(generatingEvents.map((message) => message.event?.meta?.textLength))];
     expect(generatingEvents.length).toBeGreaterThanOrEqual(2);
     expect(lengths.length).toBeGreaterThanOrEqual(2);
+    expect(generatingEvents.every((message) => (
+      message.event?.meta?.runSessionId === 42
+      && message.event?.meta?.dispatchId === 'dispatch-throttle-2'
+      && message.event?.meta?.generationEpoch === 7
+      && Boolean(message.event?.meta?.documentInstanceId)
+      && message.event?.meta?.navigationEpoch === 0
+    ))).toBe(true);
 
     detector.stopResponseLifecycleTracking({ modelName: 'DeepSeek', reason: 'test_done' });
   });

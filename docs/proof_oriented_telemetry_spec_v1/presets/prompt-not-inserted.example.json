@@ -2,9 +2,9 @@
   "schemaVersion": "5.0",
   "fileKind": "diagnostic-report",
   "reportDescriptor": {
-    "reportId": "rpt-prompt-not-inserted-GPT-3744291e",
+    "reportId": "rpt-prompt-not-inserted-GPT-3532f91b",
     "reportType": "prompt-not-inserted",
-    "reportVersion": "3.4.0",
+    "reportVersion": "3.5.0",
     "title": "Почему prompt не вставился в поле ввода?",
     "primaryQuestion": "Почему prompt не вставился в поле ввода?",
     "applicability": {
@@ -67,8 +67,8 @@
       "blockedConclusions": []
     },
     "reportMode": "standalone",
-    "dependencyRegistryVersion": "6.4.0",
-    "dependencyRegistryHash": "sha256:9cf46bebea85843182418170b00213732ebde80fffd3248df63b61d75c95522c",
+    "dependencyRegistryVersion": "6.5.0",
+    "dependencyRegistryHash": "sha256:6ef590bf24dde83d72a84f343b68b3c4f382370589be3a057282b776ef5f94a8",
     "limitations": []
   },
   "correlation": {
@@ -90,42 +90,42 @@
   "reportCatalogSnapshot": [
     {
       "reportType": "cutted",
-      "reportVersion": "3.4.0",
+      "reportVersion": "3.5.0",
       "included": false
     },
     {
       "reportType": "false-success",
-      "reportVersion": "3.4.0",
+      "reportVersion": "3.5.0",
       "included": false
     },
     {
       "reportType": "old-answer",
-      "reportVersion": "3.4.0",
+      "reportVersion": "3.5.0",
       "included": false
     },
     {
       "reportType": "no-delivery",
-      "reportVersion": "3.4.0",
+      "reportVersion": "3.5.0",
       "included": false
     },
     {
       "reportType": "prompt-not-inserted",
-      "reportVersion": "3.4.0",
+      "reportVersion": "3.5.0",
       "included": true
     },
     {
       "reportType": "prompt-not-sent",
-      "reportVersion": "3.4.0",
+      "reportVersion": "3.5.0",
       "included": false
     },
     {
       "reportType": "late-end",
-      "reportVersion": "3.4.0",
+      "reportVersion": "3.5.0",
       "included": false
     }
   ],
   "runConfiguration": {
-    "extensionVersion": "2.81.167",
+    "extensionVersion": "2.81.168",
     "policy": {
       "automaticMinimumEvidenceTier": 3,
       "thresholds": {
@@ -382,7 +382,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.4.0"
+          "version": "proof-export@2.5.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -429,7 +429,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.4.0"
+          "version": "proof-export@2.5.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -477,7 +477,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.4.0"
+          "version": "proof-export@2.5.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -526,7 +526,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.4.0"
+          "version": "proof-export@2.5.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -575,7 +575,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.4.0"
+          "version": "proof-export@2.5.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -623,7 +623,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.4.0"
+          "version": "proof-export@2.5.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -665,7 +665,7 @@
   "derivedViews": {
     "recordedDerivedView": {
       "source": "full-frozen-incident",
-      "fullIncidentSemanticHash": "sha256:574651f75baca51a646f8e5b033d851e36c1520eb0f071b6d051389892417297",
+      "fullIncidentSemanticHash": "sha256:a2d57787500415af6306ca7781772b3522b89ddaf8eec28f3062d35b4446ff86",
       "taskProjectionHash": "sha256:1d2d407f346cadaa46f21ae4d5f0a2979ec0a67678fe352b6a6344f9c0a34ac0",
       "data": {
         "modelId": "GPT",
@@ -836,8 +836,8 @@
     },
     "modelTimeline": {
       "viewType": "prompt-not-inserted",
-      "generatorVersion": "proof-export@2.4.0",
-      "ledgerHash": "sha256:ffbe5919c2908b3d795a9c687a15587815af6ec465d238b62ac0d7e090b6b9b0",
+      "generatorVersion": "proof-export@2.5.0",
+      "ledgerHash": "sha256:b05261a2f8fac49f2732300a6921e0148fa8ec285d9adadae33a3d97b93835aa",
       "data": {
         "modelId": "GPT",
         "stateAxes": {
@@ -1010,114 +1010,114 @@
         "derivedFromEventIds": [
           "event-a7944681-08eef32d"
         ],
-        "derivationVersion": "proof-export@2.4.0:field-v1"
+        "derivationVersion": "proof-export@2.5.0:field-v1"
       },
       "generationStart": {
         "derivedFromEventIds": [],
-        "derivationVersion": "proof-export@2.4.0:field-v1"
+        "derivationVersion": "proof-export@2.5.0:field-v1"
       },
       "answerIdentity": {
         "derivedFromEventIds": [],
-        "derivationVersion": "proof-export@2.4.0:field-v1"
+        "derivationVersion": "proof-export@2.5.0:field-v1"
       },
       "observedGeneration": {
         "derivedFromEventIds": [],
-        "derivationVersion": "proof-export@2.4.0:field-v1"
+        "derivationVersion": "proof-export@2.5.0:field-v1"
       },
       "textEvolution": {
         "derivedFromEventIds": [],
-        "derivationVersion": "proof-export@2.4.0:field-v1"
+        "derivationVersion": "proof-export@2.5.0:field-v1"
       },
       "answerCompleteness": {
         "derivedFromEventIds": [],
-        "derivationVersion": "proof-export@2.4.0:field-v1"
+        "derivationVersion": "proof-export@2.5.0:field-v1"
       },
       "extraction": {
         "derivedFromEventIds": [],
-        "derivationVersion": "proof-export@2.4.0:field-v1"
+        "derivationVersion": "proof-export@2.5.0:field-v1"
       },
       "verification": {
         "derivedFromEventIds": [],
-        "derivationVersion": "proof-export@2.4.0:field-v1"
+        "derivationVersion": "proof-export@2.5.0:field-v1"
       },
       "completionDetection": {
         "derivedFromEventIds": [],
-        "derivationVersion": "proof-export@2.4.0:field-v1"
+        "derivationVersion": "proof-export@2.5.0:field-v1"
       },
       "completionEvidenceTier": {
         "derivedFromEventIds": [],
-        "derivationVersion": "proof-export@2.4.0:field-v1"
+        "derivationVersion": "proof-export@2.5.0:field-v1"
       },
       "observationReliability": {
         "derivedFromEventIds": [
           "event-f255422b-a70e7ed3"
         ],
-        "derivationVersion": "proof-export@2.4.0:field-v1"
+        "derivationVersion": "proof-export@2.5.0:field-v1"
       },
       "finalization": {
         "derivedFromEventIds": [],
-        "derivationVersion": "proof-export@2.4.0:field-v1"
+        "derivationVersion": "proof-export@2.5.0:field-v1"
       },
       "terminalMode": {
         "derivedFromEventIds": [],
-        "derivationVersion": "proof-export@2.4.0:field-v1"
+        "derivationVersion": "proof-export@2.5.0:field-v1"
       },
       "terminationCause": {
         "derivedFromEventIds": [],
-        "derivationVersion": "proof-export@2.4.0:field-v1"
+        "derivationVersion": "proof-export@2.5.0:field-v1"
       },
       "postTerminalGrowthProven": {
         "derivedFromEventIds": [],
-        "derivationVersion": "proof-export@2.4.0:field-v1"
+        "derivationVersion": "proof-export@2.5.0:field-v1"
       },
       "incompleteCaptureEvidence": {
         "derivedFromEventIds": [],
-        "derivationVersion": "proof-export@2.4.0:field-v1"
+        "derivationVersion": "proof-export@2.5.0:field-v1"
       },
       "extractionProblemEvidence": {
         "derivedFromEventIds": [],
-        "derivationVersion": "proof-export@2.4.0:field-v1"
+        "derivationVersion": "proof-export@2.5.0:field-v1"
       },
       "oldAnswerEvidence": {
         "derivedFromEventIds": [],
-        "derivationVersion": "proof-export@2.4.0:field-v1"
+        "derivationVersion": "proof-export@2.5.0:field-v1"
       },
       "priorAnswerComparison": {
         "derivedFromEventIds": [],
-        "derivationVersion": "proof-export@2.4.0:field-v1"
+        "derivationVersion": "proof-export@2.5.0:field-v1"
       },
       "promptNotSentEvidence": {
         "derivedFromEventIds": [
           "event-a7944681-08eef32d"
         ],
-        "derivationVersion": "proof-export@2.4.0:field-v1"
+        "derivationVersion": "proof-export@2.5.0:field-v1"
       },
       "promptNotInsertedEvidence": {
         "derivedFromEventIds": [
           "event-a7944681-08eef32d",
           "event-16c811a5-b0de6535"
         ],
-        "derivationVersion": "proof-export@2.4.0:field-v1"
+        "derivationVersion": "proof-export@2.5.0:field-v1"
       },
       "lateEndEvidence": {
         "derivedFromEventIds": [],
-        "derivationVersion": "proof-export@2.4.0:field-v1"
+        "derivationVersion": "proof-export@2.5.0:field-v1"
       },
       "noDeliveryEvidence": {
         "derivedFromEventIds": [],
-        "derivationVersion": "proof-export@2.4.0:field-v1"
+        "derivationVersion": "proof-export@2.5.0:field-v1"
       },
       "sourceAnswerMaterializedEvidence": {
         "derivedFromEventIds": [],
-        "derivationVersion": "proof-export@2.4.0:field-v1"
+        "derivationVersion": "proof-export@2.5.0:field-v1"
       },
       "cardDeliveryOutcome": {
         "derivedFromEventIds": [],
-        "derivationVersion": "proof-export@2.4.0:field-v1"
+        "derivationVersion": "proof-export@2.5.0:field-v1"
       },
       "mechanismCauseCode": {
         "derivedFromEventIds": [],
-        "derivationVersion": "proof-export@2.4.0:field-v1"
+        "derivationVersion": "proof-export@2.5.0:field-v1"
       }
     }
   },
@@ -1180,18 +1180,18 @@
       "modelId": "GPT",
       "dispatchId": "synthetic-dispatch",
       "generationEpoch": 1,
-      "sourceLedgerHash": "sha256:d4d3cb1f8d2e0ad36de735fcf0e4ae2ef1b77bf60b8669d2b1cb80d46e73f464",
-      "materializedEventHash": "sha256:ffbe5919c2908b3d795a9c687a15587815af6ec465d238b62ac0d7e090b6b9b0"
+      "sourceLedgerHash": "sha256:b4f57df14865dcab07335dfd5e1a4a5feec325d3e5341b2f6bc6ed2c26fa1978",
+      "materializedEventHash": "sha256:b05261a2f8fac49f2732300a6921e0148fa8ec285d9adadae33a3d97b93835aa"
     }
   },
   "attachments": [],
   "exportIntegrity": {
-    "generatorVersion": "proof-export@2.4.0",
+    "generatorVersion": "proof-export@2.5.0",
     "sampleData": true,
-    "sourceLedgerHash": "sha256:d4d3cb1f8d2e0ad36de735fcf0e4ae2ef1b77bf60b8669d2b1cb80d46e73f464",
-    "materializedEventHash": "sha256:ffbe5919c2908b3d795a9c687a15587815af6ec465d238b62ac0d7e090b6b9b0",
-    "semanticHash": "sha256:863919d682d279875ada950a93c2ecab348969be9fd56452bc4a947d455c99d4",
-    "fullIncidentSemanticHash": "sha256:574651f75baca51a646f8e5b033d851e36c1520eb0f071b6d051389892417297",
+    "sourceLedgerHash": "sha256:b4f57df14865dcab07335dfd5e1a4a5feec325d3e5341b2f6bc6ed2c26fa1978",
+    "materializedEventHash": "sha256:b05261a2f8fac49f2732300a6921e0148fa8ec285d9adadae33a3d97b93835aa",
+    "semanticHash": "sha256:74fe419902f0810f6ce9b49d901ac77b889e035ead7874b7df26d887e571423e",
+    "fullIncidentSemanticHash": "sha256:a2d57787500415af6306ca7781772b3522b89ddaf8eec28f3062d35b4446ff86",
     "fullIncidentEventCount": 6,
     "applicabilitySource": "full-frozen-incident",
     "verdictPreservation": {
@@ -1221,8 +1221,8 @@
       "reason": null
     },
     "hashes": {
-      "artifact": "sha256:c0b83d4180c0c85d694037eb83f558095c1e48d20eea72faf145570cb256b916",
-      "semantic": "sha256:863919d682d279875ada950a93c2ecab348969be9fd56452bc4a947d455c99d4"
+      "artifact": "sha256:599b789b7df1ac70b21b1943254f9171f16d1e15c8f7098efadaac518353b7b6",
+      "semantic": "sha256:74fe419902f0810f6ce9b49d901ac77b889e035ead7874b7df26d887e571423e"
     },
     "size": {
       "measuredBytes": 27489,
