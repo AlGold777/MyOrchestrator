@@ -1,5 +1,14 @@
 # CHANGELOG — Project
 
+### 2026-07-30 — Adapter response proof metadata, version 2.81.170
+
+- All nine provider adapters now attach pipeline completion reason, sanity
+  warnings/confidence and answer verification to the response payload consumed
+  by background finalization.
+- DOM, selector and last-chance fallbacks are explicitly marked as unverified
+  instead of silently looking like verified pipeline output.
+- A shared response-metadata builder keeps the provider contract consistent.
+
 ### 2026-07-30 — Bounded post-terminal observation, version 2.81.169
 
 - The lifecycle tracker samples at 1/3/8 seconds after completion and emits an

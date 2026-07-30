@@ -3997,6 +3997,36 @@
     return new Promise((resolve) => setTimeout(resolve, finalMs));
   };
 
+  const buildResponseMeta = (metadata = null, options = {}) => {
+    const source = String(options.source || 'pipeline');
+    const pipelineMeta = metadata && typeof metadata === 'object' ? metadata : {};
+    const finalization = pipelineMeta.finalization && typeof pipelineMeta.finalization === 'object'
+      ? pipelineMeta.finalization
+      : {};
+    const sanityCheck = pipelineMeta.sanityCheck && typeof pipelineMeta.sanityCheck === 'object'
+      ? pipelineMeta.sanityCheck
+      : (finalization.sanityCheck && typeof finalization.sanityCheck === 'object'
+        ? finalization.sanityCheck
+        : {});
+    const fallback = source !== 'pipeline';
+    return {
+      source,
+      completionReason: options.completionReason
+        || pipelineMeta.completionReason
+        || (fallback ? 'pipeline_failed' : 'success'),
+      sanityWarnings: Array.isArray(options.sanityWarnings)
+        ? options.sanityWarnings
+        : (Array.isArray(sanityCheck.warnings) ? sanityCheck.warnings : (fallback ? ['unverified_fallback'] : [])),
+      sanityConfidence: typeof options.sanityConfidence === 'number'
+        ? options.sanityConfidence
+        : (typeof sanityCheck.overallConfidence === 'number' ? sanityCheck.overallConfidence : null),
+      answerVerification: options.answerVerification
+        || finalization.answerVerification
+        || pipelineMeta.answerVerification
+        || null
+    };
+  };
+
   const isExtensionContextValid = () => {
     try {
       return !!chrome?.runtime?.id;
@@ -5009,6 +5039,7 @@
 
   window.ContentUtils = {
     sleep,
+    buildResponseMeta,
     isElementInteractable,
     isExtensionContextValid,
     getMainBridgeToken,
@@ -26177,12 +26208,14 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
     if (resp && typeof resp === 'object') {
       return {
         text: String(resp.text || resp.answer || ''),
-        html: String(resp.html || resp.answerHtml || fallbackHtml || '')
+        html: String(resp.html || resp.answerHtml || fallbackHtml || ''),
+        meta: resp.meta && typeof resp.meta === 'object' ? resp.meta : null
       };
     }
     return {
       text: String(resp ?? ''),
-      html: String(fallbackHtml || '')
+      html: String(fallbackHtml || ''),
+      meta: null
     };
   };
   let lastResponseHtml = '';
@@ -26492,7 +26525,7 @@ const keepAliveMutex = (() => {
             answer: result.answer,
             answerHtml: result.answerHtml || '',
             answerLength: result.answer.length,
-            metadata: result.metadata
+            metadata: result.metadata || null
           });
         }
         return result;
@@ -28556,7 +28589,7 @@ const keepAliveMutex = (() => {
 
   // -------------------- Отправка результата в бэкграунд --------------------
   function sendResult(resp, ok = true, context = { isEvaluator: false }, error = null) {
-    const { text, html } = normalizeResponsePayload(resp, lastResponseHtml);
+    const { text, html, meta: responseMeta } = normalizeResponsePayload(resp, lastResponseHtml);
     if (ok && !context.isEvaluator) {
       const stats = contentCleaner.getStats();
       chrome.runtime.sendMessage({
@@ -28573,6 +28606,9 @@ const keepAliveMutex = (() => {
     };
     if (context?.meta && typeof context.meta === 'object') {
       message.meta = context.meta;
+    }
+    if (responseMeta) {
+      message.meta = Object.assign({}, message.meta || {}, { responseMeta });
     }
 
     if (!context.isEvaluator) {
@@ -28937,7 +28973,7 @@ const keepAliveMutex = (() => {
             let pipelineAnswer = null;
             await tryQwenPipeline(prompt, {
               heartbeat: (meta = {}) => activity.heartbeat(0.8, Object.assign({ phase: 'pipeline' }, meta)),
-            stop: async ({ answer, answerHtml }) => {
+            stop: async ({ answer, answerHtml, metadata }) => {
                 let cleaned = contentCleaner.clean(answer, { maxLength: 50000 });
                 let html = String(answerHtml || '').trim();
                 if (html) lastResponseHtml = html;
@@ -28955,14 +28991,18 @@ const keepAliveMutex = (() => {
                 if (!isQwenAnswerCandidate(cleaned, prompt, baselineAssistantText)) {
                   throw new Error('Empty answer extracted');
                 }
-                pipelineAnswer = { text: cleaned, html };
+                pipelineAnswer = {
+                  text: cleaned,
+                  html,
+                  meta: window.ContentUtils?.buildResponseMeta?.(metadata, { source: 'pipeline' }) || null
+                };
                 metricsCollector.recordTiming('total_response_time', Date.now() - startTime);
                 metricsCollector.endOperation(opId, true, { 
                   responseLength: cleaned.length,
                   duration: Date.now() - startTime,
                   source: 'pipeline'
                 });
-                sendResult({ text: cleaned, html }, true, context);
+                sendResult(pipelineAnswer, true, context);
                 activity.stop({ status: 'success', answerLength: cleaned.length, source: 'pipeline' });
                 return pipelineAnswer;
               }
@@ -28992,10 +29032,15 @@ const keepAliveMutex = (() => {
               responseLength: cleaned.length,
               duration: Date.now() - startTime
             });
-            sendResult({ text: cleaned, html: latestMarkup.html || lastResponseHtml }, true, context);
+            const fallbackPayload = {
+              text: cleaned,
+              html: latestMarkup.html || lastResponseHtml,
+              meta: window.ContentUtils?.buildResponseMeta?.(null, { source: 'dom_fallback' }) || null
+            };
+            sendResult(fallbackPayload, true, context);
             activity.heartbeat(0.9, { phase: 'response-processed' });
             activity.stop({ status: 'success', answerLength: cleaned.length });
-            return { text: cleaned, html: latestMarkup.html || lastResponseHtml };
+            return fallbackPayload;
           }, { keepAliveInterval: 2000, operationTimeout: 300000, debug: false });
           return responsePayload;
       } catch (e) {
@@ -29019,9 +29064,14 @@ const keepAliveMutex = (() => {
               duration: Date.now() - startTime,
               source: 'last_chance_fallback'
             });
-            sendResult({ text: cleanedFallback, html: latestMarkup.html || lastResponseHtml }, true, context);
+            const fallbackPayload = {
+              text: cleanedFallback,
+              html: latestMarkup.html || lastResponseHtml,
+              meta: window.ContentUtils?.buildResponseMeta?.(null, { source: 'last_chance_fallback' }) || null
+            };
+            sendResult(fallbackPayload, true, context);
             activity.stop({ status: 'success', answerLength: cleanedFallback.length, source: 'last_chance_fallback' });
-            return { text: cleanedFallback, html: latestMarkup.html || lastResponseHtml };
+            return fallbackPayload;
           }
         } catch (fallbackErr) {
           console.warn('[content-qwen] Last-chance fallback failed', fallbackErr);

@@ -11,6 +11,36 @@
     return new Promise((resolve) => setTimeout(resolve, finalMs));
   };
 
+  const buildResponseMeta = (metadata = null, options = {}) => {
+    const source = String(options.source || 'pipeline');
+    const pipelineMeta = metadata && typeof metadata === 'object' ? metadata : {};
+    const finalization = pipelineMeta.finalization && typeof pipelineMeta.finalization === 'object'
+      ? pipelineMeta.finalization
+      : {};
+    const sanityCheck = pipelineMeta.sanityCheck && typeof pipelineMeta.sanityCheck === 'object'
+      ? pipelineMeta.sanityCheck
+      : (finalization.sanityCheck && typeof finalization.sanityCheck === 'object'
+        ? finalization.sanityCheck
+        : {});
+    const fallback = source !== 'pipeline';
+    return {
+      source,
+      completionReason: options.completionReason
+        || pipelineMeta.completionReason
+        || (fallback ? 'pipeline_failed' : 'success'),
+      sanityWarnings: Array.isArray(options.sanityWarnings)
+        ? options.sanityWarnings
+        : (Array.isArray(sanityCheck.warnings) ? sanityCheck.warnings : (fallback ? ['unverified_fallback'] : [])),
+      sanityConfidence: typeof options.sanityConfidence === 'number'
+        ? options.sanityConfidence
+        : (typeof sanityCheck.overallConfidence === 'number' ? sanityCheck.overallConfidence : null),
+      answerVerification: options.answerVerification
+        || finalization.answerVerification
+        || pipelineMeta.answerVerification
+        || null
+    };
+  };
+
   const isExtensionContextValid = () => {
     try {
       return !!chrome?.runtime?.id;
@@ -1023,6 +1053,7 @@
 
   window.ContentUtils = {
     sleep,
+    buildResponseMeta,
     isElementInteractable,
     isExtensionContextValid,
     getMainBridgeToken,

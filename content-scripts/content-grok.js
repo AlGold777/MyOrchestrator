@@ -91,12 +91,14 @@
     if (resp && typeof resp === 'object') {
       return {
         text: String(resp.text || resp.answer || ''),
-        html: String(resp.html || resp.answerHtml || fallbackHtml || '')
+        html: String(resp.html || resp.answerHtml || fallbackHtml || ''),
+        meta: resp.meta && typeof resp.meta === 'object' ? resp.meta : null
       };
     }
     return {
       text: String(resp ?? ''),
-      html: String(fallbackHtml || '')
+      html: String(fallbackHtml || ''),
+      meta: null
     };
   };
   const MIN_GROK_ANSWER_LEN = 12;
@@ -503,7 +505,7 @@
             answer: result.answer,
             answerHtml: result.answerHtml || '',
             answerLength: result.answer.length,
-            metadata: result.metadata
+            metadata: result.metadata || null
           });
         }
         return result;
@@ -2416,7 +2418,11 @@
                 }
               }
               if (html) lastResponseHtml = html;
-              pipelineAnswer = { text: cleaned, html };
+              pipelineAnswer = {
+                text: cleaned,
+                html,
+                meta: window.ContentUtils?.buildResponseMeta?.(metadata, { source: 'pipeline' }) || null
+              };
               metricsCollector.recordTiming('total_response_time', Date.now() - startTime);
               metricsCollector.endOperation(opId, true, {
                 responseLength: cleaned.length,
@@ -2455,7 +2461,11 @@
                 source: 'dom-fallback'
               });
               activity.heartbeat(0.9, { phase: 'response-processed' });
-              return { text: cleaned, html: fallbackPayload.html };
+              return {
+                text: cleaned,
+                html: fallbackPayload.html,
+                meta: window.ContentUtils?.buildResponseMeta?.(null, { source: 'dom_fallback' }) || null
+              };
             }
           }
 
@@ -2494,7 +2504,11 @@
             });
             activity.heartbeat(0.9, { phase: 'response-processed' });
           }
-          return { text: cleaned, html: lastResponseHtml };
+          return {
+            text: cleaned,
+            html: lastResponseHtml,
+            meta: window.ContentUtils?.buildResponseMeta?.(null, { source: 'dom_snapshot' }) || null
+          };
         }, { keepAliveInterval: 2000, operationTimeout: 300000, debug: false });
         const normalized = normalizeResponsePayload(responsePayload, lastResponseHtml);
         if (!String(normalized.text || '').trim()) {
@@ -2506,7 +2520,11 @@
             baselineSnapshot
           );
           if (fallback?.text) {
-            return fallback;
+            return {
+              text: fallback.text,
+              html: fallback.html || '',
+              meta: window.ContentUtils?.buildResponseMeta?.(null, { source: 'dom_fallback' }) || null
+            };
           }
           throw new Error('Empty answer extracted');
         }
@@ -2655,7 +2673,9 @@
               llmName: MODEL,
               answer: payload.text,
               answerHtml: payload.html,
-              meta: msg.meta || null
+              meta: payload.meta
+                ? Object.assign({}, msg.meta || {}, { responseMeta: payload.meta })
+                : (msg.meta || null)
             });
             sendResponse?.({ status: 'success' });
           })

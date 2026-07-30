@@ -3997,6 +3997,36 @@
     return new Promise((resolve) => setTimeout(resolve, finalMs));
   };
 
+  const buildResponseMeta = (metadata = null, options = {}) => {
+    const source = String(options.source || 'pipeline');
+    const pipelineMeta = metadata && typeof metadata === 'object' ? metadata : {};
+    const finalization = pipelineMeta.finalization && typeof pipelineMeta.finalization === 'object'
+      ? pipelineMeta.finalization
+      : {};
+    const sanityCheck = pipelineMeta.sanityCheck && typeof pipelineMeta.sanityCheck === 'object'
+      ? pipelineMeta.sanityCheck
+      : (finalization.sanityCheck && typeof finalization.sanityCheck === 'object'
+        ? finalization.sanityCheck
+        : {});
+    const fallback = source !== 'pipeline';
+    return {
+      source,
+      completionReason: options.completionReason
+        || pipelineMeta.completionReason
+        || (fallback ? 'pipeline_failed' : 'success'),
+      sanityWarnings: Array.isArray(options.sanityWarnings)
+        ? options.sanityWarnings
+        : (Array.isArray(sanityCheck.warnings) ? sanityCheck.warnings : (fallback ? ['unverified_fallback'] : [])),
+      sanityConfidence: typeof options.sanityConfidence === 'number'
+        ? options.sanityConfidence
+        : (typeof sanityCheck.overallConfidence === 'number' ? sanityCheck.overallConfidence : null),
+      answerVerification: options.answerVerification
+        || finalization.answerVerification
+        || pipelineMeta.answerVerification
+        || null
+    };
+  };
+
   const isExtensionContextValid = () => {
     try {
       return !!chrome?.runtime?.id;
@@ -5009,6 +5039,7 @@
 
   window.ContentUtils = {
     sleep,
+    buildResponseMeta,
     isElementInteractable,
     isExtensionContextValid,
     getMainBridgeToken,
@@ -26649,7 +26680,7 @@ async function tryGeminiPipeline(promptText = '', lifecycle = {}, baselineText =
           answer: result.answer,
           answerHtml: result.answerHtml || '',
           answerLength: result.answer.length,
-          metadata: result.metadata
+          metadata: result.metadata || null
         });
       }
       return result;
@@ -27274,7 +27305,11 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
                         return null;
                     }
                     if (html) lastResponseHtml = html;
-                    pipelineAnswer = { text: cleanedResponse, html, meta: metadata || null };
+                    pipelineAnswer = {
+                        text: cleanedResponse,
+                        html,
+                        meta: window.ContentUtils?.buildResponseMeta?.(metadata, { source: 'pipeline' }) || null
+                    };
                     activity.stop({ status: 'success', answerLength: cleanedResponse.length, source: 'pipeline' });
                     return pipelineAnswer;
                 }
@@ -27283,7 +27318,11 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
             const fresh = await waitForFreshGeminiAnswer(geminiLastDispatchBaseline, 90000, 500);
             if (fresh?.text || fresh?.html) {
                 const cleaned = window.contentCleaner.cleanContent(fresh.html || fresh.text || '', { maxLength: 50000 });
-                if (cleaned) return { text: cleaned, html: fresh.html || '', meta: { source: 'fresh_dom_after_baseline' } };
+                if (cleaned) return {
+                    text: cleaned,
+                    html: fresh.html || '',
+                    meta: window.ContentUtils?.buildResponseMeta?.(null, { source: 'fresh_dom_after_baseline' }) || null
+                };
             }
             throw new Error('Pipeline did not return answer');
         }
@@ -27600,7 +27639,11 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
                     return null;
                 }
                 if (html) lastResponseHtml = html;
-                pipelineAnswer = { text: cleanedResponse, html, meta: metadata || null };
+                pipelineAnswer = {
+                    text: cleanedResponse,
+                    html,
+                    meta: window.ContentUtils?.buildResponseMeta?.(metadata, { source: 'pipeline' }) || null
+                };
                 activity.stop({ status: 'success', answerLength: cleanedResponse.length, source: 'pipeline' });
                 return pipelineAnswer;
             }
@@ -27614,7 +27657,11 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
           if (cleanedFresh) {
             if (freshMarkup.html) lastResponseHtml = freshMarkup.html;
             activity.stop({ status: 'success', answerLength: cleanedFresh.length, source: 'fresh-dom' });
-            return { text: cleanedFresh, html: freshMarkup.html || '', meta: { source: 'fresh_dom_after_baseline' } };
+            return {
+                text: cleanedFresh,
+                html: freshMarkup.html || '',
+                meta: window.ContentUtils?.buildResponseMeta?.(null, { source: 'fresh_dom_after_baseline' }) || null
+            };
           }
         }
         // Fallback: read last assistant message if pipeline missed
@@ -27625,7 +27672,11 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
             console.warn('[content-gemini] Pipeline empty, using DOM fallback');
             if (latestMarkup.html) lastResponseHtml = latestMarkup.html;
             activity.stop({ status: 'success', answerLength: cleanedFallback.length, source: 'dom-fallback' });
-            return { text: cleanedFallback, html: latestMarkup.html || '' };
+            return {
+                text: cleanedFallback,
+                html: latestMarkup.html || '',
+                meta: window.ContentUtils?.buildResponseMeta?.(null, { source: 'dom_fallback' }) || null
+            };
           }
         } catch (fallbackErr) {
           console.warn('[content-gemini] DOM fallback failed', fallbackErr);

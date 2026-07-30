@@ -205,7 +205,11 @@
       });
       const result = await pipeline.execute();
       if (result?.success && result.answer) {
-        return { text: String(result.answer), html: String(result.answerHtml || '') };
+        return {
+          text: String(result.answer),
+          html: String(result.answerHtml || ''),
+          meta: window.ContentUtils?.buildResponseMeta?.(result.metadata, { source: 'pipeline' }) || null
+        };
       }
     } catch (err) {
       console.warn('[Z.ai] Unified pipeline fallback:', err?.message || err);
@@ -246,7 +250,16 @@
     if (!sendConfirmed) throw { type: 'send_failed', message: 'Z.ai send not confirmed' };
     try { chrome.runtime.sendMessage({ type: 'PROMPT_SUBMITTED', llmName: MODEL, ts: Date.now(), meta }); } catch (_) {}
     const pipelineResult = await runPipeline(baseline);
-    lastResponse = pipelineResult || await waitForStableResponse(baseline);
+    if (pipelineResult) {
+      lastResponse = pipelineResult;
+    } else {
+      const fallback = await waitForStableResponse(baseline);
+      lastResponse = {
+        text: fallback.text,
+        html: fallback.html || '',
+        meta: window.ContentUtils?.buildResponseMeta?.(null, { source: 'dom_fallback' }) || null
+      };
+    }
     return lastResponse;
   };
 
@@ -256,7 +269,9 @@
       llmName: MODEL,
       answer: payload.text,
       answerHtml: payload.html || '',
-      meta: meta || null
+      meta: payload.meta
+        ? Object.assign({}, meta || {}, { responseMeta: payload.meta })
+        : (meta || null)
     });
   };
 

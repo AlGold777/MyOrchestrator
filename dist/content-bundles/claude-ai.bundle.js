@@ -3997,6 +3997,36 @@
     return new Promise((resolve) => setTimeout(resolve, finalMs));
   };
 
+  const buildResponseMeta = (metadata = null, options = {}) => {
+    const source = String(options.source || 'pipeline');
+    const pipelineMeta = metadata && typeof metadata === 'object' ? metadata : {};
+    const finalization = pipelineMeta.finalization && typeof pipelineMeta.finalization === 'object'
+      ? pipelineMeta.finalization
+      : {};
+    const sanityCheck = pipelineMeta.sanityCheck && typeof pipelineMeta.sanityCheck === 'object'
+      ? pipelineMeta.sanityCheck
+      : (finalization.sanityCheck && typeof finalization.sanityCheck === 'object'
+        ? finalization.sanityCheck
+        : {});
+    const fallback = source !== 'pipeline';
+    return {
+      source,
+      completionReason: options.completionReason
+        || pipelineMeta.completionReason
+        || (fallback ? 'pipeline_failed' : 'success'),
+      sanityWarnings: Array.isArray(options.sanityWarnings)
+        ? options.sanityWarnings
+        : (Array.isArray(sanityCheck.warnings) ? sanityCheck.warnings : (fallback ? ['unverified_fallback'] : [])),
+      sanityConfidence: typeof options.sanityConfidence === 'number'
+        ? options.sanityConfidence
+        : (typeof sanityCheck.overallConfidence === 'number' ? sanityCheck.overallConfidence : null),
+      answerVerification: options.answerVerification
+        || finalization.answerVerification
+        || pipelineMeta.answerVerification
+        || null
+    };
+  };
+
   const isExtensionContextValid = () => {
     try {
       return !!chrome?.runtime?.id;
@@ -5009,6 +5039,7 @@
 
   window.ContentUtils = {
     sleep,
+    buildResponseMeta,
     isElementInteractable,
     isExtensionContextValid,
     getMainBridgeToken,
@@ -26417,12 +26448,14 @@ if (typeof window.SelectorFinder === 'undefined') {
     if (resp && typeof resp === 'object') {
       return {
         text: String(resp.text || resp.answer || ''),
-        html: String(resp.html || resp.answerHtml || fallbackHtml || '')
+        html: String(resp.html || resp.answerHtml || fallbackHtml || ''),
+        meta: resp.meta && typeof resp.meta === 'object' ? resp.meta : null
       };
     }
     return {
       text: String(resp ?? ''),
-      html: String(fallbackHtml || '')
+      html: String(fallbackHtml || ''),
+      meta: null
     };
   };
   let lastResponseHtml = '';
@@ -27334,7 +27367,7 @@ if (typeof window.SelectorFinder === 'undefined') {
             answer: result.answer,
             answerHtml: result.answerHtml || '',
             answerLength: result.answer.length,
-            metadata: result.metadata
+            metadata: result.metadata || null
           });
         }
         return result;
@@ -28264,11 +28297,13 @@ function isLikelyClaudeModelLabel(text = '') {
 
         let response = '';
         let pipelineAnswer = null;
+        let responseMeta = null;
         emitTiming('Pipeline start');
         await tryClaudePipeline(prompt, {
           heartbeat: (meta = {}) => activity.heartbeat(0.8, Object.assign({ phase: 'pipeline' }, meta)),
-          stop: async ({ answer, answerHtml }) => {
+          stop: async ({ answer, answerHtml, metadata }) => {
             pipelineAnswer = answer || '';
+            responseMeta = window.ContentUtils?.buildResponseMeta?.(metadata, { source: 'pipeline' }) || null;
             const html = String(answerHtml || '').trim();
             if (html && !isLikelyClaudeThinkingText(pipelineAnswer)) lastResponseHtml = html;
             activity.stop({ status: 'success', answerLength: pipelineAnswer.length, source: 'pipeline' });
@@ -28354,7 +28389,10 @@ function isLikelyClaudeModelLabel(text = '') {
         activity.heartbeat(0.9, { phase: 'response-processed' });
         activity.stop({ status: 'success', answerLength: cleanedResponse.length });
         console.log(`[content-claude] Process completed. Response length: ${cleanedResponse.length}`);
-        return { text: cleanedResponse, html: lastResponseHtml };
+        if (!pipelineAnswer || response !== String(pipelineAnswer || '').trim()) {
+          responseMeta = window.ContentUtils?.buildResponseMeta?.(null, { source: 'dom_fallback' }) || null;
+        }
+        return { text: cleanedResponse, html: lastResponseHtml, meta: responseMeta };
       } catch (error) {
         if (error?.code === 'background-force-stop') {
           activity.error(error, false);
@@ -28479,7 +28517,9 @@ function isLikelyClaudeModelLabel(text = '') {
                 llmName: MODEL, 
                 answer: payload.text,
                 answerHtml: payload.html,
-                meta: message.meta || null
+                meta: payload.meta
+                  ? Object.assign({}, message.meta || {}, { responseMeta: payload.meta })
+                  : (message.meta || null)
               });
             }
             

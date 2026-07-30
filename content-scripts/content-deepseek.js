@@ -80,12 +80,14 @@
     if (resp && typeof resp === 'object') {
       return {
         text: String(resp.text || resp.answer || ''),
-        html: String(resp.html || resp.answerHtml || fallbackHtml || '')
+        html: String(resp.html || resp.answerHtml || fallbackHtml || ''),
+        meta: resp.meta && typeof resp.meta === 'object' ? resp.meta : null
       };
     }
     return {
       text: String(resp ?? ''),
-      html: String(fallbackHtml || '')
+      html: String(fallbackHtml || ''),
+      meta: null
     };
   };
   let lastResponseHtml = '';
@@ -518,7 +520,8 @@ const buildLifecycleContext = (prompt = '', extra = {}) => ({
             source: 'pipeline',
             answer: result.answer,
             answerHtml: result.answerHtml || '',
-            answerLength: result.answer.length
+            answerLength: result.answer.length,
+            metadata: result.metadata || null
           });
         }
         return result;
@@ -1204,7 +1207,7 @@ const buildLifecycleContext = (prompt = '', extra = {}) => ({
   }
 
   function sendResult(resp, ok = true, responseType = 'LLM_RESPONSE', meta = null) {
-    const { text, html } = normalizeResponsePayload(resp, lastResponseHtml);
+    const { text, html, meta: responseMeta } = normalizeResponsePayload(resp, lastResponseHtml);
     if (ok) {
       const stats = contentCleaner.getStats();
       chrome.runtime.sendMessage({
@@ -1219,7 +1222,9 @@ const buildLifecycleContext = (prompt = '', extra = {}) => ({
       llmName: MODEL,
       answer: ok ? text : `Error: ${text}`,
       answerHtml: ok ? html : '',
-      meta: meta && typeof meta === 'object' ? meta : null
+      meta: responseMeta
+        ? Object.assign({}, meta && typeof meta === 'object' ? meta : {}, { responseMeta })
+        : (meta && typeof meta === 'object' ? meta : null)
     });
   }
 
@@ -1431,7 +1436,7 @@ const buildLifecycleContext = (prompt = '', extra = {}) => ({
             let pipelineAnswer = null;
             await tryDeepseekPipeline(prompt, {
               heartbeat: (meta = {}) => activity.heartbeat(0.75, Object.assign({ phase: 'pipeline' }, meta)),
-              stop: async ({ answer, answerHtml }) => {
+              stop: async ({ answer, answerHtml, metadata }) => {
                 let cleanedPipeline = contentCleaner.clean(answer, { maxLength: 50000 });
                 let html = String(answerHtml || '').trim();
                 if (!String(cleanedPipeline || '').trim()) {
@@ -1446,7 +1451,11 @@ const buildLifecycleContext = (prompt = '', extra = {}) => ({
                   throw new Error('Empty answer extracted');
                 }
                 if (html) lastResponseHtml = html;
-                pipelineAnswer = { text: cleanedPipeline, html };
+                pipelineAnswer = {
+                  text: cleanedPipeline,
+                  html,
+                  meta: window.ContentUtils?.buildResponseMeta?.(metadata, { source: 'pipeline' }) || null
+                };
                 copyTextToClipboard(cleanedPipeline).catch(() => {});
                 console.log('[DeepSeek] UnifiedAnswerPipeline completed, skipping legacy watcher');
                 metricsCollector.recordTiming('total_response_time', Date.now() - startTime);
@@ -1456,7 +1465,7 @@ const buildLifecycleContext = (prompt = '', extra = {}) => ({
                   source: 'pipeline'
                 });
                 if (autoNotify) {
-                  sendResult({ text: cleanedPipeline, html }, true, responseType, dispatchMeta);
+                  sendResult(pipelineAnswer, true, responseType, dispatchMeta);
                 }
                 activity.stop({ status: 'success', answerLength: cleanedPipeline.length, source: 'pipeline' });
                 return pipelineAnswer;
@@ -1488,11 +1497,19 @@ const buildLifecycleContext = (prompt = '', extra = {}) => ({
               duration: Date.now() - startTime
             });
             if (autoNotify) {
-              sendResult({ text: cleanedResponse, html: lastResponseHtml }, true, responseType, dispatchMeta);
+              sendResult({
+                text: cleanedResponse,
+                html: lastResponseHtml,
+                meta: window.ContentUtils?.buildResponseMeta?.(null, { source: 'dom_fallback' }) || null
+              }, true, responseType, dispatchMeta);
             }
             activity.heartbeat(0.9, { phase: 'response-processed' });
             activity.stop({ status: 'success', answerLength: cleanedResponse.length });
-            return { text: cleanedResponse, html: lastResponseHtml };
+            return {
+              text: cleanedResponse,
+              html: lastResponseHtml,
+              meta: window.ContentUtils?.buildResponseMeta?.(null, { source: 'dom_fallback' }) || null
+            };
           }, { keepAliveInterval: 2000, operationTimeout: 300000, debug: false });
           return responsePayload;
       } catch (error) {
@@ -1591,7 +1608,9 @@ const buildLifecycleContext = (prompt = '', extra = {}) => ({
               llmName: MODEL,
               answer: payload.text,
               answerHtml: payload.html,
-              meta: msg.meta || null
+              meta: payload.meta
+                ? Object.assign({}, msg.meta || {}, { responseMeta: payload.meta })
+                : (msg.meta || null)
             });
             sendResponse?.({ status: 'success' });
           })

@@ -3997,6 +3997,36 @@
     return new Promise((resolve) => setTimeout(resolve, finalMs));
   };
 
+  const buildResponseMeta = (metadata = null, options = {}) => {
+    const source = String(options.source || 'pipeline');
+    const pipelineMeta = metadata && typeof metadata === 'object' ? metadata : {};
+    const finalization = pipelineMeta.finalization && typeof pipelineMeta.finalization === 'object'
+      ? pipelineMeta.finalization
+      : {};
+    const sanityCheck = pipelineMeta.sanityCheck && typeof pipelineMeta.sanityCheck === 'object'
+      ? pipelineMeta.sanityCheck
+      : (finalization.sanityCheck && typeof finalization.sanityCheck === 'object'
+        ? finalization.sanityCheck
+        : {});
+    const fallback = source !== 'pipeline';
+    return {
+      source,
+      completionReason: options.completionReason
+        || pipelineMeta.completionReason
+        || (fallback ? 'pipeline_failed' : 'success'),
+      sanityWarnings: Array.isArray(options.sanityWarnings)
+        ? options.sanityWarnings
+        : (Array.isArray(sanityCheck.warnings) ? sanityCheck.warnings : (fallback ? ['unverified_fallback'] : [])),
+      sanityConfidence: typeof options.sanityConfidence === 'number'
+        ? options.sanityConfidence
+        : (typeof sanityCheck.overallConfidence === 'number' ? sanityCheck.overallConfidence : null),
+      answerVerification: options.answerVerification
+        || finalization.answerVerification
+        || pipelineMeta.answerVerification
+        || null
+    };
+  };
+
   const isExtensionContextValid = () => {
     try {
       return !!chrome?.runtime?.id;
@@ -5009,6 +5039,7 @@
 
   window.ContentUtils = {
     sleep,
+    buildResponseMeta,
     isElementInteractable,
     isExtensionContextValid,
     getMainBridgeToken,
@@ -26585,12 +26616,14 @@ const normalizeResponsePayload = (resp, fallbackHtml = '') => {
   if (resp && typeof resp === 'object') {
     return {
       text: String(resp.text || resp.answer || ''),
-      html: String(resp.html || resp.answerHtml || fallbackHtml || '')
+      html: String(resp.html || resp.answerHtml || fallbackHtml || ''),
+      meta: resp.meta && typeof resp.meta === 'object' ? resp.meta : null
     };
   }
   return {
     text: String(resp ?? ''),
-    html: String(fallbackHtml || '')
+    html: String(fallbackHtml || ''),
+    meta: null
   };
 };
 
@@ -26956,7 +26989,8 @@ const pipelineExpectedLength = (text = '') => {
           source: 'pipeline',
           answer: result.answer,
           answerHtml: result.answerHtml || '',
-          answerLength: result.answer.length
+          answerLength: result.answer.length,
+          metadata: result.metadata || null
         });
       }
       return result;
@@ -27811,7 +27845,7 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
     let pipelineAnswer = null;
     await tryPerplexityPipeline(prompt, {
       heartbeat: (meta = {}) => activity.heartbeat(0.8, Object.assign({ phase: 'pipeline' }, meta)),
-      stop: async ({ answer, answerHtml }) => {
+      stop: async ({ answer, answerHtml, metadata }) => {
         console.log('[content-perplexity] UnifiedAnswerPipeline captured response, skipping legacy watcher');
         const cleanedPipelineResponse = window.contentCleaner.cleanContent(answer, {
           maxLength: 50000
@@ -27821,7 +27855,11 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
         }
         const html = String(answerHtml || '').trim();
         if (html) lastResponseHtml = html;
-        pipelineAnswer = { text: cleanedPipelineResponse, html };
+        pipelineAnswer = {
+          text: cleanedPipelineResponse,
+          html,
+          meta: window.ContentUtils?.buildResponseMeta?.(metadata, { source: 'pipeline' }) || null
+        };
         activity.stop({ status: 'success', answerLength: cleanedPipelineResponse.length, source: 'pipeline' });
         return pipelineAnswer;
       }
@@ -27842,7 +27880,11 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
         console.warn('[content-perplexity] Pipeline empty, using DOM fallback');
         if (latestMarkup.html) lastResponseHtml = latestMarkup.html;
         activity.stop({ status: 'success', answerLength: cleanedFallback.length, source: 'dom-fallback' });
-        return { text: cleanedFallback, html: latestMarkup.html || '' };
+        return {
+          text: cleanedFallback,
+          html: latestMarkup.html || '',
+          meta: window.ContentUtils?.buildResponseMeta?.(null, { source: 'dom_fallback' }) || null
+        };
       }
     } catch (fallbackErr) {
       console.warn('[content-perplexity] DOM fallback failed', fallbackErr);
@@ -27855,7 +27897,11 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
       if (cleanedFinder) {
         console.warn('[content-perplexity] DOM fallback empty, using SelectorFinder response');
         activity.stop({ status: 'success', answerLength: cleanedFinder.length, source: 'selector-finder' });
-        return cleanedFinder;
+        return {
+          text: cleanedFinder,
+          html: '',
+          meta: window.ContentUtils?.buildResponseMeta?.(null, { source: 'selector_finder_fallback' }) || null
+        };
       }
     } catch (finderErr) {
       console.warn('[content-perplexity] SelectorFinder fallback crashed', finderErr);
@@ -27996,7 +28042,9 @@ const onRuntimeMessage = (message, sender, sendResponse) => {
           llmName: MODEL,
           answer: payload.text,
           answerHtml: payload.html,
-          meta: message.meta || null
+          meta: payload.meta
+            ? Object.assign({}, message.meta || {}, { responseMeta: payload.meta })
+            : (message.meta || null)
         });
       })
       .catch((err) => {

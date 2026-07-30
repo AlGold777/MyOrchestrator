@@ -3997,6 +3997,36 @@
     return new Promise((resolve) => setTimeout(resolve, finalMs));
   };
 
+  const buildResponseMeta = (metadata = null, options = {}) => {
+    const source = String(options.source || 'pipeline');
+    const pipelineMeta = metadata && typeof metadata === 'object' ? metadata : {};
+    const finalization = pipelineMeta.finalization && typeof pipelineMeta.finalization === 'object'
+      ? pipelineMeta.finalization
+      : {};
+    const sanityCheck = pipelineMeta.sanityCheck && typeof pipelineMeta.sanityCheck === 'object'
+      ? pipelineMeta.sanityCheck
+      : (finalization.sanityCheck && typeof finalization.sanityCheck === 'object'
+        ? finalization.sanityCheck
+        : {});
+    const fallback = source !== 'pipeline';
+    return {
+      source,
+      completionReason: options.completionReason
+        || pipelineMeta.completionReason
+        || (fallback ? 'pipeline_failed' : 'success'),
+      sanityWarnings: Array.isArray(options.sanityWarnings)
+        ? options.sanityWarnings
+        : (Array.isArray(sanityCheck.warnings) ? sanityCheck.warnings : (fallback ? ['unverified_fallback'] : [])),
+      sanityConfidence: typeof options.sanityConfidence === 'number'
+        ? options.sanityConfidence
+        : (typeof sanityCheck.overallConfidence === 'number' ? sanityCheck.overallConfidence : null),
+      answerVerification: options.answerVerification
+        || finalization.answerVerification
+        || pipelineMeta.answerVerification
+        || null
+    };
+  };
+
   const isExtensionContextValid = () => {
     try {
       return !!chrome?.runtime?.id;
@@ -5009,6 +5039,7 @@
 
   window.ContentUtils = {
     sleep,
+    buildResponseMeta,
     isElementInteractable,
     isExtensionContextValid,
     getMainBridgeToken,
@@ -26320,7 +26351,11 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
       });
       const result = await pipeline.execute();
       if (result?.success && result.answer) {
-        return { text: String(result.answer), html: String(result.answerHtml || '') };
+        return {
+          text: String(result.answer),
+          html: String(result.answerHtml || ''),
+          meta: window.ContentUtils?.buildResponseMeta?.(result.metadata, { source: 'pipeline' }) || null
+        };
       }
     } catch (err) {
       console.warn('[Z.ai] Unified pipeline fallback:', err?.message || err);
@@ -26361,7 +26396,16 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
     if (!sendConfirmed) throw { type: 'send_failed', message: 'Z.ai send not confirmed' };
     try { chrome.runtime.sendMessage({ type: 'PROMPT_SUBMITTED', llmName: MODEL, ts: Date.now(), meta }); } catch (_) {}
     const pipelineResult = await runPipeline(baseline);
-    lastResponse = pipelineResult || await waitForStableResponse(baseline);
+    if (pipelineResult) {
+      lastResponse = pipelineResult;
+    } else {
+      const fallback = await waitForStableResponse(baseline);
+      lastResponse = {
+        text: fallback.text,
+        html: fallback.html || '',
+        meta: window.ContentUtils?.buildResponseMeta?.(null, { source: 'dom_fallback' }) || null
+      };
+    }
     return lastResponse;
   };
 
@@ -26371,7 +26415,9 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
       llmName: MODEL,
       answer: payload.text,
       answerHtml: payload.html || '',
-      meta: meta || null
+      meta: payload.meta
+        ? Object.assign({}, meta || {}, { responseMeta: payload.meta })
+        : (meta || null)
     });
   };
 

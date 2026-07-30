@@ -3997,6 +3997,36 @@
     return new Promise((resolve) => setTimeout(resolve, finalMs));
   };
 
+  const buildResponseMeta = (metadata = null, options = {}) => {
+    const source = String(options.source || 'pipeline');
+    const pipelineMeta = metadata && typeof metadata === 'object' ? metadata : {};
+    const finalization = pipelineMeta.finalization && typeof pipelineMeta.finalization === 'object'
+      ? pipelineMeta.finalization
+      : {};
+    const sanityCheck = pipelineMeta.sanityCheck && typeof pipelineMeta.sanityCheck === 'object'
+      ? pipelineMeta.sanityCheck
+      : (finalization.sanityCheck && typeof finalization.sanityCheck === 'object'
+        ? finalization.sanityCheck
+        : {});
+    const fallback = source !== 'pipeline';
+    return {
+      source,
+      completionReason: options.completionReason
+        || pipelineMeta.completionReason
+        || (fallback ? 'pipeline_failed' : 'success'),
+      sanityWarnings: Array.isArray(options.sanityWarnings)
+        ? options.sanityWarnings
+        : (Array.isArray(sanityCheck.warnings) ? sanityCheck.warnings : (fallback ? ['unverified_fallback'] : [])),
+      sanityConfidence: typeof options.sanityConfidence === 'number'
+        ? options.sanityConfidence
+        : (typeof sanityCheck.overallConfidence === 'number' ? sanityCheck.overallConfidence : null),
+      answerVerification: options.answerVerification
+        || finalization.answerVerification
+        || pipelineMeta.answerVerification
+        || null
+    };
+  };
+
   const isExtensionContextValid = () => {
     try {
       return !!chrome?.runtime?.id;
@@ -5009,6 +5039,7 @@
 
   window.ContentUtils = {
     sleep,
+    buildResponseMeta,
     isElementInteractable,
     isExtensionContextValid,
     getMainBridgeToken,
@@ -26175,12 +26206,14 @@ const attachmentHandler = window.AttachmentHandler || null;
     if (resp && typeof resp === 'object') {
       return {
         text: String(resp.text || resp.answer || ''),
-        html: String(resp.html || resp.answerHtml || fallbackHtml || '')
+        html: String(resp.html || resp.answerHtml || fallbackHtml || ''),
+        meta: resp.meta && typeof resp.meta === 'object' ? resp.meta : null
       };
     }
     return {
       text: String(resp ?? ''),
-      html: String(fallbackHtml || '')
+      html: String(fallbackHtml || ''),
+      meta: null
     };
   };
 
@@ -26402,7 +26435,8 @@ async function tryChatgptPipeline(promptText = '', lifecycle = {}, baselineText 
           source: 'pipeline',
           answer: result.answer,
           answerHtml: result.answerHtml || '',
-          answerLength: result.answer.length
+          answerLength: result.answer.length,
+          metadata: result.metadata || null
         });
       }
       return result;
@@ -27516,7 +27550,7 @@ const chatgptScrollCoordinator = window.ScrollCoordinator
         let pipelineAnswer = null;
         await tryChatgptPipeline(prompt, {
           heartbeat: (meta = {}) => activity.heartbeat(0.75, Object.assign({ phase: 'pipeline' }, meta)),
-          stop: async ({ answer, answerHtml }) => {
+          stop: async ({ answer, answerHtml, metadata }) => {
             console.log('[CONTENT-GPT] UnifiedAnswerPipeline captured answer, skipping legacy watcher');
             const cleanedResponse = window.contentCleaner.cleanContent(answer, {
                 maxLength: 50000
@@ -27527,7 +27561,11 @@ const chatgptScrollCoordinator = window.ScrollCoordinator
             const html = String(answerHtml || '').trim();
             if (html) lastResponseHtml = html;
             lastResponseSnapshot = cleanedResponse;
-            pipelineAnswer = { text: cleanedResponse, html };
+            pipelineAnswer = {
+              text: cleanedResponse,
+              html,
+              meta: window.ContentUtils?.buildResponseMeta?.(metadata, { source: 'pipeline' }) || null
+            };
             activity.stop({ status: 'success', answerLength: cleanedResponse.length, source: 'pipeline' });
             return pipelineAnswer;
           }
@@ -27548,7 +27586,11 @@ const chatgptScrollCoordinator = window.ScrollCoordinator
             if (latestMarkup.html) lastResponseHtml = latestMarkup.html;
             lastResponseSnapshot = cleanedFallback;
             activity.stop({ status: 'success', answerLength: cleanedFallback.length, source: 'dom-fallback' });
-            return { text: cleanedFallback, html: latestMarkup.html || '' };
+            return {
+              text: cleanedFallback,
+              html: latestMarkup.html || '',
+              meta: window.ContentUtils?.buildResponseMeta?.(null, { source: 'dom_fallback' }) || null
+            };
           }
         } catch (fallbackErr) {
           console.warn('[CONTENT-GPT] DOM fallback failed', fallbackErr);
@@ -27708,7 +27750,9 @@ const chatgptScrollCoordinator = window.ScrollCoordinator
                   llmName: MODEL,
                   answer: payload.text,
                   answerHtml: payload.html,
-                  meta: dispatchMeta
+                  meta: payload.meta
+                    ? Object.assign({}, dispatchMeta || {}, { responseMeta: payload.meta })
+                    : dispatchMeta
               });
           }
           
