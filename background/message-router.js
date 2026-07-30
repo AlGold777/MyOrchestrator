@@ -1822,7 +1822,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                         entry.preDispatchAnswerCapturedAt = Date.now();
                         emitTelemetry(llmName, 'DISPATCH_BASELINE_CAPTURED', {
                             details: `len=${sig.length}`,
-                            meta: { dispatchId, signatureLength: sig.length, baselineHash: entry.preDispatchAnswerHash, anchorAnswerCount }
+                            meta: {
+                                dispatchId,
+                                generationEpoch: normalizedMeta.generationEpoch
+                                    ?? entry?.lastDispatchMeta?.generationEpoch
+                                    ?? entry?.generationEpoch
+                                    ?? null,
+                                attemptId: normalizedMeta.attemptId || entry?.lastDispatchMeta?.attemptId || null,
+                                signatureLength: sig.length,
+                                baselineHash: entry.preDispatchAnswerHash,
+                                anchorAnswerCount
+                            }
                         });
                     } else {
                         // Empty baseline = fresh/new chat with no prior answer; clear any stale guard.

@@ -391,6 +391,30 @@ describe('native proof telemetry ledger', () => {
     ]));
   });
 
+  test('stores canonical terminal facts and delivery proof identity fields', async () => {
+    await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
+    const base = {
+      runSessionId: 42,
+      dispatchId: 'GPT:42:1',
+      generationEpoch: 1,
+      attemptId: 'attempt-1',
+      payloadEvidenceId: 'payload-1'
+    };
+    await global.ProofTelemetryLedger.record({
+      ts: 1000,
+      label: 'MODEL_FINAL',
+      details: 'SUCCESS',
+      meta: { ...base, finalStatus: 'SUCCESS', answerIdentity: 'current_dispatch' }
+    }, 'GPT');
+    const terminal = (await global.ProofTelemetryLedger.snapshot()).events
+      .find((event) => event.eventType === 'MODEL_TERMINAL_RECORDED');
+    expect(terminal.payload.typed).toEqual({ kind: 'terminal_action', state: 'SUCCESS' });
+    expect(terminal.payload.metadata).toEqual(expect.objectContaining({
+      attemptId: 'attempt-1',
+      payloadEvidenceId: 'payload-1'
+    }));
+  });
+
   test('aggregates operational polling, quarantines unknown legacy noise and compacts metadata', async () => {
     await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
     const meta = {

@@ -230,6 +230,10 @@
   function compactProofMetadata(metadata) {
     const staticKeys = new Set(['telemetryTaxonomy', 'extVersion', 'schemaVersion', 'event', 'legacyBefore', 'legacyAfter', 'previousState', 'nextState', 'projection', 'modelState']);
     const structuredKeys = new Set(['checkedAtLocalMonoMs']);
+    const proofIdentityKeys = new Set([
+      'attemptId', 'payloadEvidenceId', 'expectedCardId', 'observedCardId',
+      'evaluationBoundaryId', 'sourceRevisionId', 'decisionId'
+    ]);
     const proofKey = /(?:hash|length|len|count|status|state|reasons?|mode|tier|coverage|verified|visible|active|discarded|health|mutation|attempt|deadline|timeout|duration|delay|skew|growth|candidate|answerIdentity|finalStatus|terminalStatus|finishReason|decisionAccepted|promotedFromPending|promotedStagingIngestSeq|dispatchId|answerEvidenceDispatchId|priorIncidentRef|evidence|source|signal|version|ms)$/i;
     const compact = {};
     Object.entries(metadata || {}).forEach(([key, value]) => {
@@ -238,7 +242,7 @@
         compact[key] = Object.fromEntries(Object.entries(value).filter(([, item]) => Number.isFinite(Number(item))).slice(0, 20));
         return;
       }
-      if (!proofKey.test(key)) return;
+      if (!proofKey.test(key) && !proofIdentityKeys.has(key)) return;
       if (['string', 'number', 'boolean'].includes(typeof value)) {
         compact[key] = typeof value === 'string' ? value.slice(0, 200) : value;
       } else if (Array.isArray(value)) {
@@ -449,7 +453,6 @@
     const modelId = String(llmName || entry?.platform || entry?.llmName || rawMetadata.llmName || 'SYSTEM');
     const eventType = String(entry?.proofEventType || rawMetadata.proofEventType || api.canonicalType(entry));
     const sourceEventType = String(entry?.label || entry?.event || rawMetadata.event || 'UNKNOWN').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'UNKNOWN';
-    const typed = entry?.typed || rawMetadata.typed || contracts()?.adaptLegacyEvent?.({ payload: { sourceEventType, metadata: rawMetadata } }) || { kind: 'unknown', state: 'unknown' };
     const metadata = compactProofMetadata(stripEnvelopeMetadata(rawMetadata));
     const details = String(entry?.details || '');
     if (eventType === 'FINALIZATION_POLICY_EVALUATED') {
@@ -460,6 +463,13 @@
       const status = details.trim().split(/[\s|:]+/)[0].toUpperCase();
       if (/^[A-Z][A-Z0-9_]{1,40}$/.test(status)) metadata.terminalStatus = status;
     }
+    const canonicalTyped = contracts()?.canonicalFactOf?.({ eventType, payload: { metadata } });
+    const canonicalKnown = canonicalTyped
+      && canonicalTyped.kind !== 'unknown'
+      && canonicalTyped.state !== 'unknown';
+    const typed = canonicalKnown
+      ? canonicalTyped
+      : (entry?.typed || rawMetadata.typed || contracts()?.adaptLegacyEvent?.({ payload: { sourceEventType, metadata: rawMetadata } }) || { kind: 'unknown', state: 'unknown' });
     const dispatchId = rawMetadata.dispatchId || rawMetadata.requestId || undefined;
     const event = nextEnvelope(state, {
       eventType,

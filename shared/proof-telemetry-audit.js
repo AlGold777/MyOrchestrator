@@ -222,7 +222,11 @@
     }
 
     const anomaly = anomalyKind(sourceEvent);
-    if (anomaly) {
+    // A forensic companion is evidence, not an unscoped debug annotation. If
+    // the rejected runtime message cannot be attributed to a dispatch, linking
+    // the companion to it would create an evidence edge that can never satisfy
+    // the exact incident-scope contract (S03).
+    if (anomaly && sourceEvent?.dispatchId) {
       descriptors.push({
         eventType: 'SELECTOR_FORENSIC_SNAPSHOT_CAPTURED',
         layer: 'audit',

@@ -7210,6 +7210,7 @@ function recordModelRunState(llmName, entry, evidence = {}) {
 }
 
 function emitFinalizationDecision(llmName, evidence = {}) {
+  const entry = jobState?.llms?.[llmName] || null;
   emitTelemetry(llmName, 'FINALIZATION_DECISION', {
     level: evidence.accepted ? (evidence.terminalFailure ? 'warning' : 'success') : 'warning',
     details: `${evidence.finalStatus || 'UNKNOWN'}:${evidence.accepted ? 'accepted' : 'blocked'}`,
@@ -7220,6 +7221,11 @@ function emitFinalizationDecision(llmName, evidence = {}) {
       modelFinalStatus: evidence.modelFinalStatus || null,
       doneReason: evidence.doneReason || null,
       dispatchId: evidence.dispatchId || null,
+      generationEpoch: evidence.generationEpoch
+        ?? entry?.lastDispatchMeta?.generationEpoch
+        ?? entry?.generationEpoch
+        ?? null,
+      attemptId: evidence.attemptId || entry?.lastDispatchMeta?.attemptId || null,
       tabId: evidence.tabId || null,
       source: evidence.source || null,
       answerLength: evidence.answerLength || 0,
@@ -8412,6 +8418,10 @@ function handleLLMResponse(llmName, answer, error = null, meta = null, answerHtm
   const focusSwitchesUsed = Number(entry?.focusSwitches || 0);
   const foregroundMsUsed = Number(entry?.humanVisitTotalMs || 0);
   const dispatchId = metaObj?.dispatchId || entry?.lastDispatchMeta?.dispatchId || null;
+  const generationEpoch = metaObj?.generationEpoch
+    ?? entry?.lastDispatchMeta?.generationEpoch
+    ?? entry?.generationEpoch
+    ?? null;
   const tabId = entry?.tabId || null;
   if (typeof self.clearScriptRuntimeHardStop === 'function') {
     self.clearScriptRuntimeHardStop(llmName, dispatchId || null);
@@ -8447,6 +8457,7 @@ function handleLLMResponse(llmName, answer, error = null, meta = null, answerHtm
       level: 'warning',
       meta: {
         dispatchId,
+        generationEpoch,
         modelFinalStatus,
         doneReason
       }
@@ -8473,6 +8484,7 @@ function handleLLMResponse(llmName, answer, error = null, meta = null, answerHtm
         finalStatus,
         finalReason,
         dispatchId,
+        generationEpoch,
         tabId,
         answerEvidenceLength: finalizationEvidence?.answerEvidence
           ? Number(finalizationEvidence.answerEvidence.length || finalizationEvidence.answerEvidence.textLength || 0)
@@ -8484,7 +8496,7 @@ function handleLLMResponse(llmName, answer, error = null, meta = null, answerHtm
         answerIdentity: finalizationEvidence?.answerEvidence?.dispatchId && dispatchId
           ? (String(finalizationEvidence.answerEvidence.dispatchId) === String(dispatchId) ? 'current_dispatch' : 'previous_dispatch')
           : null,
-        attemptId: answerCommitEvidence?.attemptId || answerAttemptId || null,
+        attemptId: answerCommitEvidence?.attemptId || answerAttemptId || entry?.lastDispatchMeta?.attemptId || null,
         payloadEvidenceId: answerCommitEvidence?.payloadEvidenceId || acceptedPayloadProof?.payloadEvidenceId || null,
         normalizedLength: answerCommitEvidence?.normalizedLength ?? acceptedPayloadProof?.normalizedLength ?? (isSuccess ? trimmedAnswer.length : null),
         normalizedHash: answerCommitEvidence?.normalizedHash || acceptedPayloadProof?.normalizedHash || null,

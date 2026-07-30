@@ -324,13 +324,14 @@
 
   function canonicalFactOf(event) {
     const payload = event?.payload || {};
+    const metadata = payload.metadata || {};
     return ({
-      SUBMISSION_INFERRED: { kind: 'submission', state: payload.submission || 'unknown' },
-      PROMPT_INSERTION_EVALUATED: { kind: 'prompt_insertion', state: payload.insertionState || payload.metadata?.insertionState || 'unknown' },
-      GENERATION_STATE_INFERRED: { kind: 'generation', state: payload.observedGeneration || 'unknown' },
-      CANDIDATE_IDENTITY_INFERRED: { kind: 'candidate_identity', state: payload.answerIdentity || 'unknown' },
-      ANSWER_COMPLETENESS_EVALUATED: { kind: 'answer_completeness', state: payload.answerCompleteness || 'unknown' },
-      STRUCTURAL_VERIFICATION_EVALUATED: { kind: 'verification', state: payload.verified === false ? 'rejected' : (payload.verification || 'verified') },
+      SUBMISSION_INFERRED: { kind: 'submission', state: payload.submission || metadata.submission || 'unknown' },
+      PROMPT_INSERTION_EVALUATED: { kind: 'prompt_insertion', state: payload.insertionState || metadata.insertionState || 'unknown' },
+      GENERATION_STATE_INFERRED: { kind: 'generation', state: payload.observedGeneration || metadata.observedGeneration || 'unknown' },
+      CANDIDATE_IDENTITY_INFERRED: { kind: 'candidate_identity', state: payload.answerIdentity || metadata.answerIdentity || 'unknown' },
+      ANSWER_COMPLETENESS_EVALUATED: { kind: 'answer_completeness', state: payload.answerCompleteness || metadata.answerCompleteness || 'unknown' },
+      STRUCTURAL_VERIFICATION_EVALUATED: { kind: 'verification', state: (payload.verified ?? metadata.verified) === false ? 'rejected' : (payload.verification || metadata.verification || 'verified') },
       COMPLETION_HYPOTHESIS_EVALUATED: {
         kind: 'completion_hypothesis',
         state: payload.completionDetection || payload.metadata?.completionDetection || payload.typed?.state || 'unknown'
@@ -338,14 +339,16 @@
       EXTRACTION_ATTEMPTED: { kind: 'extraction_attempt', state: payload.status || payload.typed?.state || 'started' },
       EXTRACTION_COMPLETED: { kind: 'extraction', state: payload.status || 'completed' },
       ANSWER_DELIVERY_REJECTED: { kind: 'delivery', state: 'rejected' },
-      ANSWER_DELIVERY_ACKNOWLEDGED: { kind: 'delivery', state: payload.outcome || payload.metadata?.outcome || 'accepted' },
+      ANSWER_DELIVERY_ACKNOWLEDGED: { kind: 'delivery', state: payload.outcome || metadata.outcome || 'accepted' },
       ANSWER_SOURCE_MATERIALIZED: { kind: 'source_answer', state: 'materialized' },
-      ANSWER_COMMIT_EVALUATED: { kind: 'commit', state: payload.outcome || payload.metadata?.outcome || 'unknown' },
-      ANSWER_CARD_RENDER_EVALUATED: { kind: 'render', state: payload.outcome || payload.metadata?.outcome || 'unknown' },
+      ANSWER_COMMIT_EVALUATED: { kind: 'commit', state: payload.outcome || metadata.outcome || 'unknown' },
+      ANSWER_CARD_RENDER_EVALUATED: { kind: 'render', state: payload.outcome || metadata.outcome || 'unknown' },
       TERMINAL_DEADLINE_REACHED: { kind: 'deadline', state: 'reached' },
       POLICY_OVERRIDE_APPLIED: { kind: 'policy_override', state: payload.mode || 'forced' },
-      DECISION_RECORDED: { kind: 'decision', state: payload.accepted === true ? 'accepted' : 'rejected' },
-      MODEL_TERMINAL_RECORDED: { kind: 'terminal_action', state: payload.metadata?.terminalStatus || payload.status || 'unknown' },
+      FINALIZATION_POLICY_EVALUATED: { kind: 'decision', state: (payload.decisionAccepted ?? metadata.decisionAccepted ?? metadata.accepted) === true ? 'accepted' : 'rejected' },
+      DECISION_RECORDED: { kind: 'decision', state: (payload.accepted ?? metadata.accepted ?? metadata.decisionAccepted) === true ? 'accepted' : 'rejected' },
+      MODEL_TERMINAL_RECORDED: { kind: 'terminal_action', state: metadata.terminalStatus || metadata.finalStatus || metadata.status || payload.status || 'unknown' },
+      SELECTOR_FORENSIC_SNAPSHOT_CAPTURED: { kind: 'forensic_snapshot', state: payload.captureAvailable === false ? 'omitted' : 'captured' },
       PAGE_HEALTH_OBSERVED: { kind: 'observation', state: payload.pageHealth || payload.metadata?.pageHealth || payload.status || payload.metadata?.status || 'unknown' },
       OBSERVATION_FRAME_CAPTURED: { kind: 'observation', state: payload.observationCoverage === 'complete' || payload.metadata?.observationCoverage === 'complete' ? 'reliable' : (payload.observationCoverage || payload.metadata?.observationCoverage || 'unknown') },
       OBSERVER_HEALTH_INTERVAL_CLOSED: { kind: 'observation_interval', state: 'closed' },

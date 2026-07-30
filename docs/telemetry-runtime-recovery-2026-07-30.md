@@ -126,3 +126,25 @@ queue-drained artifact. Do not reinterpret unknown as failure.
 6. Shared aliases do not become `[CIRCULAR]`; true cycles remain bounded.
 7. Diagnostic usability is reported independently of JSON/schema validity.
 
+## Control export 1785440659712 (v2.81.185)
+
+The fresh export confirms that the transport fixes work: the snapshot boundary
+is `queue_drained`, the barrier did not time out, there are no queued or pending
+records, policy IDs agree, and repeated aliases are no longer serialized as
+`[CIRCULAR]`. Diagnostic usability is therefore reported as complete.
+
+It also exposes the next semantic defects. The strict validator rejects two
+unscoped selector-forensic companions under S03 and classifies their audit layer
+as invalid under S04. Finalization and terminal events frequently lose
+`generationEpoch`; baseline facts do not retain it consistently. Canonical
+terminal events can also inherit a candidate-identity typed fact from legacy
+metadata, while finalization remains `unknown`. Finally, delivery identifiers
+whose names end in `Id` are discarded unless they happen to match the generic
+compaction expression.
+
+Implementation in v2.81.187 makes the canonical event type authoritative for
+typed facts, assigns forensic snapshots to the audit layer, suppresses
+evidence-linked forensic companions without dispatch scope, propagates the
+active epoch/attempt into baseline and final boundaries, and explicitly retains
+delivery proof IDs. A new runtime export is still required to measure provider
+coverage; the old artifact cannot be repaired retroactively.

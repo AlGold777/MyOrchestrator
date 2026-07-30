@@ -1,5 +1,18 @@
 # Telemetry - tab/session diagnostics
 
+## Canonical fact and incident identity v2.81.187 - 2026-07-30
+
+- Canonical event type now determines the typed fact before legacy metadata is
+  considered. `MODEL_FINAL` cannot be reclassified as candidate identity merely
+  because it also carries `answerIdentity`; finalization has an explicit
+  accepted/rejected decision fact.
+- Baseline, finalization and terminal events inherit `generationEpoch` and
+  `attemptId` from the active dispatch when the immediate producer omits them.
+- Delivery proof identifiers such as `attemptId` and `payloadEvidenceId` survive
+  metadata compaction.
+- Selector forensic omissions are audit-layer events and are only linked when
+  the triggering event has an exact dispatch scope.
+
 ## Runtime evidence integrity v2.81.186 - 2026-07-30
 
 Standalone false-success reports now retain the scoped runtime decision trace

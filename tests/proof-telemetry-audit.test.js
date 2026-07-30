@@ -35,6 +35,13 @@ describe('proof telemetry post-terminal audit', () => {
     ]));
   });
 
+  test('does not create an evidence-linked forensic event without incident identity', () => {
+    const failure = canonical('SELECTOR_RESOLVE_FAIL', 1000, { selectorId: 'answer-root' });
+    delete failure.dispatchId;
+    expect(Audit.planAfterEvent(failure, [failure])
+      .some((item) => item.eventType === 'SELECTOR_FORENSIC_SNAPSHOT_CAPTURED')).toBe(false);
+  });
+
   test('never audits a terminal against a later dispatch', () => {
     const terminal = canonical('MODEL_FINAL', 1000, { answerLength: 100 });
     const nextDispatch = canonical('ANSWER_GENERATING', 1100, {

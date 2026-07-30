@@ -82,6 +82,49 @@ describe('proof telemetry executable contracts', () => {
     expect(Contracts.sameIncidentScope(target, { ...target, generationEpoch: 2 })).toBe(false);
   });
 
+  test('canonical event type wins over conflicting legacy metadata', () => {
+    expect(Contracts.canonicalFactOf({
+      eventType: 'MODEL_TERMINAL_RECORDED',
+      payload: { metadata: { terminalStatus: 'SUCCESS', answerIdentity: 'current_dispatch' } }
+    })).toEqual({ kind: 'terminal_action', state: 'SUCCESS' });
+    expect(Contracts.canonicalFactOf({
+      eventType: 'FINALIZATION_POLICY_EVALUATED',
+      payload: { metadata: { decisionAccepted: false, finalStatus: 'SUCCESS' } }
+    })).toEqual({ kind: 'decision', state: 'rejected' });
+    expect(ProofTelemetry.layerFor('SELECTOR_FORENSIC_SNAPSHOT_CAPTURED')).toBe('audit');
+  });
+
+  test('runtime export validation includes strict scope and layer checks', () => {
+    const base = {
+      schemaVersion: 6,
+      seq: 1,
+      ingestSeq: 1,
+      runGeneration: 1,
+      wallTs: 1000,
+      runSessionId: 'run',
+      modelId: 'GPT',
+      dispatchId: 'd1',
+      generationEpoch: 1,
+      producer: { component: 'test', version: '1' },
+      clock: { contractVersion: '1.0', producerEpochId: 'p1', originKind: 'worker', ingestEpochId: 'i1', ingestMonoMs: 1 },
+      payload: { typed: { kind: 'submission', state: 'confirmed' } }
+    };
+    const source = { ...base, eventId: 'event-source-0001', eventType: 'SUBMISSION_EVIDENCE_CHANGED', layer: 'fact' };
+    const invalid = {
+      ...base,
+      seq: 2,
+      ingestSeq: 2,
+      eventId: 'event-invalid-0002',
+      eventType: 'SELECTOR_FORENSIC_SNAPSHOT_CAPTURED',
+      layer: 'fact',
+      dispatchId: 'd2',
+      evidenceRefs: [source.eventId],
+      payload: { typed: { kind: 'forensic_snapshot', state: 'omitted' } }
+    };
+    expect(ProofTelemetry.validateLedger([source, invalid]).map((item) => item.invariantId))
+      .toEqual(expect.arrayContaining(['S03', 'S04']));
+  });
+
   test('derives every report event type from evidence slots without a second catalog', () => {
     ProofTelemetry.REPORT_TYPES.forEach((reportType) => {
       const fromSlots = Array.from(new Set(Contracts.normalizedSlots(reportType)
