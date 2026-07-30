@@ -589,6 +589,10 @@ UI сохраняет принятый ответ и добавляет свор
 настроенных селекторов даёт `null`. Последний случай блокирует automatic SUCCESS
 как `generation_inactive_unproven`.
 
+С v2.81.177 видимая Stop блокирует успешные причины watcher и после soft
+deadline. Если кнопка остаётся до hard deadline, результат — незавершённый
+`hard_timeout`, а не `content_mutation_stable`.
+
 ## Evidence policy and replay v2.81.127 - 2026-07-28
 
 `shared/proof-telemetry-policy.js` является чистым inference/policy engine для

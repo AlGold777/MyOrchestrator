@@ -36,9 +36,7 @@ const setVisibleRects = () => {
 describe('false success: watcher completion guards', () => {
   beforeEach(() => { bootstrapWatcher(); setVisibleRects(); });
 
-  // F01. До этапа 3.1 тест документирует дефект; после 3.1 ожидания инвертируются:
-  //      at100s должен остаться null, а на hard-дедлайне прийти hard_timeout/completed:false.
-  test('watcher completes while the Stop button is still visible, once soft deadline passed', async () => {
+  test('visible Stop blocks success after soft deadline and ends only as hard timeout', async () => {
     jest.useFakeTimers();
     document.body.innerHTML = `
       <main>
@@ -63,14 +61,18 @@ describe('false success: watcher completion guards', () => {
     for (let i = 0; i < 40; i += 1) { jest.advanceTimersByTime(500); await Promise.resolve(); }
     const at20s = settled;
 
-    for (let i = 0; i < 760; i += 1) { jest.advanceTimersByTime(500); await Promise.resolve(); }
-    const at100s = settled;
+    for (let i = 0; i < 360; i += 1) { jest.advanceTimersByTime(500); await Promise.resolve(); }
+    const beforeHardDeadline = settled;
+
+    for (let i = 0; i < 60; i += 1) { jest.advanceTimersByTime(500); await Promise.resolve(); }
+    const afterHardDeadline = settled;
 
     expect(document.querySelector('button[data-testid="stop-button"]')).not.toBeNull();
     expect(at20s).toBeNull();
-    expect(at100s).not.toBeNull();
-    expect(at100s.reason).toBe('content_mutation_stable');
-    expect(at100s.completed).toBe(true);
+    expect(beforeHardDeadline).toBeNull();
+    expect(afterHardDeadline).not.toBeNull();
+    expect(afterHardDeadline.reason).toBe('hard_timeout');
+    expect(afterHardDeadline.completed).toBe(false);
     expect(watcher.getStopVisible()).toBe(true);
     jest.useRealTimers();
   });

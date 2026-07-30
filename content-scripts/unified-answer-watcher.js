@@ -387,7 +387,10 @@
           this.criteria.mark('completionSignal', completionSignal);
           this.criteria.mark('copyButtonVisible', copyButtonStable);
           const expiration = this.timeoutManager.checkExpiration();
-          if (stopVisible && !expiration.softExpired && !expiration.hardExpired) {
+          if (stopVisible) {
+            if (expiration.hardExpired) {
+              cleanup(this.buildResult('hard_timeout', 0.3, typingActive, getRecentGrowth(), false));
+            }
             return;
           }
           if (this.freshAnswerObserved && regenerateVisible) {

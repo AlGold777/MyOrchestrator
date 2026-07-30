@@ -1,5 +1,12 @@
 # CHANGELOG — Project
 
+### 2026-07-30 — Stop-button hard guard, version 2.81.177
+
+- A visible provider Stop control blocks every successful watcher completion,
+  including after the soft deadline.
+- Reaching the hard deadline with Stop still visible now returns an explicit
+  incomplete `hard_timeout` instead of a false stable-content success.
+
 ### 2026-07-30 — Tri-state generation proof, version 2.81.176
 
 - Generation selectors now distinguish a proven inactive provider control from
