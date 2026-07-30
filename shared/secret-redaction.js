@@ -68,7 +68,7 @@
   // safe to call on arbitrary telemetry payloads right before serialization.
   const redactDeep = (input, options = {}) => {
     const maxDepth = Number.isFinite(options.maxDepth) ? options.maxDepth : 12;
-    const seen = new WeakSet();
+    const ancestors = new WeakSet();
 
     const walk = (value, depth) => {
       if (value == null) return value;
@@ -79,9 +79,13 @@
       if (depth >= maxDepth) return '[TRUNCATED]';
 
       if (Array.isArray(value)) {
-        if (seen.has(value)) return '[CIRCULAR]';
-        seen.add(value);
-        return value.map((item) => walk(item, depth + 1));
+        if (ancestors.has(value)) return '[CIRCULAR]';
+        ancestors.add(value);
+        try {
+          return value.map((item) => walk(item, depth + 1));
+        } finally {
+          ancestors.delete(value);
+        }
       }
 
       if (type === 'object') {
@@ -91,17 +95,21 @@
           try { return redactString(JSON.stringify(value)); }
           catch (_) { return MASK; }
         }
-        if (seen.has(value)) return '[CIRCULAR]';
-        seen.add(value);
-        const out = {};
-        for (const key of Object.keys(value)) {
-          if (isSecretKeyName(key)) {
-            out[key] = value[key] == null ? value[key] : MASK;
-          } else {
-            out[key] = walk(value[key], depth + 1);
+        if (ancestors.has(value)) return '[CIRCULAR]';
+        ancestors.add(value);
+        try {
+          const out = {};
+          for (const key of Object.keys(value)) {
+            if (isSecretKeyName(key)) {
+              out[key] = value[key] == null ? value[key] : MASK;
+            } else {
+              out[key] = walk(value[key], depth + 1);
+            }
           }
+          return out;
+        } finally {
+          ancestors.delete(value);
         }
-        return out;
       }
       return value;
     };

@@ -353,6 +353,7 @@ describe('lifecycle sender gate', () => {
 
     const source = telemetryEvents.find((event) => event.event === 'ANSWER_SOURCE_MATERIALIZED');
     const delivery = telemetryEvents.find((event) => event.event === 'ANSWER_DELIVERY_ACKNOWLEDGED');
+    const extraction = telemetryEvents.find((event) => event.event === 'ANSWER_EXTRACTION_COMPLETED');
     expect(source.payload.meta).toEqual(expect.objectContaining({
       sourceProofLevel: 'direct_preterminal',
       attemptId: 'ready-1',
@@ -360,6 +361,13 @@ describe('lifecycle sender gate', () => {
       payloadEvidenceId: expect.any(String)
     }));
     expect(delivery.payload.meta.payloadEvidenceId).toBe(source.payload.meta.payloadEvidenceId);
+    expect(extraction.payload.meta).toEqual(expect.objectContaining({
+      attemptId: 'ready-1',
+      accepted: true,
+      answerIdentity: 'current_dispatch',
+      extractedTextLength: answerText.trim().length,
+      payloadEvidenceId: source.payload.meta.payloadEvidenceId
+    }));
   });
 
   test('post-terminal LLM_RESPONSE_READY exports an explicit delivery rejection', async () => {

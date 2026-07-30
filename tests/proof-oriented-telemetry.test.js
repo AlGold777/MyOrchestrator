@@ -57,6 +57,53 @@ describe('Proof-oriented telemetry schema 6 event export', () => {
     })
   ], { runSessionId: 42 });
 
+  test('exports the runtime policy and marks a dirty snapshot diagnostically unusable', async () => {
+    const config = {
+      schemaVersion: 6,
+      eventId: 'event-runtime-config',
+      seq: 1,
+      ingestSeq: 1,
+      runGeneration: 1,
+      wallTs: 1000,
+      runSessionId: '42',
+      eventType: 'RUN_CONFIG_RECORDED',
+      layer: 'system',
+      modelId: 'SYSTEM',
+      producer: { component: 'test', version: '1' },
+      clock: { ingestEpochId: 'test', ingestMonoMs: 0 },
+      payload: {
+        typed: { kind: 'run_configuration', state: 'recorded' },
+        schemaVersion: '6.0',
+        policyId: 'proof-default-v2',
+        automaticMinimumEvidenceTier: 3
+      }
+    };
+    const container = await ProofTelemetry.buildAllPresets([config], {
+      canonicalLedger: true,
+      snapshotBarrierTimedOut: true,
+      queuedMutationCount: 5,
+      pendingRecordCount: 2,
+      exportedAt: 2000
+    });
+
+    expect(container.sharedConfig.policy.policyId).toBe('proof-default-v2');
+    expect(container.exportAudit.configuration).toEqual(expect.objectContaining({
+      runtimePolicyId: 'proof-default-v2',
+      exportedPolicyId: 'proof-default-v2',
+      policyExactMatch: true
+    }));
+    expect(container.manifest.sourceSnapshot.diagnosticUsability).toBe('incomplete');
+    expect(container.exportAudit.diagnosticUsability).toEqual({
+      status: 'incomplete',
+      usableForDiagnosis: false,
+      limitations: [
+        'snapshot_barrier_timed_out',
+        'queued_mutations_not_drained',
+        'pending_records_not_flushed'
+      ]
+    });
+  });
+
   test('routes prompt insertion failure into a typed canonical proof event', () => {
     const runtime = evt('GPT', 'PROMPT_INSERTION_FAILED', 1000, {
       dispatchId: 'dispatch-insertion',

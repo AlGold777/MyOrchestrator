@@ -107,6 +107,13 @@ describe('SecretRedaction', () => {
     expect(SecretRedaction.redactDeep(7)).toBe(7);
   });
 
+  test('preserves repeated aliases that are not recursive cycles', () => {
+    const shared = { code: 'observer_gap', impact: 'diagnosis remains unknown' };
+    const out = SecretRedaction.redactDeep({ first: shared, second: shared });
+    expect(out).toEqual({ first: shared, second: shared });
+    expect(SecretRedaction.stringifySafe({ first: shared, second: shared })).not.toContain('[CIRCULAR]');
+  });
+
   test('regression guard: an unredacted export WOULD leak (proves the test bites)', () => {
     const payload = { meta: { apiKey: FAKE.openai } };
     const naive = JSON.stringify(payload);

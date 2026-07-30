@@ -115,6 +115,49 @@ describe('native proof telemetry ledger', () => {
     expect(snapshot.queuedMutationCount).toBe(0);
   });
 
+  test('preserves a complete dispatch-to-terminal proof chain under write pressure', async () => {
+    await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
+    global.chrome.storage.local.set.mockImplementation(async (value) => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      Object.assign(storage, value);
+    });
+    const identity = {
+      runSessionId: 42,
+      dispatchId: 'GPT:42:1',
+      generationEpoch: 1,
+      attemptId: 'GPT:42:1:generation:1'
+    };
+    const stream = [
+      ['DISPATCH_BASELINE_CAPTURED', { anchorAnswerCount: 2 }],
+      ['DISPATCH_SEND', { attempt: 1 }],
+      ['PROMPT_SUBMITTED_ACCEPTED', { confirmed: true }],
+      ['ANSWER_START_DETECTED', { textLength: 1 }],
+      ['ANSWER_GENERATING', { textLength: 120, textHash: 'hash:growing' }],
+      ['LIFECYCLE_SNAPSHOT_ACCEPTED', { textLength: 120, contentScriptAvailable: true }],
+      ['ANSWER_EXTRACTION_COMPLETED', { extractedTextLength: 120, answerIdentity: 'current_dispatch' }],
+      ['FINALIZATION_DECISION', { accepted: true }],
+      ['MODEL_FINAL', { finalStatus: 'SUCCESS', acceptedTextLength: 120 }]
+    ];
+    const pending = [];
+    stream.forEach(([label, metadata], index) => {
+      pending.push(global.ProofTelemetryLedger.record({
+        ts: 1000 + index,
+        label,
+        details: label === 'MODEL_FINAL' ? 'SUCCESS' : '',
+        meta: { ...identity, ...metadata }
+      }, 'GPT'));
+    });
+    await Promise.all(pending);
+
+    const snapshot = await global.ProofTelemetryLedger.snapshot();
+    const sourceTypes = snapshot.events.map((event) => event.payload?.sourceEventType).filter(Boolean);
+    stream.forEach(([label]) => expect(sourceTypes).toContain(label));
+    expect(snapshot.events.filter((event) => event.modelId === 'GPT').every((event) => (
+      event.dispatchId === identity.dispatchId && event.generationEpoch === identity.generationEpoch
+    ))).toBe(true);
+    expect(snapshot.queuedMutationCount).toBe(0);
+  });
+
   test('snapshot flushes records queued immediately before export', async () => {
     await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
     const pendingRecord = global.ProofTelemetryLedger.record({

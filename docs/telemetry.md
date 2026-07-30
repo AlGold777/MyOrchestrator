@@ -1,5 +1,15 @@
 # Telemetry - tab/session diagnostics
 
+## Runtime evidence integrity v2.81.185 - 2026-07-30
+
+Validated lifecycle answers now emit an explicit accepted
+`ANSWER_EXTRACTION_COMPLETED` fact sharing run, dispatch, generation, attempt
+and payload identity with source materialization and delivery acknowledgement.
+All-presets exports inherit the policy ID from `RUN_CONFIG_RECORDED`, publish a
+separate diagnostic-usability audit, and no longer serialize repeated shared
+objects as `[CIRCULAR]`. The full incident review and remediation mapping is in
+`telemetry-runtime-recovery-2026-07-30.md`.
+
 ## Dispatch proof identity and ordering v2.81.184 - 2026-07-30
 
 Every web dispatch now creates one `generationEpoch` and `attemptId` and carries

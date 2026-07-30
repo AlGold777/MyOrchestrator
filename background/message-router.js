@@ -853,7 +853,9 @@ const isTerminalRouterEntry = (entry = null) => {
 // Non-tab senders (extension pages, background self-calls) and models without
 // an active binding keep their existing behaviour.
 const deliveryIdentityMeta = (meta = {}) => ({
+    runSessionId: meta.runSessionId || meta.sessionId || null,
     dispatchId: meta.dispatchId || null,
+    generationEpoch: meta.generationEpoch ?? null,
     attemptId: meta.attemptId || null,
     payloadEvidenceId: meta.payloadEvidenceId || null,
     normalizedHash: meta.normalizedHash || meta.answerHash || null,
@@ -3159,6 +3161,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                             || entry?.lastDispatchMeta?.dispatchId
                             || entry?.confirmedDispatchId
                             || null;
+                        const lifecycleProofIdentity = {
+                            runSessionId: message?.meta?.runSessionId || message?.meta?.sessionId || jobState?.session?.startTime || null,
+                            dispatchId: lifecycleDispatchId,
+                            generationEpoch: message?.meta?.generationEpoch ?? entry?.generationEpoch ?? null,
+                            attemptId: message?.meta?.attemptId || entry?.lastDispatchMeta?.attemptId || null
+                        };
                         const lifecycleValidation = lifecycleAnswerText && typeof self.validateMaterializedAnswerEvidence === 'function'
                             ? self.validateMaterializedAnswerEvidence(message.llmName, lifecycleAnswerText, {
                                 source: 'lifecycle_complete_snapshot',
@@ -3169,7 +3177,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                         if (lifecycleValidation.valid) {
                             const receivedProof = self.AnswerProofNormalization?.evidence?.(lifecycleAnswerText, {
                                 dispatchId: lifecycleDispatchId,
-                                attemptId: message?.meta?.attemptId || null
+                                attemptId: lifecycleProofIdentity.attemptId
                             }) || null;
                             entry.lifecycleAnswerCandidate = {
                                 text: lifecycleAnswerText,
@@ -3184,9 +3192,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                                 level: 'success',
                                 details: 'direct_preterminal',
                                 meta: {
-                                    dispatchId: lifecycleDispatchId,
+                                    ...lifecycleProofIdentity,
                                     sourceProofLevel: 'direct_preterminal',
-                                    attemptId: message?.meta?.attemptId || null,
                                     payloadEvidenceId: receivedProof?.payloadEvidenceId || message?.meta?.payloadEvidenceId || null,
                                     normalizedLength: receivedProof?.normalizedLength ?? lifecycleAnswerText.length,
                                     normalizedHash: receivedProof?.normalizedHash || message?.meta?.normalizedHash || null,
@@ -3198,9 +3205,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                                 level: 'success',
                                 details: 'accepted',
                                 meta: {
-                                    dispatchId: lifecycleDispatchId,
+                                    ...lifecycleProofIdentity,
                                     outcome: 'accepted',
-                                    attemptId: message?.meta?.attemptId || null,
                                     payloadEvidenceId: receivedProof?.payloadEvidenceId || message?.meta?.payloadEvidenceId || null,
                                     normalizedLength: receivedProof?.normalizedLength ?? lifecycleAnswerText.length,
                                     normalizedHash: receivedProof?.normalizedHash || message?.meta?.normalizedHash || null,
@@ -3208,17 +3214,36 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                                 },
                                 force: true
                             });
+                            emitTelemetry(message.llmName, 'ANSWER_EXTRACTION_COMPLETED', {
+                                level: 'success',
+                                details: `len=${lifecycleAnswerText.length}`,
+                                meta: {
+                                    ...lifecycleProofIdentity,
+                                    candidateId: message?.meta?.candidateId || message?.meta?.answerVerification?.candidateId || null,
+                                    accepted: true,
+                                    answerIdentity: 'current_dispatch',
+                                    extractedTextLength: receivedProof?.normalizedLength ?? lifecycleAnswerText.length,
+                                    normalizedLength: receivedProof?.normalizedLength ?? lifecycleAnswerText.length,
+                                    normalizedHash: receivedProof?.normalizedHash || message?.meta?.normalizedHash || null,
+                                    normalizationVersion: receivedProof?.normalizationVersion || message?.meta?.normalizationVersion || null,
+                                    payloadEvidenceId: receivedProof?.payloadEvidenceId || message?.meta?.payloadEvidenceId || null,
+                                    extractionMode: 'lifecycle_complete_snapshot'
+                                },
+                                force: true
+                            });
                             emitTelemetry(message.llmName, 'LIFECYCLE_SNAPSHOT_ACCEPTED', {
                                 level: 'success',
                                 details: `len=${lifecycleAnswerText.length}`,
                                 meta: {
-                                    dispatchId: lifecycleDispatchId,
+                                    ...lifecycleProofIdentity,
                                     answerLength: lifecycleAnswerText.length,
                                     answerHash: entry.lifecycleAnswerCandidate.hash,
                                     answerMethod: message?.meta?.answerMethod || null,
                                     responsePhase: message?.meta?.responsePhase || null,
                                     phaseEvidence: message?.meta?.phaseEvidence || null,
-                                    completionSignals: message?.meta?.completionSignals || null
+                                    completionSignals: message?.meta?.completionSignals || null,
+                                    checkedAtLocalMonoMs: message?.meta?.checkedAtLocalMonoMs || null,
+                                    contentScriptAvailable: true
                                 },
                                 force: true
                             });

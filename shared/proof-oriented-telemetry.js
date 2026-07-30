@@ -1483,6 +1483,13 @@
       : buildLedger(input, { ...options, exportedAt });
     const ledgerHash = await sha256(ledgerEvents);
     const runSessionId = ledgerEvents[0]?.runSessionId || String(options.runSessionId || `export-${exportedAt}`);
+    const runtimeConfigEvent = ledgerEvents.find((event) => event?.eventType === 'RUN_CONFIG_RECORDED') || null;
+    const runtimeConfig = runtimeConfigEvent?.payload || {};
+    const policyConfig = {
+      policyId: String(runtimeConfig.policyId || 'proof-default-v2'),
+      automaticMinimumEvidenceTier: Number(runtimeConfig.automaticMinimumEvidenceTier || 3),
+      maximumSignalSkewMs: Number(runtimeConfig.maximumSignalSkewMs || Contracts?.THRESHOLDS?.maximumSignalSkewMs || 250)
+    };
     const replayResult = root.ProofTelemetryPolicy?.replay
       ? root.ProofTelemetryPolicy.replay(ledgerEvents)
       : null;
@@ -1517,7 +1524,7 @@
       generationWaitProfile: String(options.generationWaitProfile || 'unknown'),
       schemaVersion: SCHEMA_VERSION,
       generatorVersion: GENERATOR_VERSION,
-      policy: { policyId: 'proof-default-v1', automaticMinimumEvidenceTier: 3, maximumSignalSkewMs: 250 },
+      policy: policyConfig,
       privacy: { mode: 'metadata-only', rawPromptAnswerExported: false, urlMode: 'hash-only' },
       dependencyRegistry: registrySnapshot,
       commonAnalysisInstructions: [
@@ -1569,10 +1576,26 @@
       ...validateLedger(ledgerEvents),
       ...(Array.isArray(replayResult?.invariantViolations) ? replayResult.invariantViolations : [])
     ];
+    if (runtimeConfig.policyId && String(runtimeConfig.policyId) !== policyConfig.policyId) {
+      invariantViolations.push({
+        invariantId: 'S21',
+        eventId: runtimeConfigEvent?.eventId || null,
+        message: `runtime policy ${runtimeConfig.policyId} differs from exported policy ${policyConfig.policyId}`
+      });
+    }
     const recordedDecisionHash = replayResult ? await sha256(replayResult.recordedDecisions) : null;
     const recomputedDecisionHash = replayResult ? await sha256(replayResult.recomputedDecisions) : null;
     const exportId = `export-${runSessionId}-${exportedAt}`;
     const ledgerCompleteThroughSeq = ledgerEvents[ledgerEvents.length - 1]?.seq || 0;
+    const snapshotLimitations = [];
+    if (options.snapshotBarrierTimedOut === true) snapshotLimitations.push('snapshot_barrier_timed_out');
+    if (Number(options.queuedMutationCount || 0) > 0) snapshotLimitations.push('queued_mutations_not_drained');
+    if (Number(options.pendingRecordCount || 0) > 0) snapshotLimitations.push('pending_records_not_flushed');
+    const diagnosticUsability = {
+      status: snapshotLimitations.length ? 'incomplete' : 'complete',
+      usableForDiagnosis: snapshotLimitations.length === 0,
+      limitations: snapshotLimitations
+    };
     const attachments = { byId: {}, omissions: [] };
     for (const event of ledgerEvents.filter((candidate) => candidate.eventType === 'SELECTOR_FORENSIC_SNAPSHOT_CAPTURED')) {
       const payload = event.payload || {};
@@ -1616,7 +1639,8 @@
           barrierTimedOut: options.snapshotBarrierTimedOut === true,
           waitMs: Number(options.snapshotWaitMs || 0),
           queuedMutationCount: Number(options.queuedMutationCount || 0),
-          pendingRecordCount: Number(options.pendingRecordCount || 0)
+          pendingRecordCount: Number(options.pendingRecordCount || 0),
+          diagnosticUsability: diagnosticUsability.status
         }
       },
       crossReportCompatibility: {
@@ -1648,7 +1672,15 @@
           recomputedDecisionHash
         },
         budget: { limitBytes: 1000000, measuredBytes: null, withinBudget: null },
-        sourceCompatibility: compatibility
+        sourceCompatibility: compatibility,
+        diagnosticUsability,
+        configuration: {
+          runtimePolicyId: runtimeConfig.policyId || null,
+          exportedPolicyId: policyConfig.policyId,
+          policyExactMatch: !runtimeConfig.policyId || String(runtimeConfig.policyId) === policyConfig.policyId,
+          runtimeEventSchemaVersion: runtimeConfig.schemaVersion || null,
+          containerSchemaVersion: SCHEMA_VERSION
+        }
       }
     };
     // Stabilize the byte count with a fixed-width hash placeholder. The final
