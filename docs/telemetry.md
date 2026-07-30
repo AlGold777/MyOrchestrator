@@ -1,5 +1,11 @@
 # Telemetry - tab/session diagnostics
 
+## Runtime/offline invariant parity v2.81.190 - 2026-07-30
+
+The runtime export audit now performs the same S03 exact evidence-scope and S04
+canonical-layer checks as the offline validator. An artifact cannot claim valid
+schema/replay internally and then fail those invariants after download.
+
 ## Common answer materialization boundary v2.81.189 - 2026-07-30
 
 Every normalized non-empty answer entering the common response finalizer now

@@ -162,3 +162,8 @@ answer lengths. Version 2.81.189 emits source-materialization and extraction
 facts from the common normalized response boundary, deduplicated by dispatch,
 attempt and payload proof. This covers direct provider paths that never pass
 through the lifecycle router branch.
+
+Version 2.81.190 also closes the validator-parity gap: the runtime export audit
+now evaluates S03 exact evidence scope and S04 canonical event layer using the
+same rules as the offline validator. Internal `schemaValidation.valid` can no
+longer remain true for an artifact that the shipped CLI rejects on those rules.

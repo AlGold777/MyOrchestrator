@@ -1434,6 +1434,7 @@
   function validateLedger(ledger) {
     const violations = [];
     const ids = new Set();
+    const byId = new Map((ledger || []).map((event) => [event.eventId, event]));
     let previousSeq = 0;
     ledger.forEach((event, index) => {
       if (!Number.isFinite(Number(event.seq)) || Number(event.seq) <= previousSeq) {
@@ -1443,8 +1444,19 @@
       if (ids.has(event.eventId)) violations.push({ invariantId: 'S01', eventId: event.eventId, message: 'duplicate eventId' });
       ids.add(event.eventId);
       (event.evidenceRefs || []).forEach((ref) => {
-        if (!ids.has(ref) && !ledger.some((candidate) => candidate.eventId === ref)) violations.push({ invariantId: 'S02', eventId: event.eventId, message: `missing evidenceRef ${ref}` });
+        const evidence = byId.get(ref);
+        if (!evidence) {
+          violations.push({ invariantId: 'S02', eventId: event.eventId, message: `missing evidenceRef ${ref}` });
+        } else if (event.modelId !== 'SYSTEM' && evidence.modelId !== 'SYSTEM'
+          && !Incidents?.exactScope?.(event, evidence)) {
+          violations.push({ invariantId: 'S03', eventId: event.eventId, message: 'evidence chain crosses incident scope' });
+        }
       });
+      const expectedLayer = layerFor(event.eventType);
+      if (expectedLayer !== event.layer
+        && !['CLOCK_EPOCH_STARTED', 'CLOCK_EPOCH_CLOSED', 'RUN_CONFIG_RECORDED'].includes(event.eventType)) {
+        violations.push({ invariantId: 'S04', eventId: event.eventId, message: `event layer ${event.layer} does not match ${expectedLayer}` });
+      }
       if (event.schemaVersion !== EVENT_SCHEMA_VERSION) violations.push({ invariantId: 'S01', eventId: event.eventId, message: 'event schema mismatch' });
     });
     return violations;
