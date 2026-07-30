@@ -1,6 +1,11 @@
 # Telemetry - tab/session diagnostics
 
-## Runtime evidence integrity v2.81.185 - 2026-07-30
+## Runtime evidence integrity v2.81.186 - 2026-07-30
+
+Standalone false-success reports now retain the scoped runtime decision trace
+even when the diagnostic verdict is `unknown`, including generation signals,
+verification, response, commit, and post-terminal window events. This keeps
+the missing evidence visible and makes the next incident export actionable.
 
 Validated lifecycle answers now emit an explicit accepted
 `ANSWER_EXTRACTION_COMPLETED` fact sharing run, dispatch, generation, attempt

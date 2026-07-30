@@ -169,7 +169,7 @@
   const INFERENCE_TYPES = new Set(['SUBMISSION_INFERRED', 'GENERATION_START_EVALUATED', 'CANDIDATE_IDENTITY_INFERRED', 'GENERATION_STATE_INFERRED', 'ANSWER_COMPLETENESS_EVALUATED', 'STRUCTURAL_VERIFICATION_EVALUATED', 'COMPLETION_HYPOTHESIS_EVALUATED']);
   const DECISION_TYPES = new Set(['FINALIZATION_POLICY_EVALUATED', 'POLICY_OVERRIDE_APPLIED', 'DECISION_RECORDED', 'DECISION_SUPERSEDED', 'MISSING_EVIDENCE_RECORDED']);
   const ACTION_TYPES = new Set(['MODEL_TERMINAL_RECORDED']);
-  const AUDIT_TYPES = new Set(['POST_TERMINAL_AUDIT_COMPLETED', 'REPLAY_VALIDATION_RECORDED', 'EXPORT_AUDIT_RECORDED']);
+  const AUDIT_TYPES = new Set(['POST_TERMINAL_AUDIT_COMPLETED', 'SELECTOR_FORENSIC_SNAPSHOT_CAPTURED', 'REPLAY_VALIDATION_RECORDED', 'EXPORT_AUDIT_RECORDED']);
   const SYSTEM_TYPES = new Set(['RUN_CONFIG_RECORDED', 'SELECTOR_CANARY_RESULT']);
 
   function normalizeLabel(event) {
@@ -1747,6 +1747,39 @@
       legacyMode: compatibility.mode === 'legacy-runtime-adapter'
     });
     let materializedEvents = closure.events;
+    // A false-success report is only useful when the runtime decision path is
+    // present, even if the diagnosis is still unknown. Evidence-slot closure
+    // intentionally stays minimal and can otherwise omit the very events
+    // needed to distinguish selector drift, a silent stream, and a post-
+    // terminal overwrite. Keep the augmentation inside the exact incident
+    // scope so this does not mix providers or dispatches.
+    if (reportType === 'false-success') {
+      const runtimeTraceTypes = new Set([
+        'GENERATION_START_EVALUATED',
+        'GENERATION_SIGNAL_CHANGED',
+        'DETECT_DONE',
+        'PIPELINE_EVENT',
+        'LLM_RESPONSE_READY',
+        'LLM_RESPONSE',
+        'FINAL_LLM_RESPONSE',
+        'ANSWER_VERIFICATION_RECORDED',
+        'STRUCTURAL_VERIFICATION_EVALUATED',
+        'ANSWER_COMMIT_EVALUATED',
+        'POST_TERMINAL_ANSWER_WINDOW_CLOSED',
+        'OBSERVATION_INTERVAL_CLOSED'
+      ]);
+      const existing = new Map(materializedEvents.map((event) => [event.eventId, event]));
+      preliminaryEvents.forEach((event) => {
+        if (!runtimeTraceTypes.has(event.eventType)) return;
+        const current = existing.get(event.eventId);
+        if (current) {
+          current.includedFor = Array.from(new Set([...(current.includedFor || []), 'runtime-trace-context']));
+          return;
+        }
+        existing.set(event.eventId, { ...event, includedFor: ['runtime-trace-context'] });
+      });
+      materializedEvents = [...existing.values()].sort((left, right) => Number(left.ingestSeq || left.seq) - Number(right.ingestSeq || right.seq));
+    }
     const fullEvidence = Incidents.resolveEvidenceSlots(sourceEvents, selection.selected, reportType, fullContext);
     const fullVerdict = diagnosticVerdict(fullApplicability[reportType], fullEvidence, closure.violations, reportType);
     const slotProjection = (evidence) => (evidence?.slots || []).map((slot) => ({

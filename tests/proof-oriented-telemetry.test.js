@@ -447,6 +447,38 @@ describe('Proof-oriented telemetry schema 6 event export', () => {
     );
   });
 
+  test('keeps the scoped runtime trace in an unknown false-success report', async () => {
+    const ledger = ProofTelemetry.buildLedger([
+      evt('GPT', 'DISPATCH_SEND', 1000),
+      evt('GPT', 'PROMPT_SUBMITTED_ACCEPTED', 1100),
+      evt('GPT', 'GENERATION_START_EVALUATED', 1200, { state: 'started' }),
+      evt('GPT', 'GENERATION_SIGNAL_CHANGED', 1300, { active: true }),
+      evt('GPT', 'ANSWER_VERIFICATION_RECORDED', 1400, {
+        verified: false,
+        generationActive: null,
+        generationSignalChecks: [{ selector: '[data-stop]', foundCount: 0 }]
+      }),
+      evt('GPT', 'MODEL_TERMINAL_RECORDED', 1500, {
+        status: 'SUCCESS', answerLen: 120, answerIdentity: 'current_dispatch'
+      }),
+      evt('GPT', 'ANSWER_COMMIT_EVALUATED', 1600, { outcome: 'accepted', overwrite: false }),
+      evt('GPT', 'POST_TERMINAL_ANSWER_WINDOW_CLOSED', 1700, { observationWindowOutcome: 'incomplete' })
+    ], { runSessionId: 42 });
+    const report = await ProofTelemetry.buildStandaloneReport(ledger, {
+      canonicalLedger: true,
+      runSessionId: 42,
+      exportedAt: 2000,
+      modelId: 'GPT',
+      reportType: 'false-success'
+    });
+    const types = new Set(report.eventSelection.materializedEvents.map((event) => event.eventType));
+    expect(types.has('STRUCTURAL_VERIFICATION_EVALUATED')).toBe(true);
+    expect(types.has('ANSWER_COMMIT_EVALUATED')).toBe(true);
+    expect(report.eventSelection.materializedEvents
+      .find((event) => event.eventType === 'STRUCTURAL_VERIFICATION_EVALUATED')
+      .includedFor).toContain('runtime-trace-context');
+  });
+
   test('builds replay-equivalent isolated artifacts for all seven tasks', async () => {
     const labels = [
       'DISPATCH_BASELINE_CAPTURED', 'DISPATCH_SEND', 'PROMPT_SUBMITTED_ACCEPTED',
