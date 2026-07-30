@@ -1344,3 +1344,45 @@ describe('automation deadline terminal contract', () => {
     expect(entry.skipHumanLoop).not.toBe(true);
   });
 });
+
+describe('answer verification recording', () => {
+  test('an unverified retry cannot overwrite an already verified proof', () => {
+    const { context } = createSandbox();
+    const entry = context.jobState.llms.GPT;
+    Object.assign(entry, { generationEpoch: 7, preDispatchAnswerNodeCount: 3 });
+    context.AnswerVerification = {
+      compareIdentity: jest.fn(() => ({ ok: true, missing: [], mismatched: [] })),
+      appendTimeline: jest.fn()
+    };
+    const identity = {
+      runSessionId: context.jobState.session.startTime,
+      dispatchId: 'dispatch-gpt',
+      generationEpoch: 7,
+      turnAnchor: 3
+    };
+
+    expect(context.recordPipelineAnswerVerification('GPT', {
+      ...identity,
+      verified: true,
+      state: 'verified',
+      selectedLength: 500
+    }, { tab: { id: 101 } })).toBe(true);
+    expect(context.recordPipelineAnswerVerification('GPT', {
+      ...identity,
+      verified: false,
+      state: 'candidate',
+      reasons: ['later_retry_unstable'],
+      selectedLength: 480
+    }, { tab: { id: 101 } })).toBe(true);
+
+    expect(entry.answerVerification).toEqual(expect.objectContaining({
+      verified: true,
+      selectedLength: 500
+    }));
+    expect(entry.answerVerificationLast).toEqual(expect.objectContaining({
+      verified: false,
+      selectedLength: 480,
+      reasons: ['later_retry_unstable']
+    }));
+  });
+});

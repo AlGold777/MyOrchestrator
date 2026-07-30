@@ -1,5 +1,12 @@
 # CHANGELOG — Project
 
+### 2026-07-30 — Monotonic answer verification, version 2.81.172
+
+- A later unverified pipeline retry no longer overwrites an already verified
+  structural answer proof.
+- The most recent attempt remains available as `answerVerificationLast`, so
+  diagnostics retain failed retry evidence without changing the accepted proof.
+
 ### 2026-07-30 — Extended post-terminal observation, version 2.81.171
 
 - The bounded lifecycle audit now samples at 1/3/8/15/30 seconds, covering

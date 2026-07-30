@@ -6761,7 +6761,10 @@ function recordPipelineAnswerVerification(llmName, verification = {}, sender = {
     observedAt: Date.now(),
     method: 'dom_structural_stability'
   };
-  entry.answerVerification = result;
+  entry.answerVerificationLast = result;
+  if (result.verified || entry.answerVerification?.verified !== true) {
+    entry.answerVerification = result;
+  }
   emitTelemetry(llmName, 'ANSWER_VERIFICATION_RECORDED', {
     level: result.verified ? 'success' : 'warning',
     details: result.verified ? 'verified' : (result.reasons.join(',') || 'candidate'),
