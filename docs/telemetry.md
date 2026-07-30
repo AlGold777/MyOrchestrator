@@ -570,6 +570,10 @@ decision.
 неверифицированный retry сохраняется в `answerVerificationLast` для диагностики,
 но не уничтожает ранее доказанное structural completion.
 
+С v2.81.173 время доказательства разделено на producer `observedAt` и background
+`recordedAt`. Возраст proof теперь вычисляется от фактического DOM-наблюдения,
+а не от момента доставки сообщения.
+
 ## Evidence policy and replay v2.81.127 - 2026-07-28
 
 `shared/proof-telemetry-policy.js` является чистым inference/policy engine для

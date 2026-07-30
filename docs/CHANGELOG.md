@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-07-30 — Verification observation age, version 2.81.173
+
+- Background preserves the producer's `observedAt` timestamp for answer proof
+  and records message receipt separately as `recordedAt`.
+- Telemetry now exposes both timestamps, enabling a truthful proof TTL.
+
 ### 2026-07-30 — Monotonic answer verification, version 2.81.172
 
 - A later unverified pipeline retry no longer overwrites an already verified

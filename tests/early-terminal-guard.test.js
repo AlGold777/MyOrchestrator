@@ -1385,4 +1385,28 @@ describe('answer verification recording', () => {
       reasons: ['later_retry_unstable']
     }));
   });
+
+  test('preserves producer observation time and records background receipt separately', () => {
+    const { context } = createSandbox();
+    const entry = context.jobState.llms.GPT;
+    Object.assign(entry, { generationEpoch: 7, preDispatchAnswerNodeCount: 3 });
+    context.AnswerVerification = {
+      compareIdentity: jest.fn(() => ({ ok: true, missing: [], mismatched: [] })),
+      appendTimeline: jest.fn()
+    };
+
+    context.recordPipelineAnswerVerification('GPT', {
+      verified: true,
+      state: 'verified',
+      selectedLength: 500,
+      observedAt: 12345,
+      runSessionId: context.jobState.session.startTime,
+      dispatchId: 'dispatch-gpt',
+      generationEpoch: 7,
+      turnAnchor: 3
+    }, { tab: { id: 101 } });
+
+    expect(entry.answerVerification.observedAt).toBe(12345);
+    expect(entry.answerVerification.recordedAt).toBeGreaterThan(12345);
+  });
 });

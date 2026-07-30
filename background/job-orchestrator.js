@@ -6722,6 +6722,7 @@ function recordPipelineAnswerVerification(llmName, verification = {}, sender = {
     ...(identityCheck.mismatched || []).map((key) => `identity_mismatch:${key}`),
     ...(senderMatches ? [] : ['identity_mismatch:tabId'])
   ];
+  const recordedAt = Date.now();
   const result = {
     verified,
     state: verified ? 'verified' : (verification.state || 'candidate'),
@@ -6758,7 +6759,8 @@ function recordPipelineAnswerVerification(llmName, verification = {}, sender = {
     effectiveConfig: verification.effectiveConfig || null,
     ...incomingIdentity,
     tabId: sender?.tab?.id || entry.tabId || null,
-    observedAt: Date.now(),
+    observedAt: Number(verification.observedAt || 0) || recordedAt,
+    recordedAt,
     method: 'dom_structural_stability'
   };
   entry.answerVerificationLast = result;
@@ -6794,6 +6796,8 @@ function recordPipelineAnswerVerification(llmName, verification = {}, sender = {
       messageRootLength: result.messageRootLength,
       selectedLength: result.selectedLength,
       snapshotsCompared: result.snapshotsCompared,
+      observedAt: result.observedAt,
+      recordedAt: result.recordedAt,
       identityCheck,
       incomingIdentity,
       currentIdentity,
