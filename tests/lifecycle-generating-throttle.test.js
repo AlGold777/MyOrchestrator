@@ -134,7 +134,7 @@ describe('lifecycle ANSWER_GENERATING telemetry throttle', () => {
     detector.stopResponseLifecycleTracking({ modelName: 'DeepSeek', reason: 'test_done' });
   });
 
-  test('post-terminal window samples at 1/3/8 seconds and closes as changed', async () => {
+  test('post-terminal window captures growth after 12 seconds and closes at 30 seconds', async () => {
     jest.useFakeTimers();
     try {
       const detector = window.ResponseLifecycleDetector;
@@ -155,19 +155,19 @@ describe('lifecycle ANSWER_GENERATING telemetry throttle', () => {
         answerHash: 'baseline-hash'
       });
 
-      await jest.advanceTimersByTimeAsync(1000);
+      await jest.advanceTimersByTimeAsync(12000);
       answer.textContent += ' Continued text after the system had already finalized.';
-      await jest.advanceTimersByTimeAsync(7000);
+      await jest.advanceTimersByTimeAsync(18000);
 
       const observed = sentMessages.filter((message) => message?.event?.label === 'POST_TERMINAL_ANSWER_OBSERVED');
       const closed = sentMessages.find((message) => message?.event?.label === 'POST_TERMINAL_ANSWER_WINDOW_CLOSED');
-      expect(observed).toHaveLength(3);
-      expect(observed.map((message) => message.event.meta.observationOffsetMs)).toEqual([1000, 3000, 8000]);
+      expect(observed).toHaveLength(5);
+      expect(observed.map((message) => message.event.meta.observationOffsetMs)).toEqual([1000, 3000, 8000, 15000, 30000]);
       expect(closed?.event?.meta).toEqual(expect.objectContaining({
         observationWindowClosed: true,
         observationWindowOutcome: 'changed',
         observationCoverage: 'complete',
-        observationSampleCount: 3
+        observationSampleCount: 5
       }));
     } finally {
       jest.useRealTimers();

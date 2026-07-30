@@ -1,5 +1,12 @@
 # CHANGELOG — Project
 
+### 2026-07-30 — Extended post-terminal observation, version 2.81.171
+
+- The bounded lifecycle audit now samples at 1/3/8/15/30 seconds, covering
+  generation resumptions that occur after the previous eight-second window.
+- A regression test proves that text growth beginning at 12 seconds is observed
+  and closes the window as changed at 30 seconds.
+
 ### 2026-07-30 — Adapter response proof metadata, version 2.81.170
 
 - All nine provider adapters now attach pipeline completion reason, sanity

@@ -75,8 +75,8 @@ navigation lineage. Background не должен заменять присутс
 2.8. Ограничить audit одной navigation lineage. При доказанной смене document
 или navigation epoch результат `unknown`, а не `contradicted`. — Done
 
-2.9. Реализовать ограниченное post-terminal окно наблюдения с изменениями на
-1/3/8 секундах и явным закрытием `unchanged | changed | unavailable`.
+2.9. Реализовать ограниченное post-terminal окно наблюдения со снимками на
+1/3/8/15/30 секундах и явным закрытием `unchanged | changed | unavailable`.
 До закрытия окна отсутствие роста остаётся `unknown`. — Done
 
 2.10. Legacy export явно сообщает limitation `native_post_terminal_audit_absent`
@@ -106,6 +106,9 @@ navigation lineage. Background не должен заменять присутс
 доказана.
 
 3.5. Закрытие вкладки даёт `unknown`, а не подтверждение или опровержение.
+
+3.6. Окно длится 30 секунд: оно покрывает паузы генерации длиннее исходных
+8 секунд, при этом сохраняет ограниченный объём — пять снимков на прогон.
 
 ## 4. Критерий завершения
 

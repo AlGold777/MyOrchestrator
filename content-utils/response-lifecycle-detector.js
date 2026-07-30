@@ -1,10 +1,10 @@
 (function initResponseLifecycleDetector() {
   if (window.LLMExtension?.ResponseLifecycleDetector) return;
 
-  const VERSION = '1.0.0';
+  const VERSION = '1.1.0';
   const BODY_MUTATION_THROTTLE_MS = 500;
   const ANSWER_GENERATING_TELEMETRY_THROTTLE_MS = 15000;
-  const POST_TERMINAL_OBSERVATION_OFFSETS_MS = Object.freeze([1000, 3000, 8000]);
+  const POST_TERMINAL_OBSERVATION_OFFSETS_MS = Object.freeze([1000, 3000, 8000, 15000, 30000]);
   const MIN_COMPLETE_CONFIDENCE = 0.75;
   const STUCK_BUSY_OVERRIDE_MIN_MS = 6000;
   const LIFECYCLE_READINESS_RESOLVER_TIMEOUT_MS = 800;

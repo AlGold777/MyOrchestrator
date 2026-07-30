@@ -562,6 +562,10 @@ decision.
 - Model timeline экспортирует audit status/conclusion и корректно считает рост
   относительно terminal accepted length, а не последнего позднего snapshot.
 
+Начиная с v2.81.171 lifecycle-аудит снимает пять ограниченных кадров через
+1/3/8/15/30 секунд. Это покрывает длинные паузы генерации; закрытие окна на
+30-й секунде по-прежнему явно различает `changed`, `unchanged` и `unavailable`.
+
 ## Evidence policy and replay v2.81.127 - 2026-07-28
 
 `shared/proof-telemetry-policy.js` является чистым inference/policy engine для
