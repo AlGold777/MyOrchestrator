@@ -155,3 +155,10 @@ helper returned a boolean immediately after queuing `chrome.runtime.sendMessage`
 Version 2.81.188 turns that helper into an acknowledgement promise with a bounded
 1.5 second fail-open timeout, so the existing adapter awaits now enforce the
 intended pre-Send ordering.
+
+The control run's `No delivery` coverage is zero and contains no
+`ANSWER_SOURCE_MATERIALIZED` facts even though terminal paths report non-empty
+answer lengths. Version 2.81.189 emits source-materialization and extraction
+facts from the common normalized response boundary, deduplicated by dispatch,
+attempt and payload proof. This covers direct provider paths that never pass
+through the lifecycle router branch.

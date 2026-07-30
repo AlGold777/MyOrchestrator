@@ -8173,6 +8173,47 @@ function handleLLMResponse(llmName, answer, error = null, meta = null, answerHtm
     dispatchId: incomingDispatchId,
     attemptId: answerAttemptId
   }) || null;
+  if (entry && trimmedAnswer && incomingDispatchId && acceptedPayloadProof) {
+    const materializationKey = [
+      incomingDispatchId,
+      answerAttemptId || 'attempt-none',
+      acceptedPayloadProof.payloadEvidenceId || acceptedPayloadProof.normalizedHash || trimmedAnswer.length
+    ].join('|');
+    if (entry.lastAnswerMaterializationTelemetryKey !== materializationKey) {
+      entry.lastAnswerMaterializationTelemetryKey = materializationKey;
+      const proofMeta = {
+        dispatchId: incomingDispatchId,
+        generationEpoch: metaObj?.generationEpoch
+          ?? entry?.lastDispatchMeta?.generationEpoch
+          ?? entry?.generationEpoch
+          ?? null,
+        attemptId: answerAttemptId || entry?.lastDispatchMeta?.attemptId || null,
+        payloadEvidenceId: acceptedPayloadProof.payloadEvidenceId || null,
+        normalizationVersion: acceptedPayloadProof.normalizationVersion || null,
+        normalizedLength: acceptedPayloadProof.normalizedLength ?? trimmedAnswer.length,
+        normalizedHash: acceptedPayloadProof.normalizedHash || null,
+        candidateId: finalizationEvidence?.answerEvidence?.candidateId || null,
+        answerIdentity: finalizationEvidence?.answerEvidence?.dispatchId
+          ? (String(finalizationEvidence.answerEvidence.dispatchId) === String(incomingDispatchId)
+              ? 'current_dispatch'
+              : 'previous_dispatch')
+          : 'current_dispatch',
+        source: responseSource || finalizationEvidence?.source || 'handleLLMResponse'
+      };
+      emitTelemetry(llmName, 'ANSWER_SOURCE_MATERIALIZED', {
+        level: 'info',
+        details: 'normalized_answer_available',
+        meta: proofMeta,
+        force: true
+      });
+      emitTelemetry(llmName, 'ANSWER_EXTRACTION_COMPLETED', {
+        level: 'info',
+        details: 'completed',
+        meta: { ...proofMeta, status: 'completed', outcome: 'completed' },
+        force: true
+      });
+    }
+  }
   recordModelRunState(llmName, entry, finalizationEvidence);
   if (entry) {
     entry.finalizationEvidence = finalizationEvidence;

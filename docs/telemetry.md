@@ -1,5 +1,13 @@
 # Telemetry - tab/session diagnostics
 
+## Common answer materialization boundary v2.81.189 - 2026-07-30
+
+Every normalized non-empty answer entering the common response finalizer now
+emits a deduplicated `ANSWER_SOURCE_MATERIALIZED` and
+`ANSWER_EXTRACTION_COMPLETED` pair with the same dispatch, generation, attempt,
+payload hash and source identity. This covers direct provider response paths,
+not only the validated lifecycle message-router branch.
+
 ## Baseline acknowledgement barrier v2.81.188 - 2026-07-30
 
 `reportDispatchBaseline()` now resolves after the background responds with

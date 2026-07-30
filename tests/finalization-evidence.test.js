@@ -98,6 +98,13 @@ function createSandbox() {
 }
 
 describe('finalization evidence contract', () => {
+  test('records normalized source and extraction boundaries in the common response path', () => {
+    expect(JOB_ORCHESTRATOR_SOURCE).toContain("emitTelemetry(llmName, 'ANSWER_SOURCE_MATERIALIZED'");
+    expect(JOB_ORCHESTRATOR_SOURCE).toContain("emitTelemetry(llmName, 'ANSWER_EXTRACTION_COMPLETED'");
+    expect(JOB_ORCHESTRATOR_SOURCE).toContain('entry.lastAnswerMaterializationTelemetryKey !== materializationKey');
+    expect(JOB_ORCHESTRATOR_SOURCE).toContain('payloadEvidenceId: acceptedPayloadProof.payloadEvidenceId || null');
+  });
+
   test('canonical source alone cannot create automatic verified evidence', () => {
     const context = createSandbox();
     const entry = context.jobState.llms.Grok;
