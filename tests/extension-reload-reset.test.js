@@ -14,6 +14,8 @@ describe('extension reload state reset', () => {
     expect(indexSource).toContain("'llmComparatorSelectedModelsByView.pipeline'");
     expect(indexSource).toContain("'llmComparatorCrossViewUiState'");
     expect(indexSource).toContain("resetVolatileRuntime('new_extension_runtime')");
+    expect(indexSource).toContain("settleNormalStart('worker_wake')");
+    expect(indexSource).toMatch(/resetVolatileRuntime = \(reason\) => \{[\s\S]{0,320}clearTimeout\(normalStartTimer\)/);
     expect(indexSource).toMatch(/onInstalled\.addListener[\s\S]*details\?\.reason !== 'update'/);
     expect(indexSource).toContain('chrome.storage.local.remove(\n        EXTENSION_VOLATILE_LOCAL_KEYS');
     expect(indexSource).toContain('chrome.storage.session.clear');

@@ -24,9 +24,12 @@ const EXTENSION_VOLATILE_LOCAL_KEYS = [
 self.__extensionLifecycleReady = new Promise((resolve) => {
   let settled = false;
   let resetPromise = null;
+  let normalStartTimer = null;
+  let fallbackTimer = null;
   const settle = (result) => {
     if (settled) return;
     settled = true;
+    clearTimeout(normalStartTimer);
     clearTimeout(fallbackTimer);
     self.__extensionLifecycleResult = result || { reset: false, reason: 'normal_start' };
     if (self.__extensionLifecycleResult.reset) {
@@ -36,6 +39,10 @@ self.__extensionLifecycleReady = new Promise((resolve) => {
   };
   const resetVolatileRuntime = (reason) => {
     if (resetPromise) return resetPromise;
+    // An unpacked-extension reload can report the retained session epoch before
+    // Chrome dispatches onInstalled(update). Cancel the tentative normal wake so
+    // stale jobState cannot be hydrated while reload cleanup is still pending.
+    clearTimeout(normalStartTimer);
     resetPromise = (async () => {
       const localError = await new Promise((done) => chrome.storage.local.remove(
         EXTENSION_VOLATILE_LOCAL_KEYS,
@@ -58,9 +65,13 @@ self.__extensionLifecycleReady = new Promise((resolve) => {
     })();
     return resetPromise;
   };
+  const settleNormalStart = (reason) => {
+    clearTimeout(normalStartTimer);
+    normalStartTimer = setTimeout(() => settle({ reset: false, reason }), 100);
+  };
   // Safety fallback only. Normal worker wakes settle from the epoch read, while
   // a missing epoch performs the reset before state hydration can begin.
-  const fallbackTimer = setTimeout(() => settle({ reset: false, reason: 'normal_start_timeout' }), 2000);
+  fallbackTimer = setTimeout(() => settle({ reset: false, reason: 'normal_start_timeout' }), 2000);
 
   try {
     if (chrome.storage?.session?.get) {
@@ -72,7 +83,7 @@ self.__extensionLifecycleReady = new Promise((resolve) => {
         if (!stored?.[EXTENSION_RUNTIME_EPOCH_KEY]) {
           void resetVolatileRuntime('new_extension_runtime');
         } else {
-          settle({ reset: false, reason: 'worker_wake' });
+          settleNormalStart('worker_wake');
         }
       });
     }

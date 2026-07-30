@@ -120,6 +120,10 @@ the previous runtime's telemetry or model statuses onto the main page.
   runtime and clears volatile local run state, diagnostics, cross-view live UI
   state and both main/pipeline model-selection keys before hydration. A normal
   MV3 worker wake retains the marker and does not clear state.
+- When the marker is retained, hydration waits for a short lifecycle grace
+  window. This lets a delayed `onInstalled(update)` from an unpacked-extension
+  reload override the tentative worker-wake path, so a persisted
+  `roundsInProgress` lock cannot cause `RUN_ALREADY_ACTIVE` after reload.
 - Results-tab registration carries a short-lived `runtimeReset` signal so every
   already-open results view clears live model buttons, answer indicators,
   diagnostics rows and the in-page telemetry cache. Reloading the page is not
