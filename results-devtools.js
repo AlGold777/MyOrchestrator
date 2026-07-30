@@ -1112,7 +1112,7 @@
     const requestProofTelemetrySnapshot = (runSessionId = null) => new Promise((resolve) => {
         try {
             chrome.runtime.sendMessage({ type: 'GET_PROOF_TELEMETRY_SNAPSHOT', runSessionId }, (resp) => {
-                if (chrome.runtime.lastError || !resp?.success || !Array.isArray(resp.events)) {
+                if (chrome.runtime.lastError || !resp) {
                     resolve(null);
                     return;
                 }
@@ -1162,6 +1162,12 @@
             // also the persistence barrier: it waits for all earlier ledger
             // appends and returns one immutable boundary.
             const proofSnapshot = await requestProofTelemetrySnapshot(null);
+            if (proofSnapshot?.error === 'proof_telemetry_snapshot_incomplete') {
+                if (telemetryStatus) {
+                    telemetryStatus.textContent = `Telemetry is still saving (${proofSnapshot.queuedMutationCount || 0} queued). Please retry export.`;
+                }
+                return;
+            }
             if (!proofSnapshot?.events?.length || !window.ProofOrientedTelemetry?.buildAllPresets) {
                 if (telemetryStatus) telemetryStatus.textContent = 'Native telemetry ledger is empty';
                 return;

@@ -1,5 +1,15 @@
 # Telemetry - tab/session diagnostics
 
+## Lossless export barrier v2.81.183 - 2026-07-30
+
+Proof-ledger mutations that arrive while IndexedDB persistence is active are
+now coalesced into bounded transactions instead of creating one transaction per
+queued mutation. A normal JSON export waits for the queue-drained boundary and
+refuses to download a stale committed fallback after the bounded barrier
+expires. The UI reports a retryable "still saving" state, so a structurally
+valid but evidentially incomplete snapshot can no longer look like a complete
+diagnostic artifact.
+
 ## No delivery usability boundary v2.81.165 - 2026-07-29
 
 A card hash mismatch alone no longer confirms No delivery. A non-empty usable

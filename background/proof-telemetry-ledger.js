@@ -16,6 +16,9 @@
   const WORKER_EPOCH_ID = makeId('sw');
   const WORKER_STARTED_MONO_MS = monotonicNow();
   let mutationChain = Promise.resolve();
+  let mutationQueue = [];
+  let mutationDrainScheduled = false;
+  let mutationDrainActive = false;
   let stateCache = null;
   let stateLoadPromise = null;
   let pendingRecordBatch = [];
@@ -130,21 +133,78 @@
     return stateLoadPromise;
   }
 
+  async function drainMutationQueue() {
+    if (mutationDrainActive) return;
+    mutationDrainActive = true;
+    try {
+      while (mutationQueue.length) {
+        const batch = mutationQueue;
+        mutationQueue = [];
+        const committed = await readCurrentState();
+        let working = normalizeState(committed);
+        let changed = false;
+        const applied = [];
+
+        for (const item of batch) {
+          try {
+            const input = normalizeState(working);
+            const next = await item.mutator(input);
+            if (next !== input) changed = true;
+            working = normalizeState(next || input);
+            applied.push(item);
+          } catch (error) {
+            queuedMutationCount = Math.max(0, queuedMutationCount - 1);
+            item.reject(error);
+          }
+        }
+
+        if (!applied.length) continue;
+        try {
+          if (changed) {
+            const persisted = await writeStored(working);
+            stateCache = normalizeState(persisted || working);
+          } else {
+            stateCache = normalizeState(committed);
+          }
+          applied.forEach((item) => {
+            queuedMutationCount = Math.max(0, queuedMutationCount - 1);
+            item.resolve(stateCache);
+          });
+        } catch (error) {
+          stateCache = normalizeState(committed);
+          applied.forEach((item) => {
+            queuedMutationCount = Math.max(0, queuedMutationCount - 1);
+            item.reject(error);
+          });
+        }
+      }
+    } finally {
+      mutationDrainActive = false;
+      if (mutationQueue.length) scheduleMutationDrain();
+    }
+  }
+
+  function scheduleMutationDrain() {
+    if (mutationDrainScheduled || mutationDrainActive) return;
+    mutationDrainScheduled = true;
+    const schedule = typeof queueMicrotask === 'function'
+      ? queueMicrotask
+      : (callback) => Promise.resolve().then(callback);
+    schedule(() => {
+      mutationDrainScheduled = false;
+      const prior = mutationChain;
+      const operation = prior.catch(() => {}).then(() => drainMutationQueue());
+      mutationChain = operation.then(() => undefined, () => undefined);
+    });
+  }
+
   function enqueue(mutator) {
     queuedMutationCount += 1;
-    const operation = mutationChain.catch(() => {}).then(async () => {
-      const current = await readCurrentState();
-      const next = await mutator(current);
-      if (next === current) return current;
-      const persisted = await writeStored(next);
-      stateCache = normalizeState(persisted || next);
-      return stateCache;
+    const operation = new Promise((resolve, reject) => {
+      mutationQueue.push({ mutator, resolve, reject });
     });
-    const tracked = operation.finally(() => {
-      queuedMutationCount = Math.max(0, queuedMutationCount - 1);
-    });
-    mutationChain = tracked.then(() => undefined, () => undefined);
-    return tracked;
+    scheduleMutationDrain();
+    return operation;
   }
 
   function resolveRunSessionId(entry = {}, fallback = null) {

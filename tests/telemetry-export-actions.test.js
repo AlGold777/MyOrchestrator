@@ -84,11 +84,13 @@ describe('Telemetry export actions', () => {
     expect(devtoolsSource).toContain("proofTelemetryShadowCompare");
   });
 
-  test('JSON snapshot has a bounded queue wait and committed fallback', () => {
+  test('JSON snapshot has a bounded queue wait and refuses an incomplete committed fallback', () => {
     expect(messageRouterSource).toContain('Promise.race([barrierSnapshot, barrierDeadline])');
-    expect(messageRouterSource).toContain('setTimeout(() => resolve(timeoutToken), 2000)');
+    expect(messageRouterSource).toContain('setTimeout(() => resolve(timeoutToken), 10000)');
     expect(messageRouterSource).toContain('ledger.snapshotCommitted?.({');
-    expect(devtoolsSource).toContain('JSON exported from the latest committed boundary');
+    expect(messageRouterSource).toContain("error: 'proof_telemetry_snapshot_incomplete'");
+    expect(devtoolsSource).toContain("proofSnapshot?.error === 'proof_telemetry_snapshot_incomplete'");
+    expect(devtoolsSource).toContain('Please retry export.');
     expect(devtoolsSource).toContain('snapshotConsistency: proofSnapshot.snapshotConsistency');
     expect(devtoolsSource).toContain('snapshotBarrierTimedOut: proofSnapshot.barrierTimedOut === true');
     expect(proofStoreSource).toContain("durability: 'relaxed'");

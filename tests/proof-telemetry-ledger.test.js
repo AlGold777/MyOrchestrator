@@ -85,6 +85,36 @@ describe('native proof telemetry ledger', () => {
     expect(global.chrome.storage.local.set.mock.calls.length - writesAfterBegin).toBe(1);
   });
 
+  test('coalesces mutations that arrive while a persistence transaction is in flight', async () => {
+    await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
+    const writesAfterBegin = global.chrome.storage.local.set.mock.calls.length;
+    global.chrome.storage.local.set.mockImplementation(async (value) => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      Object.assign(storage, value);
+    });
+
+    const records = [];
+    for (let index = 0; index < 100; index += 1) {
+      records.push(global.ProofTelemetryLedger.record({
+        ts: 1000 + index,
+        label: 'ANSWER_GENERATING',
+        meta: {
+          runSessionId: 42,
+          dispatchId: 'GPT:42:1',
+          generationEpoch: 1,
+          answerLength: index + 1
+        }
+      }, 'GPT'));
+      await Promise.resolve();
+    }
+    await Promise.all(records);
+
+    const snapshot = await global.ProofTelemetryLedger.snapshot();
+    expect(snapshot.events.filter((event) => event.payload?.sourceEventType === 'ANSWER_GENERATING')).toHaveLength(100);
+    expect(global.chrome.storage.local.set.mock.calls.length - writesAfterBegin).toBeLessThanOrEqual(3);
+    expect(snapshot.queuedMutationCount).toBe(0);
+  });
+
   test('snapshot flushes records queued immediately before export', async () => {
     await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
     const pendingRecord = global.ProofTelemetryLedger.record({
