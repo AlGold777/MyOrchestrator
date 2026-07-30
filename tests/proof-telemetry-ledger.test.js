@@ -176,6 +176,38 @@ describe('native proof telemetry ledger', () => {
     ]));
   });
 
+  test('closes a one-frame observation interval with unique evidence refs', async () => {
+    await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
+    const identity = { runSessionId: 42, dispatchId: 'GPT:42:1', generationEpoch: 1 };
+    await global.ProofTelemetryLedger.record({
+      ts: 1000,
+      label: 'LIFECYCLE_SNAPSHOT_ACCEPTED',
+      meta: { ...identity, textLength: 10 }
+    }, 'GPT');
+    await global.ProofTelemetryLedger.record({
+      ts: 1100,
+      label: 'SPA_NAVIGATION',
+      meta: identity
+    }, 'GPT');
+    const closed = (await global.ProofTelemetryLedger.snapshot()).events
+      .find((event) => event.eventType === 'OBSERVATION_INTERVAL_CLOSED');
+    expect(closed.evidenceRefs).toHaveLength(1);
+    expect(new Set(closed.evidenceRefs).size).toBe(closed.evidenceRefs.length);
+  });
+
+  test('preserves render outcome for canonical typed facts', async () => {
+    await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
+    await global.ProofTelemetryLedger.record({
+      ts: 1000,
+      label: 'ANSWER_CARD_RENDER_EVALUATED',
+      meta: { runSessionId: 42, dispatchId: 'GPT:42:1', generationEpoch: 1, outcome: 'matched' }
+    }, 'GPT');
+    const render = (await global.ProofTelemetryLedger.snapshot()).events
+      .find((event) => event.eventType === 'ANSWER_CARD_RENDER_EVALUATED');
+    expect(render.payload.metadata.outcome).toBe('matched');
+    expect(render.payload.typed).toEqual({ kind: 'render', state: 'matched' });
+  });
+
   test('committed snapshot remains available while a durable write is blocked', async () => {
     await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
     let releaseWrite;

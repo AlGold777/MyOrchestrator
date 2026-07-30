@@ -234,7 +234,7 @@
       'attemptId', 'payloadEvidenceId', 'expectedCardId', 'observedCardId',
       'evaluationBoundaryId', 'sourceRevisionId', 'decisionId'
     ]);
-    const proofKey = /(?:hash|length|len|count|status|state|reasons?|mode|tier|coverage|verified|visible|active|discarded|health|mutation|attempt|deadline|timeout|duration|delay|skew|growth|candidate|answerIdentity|finalStatus|terminalStatus|finishReason|decisionAccepted|promotedFromPending|promotedStagingIngestSeq|dispatchId|answerEvidenceDispatchId|priorIncidentRef|evidence|source|signal|version|ms)$/i;
+    const proofKey = /(?:hash|length|len|count|status|state|outcome|reasons?|mode|tier|coverage|verified|visible|active|discarded|health|mutation|attempt|deadline|timeout|duration|delay|skew|growth|candidate|answerIdentity|finalStatus|terminalStatus|finishReason|decisionAccepted|promotedFromPending|promotedStagingIngestSeq|dispatchId|answerEvidenceDispatchId|priorIncidentRef|evidence|source|signal|version|ms)$/i;
     const compact = {};
     Object.entries(metadata || {}).forEach(([key, value]) => {
       if (staticKeys.has(key) || value === undefined || value === null) return;
@@ -352,7 +352,7 @@
           firstEventId: interval.firstEventId,
           lastEventId: interval.lastEventId
         },
-        evidenceRefs: [interval.firstEventId, interval.lastEventId].filter(Boolean)
+        evidenceRefs: Array.from(new Set([interval.firstEventId, interval.lastEventId].filter(Boolean)))
       });
       state.events.push(event);
       delete state.openObservationIntervals[key];

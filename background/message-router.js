@@ -1820,20 +1820,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                             : null;
                         entry.preDispatchAnswerDispatchId = dispatchId;
                         entry.preDispatchAnswerCapturedAt = Date.now();
-                        emitTelemetry(llmName, 'DISPATCH_BASELINE_CAPTURED', {
-                            details: `len=${sig.length}`,
-                            meta: {
-                                dispatchId,
-                                generationEpoch: normalizedMeta.generationEpoch
-                                    ?? entry?.lastDispatchMeta?.generationEpoch
-                                    ?? entry?.generationEpoch
-                                    ?? null,
-                                attemptId: normalizedMeta.attemptId || entry?.lastDispatchMeta?.attemptId || null,
-                                signatureLength: sig.length,
-                                baselineHash: entry.preDispatchAnswerHash,
-                                anchorAnswerCount
-                            }
-                        });
                     } else {
                         // Empty baseline = fresh/new chat with no prior answer; clear any stale guard.
                         entry.preDispatchAnswerSignature = null;
@@ -1841,6 +1827,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                         entry.preDispatchAnswerDispatchId = dispatchId;
                         entry.preDispatchAnswerCapturedAt = Date.now();
                     }
+                    emitTelemetry(llmName, 'DISPATCH_BASELINE_CAPTURED', {
+                        details: `len=${sig.length}`,
+                        meta: {
+                            dispatchId,
+                            generationEpoch: normalizedMeta.generationEpoch
+                                ?? entry?.lastDispatchMeta?.generationEpoch
+                                ?? entry?.generationEpoch
+                                ?? null,
+                            attemptId: normalizedMeta.attemptId || entry?.lastDispatchMeta?.attemptId || null,
+                            signatureLength: sig.length,
+                            baselineHash: entry.preDispatchAnswerHash || null,
+                            baselineState: sig ? 'present' : 'empty',
+                            anchorAnswerCount
+                        }
+                    });
                 }
                 if (typeof sendResponse === 'function') sendResponse({ status: 'dispatch_baseline_ack' });
                 break;

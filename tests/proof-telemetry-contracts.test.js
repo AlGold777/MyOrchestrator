@@ -125,6 +125,19 @@ describe('proof telemetry executable contracts', () => {
       .toEqual(expect.arrayContaining(['S03', 'S04']));
   });
 
+  test('runtime validation rejects duplicate evidence references', () => {
+    const event = {
+      schemaVersion: 6,
+      eventId: 'event-duplicate-refs',
+      eventType: 'OBSERVATION_INTERVAL_CLOSED',
+      layer: 'fact',
+      seq: 1,
+      evidenceRefs: ['event-source', 'event-source']
+    };
+    expect(ProofTelemetry.validateLedger([event]))
+      .toEqual(expect.arrayContaining([expect.objectContaining({ message: 'duplicate evidenceRef' })]));
+  });
+
   test('derives every report event type from evidence slots without a second catalog', () => {
     ProofTelemetry.REPORT_TYPES.forEach((reportType) => {
       const fromSlots = Array.from(new Set(Contracts.normalizedSlots(reportType)

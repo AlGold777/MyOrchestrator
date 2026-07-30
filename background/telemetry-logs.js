@@ -424,15 +424,26 @@ function resolveTelemetrySampling(sessionId) {
 function ensureTelemetryMeta(meta = {}, llmName) {
   const normalized = { ...(meta || {}) };
   const resolvedName = resolveLlmName(llmName || normalized.llmName || normalized.platform);
+  const activeDispatchMeta = jobState?.llms?.[resolvedName || llmName]?.lastDispatchMeta || null;
   if (resolvedName && !normalized.llmName) normalized.llmName = resolvedName;
   if (!normalized.extVersion) normalized.extVersion = getAppVersion();
   const runSessionId = normalized.runSessionId || normalized.sessionId || jobState?.session?.startTime || null;
   if (runSessionId && !normalized.runSessionId) normalized.runSessionId = runSessionId;
   const dispatchId = normalized.dispatchId
     || normalized.requestId
-    || jobState?.llms?.[resolvedName || llmName]?.lastDispatchMeta?.dispatchId
+    || activeDispatchMeta?.dispatchId
     || null;
   if (dispatchId && !normalized.dispatchId) normalized.dispatchId = dispatchId;
+  const matchesActiveDispatch = Boolean(dispatchId && activeDispatchMeta?.dispatchId
+    && String(dispatchId) === String(activeDispatchMeta.dispatchId));
+  if ((normalized.generationEpoch === undefined || normalized.generationEpoch === null)
+    && matchesActiveDispatch
+    && Number.isFinite(Number(activeDispatchMeta.generationEpoch))) {
+    normalized.generationEpoch = Number(activeDispatchMeta.generationEpoch);
+  }
+  if (!normalized.attemptId && matchesActiveDispatch && activeDispatchMeta.attemptId) {
+    normalized.attemptId = activeDispatchMeta.attemptId;
+  }
   const tabId = normalized.tabId || jobState?.llms?.[resolvedName || llmName]?.tabId || null;
   if (tabId && !normalized.tabId) normalized.tabId = tabId;
   if (!normalized.schemaVersion) normalized.schemaVersion = TELEMETRY_SCHEMA_VERSION;

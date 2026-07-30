@@ -1,5 +1,16 @@
 # Telemetry - tab/session diagnostics
 
+## Complete dispatch identity and empty baselines v2.81.191 - 2026-07-30
+
+- Telemetry normalized against the active dispatch now inherits its
+  `generationEpoch` and `attemptId`, preventing operational, navigation, render
+  and commit events from forming identity-less tail incidents.
+- A pre-dispatch baseline fact is emitted for both existing and empty chats.
+- One-frame observation intervals deduplicate their evidence reference.
+- `outcome` survives proof metadata compaction, allowing render and commit facts
+  to retain their canonical state.
+- Runtime validation explicitly rejects duplicate evidence references.
+
 ## Runtime/offline invariant parity v2.81.190 - 2026-07-30
 
 The runtime export audit now performs the same S03 exact evidence-scope and S04

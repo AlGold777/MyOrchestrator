@@ -167,3 +167,17 @@ Version 2.81.190 also closes the validator-parity gap: the runtime export audit
 now evaluates S03 exact evidence scope and S04 canonical event layer using the
 same rules as the offline validator. Internal `schemaValidation.valid` can no
 longer remain true for an artifact that the shipped CLI rejects on those rules.
+
+## Control export 1785445318879 (v2.81.190)
+
+This run contains 319 durable events and confirms the new common response
+boundary: 12 source-materialization and 12 extraction facts are present, with
+five terminal actions correctly typed and scoped. Queue consistency and policy
+identity remain complete.
+
+Two one-frame observation intervals repeat the same event ID in `evidenceRefs`,
+which violates the JSON schema even though the runtime audit originally missed
+it. Events normalized after dispatch frequently carry `dispatchId` without the
+matching epoch/attempt, empty-chat baselines are acknowledged but not emitted,
+and compacted render/commit events lose `outcome`. Version 2.81.191 fixes these
+four defects and makes duplicate reference detection part of runtime validation.

@@ -1443,6 +1443,10 @@
       previousSeq = Number(event.seq);
       if (ids.has(event.eventId)) violations.push({ invariantId: 'S01', eventId: event.eventId, message: 'duplicate eventId' });
       ids.add(event.eventId);
+      if (Array.isArray(event.evidenceRefs)
+        && new Set(event.evidenceRefs).size !== event.evidenceRefs.length) {
+        violations.push({ invariantId: 'S02', eventId: event.eventId, message: 'duplicate evidenceRef' });
+      }
       (event.evidenceRefs || []).forEach((ref) => {
         const evidence = byId.get(ref);
         if (!evidence) {

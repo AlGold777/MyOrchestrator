@@ -94,7 +94,10 @@ describe('dispatch baseline stale guard (follow-up false-green)', () => {
     expect(ROUTER_SRC).toContain("sendResponse({ status: 'dispatch_baseline_rejected', reason: 'meta_mismatch' });");
     expect(ROUTER_SRC).toContain('generationEpoch: normalizedMeta.generationEpoch');
     expect(ROUTER_SRC).toContain('attemptId: normalizedMeta.attemptId');
+    expect(ROUTER_SRC).toContain("baselineState: sig ? 'present' : 'empty'");
     const TELEMETRY_SRC = read('background', 'telemetry-logs.js');
+    expect(TELEMETRY_SRC).toContain('normalized.generationEpoch = Number(activeDispatchMeta.generationEpoch)');
+    expect(TELEMETRY_SRC).toContain('normalized.attemptId = activeDispatchMeta.attemptId');
     expect(TELEMETRY_SRC).toContain('STALE_BASELINE_ANSWER_IGNORED');
     expect(TELEMETRY_SRC).toContain('RECOVERY_STALE_BASELINE_REJECTED');
   });

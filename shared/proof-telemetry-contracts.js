@@ -327,6 +327,14 @@
     const metadata = payload.metadata || {};
     return ({
       SUBMISSION_INFERRED: { kind: 'submission', state: payload.submission || metadata.submission || 'unknown' },
+      SUBMIT_ACTION_OBSERVED: { kind: 'submission', state: 'attempted' },
+      SUBMISSION_EVIDENCE_CHANGED: {
+        kind: 'submission',
+        state: /ACCEPTED|CONFIRMED/.test(String(payload.sourceEventType || ''))
+          ? 'confirmed'
+          : (/REJECTED|FAILED|NO_SEND|COMMAND_SEND_ERROR/.test(String(payload.sourceEventType || '')) ? 'failed' : 'evidence_partial')
+      },
+      DISPATCH_BASELINE_CAPTURED: { kind: 'dispatch_baseline', state: metadata.baselineState || 'captured' },
       PROMPT_INSERTION_EVALUATED: { kind: 'prompt_insertion', state: payload.insertionState || metadata.insertionState || 'unknown' },
       GENERATION_STATE_INFERRED: { kind: 'generation', state: payload.observedGeneration || metadata.observedGeneration || 'unknown' },
       CANDIDATE_IDENTITY_INFERRED: { kind: 'candidate_identity', state: payload.answerIdentity || metadata.answerIdentity || 'unknown' },
