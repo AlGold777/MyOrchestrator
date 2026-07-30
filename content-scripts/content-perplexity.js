@@ -1389,7 +1389,7 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
     // rejects it as stale until the new answer renders (avoids finalizing the old answer).
     const preDispatchBaseline = grabLatestAssistantMarkup().text || '';
     try {
-      window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, preDispatchBaseline);
+      await window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, preDispatchBaseline);
     } catch (_) {}
 
     if (Array.isArray(attachments) && attachments.length) {

@@ -1987,7 +1987,7 @@ function isLikelyClaudeModelLabel(text = '') {
         // prior answer until a new one streams in.
         claudeDispatchBaseline = baselineText || '';
         try {
-          window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, claudeDispatchBaseline);
+          await window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, claudeDispatchBaseline);
         } catch (_) {}
 
         // 2.81.117: composer clearing/shortening and a disabled Send button no

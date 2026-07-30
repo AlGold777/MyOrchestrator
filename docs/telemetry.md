@@ -1,5 +1,14 @@
 # Telemetry - tab/session diagnostics
 
+## Dispatch proof identity and ordering v2.81.184 - 2026-07-30
+
+Every web dispatch now creates one `generationEpoch` and `attemptId` and carries
+them through dispatch start/send, page readiness, the content command, baseline
+capture and submission confirmation. Provider adapters await the background
+acknowledgement for `DISPATCH_BASELINE_CAPTURED` before they perform Send. A
+fast content confirmation also suppresses the later asynchronous
+`PROMPT_SUBMITTED_PENDING` transition, keeping submission state monotonic.
+
 ## Lossless export barrier v2.81.183 - 2026-07-30
 
 Proof-ledger mutations that arrive while IndexedDB persistence is active are

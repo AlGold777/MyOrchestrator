@@ -223,7 +223,7 @@
       ? window.ContentUtils.ensureDispatchMeta(options.meta || null, MODEL)
       : (options.meta || null);
     const baseline = readLatestResponse().text;
-    window.ContentUtils?.reportDispatchBaseline?.(MODEL, meta, baseline);
+    await window.ContentUtils?.reportDispatchBaseline?.(MODEL, meta, baseline);
     let composer = await waitForFirst(COMPOSER_SELECTORS);
     if (options.attachments?.length) {
       if (!attachmentHandler?.attach) {

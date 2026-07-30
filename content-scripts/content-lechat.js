@@ -1482,7 +1482,7 @@ const hydrateAttachments = (raw = []) =>
 
         const preDispatchBaseline = grabLatestAssistantMarkup().text || '';
         try {
-          window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, preDispatchBaseline);
+          await window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, preDispatchBaseline);
         } catch (_) {}
         
         await sendComposer(composer, prompt);

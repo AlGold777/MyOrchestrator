@@ -2200,7 +2200,7 @@
         activity.heartbeat(0.4, { phase: 'typing' });
         const baselineSnapshot = buildBaselineSnapshot();
         try {
-          window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, baselineSnapshot.text || '');
+          await window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, baselineSnapshot.text || '');
         } catch (_) {}
         const committedComposer = await waitForGrokComposerCommit(composer, prompt, 5000, 250);
         if (!committedComposer) {

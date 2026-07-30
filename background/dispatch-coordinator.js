@@ -988,9 +988,16 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
     stopHumanPresenceLoop();
     const lockAcquiredAt = Date.now();
     const machine = resolveDispatchFlags(llmName, entry).machine;
-  entry.lastDispatchAt = Date.now();
-  entry.lastDispatchMeta = { dispatchReason: reason, sessionId, dispatchId };
   entry.generationEpoch = Number(entry.generationEpoch || 0) + 1;
+  const attemptId = `${dispatchId}:generation:${entry.generationEpoch}`;
+  const dispatchIdentityMeta = {
+    runSessionId: sessionId,
+    dispatchId,
+    generationEpoch: entry.generationEpoch,
+    attemptId
+  };
+  entry.lastDispatchAt = Date.now();
+  entry.lastDispatchMeta = { dispatchReason: reason, sessionId, ...dispatchIdentityMeta };
   entry.answerVerification = null;
   if (self.AnswerVerification?.appendTimeline) {
     self.AnswerVerification.appendTimeline(entry, {
@@ -1057,10 +1064,10 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
   const hasFocus = typeof lastTabState?.hasFocus === 'boolean' ? lastTabState.hasFocus : null;
   emitTelemetry(llmName, 'DISPATCH_LOCK_ACQUIRE', {
     details: queueWaitMs !== null ? `${queueWaitMs}ms` : '',
-    meta: { queueWaitMs, dispatchId, dispatchReason: reason, attempt: entry.dispatchAttempts, visibilityState, hasFocus }
+    meta: { queueWaitMs, ...dispatchIdentityMeta, dispatchReason: reason, attempt: entry.dispatchAttempts, visibilityState, hasFocus }
   });
   emitTelemetry(llmName, 'DISPATCH_START', {
-    meta: { dispatchId, dispatchReason: reason, attempt: entry.dispatchAttempts, visibilityState, hasFocus }
+    meta: { ...dispatchIdentityMeta, dispatchReason: reason, attempt: entry.dispatchAttempts, visibilityState, hasFocus }
   });
     try {
       if (machine) {
@@ -1209,11 +1216,9 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
           attachments,
           meta: {
             dispatchReason: reason,
-            runSessionId: sessionId,
             sessionId,
             pipelineRunId,
-            dispatchId,
-            generationEpoch: entry.generationEpoch,
+            ...dispatchIdentityMeta,
             tabSessionId: readyInfo?.tabSessionId || null
           }
         }, NO_FOCUS_TIMEOUT_MS);
@@ -1227,7 +1232,7 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
         level: pageReadyState.ok ? 'info' : 'warning',
         details: pageReadyState.reason || 'ready',
         meta: {
-          dispatchId,
+          ...dispatchIdentityMeta,
           dispatchReason: reason,
           tabId,
           status: pageReadyState.status,
@@ -1319,7 +1324,7 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
   emitTelemetry(llmName, 'DISPATCH_SEND', {
     details: `readyWaitMs=${readyWaitMs}`,
     meta: {
-      dispatchId,
+      ...dispatchIdentityMeta,
       dispatchReason: reason,
       attempt: entry.dispatchAttempts,
       readyWaitMs,
@@ -1343,8 +1348,7 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
           runSessionId: sessionId,
           sessionId,
           pipelineRunId,
-          dispatchId,
-          generationEpoch: entry.generationEpoch,
+          ...dispatchIdentityMeta,
           tabSessionId: readyInfo?.tabSessionId || null
         }
       };
@@ -1481,26 +1485,30 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
       }
       //-- 2.1. Если Round 1 (skipSubmitWait), выходим сразу после клика, не блокируя очередь --//
       if (options.skipSubmitWait) {
-        entry.awaitingSubmitConfirmation = true;
-        entry.awaitingSubmitConfirmationAt = Date.now();
-        entry.awaitingSubmitConfirmationDispatchId = dispatchId;
-        entry.submitSource = entry.submitSource || null;
-        emitTelemetry(llmName, 'PROMPT_SUBMITTED_PENDING', {
-          details: 'skip_submit_wait',
-          meta: {
-            dispatchId,
-            dispatchReason: reason,
-            tabId,
-            submitTimeoutMs
-          }
-        });
-        broadcastDiagnostic(llmName, {
-          type: 'DISPATCH',
-          label: 'Prompt submit confirmation pending',
-          details: 'Round1 command sent; waiting for content confirmation or Round2 repair',
-          level: 'info',
-          meta: { dispatchId, dispatchReason: reason, tabId }
-        });
+        const dispatchAlreadyConfirmed = entry.confirmedDispatchId === dispatchId
+          || self.DispatchIdRegistry?.isDispatchConfirmed?.(dispatchId) === true;
+        if (!dispatchAlreadyConfirmed) {
+          entry.awaitingSubmitConfirmation = true;
+          entry.awaitingSubmitConfirmationAt = Date.now();
+          entry.awaitingSubmitConfirmationDispatchId = dispatchId;
+          entry.submitSource = entry.submitSource || null;
+          emitTelemetry(llmName, 'PROMPT_SUBMITTED_PENDING', {
+            details: 'skip_submit_wait',
+            meta: {
+              ...dispatchIdentityMeta,
+              dispatchReason: reason,
+              tabId,
+              submitTimeoutMs
+            }
+          });
+          broadcastDiagnostic(llmName, {
+            type: 'DISPATCH',
+            label: 'Prompt submit confirmation pending',
+            details: 'Round1 command sent; waiting for content confirmation or Round2 repair',
+            level: 'info',
+            meta: { ...dispatchIdentityMeta, dispatchReason: reason, tabId }
+          });
+        }
         if (options.resetStateAfterSend && machine) {
           machine.reset();
         }

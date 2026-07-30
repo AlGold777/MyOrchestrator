@@ -4,6 +4,8 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..');
 const MANIFEST = JSON.parse(fs.readFileSync(path.join(ROOT, 'manifest.json'), 'utf8'));
 const ORACLE = require(path.join(ROOT, 'shared', 'provider-submit-confirmation.js'));
+const DISPATCH_COORDINATOR = fs.readFileSync(path.join(ROOT, 'background', 'dispatch-coordinator.js'), 'utf8');
+const MESSAGE_ROUTER = fs.readFileSync(path.join(ROOT, 'background', 'message-router.js'), 'utf8');
 
 // 2.81.117 field regression. Gemini and Claude each carried a private submit
 // oracle that returned true for "nothing happened": an empty composer, a disabled
@@ -84,5 +86,18 @@ describe('provider submit proof contract', () => {
       const src = sourceFor(name);
       expect(src).not.toMatch(/sendButtonCandidate\?\.disabled[^\n]*\)\s*return true/);
     });
+  });
+
+  test('dispatch creates and propagates one generation-scoped attempt identity', () => {
+    expect(DISPATCH_COORDINATOR).toContain("const attemptId = `${dispatchId}:generation:${entry.generationEpoch}`");
+    expect(DISPATCH_COORDINATOR).toContain('entry.lastDispatchMeta = { dispatchReason: reason, sessionId, ...dispatchIdentityMeta }');
+    expect(DISPATCH_COORDINATOR).toContain('...dispatchIdentityMeta,');
+    expect(MESSAGE_ROUTER).toContain('generationEpoch: normalizedMeta.generationEpoch ?? entry?.generationEpoch ?? null');
+    expect(MESSAGE_ROUTER).toContain('attemptId: normalizedMeta.attemptId || entry?.lastDispatchMeta?.attemptId || null');
+  });
+
+  test('fast confirmation cannot regress back to pending', () => {
+    expect(DISPATCH_COORDINATOR).toContain('const dispatchAlreadyConfirmed = entry.confirmedDispatchId === dispatchId');
+    expect(DISPATCH_COORDINATOR).toMatch(/if \(!dispatchAlreadyConfirmed\) \{[\s\S]*PROMPT_SUBMITTED_PENDING/);
   });
 });

@@ -2786,7 +2786,7 @@ const keepAliveMutex = (() => {
             ? extractMessageText(assistantMessages[assistantMessages.length - 1])
             : '';
           try {
-            window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, baselineAssistantText);
+            await window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, baselineAssistantText);
           } catch (_) {}
 
           emitDiagnostic({

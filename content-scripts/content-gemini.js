@@ -1223,7 +1223,7 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
         const preDispatchBaseline = buildGeminiAnswerBaseline(preDispatchSnapshot, fp);
         geminiLastDispatchBaseline = preDispatchBaseline;
         try {
-            window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, preDispatchBaseline.text || '');
+            await window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, preDispatchBaseline.text || '');
         } catch (_) {}
 
         if (Array.isArray(attachments) && attachments.length) {

@@ -123,6 +123,13 @@ describe('dispatch baseline stale guard (follow-up false-green)', () => {
     expect(ZAI_SRC).toContain('reportDispatchBaseline?.(MODEL, meta, baseline');
   });
 
+  test('all adapters wait until the pre-send baseline reaches background', () => {
+    [CHATGPT_SRC, CLAUDE_SRC, GEMINI_SRC, GROK_SRC, LECHAT_SRC, QWEN_SRC,
+      DEEPSEEK_SRC, PERPLEXITY_SRC, ZAI_SRC].forEach((source) => {
+      expect(source).toMatch(/await window\.ContentUtils\?\.reportDispatchBaseline\?\./);
+    });
+  });
+
   test('pipeline calls receive the pre-send baseline text', () => {
     expect(CHATGPT_SRC).toContain('baselineText: baselineText ||');
     expect(GEMINI_SRC).toContain('baselineText: baselineText ||');

@@ -2674,6 +2674,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                             meta: {
                                 dispatchId: entry.confirmedDispatchId,
                                 runSessionId: incomingRunSessionId || expectedRunSessionId || null,
+                                generationEpoch: normalizedMeta.generationEpoch ?? entry?.generationEpoch ?? null,
+                                attemptId: normalizedMeta.attemptId || entry?.lastDispatchMeta?.attemptId || null,
                                 confirmed: confirmedFlag !== false
                             }
                         });

@@ -1387,7 +1387,7 @@ const buildLifecycleContext = (prompt = '', extra = {}) => ({
           // answer-start otherwise latches onto the previous full-length answer).
           const preDispatchBaseline = grabLatestAssistantText().text || '';
           try {
-            window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, preDispatchBaseline);
+            await window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, preDispatchBaseline);
           } catch (_) {}
 
           if (Array.isArray(options.attachments) && options.attachments.length) {

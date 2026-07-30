@@ -1213,7 +1213,7 @@ const chatgptScrollCoordinator = window.ScrollCoordinator
 
         const preDispatchBaseline = grabLatestAssistantMarkup().text || '';
         try {
-          window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, preDispatchBaseline);
+          await window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, preDispatchBaseline);
         } catch (_) {}
 
         // Ищем кнопку отправки с РАСШИРЕННЫМИ селекторами
