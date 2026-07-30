@@ -1,5 +1,16 @@
 # CHANGELOG — Project
 
+### 2026-07-30 — Bounded telemetry export barrier, version 2.81.180
+
+- JSON export waits at most two seconds for the proof-ledger mutation queue.
+  If the queue is still backlogged, export uses the latest fully committed
+  boundary instead of appearing several minutes later.
+- The UI reports whether the exported boundary was queue-drained or committed
+  while background persistence continues.
+- IndexedDB proof writes use relaxed durability: transactions remain ordered
+  and atomic, while Chrome may coalesce physical disk flushes instead of
+  forcing one fsync per telemetry signal.
+
 ### 2026-07-30 — Immediate telemetry JSON snapshot, version 2.81.179
 
 - Proof telemetry keeps one normalized state cache during a service-worker

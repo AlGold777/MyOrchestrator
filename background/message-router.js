@@ -3604,14 +3604,38 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                             });
                             return;
                         }
-                        const snapshot = await self.ProofTelemetryLedger?.snapshot?.({
+                        const ledger = self.ProofTelemetryLedger;
+                        if (!ledger?.snapshot) {
+                            sendResponse({ success: false, error: 'proof_telemetry_ledger_unavailable' });
+                            return;
+                        }
+                        const snapshotStartedAt = Date.now();
+                        const timeoutToken = Object.freeze({ timedOut: true });
+                        let timeoutId = null;
+                        const barrierSnapshot = ledger.snapshot({
                             runSessionId: message?.runSessionId || null
+                        }).catch(() => timeoutToken);
+                        const barrierDeadline = new Promise((resolve) => {
+                            timeoutId = setTimeout(() => resolve(timeoutToken), 2000);
                         });
+                        let snapshot = await Promise.race([barrierSnapshot, barrierDeadline]);
+                        if (timeoutId) clearTimeout(timeoutId);
+                        const barrierTimedOut = snapshot === timeoutToken;
+                        if (barrierTimedOut) {
+                            snapshot = await ledger.snapshotCommitted?.({
+                                runSessionId: message?.runSessionId || null
+                            });
+                        }
                         if (!snapshot) {
                             sendResponse({ success: false, error: 'proof_telemetry_ledger_unavailable' });
                             return;
                         }
-                        sendResponse({ success: true, ...snapshot });
+                        sendResponse({
+                            success: true,
+                            ...snapshot,
+                            barrierTimedOut,
+                            snapshotWaitMs: Date.now() - snapshotStartedAt
+                        });
                     } catch (err) {
                         sendResponse({ success: false, error: err?.message || String(err) });
                     }

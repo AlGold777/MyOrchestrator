@@ -518,6 +518,15 @@ JSON — frozen `GET_PROOF_TELEMETRY_SNAPSHOT`; пустой native ledger не 
 принятые до клика события, но не ждёт отдельное полное чтение и запись для
 каждого сигнала.
 
+С v2.81.180 ожидание export barrier ограничено двумя секундами. Если durable
+очередь не успела полностью опустеть, `GET_PROOF_TELEMETRY_SNAPSHOT` возвращает
+последнюю целиком закоммиченную границу с
+`snapshotConsistency:'committed_boundary'` и `barrierTimedOut:true`; очередь
+продолжает сохраняться в фоне. При пустой очереди используется обычный
+`snapshotConsistency:'queue_drained'`. IndexedDB-транзакции остаются
+атомарными и упорядоченными, но используют `relaxed` durability без отдельного
+физического fsync для каждого telemetry-сигнала.
+
 - Platform/Tasks фильтруют canonical envelopes по `modelId` и безопасному
   event payload. Исходные `seq` не перенумеровываются; filtered ledger остаётся
   immutable, а export boundary равен фактическому последнему включённому `seq`.

@@ -103,6 +103,32 @@ describe('native proof telemetry ledger', () => {
     ]));
   });
 
+  test('committed snapshot remains available while a durable write is blocked', async () => {
+    await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
+    let releaseWrite;
+    global.chrome.storage.local.set.mockImplementation((value) => new Promise((resolve) => {
+      releaseWrite = () => {
+        Object.assign(storage, value);
+        resolve();
+      };
+    }));
+
+    const pendingRecord = global.ProofTelemetryLedger.record({
+      ts: 1000,
+      label: 'ANSWER_GENERATING',
+      meta: { runSessionId: 42, dispatchId: 'GPT:42:1', generationEpoch: 1, answerLength: 10 }
+    }, 'GPT');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const committed = await global.ProofTelemetryLedger.snapshotCommitted();
+    expect(committed.snapshotConsistency).toBe('committed_boundary');
+    expect(committed.queuedMutationCount).toBeGreaterThan(0);
+    expect(committed.events.some((event) => event.payload?.sourceEventType === 'ANSWER_GENERATING')).toBe(false);
+
+    releaseWrite();
+    await pendingRecord;
+  });
+
   test('does not persist sensitive text and suppresses exact consecutive no-ops', async () => {
     await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
     const source = {

@@ -12,7 +12,7 @@
   const OPERATIONAL_CHECKPOINT_COUNT = 50;
   let idCounter = 0;
   const HEARTBEAT_EVERY_NOOPS = 120;
-  const PRODUCER_VERSION = 'proof-runtime-ledger@2.1.0';
+  const PRODUCER_VERSION = 'proof-runtime-ledger@2.2.0';
   const WORKER_EPOCH_ID = makeId('sw');
   const WORKER_STARTED_MONO_MS = monotonicNow();
   let mutationChain = Promise.resolve();
@@ -20,6 +20,7 @@
   let stateLoadPromise = null;
   let pendingRecordBatch = [];
   let recordBatchScheduled = false;
+  let queuedMutationCount = 0;
 
   const proof = () => root.ProofOrientedTelemetry;
   const contracts = () => root.ProofTelemetryContracts;
@@ -130,6 +131,7 @@
   }
 
   function enqueue(mutator) {
+    queuedMutationCount += 1;
     const operation = mutationChain.catch(() => {}).then(async () => {
       const current = await readCurrentState();
       const next = await mutator(current);
@@ -138,8 +140,11 @@
       stateCache = normalizeState(persisted || next);
       return stateCache;
     });
-    mutationChain = operation.then(() => undefined, () => undefined);
-    return operation;
+    const tracked = operation.finally(() => {
+      queuedMutationCount = Math.max(0, queuedMutationCount - 1);
+    });
+    mutationChain = tracked.then(() => undefined, () => undefined);
+    return tracked;
   }
 
   function resolveRunSessionId(entry = {}, fallback = null) {
@@ -790,12 +795,7 @@
     });
   }
 
-  function snapshot({ runSessionId = null } = {}) {
-    flushPendingRecordBatch();
-    return enqueue((current) => {
-      const state = normalizeState(current);
-      return flushOperationalIntervals(state, 'export_snapshot') ? state : current;
-    }).then((state) => {
+  function buildSnapshot(state, { runSessionId = null, consistency = 'queue_drained' } = {}) {
       const events = runSessionId === null ? state.events : state.events.filter((event) => String(event.runSessionId) === String(runSessionId));
       const lifecycle = runSessionId === null ? state.lifecycle : state.lifecycle.filter((event) => String(event.runSessionId) === String(runSessionId));
       return {
@@ -816,9 +816,26 @@
         quarantineEventCount: state.quarantine.length,
         unattributedEventCount: state.unattributed.length,
         legacyDebugRecordCount: state.legacyDebugRing.length,
-        stagingLosses: state.stagingLosses.slice()
+        stagingLosses: state.stagingLosses.slice(),
+        snapshotConsistency: consistency,
+        queuedMutationCount,
+        pendingRecordCount: pendingRecordBatch.length
       };
-    });
+  }
+
+  function snapshot({ runSessionId = null } = {}) {
+    flushPendingRecordBatch();
+    return enqueue((current) => {
+      const state = normalizeState(current);
+      return flushOperationalIntervals(state, 'export_snapshot') ? state : current;
+    }).then((state) => buildSnapshot(state, { runSessionId, consistency: 'queue_drained' }));
+  }
+
+  async function snapshotCommitted({ runSessionId = null } = {}) {
+    const state = stateCache
+      ? normalizeState(stateCache)
+      : normalizeState(await readStored());
+    return buildSnapshot(state, { runSessionId, consistency: 'committed_boundary' });
   }
 
   function snapshotIncident(scope) {
@@ -867,6 +884,6 @@
 
   root.ProofTelemetryLedger = Object.freeze({
     STORAGE_KEY, MAX_EVENTS, MAX_QUARANTINE_EVENTS, MAX_PENDING_EVENTS,
-    beginRun, closeRun, stagePending, record, appendCanonical, snapshot, snapshotIncident, recover, clear
+    beginRun, closeRun, stagePending, record, appendCanonical, snapshot, snapshotCommitted, snapshotIncident, recover, clear
   });
 })(typeof globalThis !== 'undefined' ? globalThis : self);

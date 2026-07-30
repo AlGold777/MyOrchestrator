@@ -1610,7 +1610,14 @@
         privacyMode: 'metadata-only',
         sizeBudgetBytes: 1000000,
         overflowPolicy: ['drop-rebuildable-derived-detail', 'externalize-optional-attachments', 'aggregate-repeated-checks', 'preserve-canonical-proof-events'],
-        omissions: []
+        omissions: [],
+        sourceSnapshot: {
+          consistency: String(options.snapshotConsistency || 'unknown'),
+          barrierTimedOut: options.snapshotBarrierTimedOut === true,
+          waitMs: Number(options.snapshotWaitMs || 0),
+          queuedMutationCount: Number(options.queuedMutationCount || 0),
+          pendingRecordCount: Number(options.pendingRecordCount || 0)
+        }
       },
       crossReportCompatibility: {
         mode: 'same_export',

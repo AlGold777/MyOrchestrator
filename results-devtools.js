@@ -1160,6 +1160,11 @@
                 if (telemetryStatus) telemetryStatus.textContent = 'Native telemetry ledger is empty';
                 return;
             }
+            if (telemetryStatus) {
+                telemetryStatus.textContent = proofSnapshot.barrierTimedOut
+                    ? `Exporting committed snapshot (${proofSnapshot.eventCount} events; write queue continues in background)`
+                    : `Exporting ${proofSnapshot.eventCount} telemetry events`;
+            }
             const task = String(telemetryTaskSelect?.value || 'all');
             const platform = String(telemetryPlatformSelect?.value || 'all');
             const canonicalEvents = applyActiveProofFilter(proofSnapshot.events, { includeTask: false });
@@ -1169,11 +1174,19 @@
                 exportedAt: Date.now(),
                 extensionVersion: chrome?.runtime?.getManifest?.().version || 'unknown',
                 generationWaitProfile: window.ResultsShared?.getGenerationWaitProfile?.(),
-                canonicalLedger: true
+                canonicalLedger: true,
+                snapshotConsistency: proofSnapshot.snapshotConsistency || 'unknown',
+                snapshotBarrierTimedOut: proofSnapshot.barrierTimedOut === true,
+                snapshotWaitMs: Number(proofSnapshot.snapshotWaitMs || 0),
+                queuedMutationCount: Number(proofSnapshot.queuedMutationCount || 0),
+                pendingRecordCount: Number(proofSnapshot.pendingRecordCount || 0)
             };
             if (task === 'all') {
                 const payload = await window.ProofOrientedTelemetry.buildAllPresets(canonicalEvents, buildOptions);
                 downloadProofArtifact(payload, `telemetry-all-presets-${Date.now()}.json`);
+                if (telemetryStatus) telemetryStatus.textContent = proofSnapshot.barrierTimedOut
+                    ? 'JSON exported from the latest committed boundary'
+                    : 'JSON exported';
                 return;
             }
             const selectedModelId = platform === 'all'

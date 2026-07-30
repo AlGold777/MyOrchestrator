@@ -95,7 +95,12 @@
       return state;
     }
     const names = Object.values(STORE_NAMES);
-    const tx = db.transaction(names, 'readwrite', { durability: 'strict' });
+    // The ledger already serializes mutations and commits every transaction
+    // before advancing its in-memory boundary. `strict` forced a physical disk
+    // flush for every telemetry signal and could build a multi-minute backlog.
+    // Relaxed durability preserves IndexedDB transaction ordering/atomicity
+    // while allowing the browser to coalesce the physical flushes.
+    const tx = db.transaction(names, 'readwrite', { durability: 'relaxed' });
     const eventStore = tx.objectStore(STORE_NAMES.events);
     const lifecycleStore = tx.objectStore(STORE_NAMES.lifecycle);
     const incidentStore = tx.objectStore(STORE_NAMES.incidents);

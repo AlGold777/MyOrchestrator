@@ -5,6 +5,8 @@ const html = fs.readFileSync(path.join(__dirname, '..', 'result_new.html'), 'utf
 const pipelineHtml = fs.readFileSync(path.join(__dirname, '..', 'pipeline_panel.html'), 'utf8');
 const resultsSource = fs.readFileSync(path.join(__dirname, '..', 'results.js'), 'utf8');
 const devtoolsSource = fs.readFileSync(path.join(__dirname, '..', 'results-devtools.js'), 'utf8');
+const messageRouterSource = fs.readFileSync(path.join(__dirname, '..', 'background', 'message-router.js'), 'utf8');
+const proofStoreSource = fs.readFileSync(path.join(__dirname, '..', 'background', 'proof-telemetry-store.js'), 'utf8');
 
 describe('Telemetry export actions', () => {
   test('both result pages expose the extension-native sanitized B1 capture action', () => {
@@ -79,6 +81,17 @@ describe('Telemetry export actions', () => {
     expect(devtoolsSource).toContain('targets.length');
     expect(devtoolsSource).toContain('incident-${target.rank + 1}');
     expect(devtoolsSource).toContain("proofTelemetryShadowCompare");
+  });
+
+  test('JSON snapshot has a bounded queue wait and committed fallback', () => {
+    expect(messageRouterSource).toContain('Promise.race([barrierSnapshot, barrierDeadline])');
+    expect(messageRouterSource).toContain('setTimeout(() => resolve(timeoutToken), 2000)');
+    expect(messageRouterSource).toContain('ledger.snapshotCommitted?.({');
+    expect(devtoolsSource).toContain('JSON exported from the latest committed boundary');
+    expect(devtoolsSource).toContain('snapshotConsistency: proofSnapshot.snapshotConsistency');
+    expect(devtoolsSource).toContain('snapshotBarrierTimedOut: proofSnapshot.barrierTimedOut === true');
+    expect(proofStoreSource).toContain("durability: 'relaxed'");
+    expect(proofStoreSource).not.toContain("durability: 'strict'");
   });
 
   test('Disput JSON download icon precedes the textual MD export', () => {
