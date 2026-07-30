@@ -1151,6 +1151,12 @@
         if (telemetryStatus) telemetryStatus.textContent = describeSelectedIncident(selection);
     };
     const exportTelemetryJson = async () => {
+        const exportButton = telemetryExportJsonBtn;
+        if (exportButton) {
+            exportButton.disabled = true;
+            exportButton.setAttribute('aria-busy', 'true');
+        }
+        if (telemetryStatus) telemetryStatus.textContent = 'Preparing telemetry JSON…';
         try {
             // Schema 5 is now the sole JSON export source. The snapshot call is
             // also the persistence barrier: it waits for all earlier ledger
@@ -1227,8 +1233,19 @@
             });
         } catch (err) {
             console.warn('[devtools] telemetry export json error', err);
+            if (telemetryStatus) telemetryStatus.textContent = `JSON export failed: ${err?.message || 'unknown error'}`;
+        } finally {
+            window.__PENDING_TELEMETRY_JSON_EXPORT__ = false;
+            if (exportButton) {
+                exportButton.disabled = false;
+                exportButton.removeAttribute('aria-busy');
+            }
         }
     };
+    document.addEventListener('telemetry-export-json-request', () => {
+        if (!window.__PENDING_TELEMETRY_JSON_EXPORT__) return;
+        exportTelemetryJson();
+    });
     const copyTelemetry = async () => {
         try {
             const { filtered } = getTelemetryFilteredEvents(telemetryScopedCache);

@@ -1,5 +1,15 @@
 # CHANGELOG — Project
 
+### 2026-07-30 — Eager telemetry export click bootstrap, version 2.81.182
+
+- A small bootstrap is loaded before the heavy results runtime on both result
+  pages. It captures the first JSON-export click even when the lazy DevTools
+  module is not ready yet, loads that module immediately, and resumes the same
+  export automatically.
+- The export button now exposes busy state and phase text while the exporter is
+  loading and while the snapshot is being prepared.
+- Added a jsdom interaction test covering an icon click before DevTools load.
+
 ### 2026-07-30 — Cold-start telemetry export route, version 2.81.181
 
 - `GET_PROOF_TELEMETRY_SNAPSHOT` is now handled before the shared background

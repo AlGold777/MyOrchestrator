@@ -7,6 +7,7 @@ const resultsSource = fs.readFileSync(path.join(__dirname, '..', 'results.js'), 
 const devtoolsSource = fs.readFileSync(path.join(__dirname, '..', 'results-devtools.js'), 'utf8');
 const messageRouterSource = fs.readFileSync(path.join(__dirname, '..', 'background', 'message-router.js'), 'utf8');
 const proofStoreSource = fs.readFileSync(path.join(__dirname, '..', 'background', 'proof-telemetry-store.js'), 'utf8');
+const exportBootstrapSource = fs.readFileSync(path.join(__dirname, '..', 'results-telemetry-export-bootstrap.js'), 'utf8');
 
 describe('Telemetry export actions', () => {
   test('both result pages expose the extension-native sanitized B1 capture action', () => {
@@ -102,6 +103,18 @@ describe('Telemetry export actions', () => {
     expect(earlySnapshotAt).toBeGreaterThan(listenerAt);
     expect(initializationGateAt).toBeGreaterThan(earlySnapshotAt);
     expect(messageRouterSource).toContain('void respondProofTelemetrySnapshot(message, sendResponse)');
+  });
+
+  test('both result pages install the JSON export bootstrap before the heavy results script', () => {
+    [html, pipelineHtml].forEach((page) => {
+      const bootstrapAt = page.indexOf('src="results-telemetry-export-bootstrap.js"');
+      const resultsAt = page.indexOf('src="results.js"');
+      expect(bootstrapAt).toBeGreaterThan(-1);
+      expect(resultsAt).toBeGreaterThan(bootstrapAt);
+    });
+    expect(exportBootstrapSource).toContain("event.stopImmediatePropagation()");
+    expect(exportBootstrapSource).toContain("new CustomEvent('telemetry-export-json-request')");
+    expect(devtoolsSource).toContain("addEventListener('telemetry-export-json-request'");
   });
 
   test('Disput JSON download icon precedes the textual MD export', () => {

@@ -534,6 +534,12 @@ lifecycle bootstrap. Это важно при cold start service worker: ина�
 export barrier начинал отсчёт только после потенциально долгой общей
 инициализации.
 
+С v2.81.182 лёгкий `results-telemetry-export-bootstrap.js` подключается перед
+`results.js` на обеих страницах результатов. Если пользователь нажимает JSON
+до готовности lazy `results-devtools.js`, bootstrap сохраняет намерение,
+немедленно загружает exporter и автоматически продолжает тот же экспорт после
+события `load`. Кнопка и строка статуса сразу показывают busy-фазу.
+
 - Platform/Tasks фильтруют canonical envelopes по `modelId` и безопасному
   event payload. Исходные `seq` не перенумеровываются; filtered ledger остаётся
   immutable, а export boundary равен фактическому последнему включённому `seq`.

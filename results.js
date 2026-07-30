@@ -21878,6 +21878,9 @@ function exportSingleTemplate(templateName, sourceData = null) {
         setActiveDevtoolsTab(activeDevtoolsTabId || DEFAULT_DEVTOOLS_TAB_ID);
     }
     const ensureTelemetryDevtoolsLoaded = () => {
+        if (typeof window.ensureTelemetryDevtoolsLoaded === 'function') {
+            return window.ensureTelemetryDevtoolsLoaded();
+        }
         if (window.__DEVTOOLS_TELEMETRY_READY__) return;
         const existing = document.querySelector('script[data-telemetry-devtools]');
         if (existing) return;
