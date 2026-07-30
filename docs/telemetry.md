@@ -527,6 +527,13 @@ JSON — frozen `GET_PROOF_TELEMETRY_SNAPSHOT`; пустой native ledger не 
 атомарными и упорядоченными, но используют `relaxed` durability без отдельного
 физического fsync для каждого telemetry-сигнала.
 
+С v2.81.181 `GET_PROOF_TELEMETRY_SNAPSHOT` является ранним route фонового
+message listener. Он выполняется до общего `ensureInitialState()` и не зависит
+от загрузки job state, tab map, resolution metrics, dispatch circuit и
+lifecycle bootstrap. Это важно при cold start service worker: иначе таймер
+export barrier начинал отсчёт только после потенциально долгой общей
+инициализации.
+
 - Platform/Tasks фильтруют canonical envelopes по `modelId` и безопасному
   event payload. Исходные `seq` не перенумеровываются; filtered ledger остаётся
   immutable, а export boundary равен фактическому последнему включённому `seq`.

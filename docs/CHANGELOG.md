@@ -1,5 +1,16 @@
 # CHANGELOG — Project
 
+### 2026-07-30 — Cold-start telemetry export route, version 2.81.181
+
+- `GET_PROOF_TELEMETRY_SNAPSHOT` is now handled before the shared background
+  initialization gate. A JSON export no longer waits for job-state, tab-map,
+  resolution-metrics, dispatch-circuit, or lifecycle bootstrap on a cold
+  service-worker start.
+- The two-second ledger barrier now measures the complete background portion
+  of the export request instead of starting only after unrelated initialization.
+- Added a regression guard that locks the early route before
+  `isInitialStateReady()` / `ensureInitialState()`.
+
 ### 2026-07-30 — Bounded telemetry export barrier, version 2.81.180
 
 - JSON export waits at most two seconds for the proof-ledger mutation queue.

@@ -94,6 +94,16 @@ describe('Telemetry export actions', () => {
     expect(proofStoreSource).not.toContain("durability: 'strict'");
   });
 
+  test('JSON snapshot bypasses unrelated background initialization', () => {
+    const listenerAt = messageRouterSource.indexOf('chrome.runtime.onMessage.addListener');
+    const earlySnapshotAt = messageRouterSource.indexOf("if (message?.type === 'GET_PROOF_TELEMETRY_SNAPSHOT')", listenerAt);
+    const initializationGateAt = messageRouterSource.indexOf('if (!isInitialStateReady())', listenerAt);
+    expect(listenerAt).toBeGreaterThan(-1);
+    expect(earlySnapshotAt).toBeGreaterThan(listenerAt);
+    expect(initializationGateAt).toBeGreaterThan(earlySnapshotAt);
+    expect(messageRouterSource).toContain('void respondProofTelemetrySnapshot(message, sendResponse)');
+  });
+
   test('Disput JSON download icon precedes the textual MD export', () => {
     const jsonAt = html.indexOf('id="disput-export-json"');
     const mdAt = html.indexOf('id="disput-export-md"');

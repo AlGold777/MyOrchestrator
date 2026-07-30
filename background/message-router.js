@@ -1414,10 +1414,67 @@ chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
     }
 });
 
+async function respondProofTelemetrySnapshot(message, sendResponse) {
+    try {
+        if (message?.incidentScope && self.ProofTelemetryLedger?.snapshotIncident) {
+            const events = await self.ProofTelemetryLedger.snapshotIncident(message.incidentScope);
+            sendResponse({
+                success: true,
+                schemaVersion: 6,
+                incidentScope: message.incidentScope,
+                eventCount: events.length,
+                events
+            });
+            return;
+        }
+        const ledger = self.ProofTelemetryLedger;
+        if (!ledger?.snapshot) {
+            sendResponse({ success: false, error: 'proof_telemetry_ledger_unavailable' });
+            return;
+        }
+        const snapshotStartedAt = Date.now();
+        const timeoutToken = Object.freeze({ timedOut: true });
+        let timeoutId = null;
+        const barrierSnapshot = ledger.snapshot({
+            runSessionId: message?.runSessionId || null
+        }).catch(() => timeoutToken);
+        const barrierDeadline = new Promise((resolve) => {
+            timeoutId = setTimeout(() => resolve(timeoutToken), 2000);
+        });
+        let snapshot = await Promise.race([barrierSnapshot, barrierDeadline]);
+        if (timeoutId) clearTimeout(timeoutId);
+        const barrierTimedOut = snapshot === timeoutToken;
+        if (barrierTimedOut) {
+            snapshot = await ledger.snapshotCommitted?.({
+                runSessionId: message?.runSessionId || null
+            });
+        }
+        if (!snapshot) {
+            sendResponse({ success: false, error: 'proof_telemetry_ledger_unavailable' });
+            return;
+        }
+        sendResponse({
+            success: true,
+            ...snapshot,
+            barrierTimedOut,
+            snapshotWaitMs: Date.now() - snapshotStartedAt
+        });
+    } catch (err) {
+        sendResponse({ success: false, error: err?.message || String(err) });
+    }
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     globalThis.LLMLog?.debug?.("[BACKGROUND] Received message:", message);
     if (message?.type === 'NOTES_CMD' || message?.type === 'NOTES_EVENT') {
         return false;
+    }
+    // Export must remain available during a cold service-worker start. It only
+    // depends on the proof ledger, which is imported before this router, and
+    // must not wait for unrelated job/tab/circuit initialization below.
+    if (message?.type === 'GET_PROOF_TELEMETRY_SNAPSHOT') {
+        void respondProofTelemetrySnapshot(message, sendResponse);
+        return true;
     }
 
     const processMessage = () => {
@@ -3583,59 +3640,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                             : DIAGNOSTICS_EXPORT_MAX_ITEMS;
                         const capped = diagTrimDiagnosticsBuffer(arr, capSize);
                         sendResponse({ success: true, events: capped });
-                    } catch (err) {
-                        sendResponse({ success: false, error: err?.message || String(err) });
-                    }
-                })();
-                return true;
-            }
-
-            case 'GET_PROOF_TELEMETRY_SNAPSHOT': {
-                (async () => {
-                    try {
-                        if (message?.incidentScope && self.ProofTelemetryLedger?.snapshotIncident) {
-                            const events = await self.ProofTelemetryLedger.snapshotIncident(message.incidentScope);
-                            sendResponse({
-                                success: true,
-                                schemaVersion: 6,
-                                incidentScope: message.incidentScope,
-                                eventCount: events.length,
-                                events
-                            });
-                            return;
-                        }
-                        const ledger = self.ProofTelemetryLedger;
-                        if (!ledger?.snapshot) {
-                            sendResponse({ success: false, error: 'proof_telemetry_ledger_unavailable' });
-                            return;
-                        }
-                        const snapshotStartedAt = Date.now();
-                        const timeoutToken = Object.freeze({ timedOut: true });
-                        let timeoutId = null;
-                        const barrierSnapshot = ledger.snapshot({
-                            runSessionId: message?.runSessionId || null
-                        }).catch(() => timeoutToken);
-                        const barrierDeadline = new Promise((resolve) => {
-                            timeoutId = setTimeout(() => resolve(timeoutToken), 2000);
-                        });
-                        let snapshot = await Promise.race([barrierSnapshot, barrierDeadline]);
-                        if (timeoutId) clearTimeout(timeoutId);
-                        const barrierTimedOut = snapshot === timeoutToken;
-                        if (barrierTimedOut) {
-                            snapshot = await ledger.snapshotCommitted?.({
-                                runSessionId: message?.runSessionId || null
-                            });
-                        }
-                        if (!snapshot) {
-                            sendResponse({ success: false, error: 'proof_telemetry_ledger_unavailable' });
-                            return;
-                        }
-                        sendResponse({
-                            success: true,
-                            ...snapshot,
-                            barrierTimedOut,
-                            snapshotWaitMs: Date.now() - snapshotStartedAt
-                        });
                     } catch (err) {
                         sendResponse({ success: false, error: err?.message || String(err) });
                     }
