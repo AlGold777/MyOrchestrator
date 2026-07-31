@@ -1,5 +1,40 @@
 # CHANGELOG — Project
 
+### 2026-07-31 — A near-identical prior answer no longer passes as new, version 2.81.203
+
+Diagnosed from the telemetry export of 2026-07-31 (extensionVersion 2.81.201).
+
+- Reported symptom: a repeat request was inserted into no existing page; only a
+  new GPT tab opened, and only there was the prompt submitted. The report is
+  correct, and the run was worse than "nothing worked" — it reported **SUCCESS**
+  for two providers that had received nothing.
+
+  | model | prior text on page | delivered | reported |
+  |---|---|---|---|
+  | DeepSeek | 5055 chars | 5005 chars | SUCCESS |
+  | Qwen | 646 chars | 648 chars | SUCCESS |
+  | GPT | 0 (new tab) | 7444 chars | SUCCESS — the only real one |
+
+- Every one of those was `mode: forced`, `evidenceTier: 0`, with
+  `submission_confirmed` failing as `evidence_partial` and
+  `answer_identity_current_dispatch` observed as `candidate`. The answers were
+  never proven to belong to the dispatch; the policy forced them through anyway.
+- `isBaselineEquivalent` — the guard whose job is exactly this — compared for
+  strict equality. A re-render, a trimmed trailing token or a re-streamed tail
+  moves a few characters, and 5055 vs 5005 is not equal, so the previous answer
+  was accepted as new.
+- The guard now also rejects a candidate that matches the baseline to within a
+  small edge difference: a shared prefix and suffix covering ≥97% of the shorter
+  text, applied only to answers of at least 120 characters. A genuinely new
+  answer diverges early and does not reach that threshold; short texts are left
+  alone, where incidental similarity is likely.
+- All nine adapters call this one function, so the fix is shared. Tests pin both
+  directions, including a new answer that opens with the same sentence as the old.
+- Not addressed here: why the prompt reached only one provider, and why a new GPT
+  tab opened with New pages off. This change does not fix delivery — it stops a
+  failed delivery from being reported as success, so the next run's data is
+  truthful.
+
 ### 2026-07-31 — Donor trusted transport is the baseline again, version 2.81.202
 
 - Reverts `67cc6d5 "fix: remove browser debugger transport"` by explicit
