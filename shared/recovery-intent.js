@@ -111,6 +111,25 @@
     return evaluateFreshEvidence(entry, options).fresh;
   }
 
+  // A submission that is already on the page is proof enough on its own: the
+  // prompt is in the conversation whether or not an answer has arrived yet.
+  // Reported 2026-07-31 (Claude among others): the repair path re-inserted and
+  // re-sent a prompt that had already been submitted successfully, because the
+  // only bar to a resend was *answer* evidence — and while the provider was
+  // still generating there was none. An active generation is the same proof:
+  // nothing generates without a submitted prompt.
+  function hasSubmissionInFlightEvidence(entry = {}, options = {}) {
+    const dispatchId = options.dispatchId
+      || entry.lastDispatchMeta?.dispatchId
+      || entry.confirmedDispatchId
+      || null;
+    if (hasConfirmedSubmission(entry, dispatchId)) return { hit: true, reason: 'submission_already_confirmed' };
+    const verification = entry.answerVerification || {};
+    if (verification.generationActive === true) return { hit: true, reason: 'generation_active' };
+    if (entry.generationStartedAt) return { hit: true, reason: 'generation_started' };
+    return { hit: false, reason: null };
+  }
+
   function authorize(entry = {}, request = {}) {
     const intent = normalizeIntent(request.intent || request.reason || request.action);
     const evidenceHit = hasTerminalEligibleEvidence(entry, request);
@@ -123,6 +142,17 @@
         reason: 'no_resend_after_answer_evidence',
         mutatesPage,
         evidenceHit
+      };
+    }
+    const submissionHit = mutatesPage ? hasSubmissionInFlightEvidence(entry, request) : { hit: false, reason: null };
+    if (mutatesPage && submissionHit.hit && !explicitOverride) {
+      return {
+        ok: false,
+        intent,
+        reason: `no_resend_after_submission:${submissionHit.reason}`,
+        mutatesPage,
+        evidenceHit,
+        submissionEvidence: submissionHit.reason
       };
     }
     return {
@@ -141,6 +171,7 @@
     evaluateFreshEvidence,
     isBaselineEquivalent,
     hasConfirmedSubmission,
+    hasSubmissionInFlightEvidence,
     hasMatchingLifecycleEvidence,
     hasMatchingVerifiedEvidence,
     authorize

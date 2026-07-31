@@ -52,3 +52,40 @@ describe('visits do not steal focus from another application', () => {
     expect(SRC).toContain('WINDOW_FOCUS_YIELDED_TO_USER');
   });
 });
+
+describe('CDP dispatchers do not raise the window from another application', () => {
+  const ROUTER = fs.readFileSync(
+    path.join(__dirname, '..', 'background', 'message-router.js'),
+    'utf8'
+  );
+
+  test('every dispatcher goes through the guarded raise', () => {
+    const direct = ROUTER.match(/callChromeDebugger\('sendCommand', target, 'Page\.bringToFront'\)/g) || [];
+    // Exactly one remains: the guarded helper's own call.
+    expect(direct.length).toBe(1);
+    const helper = ROUTER.slice(
+      ROUTER.indexOf('const bringToFrontUnlessUserIsElsewhere'),
+      ROUTER.indexOf('const callChromeDownloads')
+    );
+    expect(helper).toContain("callChromeDebugger('sendCommand', target, 'Page.bringToFront')");
+  });
+
+  test('the helper does not call itself', () => {
+    const helper = ROUTER.slice(
+      ROUTER.indexOf('const bringToFrontUnlessUserIsElsewhere'),
+      ROUTER.indexOf('const callChromeDownloads')
+    );
+    const selfCalls = helper.match(/bringToFrontUnlessUserIsElsewhere\(target\)/g) || [];
+    expect(selfCalls.length).toBe(0);
+  });
+
+  test('the guard checks focus before raising', () => {
+    const helper = ROUTER.slice(
+      ROUTER.indexOf('const bringToFrontUnlessUserIsElsewhere'),
+      ROUTER.indexOf('const callChromeDownloads')
+    );
+    expect(helper).toContain('chrome.windows.getLastFocused');
+    expect(helper.indexOf('if (!browserHasFocus) return false;'))
+      .toBeLessThan(helper.indexOf("'Page.bringToFront'"));
+  });
+});

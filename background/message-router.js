@@ -55,6 +55,38 @@ const callChromeDebugger = (method, ...args) => new Promise((resolve, reject) =>
     }
 });
 
+// Reported 2026-07-31: the debugger transport "interferes with work". Part of
+// that is the attach banner, which CDP cannot avoid — but the other part was
+// Page.bringToFront, which yanks the Chrome window in front of whatever
+// application the user is in, once per trusted action.
+//
+// CDP input targets the tab's renderer directly and the composer is focused
+// through Runtime.evaluate, so the OS window does not need to be frontmost. The
+// raise is kept only while the user is already in Chrome, matching the donor's
+// visible behaviour there, and skipped entirely when they are elsewhere.
+const bringToFrontUnlessUserIsElsewhere = async (target) => {
+    const browserHasFocus = await new Promise((resolve) => {
+        try {
+            chrome.windows.getLastFocused({}, (win) => {
+                if (chrome.runtime.lastError || !win) {
+                    resolve(false);
+                    return;
+                }
+                resolve(win.focused === true);
+            });
+        } catch (_) {
+            resolve(false);
+        }
+    });
+    if (!browserHasFocus) return false;
+    try {
+        await callChromeDebugger('sendCommand', target, 'Page.bringToFront');
+        return true;
+    } catch (_) {
+        return false;
+    }
+};
+
 const callChromeDownloads = (method, ...args) => new Promise((resolve, reject) => {
     try {
         chrome.downloads[method](...args, (result) => {
@@ -358,7 +390,7 @@ async function dispatchGeminiCdpAttachments(tabId, attachments = []) {
             let objectId = await findGeminiFileInputObject(target);
             let backendNodeId = chooserObserver.getBackendNodeId();
             for (let attempt = 0; !objectId && !backendNodeId && attempt < 12; attempt++) {
-                await callChromeDebugger('sendCommand', target, 'Page.bringToFront');
+                await bringToFrontUnlessUserIsElsewhere(target);
                 await routerSleep(150);
                 const triggerObjectId = await findGeminiUploadTriggerObject(target);
                 if (triggerObjectId) {
@@ -447,7 +479,7 @@ async function dispatchQwenCdpAttachments(tabId, attachments = []) {
             await callChromeDebugger('sendCommand', target, 'Runtime.enable');
             await callChromeDebugger('sendCommand', target, 'DOM.enable');
             await callChromeDebugger('sendCommand', target, 'Page.enable');
-            await callChromeDebugger('sendCommand', target, 'Page.bringToFront');
+            await bringToFrontUnlessUserIsElsewhere(target);
             const evaluated = await callChromeDebugger('sendCommand', target, 'Runtime.evaluate', {
                 expression: QWEN_FIND_FILE_INPUT_EXPRESSION,
                 returnByValue: false,
@@ -528,7 +560,7 @@ async function dispatchProviderCdpAttachments(tabId, model, attachments = []) {
             await callChromeDebugger('sendCommand', target, 'Runtime.enable');
             await callChromeDebugger('sendCommand', target, 'DOM.enable');
             await callChromeDebugger('sendCommand', target, 'Page.enable');
-            await callChromeDebugger('sendCommand', target, 'Page.bringToFront');
+            await bringToFrontUnlessUserIsElsewhere(target);
             let backendNodeId = null;
             if (model === 'Perplexity') {
                 chooserObserver = observeGeminiFileChooser(tabId);
@@ -650,7 +682,7 @@ async function dispatchTrustedCtrlEnter(tabId) {
     try {
         await callChromeDebugger('attach', target, '1.3');
         attached = true;
-        await callChromeDebugger('sendCommand', target, 'Page.bringToFront');
+        await bringToFrontUnlessUserIsElsewhere(target);
         await callChromeDebugger('sendCommand', target, 'Input.dispatchKeyEvent', {
             type: 'rawKeyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13,
             nativeVirtualKeyCode: 13, modifiers: 2
@@ -702,7 +734,7 @@ async function dispatchProviderTrustedEnter(tabId, model, expectedText) {
         await callChromeDebugger('attach', target, '1.3');
         attached = true;
         await callChromeDebugger('sendCommand', target, 'Runtime.enable');
-        await callChromeDebugger('sendCommand', target, 'Page.bringToFront');
+        await bringToFrontUnlessUserIsElsewhere(target);
         const focused = await callChromeDebugger('sendCommand', target, 'Runtime.evaluate', {
             expression: buildProviderComposerFocusExpression(expectedText),
             returnByValue: true,
@@ -735,7 +767,7 @@ async function dispatchProviderTrustedInput(tabId, model, text, isMac = false) {
         await callChromeDebugger('attach', target, '1.3');
         attached = true;
         await callChromeDebugger('sendCommand', target, 'Runtime.enable');
-        await callChromeDebugger('sendCommand', target, 'Page.bringToFront');
+        await bringToFrontUnlessUserIsElsewhere(target);
         const focused = await callChromeDebugger('sendCommand', target, 'Runtime.evaluate', {
             expression: `(() => {
               const visible = (el) => {
@@ -840,7 +872,7 @@ async function dispatchProviderTrustedSend(tabId, model, expectedText = '') {
         attached = true;
         await callChromeDebugger('sendCommand', target, 'Runtime.enable');
         await callChromeDebugger('sendCommand', target, 'DOM.enable');
-        await callChromeDebugger('sendCommand', target, 'Page.bringToFront');
+        await bringToFrontUnlessUserIsElsewhere(target);
         const evaluated = await callChromeDebugger('sendCommand', target, 'Runtime.evaluate', {
             expression: buildProviderSendControlExpression(expectedText), returnByValue: false, awaitPromise: false
         });

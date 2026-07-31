@@ -148,7 +148,12 @@ describe('attachment bridge authentication', () => {
   });
 
   test('Perplexity assigns a lazy native input after one menu-opening click', async () => {
+    // The attachment path raises the window through the shared focus guard, so
+    // the real helper is compiled in rather than stubbed.
     const providerRuntime = ROUTER_SRC.slice(
+      ROUTER_SRC.indexOf('const bringToFrontUnlessUserIsElsewhere'),
+      ROUTER_SRC.indexOf('const callChromeDownloads')
+    ) + ROUTER_SRC.slice(
       ROUTER_SRC.indexOf('const PROVIDER_FILE_INPUT_EXPRESSION'),
       ROUTER_SRC.indexOf('async function dispatchTrustedGrokInput')
     );
@@ -158,6 +163,10 @@ describe('attachment bridge authentication', () => {
     const sandbox = {
       Map,
       Promise,
+      chrome: {
+        runtime: { lastError: null },
+        windows: { getLastFocused: (_opts, cb) => cb({ id: 1, focused: true }) }
+      },
       materializeGeminiAttachments: async () => [{ id: 1, filename: '/tmp/lazy-input.txt' }],
       providerAttachmentFlightsByTab: new Map(),
       callChromeDebugger: async (method, target, command, params) => {

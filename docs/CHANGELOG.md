@@ -1,5 +1,40 @@
 # CHANGELOG — Project
 
+### 2026-07-31 — No resend after a successful send; debugger stops grabbing focus, version 2.81.205
+
+**Duplicate insert and send after an already successful send (reported for Claude).**
+The Round 2 repair path re-dispatches whenever the content script has not
+confirmed the submit, and the only bar to that resend was
+`RecoveryIntent.authorize` refusing a page-mutating intent once *answer*
+evidence existed. While the provider was still generating there was none, so a
+prompt that had gone through perfectly was inserted and sent a second time.
+A submission already on the page is now proof in its own right, independent of
+any answer: `authorize` refuses `resend_prompt` / `composer_repair` when the
+submission is confirmed for this dispatch, when generation is active, or when
+generation has started. Deliberately unchanged: an `inferred_answer_evidence`
+submit does **not** count (it was guessed from page text, not observed, and
+treating it as proof would block a real repair), observe-only intents are
+untouched, and an explicit user override still wins.
+
+**The debugger transport interrupts work.**
+Two separate things were happening. The attach banner is inherent to CDP and
+cannot be removed while the donor transport is in use — see the note below. The
+other half was `Page.bringToFront`, fired once per trusted action, which yanks
+the Chrome window in front of whatever application the user is working in. CDP
+input targets the tab's renderer directly and the composer is focused through
+`Runtime.evaluate`, so the OS window does not need to be frontmost. All seven
+dispatcher call sites now route through a guard that raises the window only
+while Chrome already holds focus — the same rule the visit loop got in
+2.81.204 — and skips it on an unknown focus state rather than guessing.
+The executable dispatcher tests now compile the real guard into their sandbox
+instead of stubbing it, so the guard is exercised rather than assumed.
+
+Still open, and a genuine trade-off rather than an oversight: the attach banner
+itself. It appears per trusted action, and the trusted path currently runs
+*first* for Le Chat because that is what made its send fast. Making it a
+fallback behind the in-page strategies would cut the banner to the rare failure
+case, at the cost of Le Chat's speed. That choice has not been made here.
+
 ### 2026-07-31 — Blank main page, focus theft, duplicate tabs, version 2.81.204
 
 Three reported defects, three separate causes.

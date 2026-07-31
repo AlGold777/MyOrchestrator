@@ -8,10 +8,25 @@ const ROUTER = fs.readFileSync(
   'utf8'
 );
 
-const sliceRuntime = (startMarker, endMarker) => ROUTER.slice(
+// The dispatchers raise the window through this guard rather than calling
+// Page.bringToFront directly, so the real helper is compiled into every
+// sandbox — that way these runtime tests exercise the guard instead of a stub.
+const FOCUS_GUARD_SRC = ROUTER.slice(
+  ROUTER.indexOf('const bringToFrontUnlessUserIsElsewhere'),
+  ROUTER.indexOf('const callChromeDownloads')
+);
+
+const sliceRuntime = (startMarker, endMarker) => `${FOCUS_GUARD_SRC}\n${ROUTER.slice(
   ROUTER.indexOf(startMarker),
   ROUTER.indexOf(endMarker, ROUTER.indexOf(startMarker))
-);
+)}`;
+
+// A focused Chrome window, so the dispatchers behave as they did before the
+// guard existed; the skip path is covered in focus-yields-to-other-apps.
+const focusedChromeStub = () => ({
+  runtime: { lastError: null },
+  windows: { getLastFocused: (_opts, cb) => cb({ id: 1, focused: true }) }
+});
 
 describe('trusted provider dispatch runtime', () => {
   test('Perplexity trusted Enter focuses the matching composer and emits native Enter', async () => {
@@ -23,6 +38,7 @@ describe('trusted provider dispatch runtime', () => {
     const sandbox = {
       JSON,
       Number,
+      chrome: focusedChromeStub(),
       emitTelemetry: (...args) => calls.push(['telemetry', ...args]),
       callChromeDebugger: async (method, target, command, params) => {
         calls.push([method, target, command, params]);
@@ -52,6 +68,7 @@ describe('trusted provider dispatch runtime', () => {
     const calls = [];
     const sandbox = {
       JSON,
+      chrome: focusedChromeStub(),
       emitTelemetry: (...args) => calls.push(['telemetry', ...args]),
       trustedClickDebuggerObject: async (_target, objectId) => ({
         clicked: objectId === 'send-control',
