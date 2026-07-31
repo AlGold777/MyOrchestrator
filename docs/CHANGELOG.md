@@ -1,5 +1,37 @@
 # CHANGELOG — Project
 
+### 2026-07-31 — Telemetry digest tool, version 2.81.206
+
+A full "all presets" export of one run measures ~640KB — about 163k tokens read
+whole. Its composition:
+
+| section | share |
+|---|---|
+| `ledger` | 48.8% |
+| `reports` (preset definitions) | 45.6% |
+| `derivedViews` | 9.0% |
+| everything else | <3% |
+
+Nearly half the file is preset report definitions, which carry no run data, and
+every diagnosis so far has come from about a dozen fields inside
+`ledger.events`.
+
+`scripts/telemetry-digest.js` prints those fields and nothing else: build and
+run-session scope (flagging a mixed-session export outright), per-model terminal
+status and reason, delivered answers whose length matches the text already on
+the page, focus leases that fell below `minUsefulMs`, failed decision rules
+grouped by rule, and tab-reuse overrides and fallback creations.
+
+On the 2026-07-31 export that is 1714 bytes instead of 653020 — a 380× cut —
+and it surfaced in one line what had taken several separate queries to
+assemble: `submission_confirmed` failed for all eight dispatched models.
+
+    node scripts/telemetry-digest.js <export.json>        # human-readable
+    node scripts/telemetry-digest.js <export.json> --json # machine-readable
+
+Tests pin what the digest must never drop, including a model that never reached
+a terminal and the mixed-session warning.
+
 ### 2026-07-31 — No resend after a successful send; debugger stops grabbing focus, version 2.81.205
 
 **Duplicate insert and send after an already successful send (reported for Claude).**
