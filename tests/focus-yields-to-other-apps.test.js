@@ -1,0 +1,54 @@
+// Reported 2026-07-31: "the extension stays active more than 10-15 minutes and
+// steals focus even from other programs".
+//
+// The human/automation visit loop runs for as long as any model is
+// non-terminal, and every visit called chrome.windows.update({ focused: true }),
+// which raises the Chrome window over whatever application the user is actually
+// in. A visit needs its tab foregrounded *inside Chrome*; it does not need
+// Chrome pulled in front of another app.
+const fs = require('fs');
+const path = require('path');
+
+const SRC = fs.readFileSync(
+  path.join(__dirname, '..', 'background', 'human-presence.js'),
+  'utf8'
+);
+
+describe('visits do not steal focus from another application', () => {
+  test('both visit paths go through the guarded raise', () => {
+    expect(SRC).toContain('raiseWindowUnlessUserIsElsewhere(tab.windowId, `human_visit:${llmName}`)');
+    expect(SRC).toContain('raiseWindowUnlessUserIsElsewhere(tab.windowId, `automation_visit:${llmName}`)');
+  });
+
+  test('no visit path raises a window directly any more', () => {
+    const visitRegion = SRC.slice(SRC.indexOf('function visitTabWithHumanity'));
+    expect(visitRegion).not.toContain("chrome.windows.update(tab.windowId, { focused: true }");
+  });
+
+  test('the raise is skipped when no Chrome window holds focus', () => {
+    const guard = SRC.slice(
+      SRC.indexOf('async function raiseWindowUnlessUserIsElsewhere'),
+      SRC.indexOf('var humanPresenceLoopTimeout')
+    );
+    expect(guard).toContain('chrome.windows.getLastFocused');
+    expect(guard).toContain('win.focused === true');
+    expect(guard).toContain('if (!browserHasFocus)');
+    // The skip must return before the update call.
+    expect(guard.indexOf('if (!browserHasFocus)'))
+      .toBeLessThan(guard.indexOf('chrome.windows.update(windowId, { focused: true }'));
+  });
+
+  test('an unknown focus state does not steal focus on a guess', () => {
+    const guard = SRC.slice(
+      SRC.indexOf('async function raiseWindowUnlessUserIsElsewhere'),
+      SRC.indexOf('var humanPresenceLoopTimeout')
+    );
+    // Both the lastError branch and the throw branch resolve false.
+    const resolves = guard.match(/resolve\(false\)/g) || [];
+    expect(resolves.length).toBeGreaterThanOrEqual(2);
+  });
+
+  test('yielding is recorded, so a quiet run is distinguishable from a broken one', () => {
+    expect(SRC).toContain('WINDOW_FOCUS_YIELDED_TO_USER');
+  });
+});

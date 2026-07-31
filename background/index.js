@@ -118,22 +118,63 @@ const codexResolveStartPage = (callback) => {
   done('result_new.html');
 };
 
+// Reported 2026-07-31: the main page periodically goes blank — an empty tab with
+// no address — and comes back with all its data as soon as the extension button
+// is clicked. That is Chrome's memory saver discarding the tab: the document is
+// torn down, the tab keeps its slot, and re-activation reloads it and rehydrates
+// state from storage. A long run leaves the page in the background for minutes
+// at a time, which is exactly when discard happens.
+// Marking it non-auto-discardable keeps the live page alive.
+const codexProtectExtensionPageTab = (tabId) => {
+  if (!Number.isInteger(tabId) || tabId <= 0) return;
+  try {
+    chrome.tabs.update(tabId, { autoDiscardable: false }, () => chrome.runtime.lastError);
+  } catch (_) {}
+};
+self.codexProtectExtensionPageTab = codexProtectExtensionPageTab;
+
+const codexExtensionPageUrls = () => [
+  chrome.runtime.getURL('pipeline_panel.html'),
+  chrome.runtime.getURL('result_new.html')
+];
+
+// Re-assert on startup and whenever such a page finishes loading: the flag is
+// per-tab and does not survive a reload or a browser restart.
+try {
+  if (chrome?.tabs?.onUpdated && chrome?.runtime?.getURL) {
+    chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+      if (changeInfo.status !== 'complete') return;
+      const url = String(tab?.url || '');
+      if (!url) return;
+      if (!codexExtensionPageUrls().some((base) => url.startsWith(base))) return;
+      codexProtectExtensionPageTab(tabId);
+    });
+    chrome.tabs.query({ url: codexExtensionPageUrls() }, (tabs = []) => {
+      if (chrome.runtime.lastError) return;
+      (Array.isArray(tabs) ? tabs : []).forEach((tab) => codexProtectExtensionPageTab(tab?.id));
+    });
+  }
+} catch (err) {
+  console.warn('[BACKGROUND] Extension page discard protection failed:', err);
+}
+
 try {
   if (chrome?.action?.onClicked && chrome?.tabs && chrome?.runtime?.getURL) {
     chrome.action.onClicked.addListener(() => {
-      const urls = [
-        chrome.runtime.getURL('pipeline_panel.html'),
-        chrome.runtime.getURL('result_new.html')
-      ];
+      const urls = codexExtensionPageUrls();
       chrome.tabs.query({ url: urls }, (tabs = []) => {
         const existing = Array.isArray(tabs) ? tabs.find((tab) => tab?.id) : null;
         if (existing?.id) {
+          codexProtectExtensionPageTab(existing.id);
           chrome.windows?.update?.(existing.windowId, { focused: true }, () => chrome.runtime.lastError);
           chrome.tabs.update(existing.id, { active: true }, () => chrome.runtime.lastError);
           return;
         }
         codexResolveStartPage((file) => {
-          chrome.tabs.create({ url: chrome.runtime.getURL(file), active: true }, () => chrome.runtime.lastError);
+          chrome.tabs.create({ url: chrome.runtime.getURL(file), active: true }, (tab) => {
+            if (chrome.runtime.lastError) return;
+            codexProtectExtensionPageTab(tab?.id);
+          });
         });
       });
     });

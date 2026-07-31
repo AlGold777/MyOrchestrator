@@ -1,5 +1,46 @@
 # CHANGELOG — Project
 
+### 2026-07-31 — Blank main page, focus theft, duplicate tabs, version 2.81.204
+
+Three reported defects, three separate causes.
+
+**1. The main page periodically loses everything, then returns intact.**
+The signature — an empty tab with no address, restored complete by clicking the
+extension button — is Chrome's memory saver discarding the tab: the document is
+torn down while the tab keeps its slot, and re-activation reloads it and
+rehydrates from storage, which is why nothing is actually lost. A long run
+leaves the page backgrounded for minutes, exactly when discard happens.
+`result_new.html` and `pipeline_panel.html` are now marked
+`autoDiscardable: false`, re-asserted on every load and at startup because the
+flag is per-tab and survives neither a reload nor a browser restart.
+
+**2. The extension holds focus for 10–15 minutes and takes it from other apps.**
+The human/automation visit loop runs while any model is non-terminal, and every
+visit called `chrome.windows.update({ focused: true })`, which raises the Chrome
+window over whatever application the user is in. A visit needs its tab
+foregrounded *inside Chrome*; it does not need Chrome pulled in front of another
+app. Both visit paths now check `chrome.windows.getLastFocused()` first and skip
+the window raise when no Chrome window holds focus — and skip it on an unknown
+state too, rather than stealing focus on a guess. Yielding is recorded as
+`WINDOW_FOCUS_YIELDED_TO_USER`.
+This bounds the *focus* damage, not the run length; runs stay long while models
+fail to reach terminal, which is the deferred item 4.
+
+**3. A repeat request opens a new tab with New pages off.**
+`probeReusableTabSurface` rejects any tab whose composer holds text. A draft left
+behind by a failed insertion therefore made the tab "unsafe" on the next request,
+`tryAttachExistingTab` returned false, and `runModelThroughTabs` fell through to
+`createNewLlmTab`. One failed insertion guaranteed a duplicate tab next time —
+self-reinforcing, and matching the telemetry, where GPT alone had an empty
+dispatch baseline and `anchorAnswerCount: 1`.
+With New pages off, reuse is now mandatory: recoverable residue
+(`composer_has_draft`, `modal_visible`, a failed probe) is overridden rather than
+answered with a duplicate tab, recorded as `SOFT_REUSE_BLOCKER_OVERRIDDEN`.
+`generation_active` is deliberately **not** overridable — taking over a tab
+mid-generation would destroy a running answer. `TAB_ISOLATION_FALLBACK_CREATE` is
+now pinned in telemetry, so a duplicate tab can never again be created without a
+retained trace.
+
 ### 2026-07-31 — A near-identical prior answer no longer passes as new, version 2.81.203
 
 Diagnosed from the telemetry export of 2026-07-31 (extensionVersion 2.81.201).

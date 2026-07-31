@@ -5120,7 +5120,11 @@ async function runModelThroughTabs(llmName, prompt, forceNewTabs, attachments = 
   try {
     const attached = await tryAttachExistingTab(llmName, prompt, attachments, {
       ...options,
-      allowGlobalReuse: true
+      allowGlobalReuse: true,
+      // New pages is off: a repeat request must land in the page the user
+      // already has open. Recoverable page residue (a leftover draft, a modal)
+      // may be overridden rather than answered with a duplicate tab.
+      mandatoryReuse: true
     });
     if (attached) return true;
   } catch (err) {

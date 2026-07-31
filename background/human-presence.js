@@ -23,6 +23,55 @@ const DEFERRED_VISIT_DELAYS_MS = [15000, 45000, 90000];
 const TAB_LEASE_TTL_MS = HUMAN_VISIT_HARD_CAP_MS;
 const PROGRAMMATIC_FOCUS_GRACE_MS = 1500;
 
+// Reported 2026-07-31: the extension "stays active 10-15 minutes and steals
+// focus even from other programs". The human/automation visit loop runs while
+// any model is non-terminal, and each visit called
+// chrome.windows.update({ focused: true }), which raises the Chrome window over
+// whatever application the user is actually working in.
+//
+// A visit needs the tab foregrounded *inside Chrome*; it does not need Chrome
+// itself pulled in front of another app. If no Chrome window currently holds
+// focus the user is elsewhere, so the window raise is skipped and only the tab
+// activation proceeds. Returns whether the window was raised.
+async function raiseWindowUnlessUserIsElsewhere(windowId, context = '') {
+  const browserHasFocus = await new Promise((resolve) => {
+    try {
+      chrome.windows.getLastFocused({}, (win) => {
+        if (chrome.runtime.lastError || !win) {
+          // Unknown state: do not steal focus on a guess.
+          resolve(false);
+          return;
+        }
+        resolve(win.focused === true);
+      });
+    } catch (_) {
+      resolve(false);
+    }
+  });
+  if (!browserHasFocus) {
+    try {
+      emitTelemetry?.('SYSTEM', 'WINDOW_FOCUS_YIELDED_TO_USER', {
+        details: context,
+        meta: { windowId, context, reason: 'browser_not_frontmost' }
+      });
+    } catch (_) {}
+    return false;
+  }
+  await new Promise((resolve) => {
+    try {
+      chrome.windows.update(windowId, { focused: true }, () => {
+        if (chrome.runtime.lastError) {
+          console.warn(`[VISIT] Window focus failed (${context}):`, chrome.runtime.lastError.message);
+        }
+        resolve();
+      });
+    } catch (_) {
+      resolve();
+    }
+  });
+  return true;
+}
+
 var humanPresenceLoopTimeout = null;
 var humanPresenceActive = false;
 var humanPresencePaused = false;
@@ -933,14 +982,7 @@ function visitTabWithHumanity(llmName, tabId) {
         }
         resolve();
       };
-      const focusWindow = () => new Promise((focusResolve) => {
-        chrome.windows.update(tab.windowId, { focused: true }, () => {
-          if (chrome.runtime.lastError) {
-            console.warn(`[HUMAN-VISIT] Window focus failed for ${llmName}:`, chrome.runtime.lastError.message);
-          }
-          focusResolve();
-        });
-      });
+      const focusWindow = () => raiseWindowUnlessUserIsElsewhere(tab.windowId, `human_visit:${llmName}`);
       focusWindow().then(() => {
         if (!sessionStillValid() || !modelStillPending()) {
           finalizeVisit();
@@ -1078,14 +1120,7 @@ function visitTabWithAutomation(llmName, tabId, options = {}) {
         }
         resolve(visitSummary);
       };
-      const focusWindow = () => new Promise((focusResolve) => {
-        chrome.windows.update(tab.windowId, { focused: true }, () => {
-          if (chrome.runtime.lastError) {
-            console.warn(`[AUTOMATION-VISIT] Window focus failed for ${llmName}:`, chrome.runtime.lastError.message);
-          }
-          focusResolve();
-        });
-      });
+      const focusWindow = () => raiseWindowUnlessUserIsElsewhere(tab.windowId, `automation_visit:${llmName}`);
       Promise.resolve(previousTabPromise).then((previousTab) => {
         focusWindow().then(() => {
           if (!sessionStillValid() || !modelStillPending()) {
