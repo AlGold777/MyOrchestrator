@@ -335,11 +335,15 @@ describe('native proof telemetry ledger', () => {
       global.ProofTelemetryLedger.beginRun('a', { wallTs: 9000 }),
       global.ProofTelemetryLedger.beginRun('b', { wallTs: 1 })
     ]);
-    const snapshot = await global.ProofTelemetryLedger.snapshot();
+    // This assertion is about generation burning across two runs, so it needs
+    // the full history explicitly: an unscoped snapshot now returns only the
+    // active run session, which is what keeps an export from mixing sessions.
+    const snapshot = await global.ProofTelemetryLedger.snapshot({ allRunSessions: true });
     const intents = snapshot.lifecycle.filter((event) => event.eventType === 'RUN_OPEN_INTENT');
     expect(intents.map((event) => event.runGeneration)).toEqual([1, 2]);
-    expect(snapshot.runSessionId).toBe('b');
     expect(snapshot.status).toBe('active');
+    const scoped = await global.ProofTelemetryLedger.snapshot();
+    expect(scoped.runSessionId).toBe('b');
   });
 
   test('records producer reordering and closes observation coverage after worker restart', async () => {

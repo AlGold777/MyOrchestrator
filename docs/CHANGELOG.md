@@ -1,5 +1,35 @@
 # CHANGELOG — Project
 
+### 2026-07-31 — Telemetry is scoped to one run session, version 2.81.201
+
+- Symptom: reloading the results page pulled in telemetry and other data from
+  the previous session, so an export could describe two runs at once.
+- Two independent stores leaked, for the same reason: neither was scoped to a
+  run, and both were only ever cleared when a *new run started* — not when a
+  page reloaded.
+  - **Proof ledger.** The export requests its snapshot with `runSessionId: null`
+    (the page does not track the active session), and the ledger read null as
+    "every run ever recorded". `beginRun` resets `state.events` but deliberately
+    keeps `state.lifecycle`, so the lifecycle stream carried earlier sessions
+    into the file — while the file was labelled with the *current*
+    `runSessionId`. An absent scope now resolves to the ledger's own active run;
+    `allRunSessions: true` is the explicit opt-in for the full history, and the
+    snapshot reports which of the two it is via `runSessionScope`.
+  - **Diagnostics buffer.** `GET_DIAG_EVENTS` returned the whole persisted
+    buffer. After a reload with no new run, the page re-hydrated the previous
+    session, and its own "current run" resolver — which reads the newest event
+    it was handed — then presented that stale run as active. The handler now
+    scopes to the ledger's active run. Entries with no run identity
+    (setup/system lines) are kept, so nothing legitimate disappears.
+- Added `ProofTelemetryLedger.currentRunSessionId()` for callers that must scope
+  a different store to the same run without awaiting a snapshot. It is covered
+  by a test on purpose: the diagnostics filter reads it through optional
+  chaining, so had it stayed absent the filter would have silently become a
+  no-op and looked like a fix while changing nothing.
+- One existing ledger test asserted the old whole-history default; it is about
+  generation burning across two runs, so it now asks for `allRunSessions: true`
+  explicitly and additionally pins the new scoped default.
+
 ### 2026-07-31 — Perplexity regains the donor's native input transaction, version 2.81.199
 
 Two earlier attempts at this defect were wrong and are reverted; this entry

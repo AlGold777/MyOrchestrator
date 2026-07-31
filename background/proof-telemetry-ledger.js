@@ -882,12 +882,27 @@
     });
   }
 
-  function buildSnapshot(state, { runSessionId = null, consistency = 'queue_drained' } = {}) {
-      const events = runSessionId === null ? state.events : state.events.filter((event) => String(event.runSessionId) === String(runSessionId));
-      const lifecycle = runSessionId === null ? state.lifecycle : state.lifecycle.filter((event) => String(event.runSessionId) === String(runSessionId));
+  // A caller that passes no runSessionId means "the run I am looking at", not
+  // "every run ever recorded". The old null-means-everything contract made the
+  // JSON export carry events from earlier sessions while labelling the file with
+  // the current runSessionId, so a reload before a fresh run produced an export
+  // that silently mixed two sessions. Absent scope now resolves to the ledger's
+  // own current session; `allRunSessions: true` is the explicit opt-in for the
+  // whole history.
+  function resolveSnapshotScope(state, runSessionId, allRunSessions) {
+    if (allRunSessions === true) return null;
+    if (runSessionId !== null && typeof runSessionId !== 'undefined') return runSessionId;
+    return state.runSessionId ?? null;
+  }
+
+  function buildSnapshot(state, { runSessionId = null, allRunSessions = false, consistency = 'queue_drained' } = {}) {
+      const scope = resolveSnapshotScope(state, runSessionId, allRunSessions);
+      const events = scope === null ? state.events : state.events.filter((event) => String(event.runSessionId) === String(scope));
+      const lifecycle = scope === null ? state.lifecycle : state.lifecycle.filter((event) => String(event.runSessionId) === String(scope));
       return {
         schemaVersion: 6,
-        runSessionId: runSessionId ?? state.runSessionId,
+        runSessionId: scope ?? state.runSessionId,
+        runSessionScope: scope === null ? 'all_run_sessions' : 'single_run_session',
         runGeneration: state.runGeneration,
         status: state.status,
         firstSeq: events[0]?.seq || 0,
@@ -910,19 +925,19 @@
       };
   }
 
-  function snapshot({ runSessionId = null } = {}) {
+  function snapshot({ runSessionId = null, allRunSessions = false } = {}) {
     flushPendingRecordBatch();
     return enqueue((current) => {
       const state = normalizeState(current);
       return flushOperationalIntervals(state, 'export_snapshot') ? state : current;
-    }).then((state) => buildSnapshot(state, { runSessionId, consistency: 'queue_drained' }));
+    }).then((state) => buildSnapshot(state, { runSessionId, allRunSessions, consistency: 'queue_drained' }));
   }
 
-  async function snapshotCommitted({ runSessionId = null } = {}) {
+  async function snapshotCommitted({ runSessionId = null, allRunSessions = false } = {}) {
     const state = stateCache
       ? normalizeState(stateCache)
       : normalizeState(await readStored());
-    return buildSnapshot(state, { runSessionId, consistency: 'committed_boundary' });
+    return buildSnapshot(state, { runSessionId, allRunSessions, consistency: 'committed_boundary' });
   }
 
   function snapshotIncident(scope) {
@@ -969,8 +984,17 @@
     return operation;
   }
 
+  // Synchronous read of the session the ledger currently considers active, for
+  // callers that must scope a different store (the diagnostics buffer) to the
+  // same run without awaiting a full snapshot. Returns null before the first run.
+  function currentRunSessionId() {
+    const state = stateCache ? normalizeState(stateCache) : null;
+    return state?.runSessionId ?? null;
+  }
+
   root.ProofTelemetryLedger = Object.freeze({
     STORAGE_KEY, MAX_EVENTS, MAX_QUARANTINE_EVENTS, MAX_PENDING_EVENTS,
-    beginRun, closeRun, stagePending, record, appendCanonical, snapshot, snapshotCommitted, snapshotIncident, recover, clear
+    beginRun, closeRun, stagePending, record, appendCanonical, snapshot, snapshotCommitted, snapshotIncident,
+    currentRunSessionId, recover, clear
   });
 })(typeof globalThis !== 'undefined' ? globalThis : self);

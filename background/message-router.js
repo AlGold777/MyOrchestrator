@@ -3732,6 +3732,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                             const set = new Set(platforms.map((p) => String(p).toLowerCase()));
                             arr = arr.filter((e) => set.has(String(e?.platform || 'unknown').toLowerCase()));
                         }
+                        // The persisted diagnostics buffer is cleared when a new
+                        // run starts, not when a page reloads. Reloading the
+                        // results page without starting a run therefore re-hydrated
+                        // the previous session, and the page's own
+                        // "current run" resolver — which reads the newest event it
+                        // was given — then presented that stale run as the active
+                        // one. Scope to the ledger's current run session here so a
+                        // reload cannot resurrect an earlier session. Events that
+                        // carry no run identity (setup/system lines) are kept.
+                        const activeRunSessionId = message?.allRunSessions === true
+                            ? null
+                            : (self.ProofTelemetryLedger?.currentRunSessionId?.() ?? null);
+                        if (activeRunSessionId !== null && activeRunSessionId !== undefined) {
+                            arr = arr.filter((entry) => {
+                                const entryRunSessionId = entry?.meta?.runSessionId
+                                    ?? entry?.meta?.sessionId
+                                    ?? entry?.runSessionId
+                                    ?? entry?.sessionId
+                                    ?? null;
+                                if (entryRunSessionId === null || entryRunSessionId === undefined) return true;
+                                return String(entryRunSessionId) === String(activeRunSessionId);
+                            });
+                        }
                         const capSize = (limit && Number.isFinite(limit))
                             ? limit
                             : DIAGNOSTICS_EXPORT_MAX_ITEMS;
