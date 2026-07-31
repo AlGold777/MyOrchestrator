@@ -108,7 +108,27 @@ describe('composer transaction contract', () => {
     expect(source).toContain('perplexityDispatchGate.begin');
     expect(source).toContain('perplexityDispatchGate.finish');
     expect(source).not.toContain("const typing = document.querySelector('[aria-busy=\"true\"]");
-    expect(source).not.toContain("type: 'PERPLEXITY_TRUSTED_INPUT_REQUEST'");
+  });
+
+  // 2.81.199: in-page insertion stays the primary path, but it is no longer the
+  // only one. Field evidence 2.81.196 and 2.81.198 both ended
+  // `prompt_injection_failed` after three prepare() attempts, so the donor's
+  // native input transaction is restored as the fallback behind it.
+  test('Perplexity falls back to the native input transaction only after prepare fails', () => {
+    const source = read('content-scripts/content-perplexity.js');
+    const prepareAt = source.indexOf('PerplexityComposerTransaction.prepare');
+    const trustedAt = source.indexOf("type: 'PERPLEXITY_TRUSTED_INPUT_REQUEST'");
+    const throwAt = source.indexOf("throw { type: 'prompt_injection_failed'");
+    expect(prepareAt).toBeGreaterThan(-1);
+    expect(trustedAt).toBeGreaterThan(prepareAt);
+    // The native retry must come before giving up, otherwise it is unreachable.
+    expect(trustedAt).toBeLessThan(throwAt);
+    const router = read('background/message-router.js');
+    const enabled = router.slice(
+      router.indexOf('const ENABLED_DEBUGGER_RPC_TYPES'),
+      router.indexOf(']);', router.indexOf('const ENABLED_DEBUGGER_RPC_TYPES'))
+    );
+    expect(enabled).toContain('PERPLEXITY_TRUSTED_INPUT_REQUEST');
   });
 
   test('Perplexity acquires a composer before considering a strictly-owned promotion overlay', () => {

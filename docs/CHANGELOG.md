@@ -1,5 +1,32 @@
 # CHANGELOG — Project
 
+### 2026-07-31 — Perplexity regains the donor's native input transaction, version 2.81.199
+
+Two earlier attempts at this defect were wrong and are reverted; this entry
+records what the field data actually ruled out.
+
+- **Refuted — the Lexical commit race (2.81.197).** Real, but not the cause.
+- **Refuted — the focus lease (2.81.198).** The hypothesis was that Perplexity's
+  automation focus lease (684 ms against `minUsefulMs` 1500) ended before the
+  in-page insert could run. The hold was raised to 8000 ms and the lease
+  duly grew to **8656 ms** — and the run still ended `prompt_injection_failed`.
+  Focus was not the cause. The change also starved Le Chat downstream (denied
+  `active_lease` at its round-3 precollect) and broke a working provider, so it
+  is reverted in full.
+- **What was actually missing.** Donor 2.81.75 gives Perplexity *two* trusted
+  paths, input and send. Only the send half was ported; the insertion half was
+  left out on the assumption that insertion worked. The observed failure is
+  `prompt_injection_failed` — insertion — and 2.81.195's allowlist additionally
+  had `PERPLEXITY_TRUSTED_INPUT_REQUEST` returning `debugger_route_disabled`.
+- Restored: the route is enabled, and when `prepare()` fails the adapter
+  re-enters through `dispatchProviderTrustedInput` — focus the composer, native
+  SelectAll, native `Input.insertText`, then reacquire the live editor because
+  React may swap the node. **That SelectAll is also the clear** that the
+  execCommand-based `clear()` cannot perform when the editor ignores it, which
+  is why leftover text in a reused tab was never replaced.
+- In-page insertion remains the primary path; the native transaction is the
+  fallback behind it. Le Chat is untouched.
+
 ### 2026-07-30 — Eager telemetry export click bootstrap, version 2.81.182
 
 - A small bootstrap is loaded before the heavy results runtime on both result

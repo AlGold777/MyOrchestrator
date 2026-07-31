@@ -1537,6 +1537,58 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
     );
     if (prepared.ok && prepared.composer) inputField = prepared.composer;
     if (!prepared.ok) {
+      // Donor 2.81.75 path, restored in 2.81.199. Every in-page insertion runs
+      // through execCommand or a synthetic InputEvent, and Perplexity's editor
+      // can accept neither — field evidence 2.81.196/198: three prepare()
+      // attempts, `prompt_injection_failed`, the draft visibly stacked in the
+      // composer and leftover text never cleared. Re-enter through a native
+      // browser input transaction instead: dispatchProviderTrustedInput focuses
+      // the composer, issues a native SelectAll (this is the clear that
+      // execCommand could not perform) and a native Input.insertText. Then
+      // reacquire the live editor, because React may swap the node.
+      activity.heartbeat(0.28, { phase: 'trusted-composer-input' });
+      try { inputField.focus?.({ preventScroll: true }); } catch (_) { try { inputField.focus?.(); } catch (_) {} }
+      const isMac = /mac|iphone|ipad|ipod/i.test(
+        navigator.userAgentData?.platform || navigator.platform || navigator.userAgent || ''
+      );
+      const trustedInput = await new Promise((resolve) => {
+        try {
+          chrome.runtime.sendMessage({
+            type: 'PERPLEXITY_TRUSTED_INPUT_REQUEST',
+            llmName: MODEL,
+            text: prompt,
+            isMac
+          }, (response) => {
+            if (chrome.runtime.lastError) resolve({ ok: false, reason: chrome.runtime.lastError.message });
+            else resolve(response || { ok: false, reason: 'empty_response' });
+          });
+        } catch (err) {
+          resolve({ ok: false, reason: err?.message || 'send_message_failed' });
+        }
+      });
+      await sleep(250);
+      const liveComposer = findLivePromptComposer();
+      if (trustedInput?.ok && liveComposer) {
+        inputField = liveComposer;
+        prepared = { ok: true, method: trustedInput.method || 'trusted_native_input' };
+      } else if (liveComposer) {
+        // The native transaction reported failure but the prompt is on the page
+        // under this dispatch's fingerprint, so the draft is usable either way.
+        inputField = liveComposer;
+        prepared = { ok: true, method: 'reacquired_prompt_fingerprint' };
+      } else {
+        prepared = {
+          ok: false,
+          reason: `${prepared.reason};trusted_input=${trustedInput?.reason || 'not_confirmed'}`
+        };
+      }
+      emitPerplexityComposerTelemetry(
+        prepared.ok ? 'PERPLEXITY_DRAFT_ACCEPTED' : 'PERPLEXITY_DRAFT_REJECTED',
+        prepared.ok ? `method=${prepared.method}` : String(prepared.reason || 'unknown'),
+        { ok: prepared.ok === true, method: prepared.method || null, reason: prepared.reason || null, stage: 'trusted_native_input' }
+      );
+    }
+    if (!prepared.ok) {
       throw { type: 'prompt_injection_failed', message: `Perplexity prompt preparation failed: ${prepared.reason}` };
     }
     activity.heartbeat(0.3, { phase: 'typing' });

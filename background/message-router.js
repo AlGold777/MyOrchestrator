@@ -28,9 +28,16 @@ const DEBUGGER_RPC_TYPES = new Set([
     'QWEN_CDP_ATTACH_REQUEST',
     'PROVIDER_CDP_ATTACH_REQUEST'
 ]);
+// PERPLEXITY_TRUSTED_INPUT_REQUEST is the donor 2.81.75 insertion path and is
+// enabled for the same reason the send routes are: Perplexity's composer refuses
+// in-page insertion. dispatchProviderTrustedInput focuses the composer, issues a
+// native SelectAll and a native Input.insertText — that SelectAll is also what
+// replaces leftover text in a reused tab, which the execCommand-based clear()
+// cannot do when the editor ignores it.
 const ENABLED_DEBUGGER_RPC_TYPES = new Set([
     'PROVIDER_TRUSTED_SEND_REQUEST',
-    'PERPLEXITY_TRUSTED_ENTER_REQUEST'
+    'PERPLEXITY_TRUSTED_ENTER_REQUEST',
+    'PERPLEXITY_TRUSTED_INPUT_REQUEST'
 ]);
 
 const callChromeDebugger = (method, ...args) => new Promise((resolve, reject) => {
