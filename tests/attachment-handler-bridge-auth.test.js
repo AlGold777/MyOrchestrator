@@ -342,33 +342,22 @@ describe('attachment bridge authentication', () => {
     expect(orchestrator.indexOf('const providerPipelineActive')).toBeLessThan(orchestrator.indexOf("ROUND2_REPAIR_MODELS.has(llmName)"));
   });
 
-  test('Le Chat and Perplexity use the only enabled sender-gated debugger routes', () => {
+  test('packaged provider dispatch cannot enable debugger routes', () => {
     const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'manifest.json'), 'utf8'));
-    expect(manifest.permissions).toContain('debugger');
-    expect(PROVIDER_SOURCES['Le Chat']).toContain("type: 'PROVIDER_TRUSTED_SEND_REQUEST'");
-    expect(PROVIDER_SOURCES.Perplexity).toContain("type: 'PERPLEXITY_TRUSTED_ENTER_REQUEST'");
-    expect(PROVIDER_SOURCES.Perplexity).toContain("type: 'PROVIDER_TRUSTED_SEND_REQUEST'");
-    expect(ROUTER_SRC).toContain("model === 'Le Chat' && /^https:\\/\\/chat\\.mistral\\.ai\\//i.test(senderUrl)");
-    expect(ROUTER_SRC).toContain("model === 'Perplexity' && /^https:\\/\\/(?:www\\.)?perplexity\\.ai\\//i.test(senderUrl)");
-    expect(ROUTER_SRC).toContain("case 'PERPLEXITY_TRUSTED_ENTER_REQUEST'");
-    expect(ROUTER_SRC).toContain("'PROVIDER_TRUSTED_SEND_FAILED'");
-    expect(ROUTER_SRC).toContain("'PROVIDER_TRUSTED_ENTER_FAILED'");
-    expect(ROUTER_SRC).toContain("debuggerApiAvailable: typeof chrome.debugger?.attach === 'function'");
-    expect(ROUTER_SRC).toContain("const ENABLED_DEBUGGER_RPC_TYPES = new Set([\n    'PROVIDER_TRUSTED_SEND_REQUEST',\n    'PERPLEXITY_TRUSTED_ENTER_REQUEST'");
+    expect(manifest.permissions).not.toContain('debugger');
+    expect(PROVIDER_SOURCES['Le Chat']).not.toContain("type: 'PROVIDER_TRUSTED_SEND_REQUEST'");
+    expect(PROVIDER_SOURCES.Perplexity).not.toContain("type: 'PERPLEXITY_TRUSTED_ENTER_REQUEST'");
+    expect(PROVIDER_SOURCES.Perplexity).not.toContain("type: 'PROVIDER_TRUSTED_SEND_REQUEST'");
+    expect(ROUTER_SRC).toContain('const ENABLED_DEBUGGER_RPC_TYPES = new Set();');
     expect(ROUTER_SRC).toContain("reason: 'debugger_route_disabled'");
   });
 
-  test('Le Chat stops after the trusted donor transaction instead of entering slow fallbacks', () => {
+  test('Le Chat uses page-local send fallbacks with no debugger RPC', () => {
     const source = PROVIDER_SOURCES['Le Chat'];
-    const trustedAt = source.indexOf("type: 'PROVIDER_TRUSTED_SEND_REQUEST'");
-    const throwAt = source.indexOf('Le Chat trusted Send was not confirmed', trustedAt);
-    const nextFunctionAt = source.indexOf('\n  async function injectAndGetResponse', trustedAt);
-    const transaction = source.slice(trustedAt, nextFunctionAt);
-    expect(trustedAt).toBeGreaterThan(-1);
-    expect(throwAt).toBeGreaterThan(trustedAt);
-    expect(transaction).not.toContain('form.requestSubmit()');
-    expect(transaction).not.toContain('dispatchEnter();');
-    expect(transaction).not.toContain('prompt\n');
+    expect(source).not.toContain("type: 'PROVIDER_TRUSTED_SEND_REQUEST'");
+    expect(source).toContain('await lechatHumanClick(sendButton)');
+    expect(source).toContain('form.requestSubmit()');
+    expect(source).toContain('dispatchEnter();');
   });
 
   test('Le Chat confirms a new submission signal rather than a pre-existing busy element', () => {

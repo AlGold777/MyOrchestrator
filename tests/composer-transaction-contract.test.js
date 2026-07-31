@@ -88,14 +88,12 @@ describe('composer transaction contract', () => {
 
   test('Perplexity does not publish submit after an unconfirmed send', () => {
     const source = read('content-scripts/content-perplexity.js');
-    const trustedSendAt = source.indexOf("type: 'PROVIDER_TRUSTED_SEND_REQUEST'");
-    const trustedEnterAt = source.indexOf("type: 'PERPLEXITY_TRUSTED_ENTER_REQUEST'", trustedSendAt);
-    const pageButtonAt = source.indexOf('const sendButton = resolveSendButton()', trustedSendAt);
-    const failedAt = source.indexOf("type: 'send_failed'", trustedSendAt);
+    const pageButtonAt = source.indexOf('const sendButton = resolveSendButton()');
+    const failedAt = source.indexOf("type: 'send_failed'", pageButtonAt);
     const submittedAt = source.indexOf("type: 'PROMPT_SUBMITTED'", failedAt);
-    expect(trustedSendAt).toBeGreaterThan(-1);
-    expect(trustedEnterAt).toBeGreaterThan(trustedSendAt);
-    expect(pageButtonAt).toBe(-1);
+    expect(source).not.toContain("type: 'PROVIDER_TRUSTED_SEND_REQUEST'");
+    expect(source).not.toContain("type: 'PERPLEXITY_TRUSTED_ENTER_REQUEST'");
+    expect(pageButtonAt).toBeGreaterThan(-1);
     expect(failedAt).toBeGreaterThan(-1);
     expect(submittedAt).toBeGreaterThan(failedAt);
     expect(source).toContain('ContentUtils.promptMatchesComposer(value, prompt)');
@@ -110,25 +108,20 @@ describe('composer transaction contract', () => {
     expect(source).not.toContain("const typing = document.querySelector('[aria-busy=\"true\"]");
   });
 
-  // 2.81.199: in-page insertion stays the primary path, but it is no longer the
-  // only one. Field evidence 2.81.196 and 2.81.198 both ended
-  // `prompt_injection_failed` after three prepare() attempts, so the donor's
-  // native input transaction is restored as the fallback behind it.
-  test('Perplexity falls back to the native input transaction only after prepare fails', () => {
+  test('Perplexity never falls back to a debugger input transaction', () => {
     const source = read('content-scripts/content-perplexity.js');
     const prepareAt = source.indexOf('PerplexityComposerTransaction.prepare');
     const trustedAt = source.indexOf("type: 'PERPLEXITY_TRUSTED_INPUT_REQUEST'");
     const throwAt = source.indexOf("throw { type: 'prompt_injection_failed'");
     expect(prepareAt).toBeGreaterThan(-1);
-    expect(trustedAt).toBeGreaterThan(prepareAt);
-    // The native retry must come before giving up, otherwise it is unreachable.
-    expect(trustedAt).toBeLessThan(throwAt);
+    expect(trustedAt).toBe(-1);
+    expect(throwAt).toBeGreaterThan(prepareAt);
     const router = read('background/message-router.js');
     const enabled = router.slice(
       router.indexOf('const ENABLED_DEBUGGER_RPC_TYPES'),
       router.indexOf(']);', router.indexOf('const ENABLED_DEBUGGER_RPC_TYPES'))
     );
-    expect(enabled).toContain('PERPLEXITY_TRUSTED_INPUT_REQUEST');
+    expect(enabled).not.toContain('PERPLEXITY_TRUSTED_INPUT_REQUEST');
   });
 
   test('Perplexity acquires a composer before considering a strictly-owned promotion overlay', () => {

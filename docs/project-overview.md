@@ -364,7 +364,6 @@ It must not contain raw API keys, unnecessary full prompts, unnecessary full ans
 | `alarms` | Rate-limit and lifecycle timers |
 | `clipboardRead`, `clipboardWrite` | Support provider text/attachment clipboard integration where enabled |
 | `downloads` | Materialize Gemini attachments as temporary local files before assigning them to the page file input |
-| `debugger` | Open Gemini's native file chooser with a trusted CDP click and assign attachments to the intercepted file input |
 
 ### Host Permissions
 

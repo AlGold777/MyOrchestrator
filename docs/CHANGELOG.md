@@ -5149,3 +5149,11 @@ Backlog `what-to-do.md`, батч 1 (UI + Финализация).
 
 - Proof telemetry now coalesces mutations accumulated during an active persistence transaction, preventing a high-rate event stream from creating a transaction-per-event backlog.
 - JSON export no longer downloads the last committed boundary when the proof-ledger barrier times out. It returns a retryable incomplete-snapshot status and asks the user to export again after the queue drains.
+# 2.81.200 — Remove browser debugger transport
+
+- Removed the `debugger` manifest permission. Chrome's “A_Fable started
+  debugging this browser” notification is therefore no longer reachable from
+  the packaged extension.
+- All historical trusted-input and CDP RPCs are fail-closed in the background
+  router. Le Chat and Perplexity submission use page-local Send, form and
+  keyboard paths with the existing post-submit evidence checks.
