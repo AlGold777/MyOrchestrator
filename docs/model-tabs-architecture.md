@@ -754,9 +754,14 @@ reacquiring their live composer and for provider-specific send evidence.
   restored in `finally`; this requires the explicit `downloads.ui` permission.
   Suppression failure is fail-closed (`download_ui_suppression_unavailable`): no
   internal download may start and Chrome's download bubble must not open.
-- Product builds do not request the `debugger` permission. Historical trusted
-  input and CDP attachment RPCs remain fail-closed, so normal provider dispatch
-  cannot trigger Chrome's browser-level debugging notification.
+- Trusted attachment delivery may use the background `chrome.debugger` API
+  (CDP) for a provider tab. Chrome can therefore show its browser-level
+  “debugging this browser” notification; that notification is expected and is
+  not evidence that the extension is watching the user's screen or actions.
+  The debugger scope is limited to the bound provider tab and the current
+  dispatch: DOM/file-input or chooser commands and their result are read, then
+  the debugger target is detached in `finally`. No screenshots, keystroke
+  stream or unrelated tabs are collected by this transport.
 - Before Perplexity composer discovery, the adapter may dismiss a page-owned
   modal only when the dialog text explicitly identifies an upgrade/plan/package
   promotion and it exposes an explicit Close/Dismiss/Not now control. File menus,

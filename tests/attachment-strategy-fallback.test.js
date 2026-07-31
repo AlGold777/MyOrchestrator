@@ -63,10 +63,10 @@ describe('attachment strategy fallback contract', () => {
     expect(tryVia).toContain('dispatch_threw');
   });
 
-  test('CDP attachment routes stay disabled without debugger permission', () => {
+  test('debugger permission does not enable CDP attachment routes', () => {
     const permissions = [...(MANIFEST.permissions || []), ...(MANIFEST.optional_permissions || [])];
     const router = fs.readFileSync(path.join(ROOT, 'background', 'message-router.js'), 'utf8');
-    expect(permissions).not.toContain('debugger');
+    expect(permissions).toContain('debugger');
     expect(router).toContain("'GEMINI_CDP_ATTACH_REQUEST',");
     expect(router).toContain("'QWEN_CDP_ATTACH_REQUEST',");
     expect(router).toContain("'PROVIDER_CDP_ATTACH_REQUEST'");

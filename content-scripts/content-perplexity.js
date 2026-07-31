@@ -1537,6 +1537,58 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
     );
     if (prepared.ok && prepared.composer) inputField = prepared.composer;
     if (!prepared.ok) {
+      // Donor 2.81.75 path, restored in 2.81.199. Every in-page insertion runs
+      // through execCommand or a synthetic InputEvent, and Perplexity's editor
+      // can accept neither — field evidence 2.81.196/198: three prepare()
+      // attempts, `prompt_injection_failed`, the draft visibly stacked in the
+      // composer and leftover text never cleared. Re-enter through a native
+      // browser input transaction instead: dispatchProviderTrustedInput focuses
+      // the composer, issues a native SelectAll (this is the clear that
+      // execCommand could not perform) and a native Input.insertText. Then
+      // reacquire the live editor, because React may swap the node.
+      activity.heartbeat(0.28, { phase: 'trusted-composer-input' });
+      try { inputField.focus?.({ preventScroll: true }); } catch (_) { try { inputField.focus?.(); } catch (_) {} }
+      const isMac = /mac|iphone|ipad|ipod/i.test(
+        navigator.userAgentData?.platform || navigator.platform || navigator.userAgent || ''
+      );
+      const trustedInput = await new Promise((resolve) => {
+        try {
+          chrome.runtime.sendMessage({
+            type: 'PERPLEXITY_TRUSTED_INPUT_REQUEST',
+            llmName: MODEL,
+            text: prompt,
+            isMac
+          }, (response) => {
+            if (chrome.runtime.lastError) resolve({ ok: false, reason: chrome.runtime.lastError.message });
+            else resolve(response || { ok: false, reason: 'empty_response' });
+          });
+        } catch (err) {
+          resolve({ ok: false, reason: err?.message || 'send_message_failed' });
+        }
+      });
+      await sleep(250);
+      const liveComposer = findLivePromptComposer();
+      if (trustedInput?.ok && liveComposer) {
+        inputField = liveComposer;
+        prepared = { ok: true, method: trustedInput.method || 'trusted_native_input' };
+      } else if (liveComposer) {
+        // The native transaction reported failure but the prompt is on the page
+        // under this dispatch's fingerprint, so the draft is usable either way.
+        inputField = liveComposer;
+        prepared = { ok: true, method: 'reacquired_prompt_fingerprint' };
+      } else {
+        prepared = {
+          ok: false,
+          reason: `${prepared.reason};trusted_input=${trustedInput?.reason || 'not_confirmed'}`
+        };
+      }
+      emitPerplexityComposerTelemetry(
+        prepared.ok ? 'PERPLEXITY_DRAFT_ACCEPTED' : 'PERPLEXITY_DRAFT_REJECTED',
+        prepared.ok ? `method=${prepared.method}` : String(prepared.reason || 'unknown'),
+        { ok: prepared.ok === true, method: prepared.method || null, reason: prepared.reason || null, stage: 'trusted_native_input' }
+      );
+    }
+    if (!prepared.ok) {
       throw { type: 'prompt_injection_failed', message: `Perplexity prompt preparation failed: ${prepared.reason}` };
     }
     activity.heartbeat(0.3, { phase: 'typing' });
@@ -1607,49 +1659,42 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
       return false;
     };
 
-    const dispatchEnter = () => {
-      const init = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true };
-      inputField.dispatchEvent(new KeyboardEvent('keydown', init));
-      inputField.dispatchEvent(new KeyboardEvent('keypress', init));
-      inputField.dispatchEvent(new KeyboardEvent('keyup', init));
-    };
-    const resolveSendButton = () => {
-      const ownedControl = window.PerplexityComposerTransaction?.resolveSendControl?.(inputField) || null;
-      if (ownedControl) return ownedControl;
-      const scope = inputField.closest?.('form,[role="search"],[data-testid*="composer" i]') || inputField.parentElement;
-      if (!scope) return null;
-      return Array.from(scope.querySelectorAll('button,[role="button"]')).find((button) => {
-        if (!isElementInteractable(button) || button.disabled || button.getAttribute?.('aria-disabled') === 'true') return false;
-        const label = [button.getAttribute?.('aria-label'), button.getAttribute?.('title'),
-          button.getAttribute?.('data-testid'), button.textContent].filter(Boolean).join(' ');
-        return /send|submit|ask|arrow-up|paper-plane|отправ|enviar/i.test(label)
-          || String(button.getAttribute?.('type') || '').toLowerCase() === 'submit';
-      }) || null;
-    };
-    let confirmed = false;
-    activity.heartbeat(0.4, { phase: 'page-send-control' });
-    const sendButton = resolveSendButton();
-    if (sendButton) {
-      sendButton.click();
-      confirmed = await confirmPerplexitySend();
-    }
-    if (!confirmed) {
-      const form = inputField.closest?.('form');
-      if (form?.requestSubmit) {
-        try { form.requestSubmit(sendButton || undefined); } catch (_) { try { form.requestSubmit(); } catch (_) {} }
-        confirmed = await confirmPerplexitySend();
-      }
-    }
-    if (!confirmed) {
-      try { inputField.focus?.({ preventScroll: true }); } catch (_) {}
-      dispatchEnter();
-      confirmed = await confirmPerplexitySend();
+    // Current Perplexity exposes a unique localized Send control only after the
+    // Lexical editor has committed the draft. prepare() already proves that
+    // control exists, so click it natively first. Enter is a bounded fallback
+    // for layouts where the control disappears between preparation and CDP.
+    activity.heartbeat(0.4, { phase: 'trusted-send-control' });
+    const trustedSend = await new Promise((resolve) => {
+      chrome.runtime.sendMessage({
+        type: 'PROVIDER_TRUSTED_SEND_REQUEST',
+        llmName: MODEL,
+        prompt
+      }, (response) => {
+        if (chrome.runtime.lastError) resolve({ ok: false, reason: chrome.runtime.lastError.message });
+        else resolve(response || { ok: false, reason: 'empty_response' });
+      });
+    });
+    let confirmed = trustedSend?.ok && await confirmPerplexitySend(6000, true);
+    let trustedEnter = null;
+    if (!confirmed && findLivePromptComposer()) {
+      activity.heartbeat(0.43, { phase: 'trusted-composer-enter-fallback' });
+      trustedEnter = await new Promise((resolve) => {
+        chrome.runtime.sendMessage({
+          type: 'PERPLEXITY_TRUSTED_ENTER_REQUEST',
+          llmName: MODEL,
+          prompt
+        }, (response) => {
+          if (chrome.runtime.lastError) resolve({ ok: false, reason: chrome.runtime.lastError.message });
+          else resolve(response || { ok: false, reason: 'empty_response' });
+        });
+      });
+      confirmed = trustedEnter?.ok && await confirmPerplexitySend(6000, true);
     }
 
     if (!confirmed) {
       throw {
         type: 'send_failed',
-        message: 'Perplexity submit not confirmed by page controls'
+        message: `Perplexity submit not confirmed: click=${trustedSend?.reason || 'no_send_evidence'}, enter=${trustedEnter?.reason || 'not_attempted'}`
       };
     }
     activity.heartbeat(0.55, { phase: 'send-dispatched' });

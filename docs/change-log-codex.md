@@ -1,13 +1,5 @@
 # Codex phase change log
 
-## 2.81.200 — Remove browser debugger permission
-
-- The debugger permission restored in 2.81.195 caused Chrome's unavoidable
-  browser-level debugging notification during Le Chat and Perplexity dispatch.
-- Removed the permission and disabled every debugger RPC. Provider submission
-  now stays inside the page and remains gated by new-turn/generation evidence.
-- Tagged the previous runtime as `before-remove-debugger-v2.81.199`.
-
 ## 2.81.196 — Perplexity single-flight and live Send control
 
 - Field result on 2.81.195: Le Chat submitted quickly; Perplexity inserted the

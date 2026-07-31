@@ -1003,65 +1003,30 @@
     await sleep(240);
     try { composer.focus?.({ preventScroll: true }); } catch (_) { try { composer.focus?.(); } catch (_) {} }
 
-    // Page-local strategies avoid chrome.debugger, which would display a
-    // browser-level debugging notification on every dispatch.
+    // Donor 2.81.75 fast path: Le Chat ignores synthetic keyboard submission
+    // on some existing conversations, while a browser-level trusted Send is
+    // accepted immediately. The background handler validates the sender URL
+    // and tab before attaching the debugger.
     try {
       const beforeLen = ((composer.value || composer.textContent || '').trim()).length;
-      const sendButton = await waitForSendEnabled(composer, 2500);
-      if (sendButton && !isSendButtonDisabled(sendButton)) {
-        await lechatHumanClick(sendButton);
-        if (await confirmLeChatSend(sendButton, 3000, beforeLen)) {
-          console.log('[content-lechat] Button click send confirmed.');
-          return true;
-        }
-      } else {
-        console.warn('[content-lechat] Send button stayed disabled after wait; falling back to Enter.');
-      }
-    } catch (e) {
-      console.warn('[content-lechat] Button click send failed', e);
-    }
-
-    try {
-      const form = composer.closest?.('form');
-      if (form?.requestSubmit) {
-        form.requestSubmit();
-        if (await confirmLeChatSend(null, 3000)) {
-          console.log('[content-lechat] Form submit confirmed.');
-          return true;
-        }
-      }
-    } catch (e) {
-      console.warn('[content-lechat] Form submit failed', e);
-    }
-
-    try {
-      const beforeLen = ((composer.value || composer.textContent || '').trim()).length;
-      try { composer.focus?.({ preventScroll: true }); } catch (_) {}
-      dispatchEnter();
-      if (await confirmLeChatSend(null, 3000, beforeLen)) {
-        console.log('[content-lechat] Enter key send confirmed.');
+      const trusted = await new Promise((resolve) => {
+        chrome.runtime.sendMessage({
+          type: 'PROVIDER_TRUSTED_SEND_REQUEST',
+          llmName: MODEL
+        }, (response) => {
+          if (chrome.runtime.lastError) resolve({ ok: false, reason: chrome.runtime.lastError.message });
+          else resolve(response || { ok: false, reason: 'empty_response' });
+        });
+      });
+      if (trusted?.ok && await confirmLeChatSend(null, 4000, beforeLen, true)) {
+        console.log('[content-lechat] Trusted Send control confirmed.');
         return true;
       }
+      throw new Error(`Le Chat trusted Send was not confirmed: ${trusted?.reason || 'no_send_evidence'}`);
     } catch (e) {
-      console.warn('[content-lechat] Enter key send failed', e);
+      console.warn('[content-lechat] Trusted Send failed.', e);
+      throw e;
     }
-
-    try {
-      const beforeLen = ((composer.value || composer.textContent || '').trim()).length;
-      dispatchEnter({ ctrlKey: true });
-      if (await confirmLeChatSend(null, 3000, beforeLen)) {
-        console.log('[content-lechat] Ctrl+Enter send confirmed.');
-        return true;
-      }
-    } catch (e) {
-      console.warn('[content-lechat] Ctrl+Enter send failed', e);
-    }
-
-    if (!(await confirmLeChatSend(null, 900))) {
-      console.error('[content-lechat] All page-local send methods failed to confirm.');
-      throw new Error('Failed to confirm prompt submission.');
-    }
-    return true;
   }
 
   // Извлечение ответа - адаптация под LeChat с логикой Grok

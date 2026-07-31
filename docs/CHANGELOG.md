@@ -1,5 +1,22 @@
 # CHANGELOG — Project
 
+### 2026-07-31 — Donor trusted transport is the baseline again, version 2.81.202
+
+- Reverts `67cc6d5 "fix: remove browser debugger transport"` by explicit
+  decision: the donor 2.81.75 implementation is the baseline we measure the next
+  run against, not its removal.
+- Restored: the `debugger` permission, `ENABLED_DEBUGGER_RPC_TYPES` with
+  `PROVIDER_TRUSTED_SEND_REQUEST`, `PERPLEXITY_TRUSTED_ENTER_REQUEST` and
+  `PERPLEXITY_TRUSTED_INPUT_REQUEST`, Le Chat's trusted Send as its first submit
+  strategy, and Perplexity's native input transaction as the fallback behind
+  in-page preparation. Every route stays sender-gated on the provider origin.
+- The telemetry run-session scoping from 2.81.201 is kept on top; the revert
+  touched only the transport.
+- Status of the two open questions is unchanged and deliberately not claimed as
+  fixed: Le Chat submitted quickly on this transport in the field, Perplexity's
+  `prompt_injection_failed` has not yet been observed against the restored
+  native input path.
+
 ### 2026-07-31 — Telemetry is scoped to one run session, version 2.81.201
 
 - Symptom: reloading the results page pulled in telemetry and other data from
@@ -5179,11 +5196,3 @@ Backlog `what-to-do.md`, батч 1 (UI + Финализация).
 
 - Proof telemetry now coalesces mutations accumulated during an active persistence transaction, preventing a high-rate event stream from creating a transaction-per-event backlog.
 - JSON export no longer downloads the last committed boundary when the proof-ledger barrier times out. It returns a retryable incomplete-snapshot status and asks the user to export again after the queue drains.
-# 2.81.200 — Remove browser debugger transport
-
-- Removed the `debugger` manifest permission. Chrome's “A_Fable started
-  debugging this browser” notification is therefore no longer reachable from
-  the packaged extension.
-- All historical trusted-input and CDP RPCs are fail-closed in the background
-  router. Le Chat and Perplexity submission use page-local Send, form and
-  keyboard paths with the existing post-submit evidence checks.
