@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const { JSDOM } = require('jsdom');
 
 const ROUTER = fs.readFileSync(
   path.join(__dirname, '..', 'background', 'message-router.js'),
@@ -72,5 +73,27 @@ describe('trusted provider dispatch runtime', () => {
     expect(calls.some((call) => call[0] === 'attach')).toBe(true);
     expect(calls.some((call) => call[2] === 'Runtime.releaseObject')).toBe(true);
     expect(calls.some((call) => call[0] === 'detach')).toBe(true);
+  });
+
+  test('Send expression resolves the current Lexical composer localized control', () => {
+    const runtime = sliceRuntime(
+      'const buildProviderSendControlExpression',
+      'async function dispatchProviderTrustedSend'
+    );
+    const sandbox = { JSON };
+    vm.createContext(sandbox);
+    vm.runInContext(`${runtime}\n;globalThis.buildSendExpression = buildProviderSendControlExpression;`, sandbox);
+    const dom = new JSDOM(`
+      <div id="composer-shell">
+        <div><div><div id="ask-input" contenteditable="true" role="textbox">probe prompt</div></div></div>
+        <button type="button" aria-label="Ввести голосом"></button>
+        <button type="button" aria-label="Отправить"></button>
+      </div>
+    `, { runScripts: 'outside-only' });
+    dom.window.document.querySelectorAll('*').forEach((element) => {
+      element.getBoundingClientRect = () => ({ width: 100, height: 40, top: 0, left: 0, right: 100, bottom: 40 });
+    });
+    const control = dom.window.eval(sandbox.buildSendExpression('probe prompt'));
+    expect(control).toBe(dom.window.document.querySelector('[aria-label="Отправить"]'));
   });
 });

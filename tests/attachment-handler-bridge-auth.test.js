@@ -325,13 +325,12 @@ describe('attachment bridge authentication', () => {
 
   test('Perplexity GET_ANSWER acknowledges command ownership before asynchronous provider work', () => {
     const source = PROVIDER_SOURCES.Perplexity;
-    const handler = source.slice(
-      source.indexOf("if (message.type === 'GET_ANSWER'"),
-      source.indexOf('return false;', source.indexOf("if (message.type === 'GET_ANSWER'")) + 2000
-    );
-    expect(handler).toContain('accepted: true');
-    expect(handler.indexOf('sendResponse?.({')).toBeLessThan(handler.indexOf('injectAndGetResponse('));
-    expect(handler).not.toContain("sendResponse?.({ status: 'success' })");
+    const handlerAt = source.indexOf("if (message.type === 'GET_ANSWER'");
+    const acceptedAt = source.indexOf("status: 'accepted'", handlerAt);
+    const injectAt = source.indexOf('injectAndGetResponse(', acceptedAt);
+    expect(acceptedAt).toBeGreaterThan(handlerAt);
+    expect(injectAt).toBeGreaterThan(acceptedAt);
+    expect(source.slice(handlerAt, injectAt)).not.toContain("sendResponse?.({ status: 'success' })");
   });
 
   test('active provider transactions cannot be overwritten by Round 2 repair', () => {

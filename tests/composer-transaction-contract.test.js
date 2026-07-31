@@ -88,13 +88,13 @@ describe('composer transaction contract', () => {
 
   test('Perplexity does not publish submit after an unconfirmed send', () => {
     const source = read('content-scripts/content-perplexity.js');
-    const trustedEnterAt = source.indexOf("type: 'PERPLEXITY_TRUSTED_ENTER_REQUEST'");
-    const trustedSendAt = source.indexOf("type: 'PROVIDER_TRUSTED_SEND_REQUEST'", trustedEnterAt);
+    const trustedSendAt = source.indexOf("type: 'PROVIDER_TRUSTED_SEND_REQUEST'");
+    const trustedEnterAt = source.indexOf("type: 'PERPLEXITY_TRUSTED_ENTER_REQUEST'", trustedSendAt);
     const pageButtonAt = source.indexOf('const sendButton = resolveSendButton()', trustedSendAt);
     const failedAt = source.indexOf("type: 'send_failed'", trustedSendAt);
     const submittedAt = source.indexOf("type: 'PROMPT_SUBMITTED'", failedAt);
-    expect(trustedEnterAt).toBeGreaterThan(-1);
-    expect(trustedSendAt).toBeGreaterThan(trustedEnterAt);
+    expect(trustedSendAt).toBeGreaterThan(-1);
+    expect(trustedEnterAt).toBeGreaterThan(trustedSendAt);
     expect(pageButtonAt).toBe(-1);
     expect(failedAt).toBeGreaterThan(-1);
     expect(submittedAt).toBeGreaterThan(failedAt);
@@ -104,6 +104,9 @@ describe('composer transaction contract', () => {
     expect(source).toContain('baselineGenerationEvidence');
     expect(source).not.toContain('if (!liveComposer) return true;');
     expect(source).toContain('trustedBrowserDispatch');
+    expect(source).toContain('PERPLEXITY_DUPLICATE_DISPATCH_SUPPRESSED');
+    expect(source).toContain('perplexityDispatchGate.begin');
+    expect(source).toContain('perplexityDispatchGate.finish');
     expect(source).not.toContain("const typing = document.querySelector('[aria-busy=\"true\"]");
     expect(source).not.toContain("type: 'PERPLEXITY_TRUSTED_INPUT_REQUEST'");
   });

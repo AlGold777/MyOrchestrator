@@ -62,3 +62,19 @@ The corrected implementation:
   draft/modal preflight, even when session cleanup removed the persisted mapping.
 - exports `PROVIDER_TRUSTED_SEND_FAILED` / `PROVIDER_TRUSTED_ENTER_FAILED` with
   the browser API availability flag if native dispatch still fails in the field.
+
+## 2.81.196 Perplexity field correction
+
+Live inspection of the current Perplexity page showed a Lexical
+`div#ask-input[contenteditable][role=textbox]` outside any form/search container.
+After one committed insertion, a unique localized `aria-label="Отправить"`
+control appears three ancestors above the editor.
+
+The observed doubled prompt came from two concurrent `GET_ANSWER` commands: the
+content adapter acknowledged the first command before submission, while the
+retry supervisor could issue a second command and the adapter had no single-
+flight guard. A per-tab dispatch gate now suppresses the duplicate before a
+second composer mutation. Submission clicks the proven Send control first and
+uses native Enter only if that control disappears. The fixed two-second wait
+after `prepare()` was removed because successful preparation already proves the
+Send control is live.

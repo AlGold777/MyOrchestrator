@@ -1,5 +1,21 @@
 # Codex phase change log
 
+## 2.81.196 — Perplexity single-flight and live Send control
+
+- Field result on 2.81.195: Le Chat submitted quickly; Perplexity inserted the
+  prompt twice and did not submit.
+- Perplexity had no per-tab in-flight guard. Because `GET_ANSWER` is acknowledged
+  before asynchronous provider work completes, retry supervisor could start a
+  second composer transaction before the first emitted `PROMPT_SUBMITTED`.
+- Added a tested dispatch gate: the same active prompt is acknowledged as a
+  suppressed duplicate, a different concurrent prompt is rejected as busy, and
+  the gate reopens only when the owning transaction finishes.
+- Read-only live DOM inspection confirmed the current page uses Lexical
+  `#ask-input`, outside form/search ownership, and exposes a unique localized
+  `aria-label="Отправить"` button only after React commits the draft.
+- Native Send-control click is now primary; native Enter is fallback. The fixed
+  two-second pre-send delay was removed. Le Chat code was not changed.
+
 ## 2.81.195 — Make the 2.81.75 Le Chat/Perplexity dispatch path executable
 
 - 2.81.194 restored the donor RPC calls but not the donor's `debugger`

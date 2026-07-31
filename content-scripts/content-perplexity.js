@@ -51,6 +51,21 @@ let perplexityResumeInFlight = null;
 let perplexityHandoffReconcileInFlight = null;
 let perplexityHandoffRetryTimer = null;
 let perplexityHandoffRetryAttempt = 0;
+const perplexityDispatchGate = window.PerplexityComposerTransaction?.createDispatchGate?.() || (() => {
+  let active = null;
+  return {
+    begin(meta = {}) {
+      if (active) return { accepted: false, duplicate: true, activeDispatchId: active.dispatchId || null };
+      active = { dispatchId: meta.dispatchId || null };
+      return { accepted: true, token: active };
+    },
+    finish(token) {
+      if (active !== token) return false;
+      active = null;
+      return true;
+    }
+  };
+})();
 
 const isPerplexityFileUploadPaywall = () => {
   try {
@@ -1530,8 +1545,6 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
     if (!__val.length) {
       throw { type: 'injection_failed', message: 'Textarea did not accept value (React guard).' };
     }
-    await sleep(2000);
-
     inputField = findLivePromptComposer() || inputField;
     const visible = (element) => {
       const rect = element?.getBoundingClientRect?.();
@@ -1594,32 +1607,14 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
       return false;
     };
 
-    const dispatchEnter = () => {
-      const init = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true };
-      inputField.dispatchEvent(new KeyboardEvent('keydown', init));
-      inputField.dispatchEvent(new KeyboardEvent('keypress', init));
-      inputField.dispatchEvent(new KeyboardEvent('keyup', init));
-    };
-    const resolveSendButton = () => {
-      const ownedControl = window.PerplexityComposerTransaction?.resolveSendControl?.(inputField) || null;
-      if (ownedControl) return ownedControl;
-      const scope = inputField.closest?.('form,[role="search"],[data-testid*="composer" i]') || inputField.parentElement;
-      if (!scope) return null;
-      return Array.from(scope.querySelectorAll('button,[role="button"]')).find((button) => {
-        if (!isElementInteractable(button) || button.disabled || button.getAttribute?.('aria-disabled') === 'true') return false;
-        const label = [button.getAttribute?.('aria-label'), button.getAttribute?.('title'),
-          button.getAttribute?.('data-testid'), button.textContent].filter(Boolean).join(' ');
-        return /send|submit|ask|arrow-up|paper-plane|отправ|enviar/i.test(label)
-          || String(button.getAttribute?.('type') || '').toLowerCase() === 'submit';
-      }) || null;
-    };
-    // Donor 2.81.75 fast path: a trusted browser-level Enter is the primary
-    // Perplexity transaction. If React keeps the draft, use the trusted Send
-    // control before falling back to page-level mechanisms.
-    activity.heartbeat(0.4, { phase: 'trusted-composer-enter' });
-    const trustedEnter = await new Promise((resolve) => {
+    // Current Perplexity exposes a unique localized Send control only after the
+    // Lexical editor has committed the draft. prepare() already proves that
+    // control exists, so click it natively first. Enter is a bounded fallback
+    // for layouts where the control disappears between preparation and CDP.
+    activity.heartbeat(0.4, { phase: 'trusted-send-control' });
+    const trustedSend = await new Promise((resolve) => {
       chrome.runtime.sendMessage({
-        type: 'PERPLEXITY_TRUSTED_ENTER_REQUEST',
+        type: 'PROVIDER_TRUSTED_SEND_REQUEST',
         llmName: MODEL,
         prompt
       }, (response) => {
@@ -1627,13 +1622,13 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
         else resolve(response || { ok: false, reason: 'empty_response' });
       });
     });
-    let confirmed = trustedEnter?.ok && await confirmPerplexitySend(6000, true);
-    let trustedSend = null;
+    let confirmed = trustedSend?.ok && await confirmPerplexitySend(6000, true);
+    let trustedEnter = null;
     if (!confirmed && findLivePromptComposer()) {
-      activity.heartbeat(0.43, { phase: 'trusted-send-control' });
-      trustedSend = await new Promise((resolve) => {
+      activity.heartbeat(0.43, { phase: 'trusted-composer-enter-fallback' });
+      trustedEnter = await new Promise((resolve) => {
         chrome.runtime.sendMessage({
-          type: 'PROVIDER_TRUSTED_SEND_REQUEST',
+          type: 'PERPLEXITY_TRUSTED_ENTER_REQUEST',
           llmName: MODEL,
           prompt
         }, (response) => {
@@ -1641,13 +1636,13 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
           else resolve(response || { ok: false, reason: 'empty_response' });
         });
       });
-      confirmed = trustedSend?.ok && await confirmPerplexitySend(6000, true);
+      confirmed = trustedEnter?.ok && await confirmPerplexitySend(6000, true);
     }
 
     if (!confirmed) {
       throw {
         type: 'send_failed',
-        message: `Perplexity submit not confirmed: enter=${trustedEnter?.reason || 'no_send_evidence'}, click=${trustedSend?.reason || 'not_attempted'}`
+        message: `Perplexity submit not confirmed: click=${trustedSend?.reason || 'no_send_evidence'}, enter=${trustedEnter?.reason || 'not_attempted'}`
       };
     }
     activity.heartbeat(0.55, { phase: 'send-dispatched' });
@@ -1824,6 +1819,33 @@ const onRuntimeMessage = (message, sender, sendResponse) => {
       });
       return false;
     }
+    const gateResult = perplexityDispatchGate.begin({
+      dispatchId: acceptedMeta?.dispatchId || null,
+      prompt: message.prompt
+    });
+    if (!gateResult.accepted) {
+      const duplicate = gateResult.duplicate === true;
+      emitPerplexityComposerTelemetry(
+        duplicate ? 'PERPLEXITY_DUPLICATE_DISPATCH_SUPPRESSED' : 'PERPLEXITY_CONCURRENT_DISPATCH_REJECTED',
+        duplicate ? 'same prompt already active' : 'different request while provider transaction active',
+        {
+          ok: duplicate,
+          dispatchId: acceptedMeta?.dispatchId || null,
+          activeDispatchId: gateResult.activeDispatchId || null,
+          activeStartedAt: gateResult.activeStartedAt || null
+        }
+      );
+      sendResponse?.({
+        ok: duplicate,
+        accepted: duplicate,
+        status: duplicate ? 'duplicate_suppressed' : 'busy',
+        reason: duplicate ? 'same_dispatch_in_progress' : 'provider_transaction_busy',
+        dispatchId: acceptedMeta?.dispatchId || null,
+        activeDispatchId: gateResult.activeDispatchId || null
+      });
+      return false;
+    }
+    const dispatchGateToken = gateResult.token;
     // GET_ANSWER is a command, not a response stream. Acknowledge ownership
     // immediately; PROMPT_SUBMITTED and LLM_RESPONSE carry the later lifecycle.
     // Holding this port until generation ends turns a provider navigation into
@@ -1893,6 +1915,7 @@ const onRuntimeMessage = (message, sender, sendResponse) => {
           try { chrome.runtime.sendMessage({ type: 'PROVIDER_DISPATCH_PIPELINE_STATE', llmName: MODEL, active: false, meta: message.meta || null }); } catch (_) {}
         }
         releaseActive();
+        perplexityDispatchGate.finish(dispatchGateToken);
       });
     return false;
   }
