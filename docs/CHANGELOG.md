@@ -1,5 +1,30 @@
 # CHANGELOG — Project
 
+### 2026-08-01 — A failed extraction now retries the way that works, version 2.81.212
+
+Isolated single-model run (Grok), three exports around one answer:
+
+| moment | result |
+|---|---|
+| before Get It | no terminal, generation started |
+| after Get It | `EXTRACT_FAILED / answer_prompt_echo`, 47 chars |
+| after double-click | `SUCCESS / manual_latest_recovery`, **1797 chars** |
+
+The answer was on the page the whole time. Automatic extraction saw a
+131-character frame and pulled 47 characters of the user's own prompt out of it,
+classified that correctly as a prompt echo, and stopped. `runTerminalExtractionRecovery`
+then ran as designed — and re-read the same wrong node, returning the same 131
+characters. The manual double-click asks for the *latest* answer node instead
+and had the full text within seconds.
+
+- The recovery now requests the latest answer node rather than repeating the
+  default target. Every reason that makes it eligible — empty answer, prompt
+  echo, UI noise, extract failed — means the default target was wrong, so
+  repeating it cannot help.
+- Collection and acceptance now share one meta object. They were built
+  separately, which is exactly how a recovered answer can still be rejected on
+  correlation — the defect fixed in 2.81.211 for two other paths.
+
 ### 2026-08-01 — Generated answers were discarded on delivery, version 2.81.211
 
 Full telemetry report of run 1785580394378. All nine models received the prompt

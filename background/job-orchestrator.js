@@ -1315,32 +1315,20 @@ async function runTerminalExtractionRecovery(llmName, trigger = {}) {
   if (!isValidTabId(tabId)) return false;
   const runSessionId = getCurrentRunSessionId();
   const source = trigger.source || 'terminal_extraction_auto_recovery';
-  const result = await lateCollectAnswer({
-    llmName,
-    tabId,
-    reason: source,
-    meta: {
-      source,
-      runSessionId,
-      sessionId: runSessionId,
-      dispatchId,
-      responseMeta: {
-        source,
-        completionReason: trigger.lifecycleComplete
-          ? 'lifecycle_complete_auto_recovery'
-          : 'terminal_extraction_auto_recovery',
-        lateCollectFinal: true,
-        forceTerminalSuccess: true,
-        recovered: true,
-        lifecycleComplete: !!trigger.lifecycleComplete
-      }
-    }
-  });
-  const accepted = Boolean(result?.ok && result.text && acceptLateCollectResult(llmName, result, {
+  // Field evidence 2026-08-01, single-model Grok run: the answer was on the page
+  // (1797 chars) while extraction repeatedly returned a 47-character fragment of
+  // the user's own prompt. This recovery already ran — and re-read the same
+  // wrong node, returning the same 131-character frame. The manual double-click
+  // succeeded within seconds because it asks for the *latest* answer node
+  // instead. Every reason that makes this recovery eligible (empty answer,
+  // prompt echo, UI noise, extract failed) means the default target was wrong,
+  // so the retry must not repeat it.
+  const meta = {
     source,
     runSessionId,
     sessionId: runSessionId,
     dispatchId,
+    manualLatestRecovery: true,
     responseMeta: {
       source,
       completionReason: trigger.lifecycleComplete
@@ -1349,9 +1337,19 @@ async function runTerminalExtractionRecovery(llmName, trigger = {}) {
       lateCollectFinal: true,
       forceTerminalSuccess: true,
       recovered: true,
+      manualLatestRecovery: true,
       lifecycleComplete: !!trigger.lifecycleComplete
     }
-  }));
+  };
+  const result = await lateCollectAnswer({
+    llmName,
+    tabId,
+    reason: source,
+    meta
+  });
+  // Accept under the same identity the collection ran with; a divergence here
+  // is what gets an otherwise good answer rejected on correlation.
+  const accepted = Boolean(result?.ok && result.text && acceptLateCollectResult(llmName, result, meta));
   emitTelemetry(llmName, accepted ? 'TERMINAL_EXTRACTION_AUTO_RECOVERY_SUCCESS' : 'TERMINAL_EXTRACTION_AUTO_RECOVERY_MISS', {
     level: accepted ? 'success' : 'warning',
     details: `${source}:${result?.status || result?.reason || 'missed'}`,
