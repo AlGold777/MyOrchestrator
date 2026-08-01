@@ -1,5 +1,14 @@
 # Codex phase change log
 
+## 2.81.220 — Telemetry export avoids unnecessary full-container work
+
+- The checked digest path now scans canonical events once and downloads without
+  constructing or hashing all seven embedded preset reports.
+- Unchecked full JSON preserves the complete schema while replacing repeated
+  event scans and whole-container clones with indexed lookup and direct hashing.
+- The UI yields before full report construction and reports the event count so
+  the busy state is painted instead of appearing frozen.
+
 ## 2.81.219 — Truncated HTML cannot hide the committed answer tail
 
 - Rich answer HTML is treated as a projection, while the committed text remains

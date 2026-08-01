@@ -127,15 +127,18 @@ describe('the Export button writes the digest alongside the JSON', () => {
   const path = require('path');
   const DEVTOOLS = fs.readFileSync(path.join(__dirname, '..', 'results-devtools.js'), 'utf8');
 
-  test('checked exports the digest, unchecked exports the complete report', () => {
+  test('checked builds the digest directly, unchecked builds the complete report', () => {
     const branch = DEVTOOLS.slice(
       DEVTOOLS.indexOf("if (task === 'all') {"),
       DEVTOOLS.indexOf('const selectedModelId')
     );
-    // The full report is built either way; only the delivered document changes.
+    const digestAt = branch.indexOf('buildTelemetryDigestSource(canonicalEvents, buildOptions)');
+    const fullAt = branch.indexOf('buildAllPresets(canonicalEvents, buildOptions)');
+    expect(digestAt).toBeGreaterThan(-1);
+    expect(fullAt).toBeGreaterThan(digestAt);
+    expect(branch).toContain('if (digest) {');
+    expect(branch).toContain('return;');
     expect(branch).toContain('buildAllPresets(canonicalEvents, buildOptions)');
-    expect(branch).toContain('digestExportEnabled() ? downloadTelemetryDigest(payload, filename) : null');
-    expect(branch).toContain('if (!digest) {');
     expect(branch).toContain('downloadProofArtifact(payload, filename)');
   });
 
@@ -146,11 +149,22 @@ describe('the Export button writes the digest alongside the JSON', () => {
     );
     // A digest that cannot be produced must still yield the full JSON, so the
     // toggle can never cost the user their export.
-    const guardAt = branch.indexOf('if (!digest) {');
-    const jsonAt = branch.indexOf('downloadProofArtifact(payload, filename)', guardAt);
-    expect(guardAt).toBeGreaterThan(-1);
-    expect(jsonAt).toBeGreaterThan(guardAt);
+    const digestAt = branch.indexOf('downloadTelemetryDigest(');
+    const jsonAt = branch.indexOf('downloadProofArtifact(payload, filename)');
+    expect(digestAt).toBeGreaterThan(-1);
+    expect(jsonAt).toBeGreaterThan(digestAt);
     expect(branch).toContain('Digest unavailable — full JSON exported');
+  });
+
+  test('the direct digest source carries only metadata and canonical events', () => {
+    const helper = DEVTOOLS.slice(
+      DEVTOOLS.indexOf('const buildTelemetryDigestSource'),
+      DEVTOOLS.indexOf('const downloadTelemetryDigest')
+    );
+    expect(helper).toContain('manifest: { createdAt:');
+    expect(helper).toContain('sharedConfig: { extensionVersion:');
+    expect(helper).toContain('ledger: { events }');
+    expect(helper).not.toContain('buildAllPresets');
   });
 
   test('the toggle defaults to on and is remembered', () => {

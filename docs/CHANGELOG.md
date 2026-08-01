@@ -1,5 +1,14 @@
 # CHANGELOG — Project
 
+### 2026-08-01 — Telemetry export no longer builds unused reports, version 2.81.220
+
+- The default digest export is now generated directly from the canonical event
+  ledger instead of waiting for the complete all-presets JSON container first.
+- Full JSON remains lossless and is built only when selected or when digest
+  generation fails.
+- Full-container generation uses indexed event lookup, skips redundant deep
+  copies, and stops byte-budget serialization as soon as the value stabilizes.
+
 ### 2026-08-01 — Complete text wins over truncated rich HTML, version 2.81.219
 
 - Results rendering now checks the visible-text projection of rich HTML against

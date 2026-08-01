@@ -1138,13 +1138,12 @@
     // The full "all presets" export runs ~640KB, and roughly half of it is
     // preset report definitions carrying no run data. Every diagnosis in
     // practice comes from about a dozen fields inside ledger.events, so the
-    // Export button also writes a small companion digest of exactly those.
+    // Export button can write a small digest of exactly those.
     // The JSON stays the archive; the digest is the part meant to be read.
     // Same implementation as scripts/telemetry-digest.js, so a digest produced
     // here and one produced from the file can never disagree.
-    // The report is still built in full either way — the toggle only decides
-    // which document the user receives. Checked (default) delivers the digest;
-    // unchecked delivers the complete report as JSON.
+    // Checked (default) builds the digest directly from the canonical ledger;
+    // unchecked builds the substantially heavier complete report as JSON.
     const DIGEST_TOGGLE_KEY = 'telemetryExportDigestEnabled';
     const digestToggle = document.getElementById('telemetry-export-digest-toggle');
     if (digestToggle) {
@@ -1163,6 +1162,12 @@
         });
     }
     const digestExportEnabled = () => !digestToggle || digestToggle.checked === true;
+
+    const buildTelemetryDigestSource = (events, options) => ({
+        manifest: { createdAt: new Date(options.exportedAt).toISOString() },
+        sharedConfig: { extensionVersion: options.extensionVersion },
+        ledger: { events }
+    });
 
     const downloadTelemetryDigest = (payload, jsonFilename) => {
         if (!window.TelemetryDigest?.buildDigest) return null;
@@ -1242,21 +1247,26 @@
                 pendingRecordCount: Number(proofSnapshot.pendingRecordCount || 0)
             };
             if (task === 'all') {
-                // The full report is always built; the toggle only decides which
-                // document is handed to the user.
-                const payload = await window.ProofOrientedTelemetry.buildAllPresets(canonicalEvents, buildOptions);
                 const filename = `telemetry-all-presets-${Date.now()}.json`;
                 const boundary = proofSnapshot.barrierTimedOut ? ' from the latest committed boundary' : '';
-                const digest = digestExportEnabled() ? downloadTelemetryDigest(payload, filename) : null;
-                if (!digest) {
-                    // Either the user asked for the complete report, or the digest
-                    // could not be produced. Never leave the export empty-handed.
-                    downloadProofArtifact(payload, filename);
+                if (digestExportEnabled()) {
+                    const digest = downloadTelemetryDigest(
+                        buildTelemetryDigestSource(canonicalEvents, buildOptions),
+                        filename
+                    );
+                    if (digest) {
+                        if (telemetryStatus) telemetryStatus.textContent = `Digest exported${boundary}`;
+                        return;
+                    }
                 }
+                // Full schema construction is deferred until it is explicitly
+                // requested or the lightweight digest cannot be produced.
+                if (telemetryStatus) telemetryStatus.textContent = `Building full report for ${canonicalEvents.length} events…`;
+                await new Promise((resolve) => setTimeout(resolve, 0));
+                const payload = await window.ProofOrientedTelemetry.buildAllPresets(canonicalEvents, buildOptions);
+                downloadProofArtifact(payload, filename);
                 if (telemetryStatus) {
-                    telemetryStatus.textContent = digest
-                        ? `Digest exported${boundary}`
-                        : `${digestExportEnabled() ? 'Digest unavailable — full JSON exported' : 'Full JSON exported'}${boundary}`;
+                    telemetryStatus.textContent = `${digestExportEnabled() ? 'Digest unavailable — full JSON exported' : 'Full JSON exported'}${boundary}`;
                 }
                 return;
             }

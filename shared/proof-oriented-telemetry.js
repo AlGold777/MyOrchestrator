@@ -1270,6 +1270,7 @@
 
   function buildReports(ledger, modelViews, incidentViews, ledgerHash, registryHash, { legacyMode = false } = {}) {
     const allViews = Object.values(incidentViews);
+    const eventSeqById = new Map(ledger.map((event) => [event.eventId, event.seq]));
     const rawApplicability = Object.fromEntries(REPORT_TYPES.map((reportType) => [reportType,
       Object.fromEntries(allViews.map((view) => [view.incidentId,
         evaluateApplicability(reportType, { stateAxes: view.stateAxes, derivedViews: view })]))
@@ -1448,7 +1449,7 @@
               status: slot.status,
               effectiveCriticality: slot.effectiveCriticality,
               requiredIfMatched: slot.requiredIfMatched,
-              eventSeqs: slot.eventIds.map((eventId) => ledger.find((event) => event.eventId === eventId)?.seq).filter((seq) => seq !== undefined),
+              eventSeqs: slot.eventIds.map((eventId) => eventSeqById.get(eventId)).filter((seq) => seq !== undefined),
               matchedEventCount: slot.matchedEventCount,
               selectedEventCount: slot.selectedEventCount
             }))
@@ -1622,7 +1623,7 @@
     const viewsHash = await sha256(derivedViews);
     // Hash the serialized artifact shape. Optional undefined values do not
     // survive JSON export and therefore cannot be part of the offline hash.
-    const reportsHash = await sha256(JSON.parse(JSON.stringify(reports)));
+    const reportsHash = await sha256(reports);
     const invariantViolations = [
       ...validateLedger(ledgerEvents),
       ...(Array.isArray(replayResult?.invariantViolations) ? replayResult.invariantViolations : [])
@@ -1738,6 +1739,7 @@
     // container hash covers every field except itself, including the final
     // measuredBytes/budget decision.
     container.exportAudit.hashes.container = `sha256:${'0'.repeat(64)}`;
+    let previousMeasuredBytes = null;
     for (let pass = 0; pass < 3; pass += 1) {
       const serialized = JSON.stringify(container);
       const measuredBytes = typeof TextEncoder !== 'undefined'
@@ -1746,10 +1748,11 @@
       container.exportAudit.budget.measuredBytes = measuredBytes;
       container.exportAudit.budget.withinBudget = measuredBytes <= container.manifest.sizeBudgetBytes;
       container.exportAudit.budget.status = container.exportAudit.budget.withinBudget ? 'within_budget' : 'oversized_preserved_core';
+      if (measuredBytes === previousMeasuredBytes) break;
+      previousMeasuredBytes = measuredBytes;
     }
-    const hashInput = JSON.parse(JSON.stringify(container));
-    delete hashInput.exportAudit.hashes.container;
-    container.exportAudit.hashes.container = await sha256(hashInput);
+    delete container.exportAudit.hashes.container;
+    container.exportAudit.hashes.container = await sha256(container);
     return container;
   }
 
