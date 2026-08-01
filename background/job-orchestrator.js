@@ -3091,7 +3091,41 @@ function maybeDeferEarlyTerminalSuccess(llmName, entry, options = {}) {
     return false;
   }
 
-  entry.pendingFinalAnswer = String(normalizedAnswer || trimmedAnswer || '');
+  // Field evidence 2026-08-01, single-model Grok run: `deferred_finalization`
+  // extracted the real answer (2546 chars, identity current_dispatch) and two
+  // seconds later a `manual_ping` extraction of 88 chars — the same wrong node
+  // as before — committed over it and became the terminal. The user saw the
+  // answer appear and then be replaced by their own prompt. Both extractions
+  // claim identity current_dispatch, so identity cannot separate them; what
+  // separates them is that one is a fraction of the other.
+  // A later extraction for the same dispatch may not displace a materially
+  // longer one already held. Growth still passes, because it is not shorter.
+  const incomingFinalAnswer = String(normalizedAnswer || trimmedAnswer || '');
+  const heldFinalAnswer = String(entry.pendingFinalAnswer || '');
+  const heldDispatchId = entry.pendingFinalAnswerDispatchId || null;
+  const sameDispatchAsHeld = !heldDispatchId || !dispatchId || String(heldDispatchId) === String(dispatchId);
+  const wouldShrinkHeldAnswer = Boolean(
+    heldFinalAnswer.length >= DOM_SNAPSHOT_RECOVERY_MIN_CHARS
+    && sameDispatchAsHeld
+    && incomingFinalAnswer.length * 2 < heldFinalAnswer.length
+  );
+  if (wouldShrinkHeldAnswer) {
+    emitTelemetry(llmName, 'SHORTER_EXTRACTION_REJECTED', {
+      level: 'warning',
+      details: `held=${heldFinalAnswer.length} incoming=${incomingFinalAnswer.length} source=${responseSource || 'unknown'}`,
+      meta: {
+        dispatchId,
+        heldAnswerLength: heldFinalAnswer.length,
+        incomingAnswerLength: incomingFinalAnswer.length,
+        source: responseSource || null,
+        reason: 'later_extraction_would_shrink_held_answer'
+      },
+      force: true
+    });
+    return false;
+  }
+  entry.pendingFinalAnswer = incomingFinalAnswer;
+  entry.pendingFinalAnswerDispatchId = dispatchId || heldDispatchId || null;
   entry.pendingFinalAnswerHtml = String(normalizedHtml || '');
   entry.earlyTerminalGuard = {
     dispatchId,

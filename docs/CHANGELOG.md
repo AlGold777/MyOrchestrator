@@ -1,5 +1,28 @@
 # CHANGELOG — Project
 
+### 2026-08-01 — A later extraction no longer overwrites a longer one, version 2.81.214
+
+Isolated single-model Grok run, reported as "the answer appeared and then was
+immediately replaced by the original prompt". The full report shows exactly that:
+
+    66.7s  ANSWER_SOURCE_MATERIALIZED  len=2546  deferred_finalization
+    68.8s  OBSERVATION_FRAME_CAPTURED  len=88    inline_executeScript
+    68.9s  ANSWER_SOURCE_MATERIALIZED  len=88    manual_ping
+    68.9s  ANSWER_COMMIT_EVALUATED     len=88
+    69.0s  MODEL_TERMINAL_RECORDED     len=88    forced_success_with_text
+
+The correct answer was extracted and then discarded two seconds later for one
+29x shorter. Both extractions carry `answerIdentity: current_dispatch`, so
+identity cannot separate them; the run's own
+`extraction_identity_ambiguous — multiple pre-terminal extractions exist without
+a unique accepted-answer identity` says as much.
+
+A later extraction may no longer displace an answer already held for the same
+dispatch when it is less than half its length. Growth is unaffected — the
+condition is one-sided — and a held answer below the recovery floor blocks
+nothing. Rejections are recorded as `SHORTER_EXTRACTION_REJECTED` with both
+lengths, so this can never silently discard a genuine correction.
+
 ### 2026-08-01 — The digest now carries what the last two fixes needed, version 2.81.213
 
 Both 2.81.211 and 2.81.212 were diagnosed from the full JSON, not the digest.
