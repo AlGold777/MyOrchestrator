@@ -1,5 +1,23 @@
 # CHANGELOG — Project
 
+### 2026-07-31 — Export writes the digest automatically, version 2.81.207
+
+- The Export button now saves a small companion file next to the JSON:
+  `telemetry-all-presets-<ts>-digest.txt`. The JSON stays the archive; the
+  digest is the part meant to be read — ~1.7KB against ~640KB.
+- The digest logic moved from `scripts/` to `shared/telemetry-digest.js` and the
+  CLI is now a thin wrapper over it. One implementation, so a digest produced by
+  the button and one produced from the saved file cannot drift apart. The CLI
+  invocation is unchanged.
+- Both extension pages load the shared module; `web_accessible_resources` needs
+  no entry, since they are extension pages loading a same-origin script.
+- A digest failure never costs the export: the JSON is written first, and the
+  digest is wrapped so any error only skips the companion file. The status line
+  says `JSON exported + digest` only when the digest was actually written.
+- Tests pin the ordering (archive before digest), the failure isolation, the
+  filename pairing, the script tags on both pages, and that the CLI holds no
+  second copy of the logic.
+
 ### 2026-07-31 — Telemetry digest tool, version 2.81.206
 
 A full "all presets" export of one run measures ~640KB — about 163k tokens read

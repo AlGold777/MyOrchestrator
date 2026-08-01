@@ -2,7 +2,7 @@
 // while only a dozen fields inside ledger.events have ever driven a diagnosis.
 // The digest exists so an export can be discussed without carrying the rest of
 // the file; these tests pin the facts it must never drop.
-const { buildDigest, render } = require('../scripts/telemetry-digest.js');
+const { buildDigest, render } = require('../shared/telemetry-digest.js');
 
 const event = (seq, modelId, eventType, metadata = {}, extra = {}) => ({
   seq,
@@ -79,5 +79,56 @@ describe('telemetry digest', () => {
 
   test('the rendered digest stays small enough to paste', () => {
     expect(render(digest).length).toBeLessThan(4000);
+  });
+});
+
+describe('the Export button writes the digest alongside the JSON', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const DEVTOOLS = fs.readFileSync(path.join(__dirname, '..', 'results-devtools.js'), 'utf8');
+
+  test('the digest is written for the all-presets export', () => {
+    const branch = DEVTOOLS.slice(
+      DEVTOOLS.indexOf("if (task === 'all') {"),
+      DEVTOOLS.indexOf('const selectedModelId')
+    );
+    expect(branch).toContain('downloadProofArtifact(payload, filename)');
+    expect(branch).toContain('downloadTelemetryDigest(payload, filename)');
+    // The archive must be written first: if the digest throws, the export is
+    // already safely on disk.
+    expect(branch.indexOf('downloadProofArtifact(payload, filename)'))
+      .toBeLessThan(branch.indexOf('downloadTelemetryDigest(payload, filename)'));
+  });
+
+  test('a digest failure never costs the user the export', () => {
+    const helper = DEVTOOLS.slice(
+      DEVTOOLS.indexOf('const downloadTelemetryDigest'),
+      DEVTOOLS.indexOf('const describeSelectedIncident')
+    );
+    expect(helper).toContain('if (!window.TelemetryDigest?.buildDigest) return null;');
+    expect(helper).toContain('catch (err)');
+    expect(helper).toContain('return null;');
+  });
+
+  test('the digest lands next to its JSON, by name', () => {
+    const helper = DEVTOOLS.slice(
+      DEVTOOLS.indexOf('const downloadTelemetryDigest'),
+      DEVTOOLS.indexOf('const describeSelectedIncident')
+    );
+    expect(helper).toContain(".replace(/\\.json$/i, '') + '-digest.txt'");
+  });
+
+  test('both extension pages load the shared digest module', () => {
+    for (const page of ['result_new.html', 'pipeline_panel.html']) {
+      const html = fs.readFileSync(path.join(__dirname, '..', page), 'utf8');
+      expect(html).toContain('shared/telemetry-digest.js');
+    }
+  });
+
+  test('the CLI and the page share one implementation', () => {
+    const cli = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'telemetry-digest.js'), 'utf8');
+    expect(cli).toContain("require('../shared/telemetry-digest.js')");
+    // No second copy of the logic to drift out of sync.
+    expect(cli).not.toContain('function buildDigest');
   });
 });

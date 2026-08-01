@@ -1135,6 +1135,32 @@
         a.click();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
     };
+    // The full "all presets" export runs ~640KB, and roughly half of it is
+    // preset report definitions carrying no run data. Every diagnosis in
+    // practice comes from about a dozen fields inside ledger.events, so the
+    // Export button also writes a small companion digest of exactly those.
+    // The JSON stays the archive; the digest is the part meant to be read.
+    // Same implementation as scripts/telemetry-digest.js, so a digest produced
+    // here and one produced from the file can never disagree.
+    const downloadTelemetryDigest = (payload, jsonFilename) => {
+        if (!window.TelemetryDigest?.buildDigest) return null;
+        try {
+            const text = window.TelemetryDigest.render(window.TelemetryDigest.buildDigest(payload));
+            if (!text || !text.trim()) return null;
+            const blob = new Blob([text], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = String(jsonFilename).replace(/\.json$/i, '') + '-digest.txt';
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+            return text;
+        } catch (err) {
+            // A digest failure must never cost the user the export itself.
+            console.warn('[devtools] telemetry digest failed', err);
+            return null;
+        }
+    };
     const describeSelectedIncident = (selection) => {
         if (!selection?.selected) return 'No matching incident';
         const scope = selection.selected.scope;
@@ -1195,10 +1221,15 @@
             };
             if (task === 'all') {
                 const payload = await window.ProofOrientedTelemetry.buildAllPresets(canonicalEvents, buildOptions);
-                downloadProofArtifact(payload, `telemetry-all-presets-${Date.now()}.json`);
-                if (telemetryStatus) telemetryStatus.textContent = proofSnapshot.barrierTimedOut
-                    ? 'JSON exported from the latest committed boundary'
-                    : 'JSON exported';
+                const filename = `telemetry-all-presets-${Date.now()}.json`;
+                downloadProofArtifact(payload, filename);
+                const digest = downloadTelemetryDigest(payload, filename);
+                if (telemetryStatus) {
+                    const base = proofSnapshot.barrierTimedOut
+                        ? 'JSON exported from the latest committed boundary'
+                        : 'JSON exported';
+                    telemetryStatus.textContent = digest ? `${base} + digest` : base;
+                }
                 return;
             }
             const selectedModelId = platform === 'all'
