@@ -141,6 +141,21 @@
     if (sourceEvent.eventType === 'SUBMISSION_EVIDENCE_CHANGED') companions.push({ eventType: 'SUBMISSION_INFERRED', layer: 'inference', evidenceRefs, payload: { submission: axes().submission } });
     if (sourceEvent.eventType === 'GENERATION_SIGNAL_CHANGED') companions.push({ eventType: 'GENERATION_STATE_INFERRED', layer: 'inference', evidenceRefs, payload: { observedGeneration: axes().observedGeneration } });
     if (sourceEvent.eventType === 'CANDIDATE_SET_CHANGED') companions.push({ eventType: 'CANDIDATE_IDENTITY_INFERRED', layer: 'inference', evidenceRefs, payload: { answerIdentity: axes().answerIdentity } });
+    // Identity was only ever inferred when a candidate was *rejected* as stale or
+    // ambiguous. A materialized answer carries the identity the extractor resolved
+    // it to, so the positive resolution is stated too — otherwise
+    // `answer_identity_current_dispatch` can never pass, however good the evidence.
+    if (sourceEvent.eventType === 'ANSWER_SOURCE_MATERIALIZED') {
+      const resolvedIdentity = sourceEvent?.payload?.metadata?.answerIdentity;
+      if (resolvedIdentity) {
+        companions.push({
+          eventType: 'CANDIDATE_IDENTITY_INFERRED',
+          layer: 'inference',
+          evidenceRefs,
+          payload: { answerIdentity: String(resolvedIdentity) }
+        });
+      }
+    }
     if (sourceEvent.eventType === 'COMPLETION_HYPOTHESIS_EVALUATED') companions.push({ eventType: 'ANSWER_COMPLETENESS_EVALUATED', layer: 'inference', evidenceRefs, payload: { answerCompleteness: axes().answerCompleteness, completionEvidenceTier: axes().completionEvidenceTier } });
     if (sourceEvent.eventType === 'TERMINAL_DEADLINE_REACHED') {
       const evaluation = evaluateFinalization(eventsIncludingSource, sourceEvent);

@@ -167,7 +167,9 @@ describe('native proof telemetry ledger', () => {
     const events = (await global.ProofTelemetryLedger.snapshot()).events;
     expect(events).toEqual(expect.arrayContaining([
       expect.objectContaining({ eventType: 'GENERATION_START_EVALUATED', payload: expect.objectContaining({ typed: { kind: 'generation_start', state: 'started' } }) }),
-      expect.objectContaining({ eventType: 'GENERATION_SIGNAL_CHANGED', payload: expect.objectContaining({ typed: { kind: 'generation_transition', state: 'provider_ui_completed' } }) }),
+      // `strong` decides whether evidenceTier can reach 3; it must survive the
+      // canonical mapping, which states kind and state but knows no qualifiers.
+      expect.objectContaining({ eventType: 'GENERATION_SIGNAL_CHANGED', payload: expect.objectContaining({ typed: { kind: 'generation_transition', state: 'provider_ui_completed', strong: true } }) }),
       expect.objectContaining({ eventType: 'COMPLETION_HYPOTHESIS_EVALUATED', payload: expect.objectContaining({ typed: { kind: 'completion_hypothesis', state: 'probably_complete' } }) })
     ]));
   });
@@ -218,6 +220,21 @@ describe('native proof telemetry ledger', () => {
     // The slot the prompt-not-inserted report calls critical is exactly this event type.
     expect(global.ProofTelemetryContracts.normalizedSlots('prompt-not-inserted')
       .find((slot) => slot.slotId === 'insertion_outcome').eventTypes).toContain('PROMPT_INSERTION_EVALUATED');
+  });
+
+  test('infers candidate identity from a materialized answer, not only from a rejected one', async () => {
+    await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
+    const meta = { runSessionId: 42, dispatchId: 'GPT:42:1', generationEpoch: 1 };
+    await global.ProofTelemetryLedger.record({
+      ts: 1000,
+      label: 'ANSWER_SOURCE_MATERIALIZED',
+      meta: { ...meta, answerIdentity: 'current_dispatch', normalizedLength: 13524, source: 'deferred_finalization' }
+    }, 'GPT');
+    const inferred = (await global.ProofTelemetryLedger.snapshot()).events
+      .find((event) => event.eventType === 'CANDIDATE_IDENTITY_INFERRED');
+    expect(inferred.payload.answerIdentity).toBe('current_dispatch');
+    expect(inferred.payload.typed).toEqual({ kind: 'candidate_identity', state: 'current_dispatch' });
+    expect(inferred.evidenceRefs).toHaveLength(1);
   });
 
   test('snapshot flushes records queued immediately before export', async () => {

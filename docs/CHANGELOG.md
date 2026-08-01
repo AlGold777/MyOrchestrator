@@ -1,5 +1,31 @@
 # CHANGELOG — Project
 
+### 2026-08-01 — A strong transition and a resolved identity survive to the decision, version 2.81.217
+
+Two more facts were being stated by the runtime and lost before the decision
+read them, which is why run 1785603157691 recorded `evidenceTier: 0` for every
+model:
+
+- `PIPELINE_STEP: streaming_done` is emitted with `strong: true` — the flag
+  `evidenceTier` requires for tier 3 — and the ledger replaced the whole typed
+  fact with the canonical one, which states kind and state but no qualifiers.
+  The canonical mapping still decides kind and state; qualifiers on the same
+  fact are now kept.
+- Candidate identity was inferred only when a candidate was *rejected* as stale
+  or ambiguous. `ANSWER_SOURCE_MATERIALIZED` carries the identity the extractor
+  resolved the answer to, so the positive resolution is now inferred from it.
+
+Replaying that run with 2.81.215-217 applied: `submission_confirmed` and
+`answer_identity_current_dispatch` pass for GPT and Z.ai, where before every
+rule failed for every model.
+
+Two producer gaps remain and still block automatic acceptance, both of them
+missing evidence rather than lost evidence: no coherent observation frame is
+emitted on the normal answer path (`observationReliability` stays `unknown`,
+and the frames that do exist carry `maximumSignalSkewMs: null`, which counts as
+degraded), and the deferred-finalization path records no structural
+verification at all. Neither is fixed here.
+
 ### 2026-08-01 — Every adapter states whether the prompt reached the composer, version 2.81.216
 
 In run 1785603157691 the prompt-not-inserted report answered `not_confirmed`

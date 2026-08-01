@@ -472,9 +472,18 @@
     const canonicalKnown = canonicalTyped
       && canonicalTyped.kind !== 'unknown'
       && canonicalTyped.state !== 'unknown';
+    const runtimeTyped = entry?.typed || rawMetadata.typed || null;
+    // The canonical mapping decides kind and state; qualifiers the producer
+    // attached to the same fact are kept. `strong` is the one that matters:
+    // evidenceTier reaches 3 only on a strong generation transition, and
+    // dropping the flag capped every model at tier 1 regardless of evidence.
     const typed = canonicalKnown
-      ? canonicalTyped
-      : (entry?.typed || rawMetadata.typed || contracts()?.adaptLegacyEvent?.({ payload: { sourceEventType, metadata: rawMetadata } }) || { kind: 'unknown', state: 'unknown' });
+      ? (runtimeTyped
+        && String(runtimeTyped.kind || '') === String(canonicalTyped.kind || '')
+        && String(runtimeTyped.state || '') === String(canonicalTyped.state || '')
+        ? Object.assign({}, runtimeTyped, canonicalTyped)
+        : canonicalTyped)
+      : (runtimeTyped || contracts()?.adaptLegacyEvent?.({ payload: { sourceEventType, metadata: rawMetadata } }) || { kind: 'unknown', state: 'unknown' });
     const dispatchId = rawMetadata.dispatchId || rawMetadata.requestId || undefined;
     const event = nextEnvelope(state, {
       eventType,
