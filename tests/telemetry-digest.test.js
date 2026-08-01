@@ -27,7 +27,10 @@ const doc = {
         { ruleId: 'submission_confirmed', passed: false },
         { ruleId: 'generation_not_active', passed: true }
       ] } },
-      event(8, 'GPT', 'TAB_EVENT', { reason: 'no_safe_reusable_tab' }, { sourceEventType: 'TAB_ISOLATION_FALLBACK_CREATE' })
+      event(8, 'GPT', 'TAB_EVENT', { reason: 'no_safe_reusable_tab' }, { sourceEventType: 'TAB_ISOLATION_FALLBACK_CREATE' }),
+      { ...event(10, 'Qwen', 'POLICY_OVERRIDE_APPLIED', {}), payload: { metadata: {}, sourceEventType: 'POLICY_OVERRIDE_APPLIED', trigger: 'accepted_below_automatic_policy', mode: 'forced', waivedRules: ['submission_confirmed'] } },
+      { ...event(11, 'Qwen', 'MISSING_EVIDENCE_RECORDED', {}), payload: { metadata: {}, sourceEventType: 'MISSING_EVIDENCE_RECORDED', missingEvidence: 'post_terminal_observation', status: 'pending', impact: 'not confirmed later' } },
+      { ...event(12, 'Gemini', 'POST_TERMINAL_AUDIT_COMPLETED', {}), payload: { metadata: {}, sourceEventType: 'POST_TERMINAL_AUDIT_COMPLETED', acceptedLength: 1090, observedLength: 4316, growthChars: 3226 } }
     ]
   }
 };
@@ -78,7 +81,42 @@ describe('telemetry digest', () => {
   });
 
   test('the rendered digest stays small enough to paste', () => {
-    expect(render(digest).length).toBeLessThan(4000);
+    // Carrying every exception raised this from ~1.7KB to ~9KB on a real run:
+    // still 1.4% of the 640KB export, and it is what removes the need to go
+    // back to the JSON for a failure mode we already know how to read.
+    expect(render(digest).length).toBeLessThan(40000);
+  });
+
+  test('exception events are carried, not merely counted', () => {
+    const types = digest.exceptions.map((e) => e.type);
+    expect(types).toContain('POLICY_OVERRIDE_APPLIED');
+    expect(types).toContain('MISSING_EVIDENCE_RECORDED');
+    const override = digest.exceptions.find((e) => e.type === 'POLICY_OVERRIDE_APPLIED');
+    // The waived rules are the point: they say what the forced accept ignored.
+    expect(override.detail).toContain('submission_confirmed');
+  });
+
+  test('a post-terminal audit shows how much answer arrived after acceptance', () => {
+    const audit = digest.exceptions.find((e) => e.type === 'POST_TERMINAL_AUDIT_COMPLETED');
+    expect(audit.detail).toContain('accepted=');
+    expect(audit.detail).toContain('growth=');
+  });
+
+  test('only genuinely unknown event types are reported as uncovered', () => {
+    // Types the digest reads or deliberately ignores must not appear here,
+    // otherwise the warning cries wolf and stops being read.
+    expect(digest.coverage.unknownTypes.map((u) => u.type)).not.toContain('MODEL_TERMINAL_RECORDED');
+    expect(digest.coverage.unknownTypes.map((u) => u.type)).not.toContain('OBSERVER_HEALTH_INTERVAL_CLOSED');
+    expect(digest.coverage.unknownTypes.map((u) => u.type)).not.toContain('POLICY_OVERRIDE_APPLIED');
+  });
+
+  test('an event type added after this digest was written is flagged', () => {
+    const withNew = buildDigest({
+      ...doc,
+      ledger: { events: [...doc.ledger.events, event(99, 'GPT', 'SOME_FUTURE_EVENT_TYPE', {})] }
+    });
+    expect(withNew.coverage.unknownTypes.map((u) => u.type)).toContain('SOME_FUTURE_EVENT_TYPE');
+    expect(render(withNew)).toContain('send the JSON too');
   });
 });
 

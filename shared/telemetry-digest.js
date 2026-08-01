@@ -19,8 +19,40 @@ const SECTIONS = Object.freeze({
   STALE: 'stale',
   LEASES: 'leases',
   BLOCKERS: 'blockers',
-  TABS: 'tabs'
+  TABS: 'tabs',
+  EXCEPTIONS: 'exceptions',
+  COVERAGE: 'coverage'
 });
+
+// Events that mark an exception rather than routine progress. They are rare
+// precisely because of that — 36 of 295 in the run this was built against,
+// against 70 OBSERVER_HEALTH_INTERVAL_CLOSED — so carrying all of them costs
+// about a kilobyte and removes the need to go back to the JSON for the failure
+// modes we already know about.
+const EXCEPTION_TYPES = Object.freeze({
+  ANSWER_DELIVERY_REJECTED: (p, m) => `${p.sourceEventType || 'rejected'} ${m.attemptId || ''}`.trim(),
+  MISSING_EVIDENCE_RECORDED: (p) => `${p.missingEvidence || '?'} (${p.status || '?'}) — ${p.impact || ''}`.trim(),
+  POST_TERMINAL_AUDIT_COMPLETED: (p) => `accepted=${p.acceptedLength} observed=${p.observedLength} growth=${p.growthChars}`,
+  SELECTOR_FORENSIC_SNAPSHOT_CAPTURED: (p) => `${p.anomalyTrigger || '?'} available=${p.captureAvailable}${p.omissionReason ? ` — ${p.omissionReason}` : ''}`,
+  POLICY_OVERRIDE_APPLIED: (p) => `${p.trigger || '?'} (${p.mode || '?'}) waived: ${(p.waivedRules || []).join(', ')}`,
+  GENERATION_START_EVALUATED: (p, m) => `${(p.typed && p.typed.state) || '?'} ${m.step || ''}`.trim(),
+  OBSERVATION_FRAME_CAPTURED: (p, m) => `${m.reason || '?'} status=${m.status || '?'} state=${m.state || '?'}`
+});
+
+// Types the digest deliberately reads or deliberately ignores. Anything outside
+// both lists is new since this file was written, which is the one thing a
+// coverage line can honestly warn about — the known gaps are now carried above.
+const READ_TYPES = Object.freeze([
+  'DISPATCH_BASELINE_CAPTURED', 'MODEL_TERMINAL_RECORDED', 'DECISION_RECORDED',
+  'OBSERVATION_SLOT_GRANTED', 'OBSERVATION_SLOT_RELEASED', 'OBSERVATION_SLOT_DENIED'
+]);
+const IGNORED_TYPES = Object.freeze([
+  'OBSERVER_HEALTH_INTERVAL_CLOSED', 'OBSERVER_HEALTH_OBSERVED', 'OBSERVATION_INTERVAL_CLOSED',
+  'SUBMIT_ACTION_OBSERVED', 'SUBMISSION_EVIDENCE_CHANGED', 'SUBMISSION_INFERRED',
+  'ANSWER_SOURCE_MATERIALIZED', 'EXTRACTION_COMPLETED', 'ANSWER_CARD_RENDER_EVALUATED',
+  'ANSWER_COMMIT_EVALUATED', 'FINALIZATION_POLICY_EVALUATED', 'PAGE_HEALTH_OBSERVED',
+  'PAGE_CONTEXT_OBSERVED', 'RUN_CONFIG_RECORDED', 'CLOCK_EPOCH_STARTED'
+]);
 
 const metaOf = (event) => (event && event.payload && event.payload.metadata) || {};
 
@@ -33,9 +65,19 @@ function buildDigest(doc) {
   const leases = [];
   const failedRules = new Map();
   const tabEvents = [];
+  const exceptions = [];
+  const unknownTypes = new Map();
 
   for (const event of events) {
     const meta = metaOf(event);
+    const describeException = EXCEPTION_TYPES[event.eventType];
+    if (describeException) {
+      let detail = '';
+      try { detail = String(describeException(event.payload || {}, meta) || ''); } catch (_) { detail = ''; }
+      exceptions.push({ model: event.modelId, type: event.eventType, detail });
+    } else if (!READ_TYPES.includes(event.eventType) && !IGNORED_TYPES.includes(event.eventType)) {
+      unknownTypes.set(event.eventType, (unknownTypes.get(event.eventType) || 0) + 1);
+    }
     switch (event.eventType) {
       case 'DISPATCH_BASELINE_CAPTURED':
         baselines.set(event.modelId, {
@@ -111,6 +153,12 @@ function buildDigest(doc) {
       .map(([ruleId, models]) => ({ ruleId, models: [...models].sort() }))
       .sort((a, b) => b.models.length - a.models.length),
     [SECTIONS.TABS]: tabEvents,
+    [SECTIONS.EXCEPTIONS]: exceptions,
+    [SECTIONS.COVERAGE]: {
+      totalEvents: events.length,
+      exceptionsCarried: exceptions.length,
+      unknownTypes: [...unknownTypes.entries()].map(([type, count]) => ({ type, count }))
+    },
     modelsWithoutTerminal: [...new Set(events.map((e) => e.modelId))]
       .filter((m) => m !== 'SYSTEM' && !terminals.some((t) => t.model === m))
       .sort()
@@ -162,6 +210,24 @@ function render(digest) {
   if (digest[SECTIONS.TABS].length) {
     lines.push('TAB REUSE');
     for (const t of digest[SECTIONS.TABS]) lines.push(`  ${t.model.padEnd(11)} ${t.label} ${t.reason || ''}`);
+    lines.push('');
+  }
+
+  if (digest[SECTIONS.EXCEPTIONS].length) {
+    lines.push('EXCEPTIONS');
+    for (const e of digest[SECTIONS.EXCEPTIONS]) {
+      lines.push(`  ${String(e.model).padEnd(11)} ${e.type}${e.detail ? ` · ${e.detail}` : ''}`);
+    }
+    lines.push('');
+  }
+
+  const coverage = digest[SECTIONS.COVERAGE];
+  if (coverage.unknownTypes.length) {
+    // The known gaps are carried in EXCEPTIONS above, so this warns only about
+    // event types added since this digest was written — the one case where the
+    // full JSON is genuinely required to see what happened.
+    lines.push('UNRECOGNISED EVENT TYPES — send the JSON too, the digest cannot read these');
+    for (const u of coverage.unknownTypes) lines.push(`  ${u.type} ×${u.count}`);
     lines.push('');
   }
   return lines.join('\n');

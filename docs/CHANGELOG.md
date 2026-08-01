@@ -1,5 +1,32 @@
 # CHANGELOG — Project
 
+### 2026-07-31 — The digest carries exceptions instead of counting them, version 2.81.208
+
+The 2.81.206 digest read 19% of events and dropped 81%, including
+`ANSWER_DELIVERY_REJECTED`, `MISSING_EVIDENCE_RECORDED`,
+`POST_TERMINAL_AUDIT_COMPLETED`, `SELECTOR_FORENSIC_SNAPSHOT_CAPTURED`,
+`POLICY_OVERRIDE_APPLIED` and the reasons inside `OBSERVATION_FRAME_CAPTURED`.
+
+The first proposal was a coverage line listing what had been dropped. That was
+wrong: knowing that six forensic snapshots were discarded does not say whether
+the explanation was in them, so it buys a round trip to the JSON rather than
+protection. The fix is to stop dropping what matters.
+
+- Exception events are now carried in full. They are rare *because* they mark
+  exceptions — 36 of 295 in the run this was built against, against 70
+  `OBSERVER_HEALTH_INTERVAL_CLOSED`. The digest went from ~1.7KB to ~9KB, still
+  1.4% of the 640KB export.
+- The coverage line survives with a narrower and honest job: it reports only
+  event types the digest has no rule for at all — types added after it was
+  written. That is the one case where the full JSON is genuinely required, and
+  it says so.
+- On the 2026-07-31 export the expansion immediately surfaced facts that several
+  hand-written queries had missed: Gemini accepted a 1090-character answer while
+  4316 characters were observed afterwards (growth 3226), Grok accepted 47
+  against 1830, and Claude and Le Chat — the two models with no terminal at all —
+  both show `dead_tab_no_snapshot / state=DEAD`. That last one is direct
+  evidence for the deferred item 4.
+
 ### 2026-07-31 — Export writes the digest automatically, version 2.81.207
 
 - The Export button now saves a small companion file next to the JSON:
