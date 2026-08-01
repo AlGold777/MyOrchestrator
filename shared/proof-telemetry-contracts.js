@@ -4,7 +4,7 @@
 
   const EVENT_SCHEMA_VERSION = 6;
   const CLOCK_CONTRACT_VERSION = '1.0';
-  const REGISTRY_VERSION = '6.6.0';
+  const REGISTRY_VERSION = '6.7.0';
   const THRESHOLDS = Object.freeze({
     generationStartTimeoutMs: 15000,
     minimumExtractionCoveragePct: 98,
@@ -328,11 +328,18 @@
     return ({
       SUBMISSION_INFERRED: { kind: 'submission', state: payload.submission || metadata.submission || 'unknown' },
       SUBMIT_ACTION_OBSERVED: { kind: 'submission', state: 'attempted' },
+      // SEND_DEGRADED_AFTER_SUBMIT is emitted only once the submit is already
+      // confirmed, and SEND_DEFERRED_TRANSIENT_BLOCKER states that no submit was
+      // performed yet. Both carry that fact in the runtime typed fact, so the
+      // canonical mapping must agree with them instead of flattening the label
+      // into `evidence_partial` and contradicting the producer.
       SUBMISSION_EVIDENCE_CHANGED: {
         kind: 'submission',
-        state: /ACCEPTED|CONFIRMED/.test(String(payload.sourceEventType || ''))
+        state: /ACCEPTED|CONFIRMED|DEGRADED_AFTER_SUBMIT/.test(String(payload.sourceEventType || ''))
           ? 'confirmed'
-          : (/REJECTED|FAILED|NO_SEND|COMMAND_SEND_ERROR/.test(String(payload.sourceEventType || '')) ? 'failed' : 'evidence_partial')
+          : (/REJECTED|FAILED|NO_SEND|COMMAND_SEND_ERROR/.test(String(payload.sourceEventType || ''))
+            ? 'failed'
+            : (/DEFERRED/.test(String(payload.sourceEventType || '')) ? 'deferred' : 'evidence_partial'))
       },
       DISPATCH_BASELINE_CAPTURED: { kind: 'dispatch_baseline', state: metadata.baselineState || 'captured' },
       PROMPT_INSERTION_EVALUATED: { kind: 'prompt_insertion', state: payload.insertionState || metadata.insertionState || 'unknown' },

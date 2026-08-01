@@ -172,6 +172,26 @@ describe('native proof telemetry ledger', () => {
     ]));
   });
 
+  test('records an accepted submit as confirmed, without contradicting its own payload', async () => {
+    await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
+    const meta = { runSessionId: 42, dispatchId: 'GPT:42:1', generationEpoch: 1 };
+    await global.ProofTelemetryLedger.record({ ts: 1000, label: 'PROMPT_SUBMITTED_PENDING', meta }, 'GPT');
+    await global.ProofTelemetryLedger.record({ ts: 1100, label: 'PROMPT_SUBMITTED_ACCEPTED', meta }, 'GPT');
+    await global.ProofTelemetryLedger.record({ ts: 1200, label: 'SEND_DEGRADED_AFTER_SUBMIT', meta }, 'GPT');
+
+    const events = (await global.ProofTelemetryLedger.snapshot()).events
+      .filter((event) => event.eventType === 'SUBMISSION_EVIDENCE_CHANGED');
+    const stateOf = (label) => events
+      .find((event) => event.payload.sourceEventType === label)?.payload.typed;
+
+    expect(stateOf('PROMPT_SUBMITTED_PENDING')).toEqual({ kind: 'submission', state: 'evidence_partial' });
+    expect(stateOf('PROMPT_SUBMITTED_ACCEPTED')).toEqual({ kind: 'submission', state: 'confirmed' });
+    expect(stateOf('SEND_DEGRADED_AFTER_SUBMIT')).toEqual({ kind: 'submission', state: 'confirmed' });
+    events.forEach((event) => {
+      expect(global.ProofTelemetryContracts.typedCanonicalConflict(event)).toBeNull();
+    });
+  });
+
   test('snapshot flushes records queued immediately before export', async () => {
     await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
     const pendingRecord = global.ProofTelemetryLedger.record({

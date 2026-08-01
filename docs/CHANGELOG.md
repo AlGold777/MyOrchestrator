@@ -1,5 +1,30 @@
 # CHANGELOG — Project
 
+### 2026-08-01 — An accepted submit is recorded as confirmed, version 2.81.215
+
+All-presets run 1785603157691 (nine models) failed the same six decision rules
+for every model that reached a decision, `submission_confirmed` first among
+them, and every incident carried the invariant `TYPED_CANONICAL_CONFLICT` with
+`typed=evidence_partial` against `canonical=confirmed` on its own payload.
+
+The ledger built the typed fact from `canonicalFactOf({ eventType, payload: {
+metadata } })` — without `sourceEventType`. That is the only field the canonical
+mapping for `SUBMISSION_EVIDENCE_CHANGED` reads, so every
+`PROMPT_SUBMITTED_ACCEPTED` was stored as `evidence_partial`, the submission
+axis could never reach `confirmed`, and no answer could be accepted
+automatically. Replaying that run's ledger through the corrected mapping turns
+the axis to `confirmed` for GPT, Claude and Z.ai and takes the conflict count
+from 6 to 0; DeepSeek correctly stays `evidence_partial` — it never submitted.
+
+Two labels whose runtime fact the canonical mapping still contradicted are now
+mapped as their producer states them: `SEND_DEGRADED_AFTER_SUBMIT` (emitted only
+after a confirmed submit) is `confirmed`, `SEND_DEFERRED_TRANSIENT_BLOCKER` is
+`deferred`. Registry version 6.7.0.
+
+This does not by itself make acceptance reachable: `observation_reliable`,
+`answer_identity_current_dispatch`, `structural_verification` and
+`minimum_evidence_tier` still fail in that run for reasons of their own.
+
 ### 2026-08-01 — A later extraction no longer overwrites a longer one, version 2.81.214
 
 Isolated single-model Grok run, reported as "the answer appeared and then was

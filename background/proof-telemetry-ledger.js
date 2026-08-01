@@ -463,7 +463,12 @@
       const status = details.trim().split(/[\s|:]+/)[0].toUpperCase();
       if (/^[A-Z][A-Z0-9_]{1,40}$/.test(status)) metadata.terminalStatus = status;
     }
-    const canonicalTyped = contracts()?.canonicalFactOf?.({ eventType, payload: { metadata } });
+    // The canonical mapping reads payload.sourceEventType for event types whose
+    // fact depends on the originating label (submission acceptance above all).
+    // Omitting it here silently downgraded every PROMPT_SUBMITTED_ACCEPTED to
+    // `evidence_partial`, so `submission_confirmed` could never pass and every
+    // incident carried a TYPED_CANONICAL_CONFLICT against its own payload.
+    const canonicalTyped = contracts()?.canonicalFactOf?.({ eventType, payload: { sourceEventType, metadata } });
     const canonicalKnown = canonicalTyped
       && canonicalTyped.kind !== 'unknown'
       && canonicalTyped.state !== 'unknown';
