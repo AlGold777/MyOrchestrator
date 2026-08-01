@@ -67,6 +67,7 @@ function buildDigest(doc) {
   const tabEvents = [];
   const exceptions = [];
   const unknownTypes = new Map();
+  const omittedTypes = new Map();
 
   for (const event of events) {
     const meta = metaOf(event);
@@ -75,8 +76,14 @@ function buildDigest(doc) {
       let detail = '';
       try { detail = String(describeException(event.payload || {}, meta) || ''); } catch (_) { detail = ''; }
       exceptions.push({ model: event.modelId, type: event.eventType, detail });
-    } else if (!READ_TYPES.includes(event.eventType) && !IGNORED_TYPES.includes(event.eventType)) {
-      unknownTypes.set(event.eventType, (unknownTypes.get(event.eventType) || 0) + 1);
+    } else if (!READ_TYPES.includes(event.eventType)) {
+      // Everything the digest does not turn into a fact is omitted, whether it
+      // was omitted on purpose or is simply a type this file has no rule for.
+      // Both matter to a reader deciding whether to ask for the full report.
+      omittedTypes.set(event.eventType, (omittedTypes.get(event.eventType) || 0) + 1);
+      if (!IGNORED_TYPES.includes(event.eventType)) {
+        unknownTypes.set(event.eventType, (unknownTypes.get(event.eventType) || 0) + 1);
+      }
     }
     switch (event.eventType) {
       case 'DISPATCH_BASELINE_CAPTURED':
@@ -157,6 +164,9 @@ function buildDigest(doc) {
     [SECTIONS.COVERAGE]: {
       totalEvents: events.length,
       exceptionsCarried: exceptions.length,
+      omittedTypes: [...omittedTypes.entries()]
+        .map(([type, count]) => ({ type, count, recognised: IGNORED_TYPES.includes(type) }))
+        .sort((a, b) => b.count - a.count),
       unknownTypes: [...unknownTypes.entries()].map(([type, count]) => ({ type, count }))
     },
     modelsWithoutTerminal: [...new Set(events.map((e) => e.modelId))]
@@ -165,8 +175,48 @@ function buildDigest(doc) {
   };
 }
 
-function render(digest) {
+// Addressed to whatever model reads this file. A digest is lossy by
+// construction, and a reader that does not know what was removed cannot tell
+// the difference between "this run had no such event" and "this document does
+// not carry that kind of event". State both, and say how to get the rest.
+function renderReaderContract(digest) {
+  const coverage = digest[SECTIONS.COVERAGE];
   const lines = [];
+  lines.push('# READ THIS FIRST — instructions for the model reading this file');
+  lines.push('');
+  lines.push('This is a DIGEST of a telemetry report, not the report itself. It is lossy.');
+  lines.push('');
+  lines.push('It carries: run scope and session identity, per-model terminal status and');
+  lines.push('reason, answers that match text already on the page, focus leases below');
+  lines.push('minUsefulMs, failed decision rules, tab-reuse events, and every exception');
+  lines.push(`event (${coverage.exceptionsCarried} of ${coverage.totalEvents} events in this run).`);
+  lines.push('');
+  if (coverage.omittedTypes.length) {
+    lines.push('It does NOT carry these event types, present in this run:');
+    for (const o of coverage.omittedTypes) {
+      lines.push(`  ${o.type} ×${o.count}${o.recognised ? '' : '   [UNRECOGNISED — this digest has no rule for it]'}`);
+    }
+    lines.push('');
+  }
+  lines.push('RULE: do not infer the absence of anything from this document alone.');
+  lines.push('If the question you are answering depends on any event type listed above,');
+  lines.push('or the failure is not explained by the sections below, you MUST ask the');
+  lines.push('user for the full report before concluding. To produce it: uncheck the');
+  lines.push('`digest` checkbox next to the telemetry Export button and export again —');
+  lines.push('that delivers the complete report as JSON.');
+  if (coverage.unknownTypes.length) {
+    lines.push('');
+    lines.push('This run contains event types this digest cannot read at all, marked');
+    lines.push('UNRECOGNISED above. Ask for the full report.');
+  }
+  lines.push('');
+  lines.push('─'.repeat(70));
+  lines.push('');
+  return lines;
+}
+
+function render(digest) {
+  const lines = renderReaderContract(digest);
   const scope = digest[SECTIONS.SCOPE];
   lines.push(`version ${scope.extensionVersion} | ${scope.createdAt} | ${scope.eventCount} events`);
   lines.push(scope.singleSession
@@ -221,15 +271,6 @@ function render(digest) {
     lines.push('');
   }
 
-  const coverage = digest[SECTIONS.COVERAGE];
-  if (coverage.unknownTypes.length) {
-    // The known gaps are carried in EXCEPTIONS above, so this warns only about
-    // event types added since this digest was written — the one case where the
-    // full JSON is genuinely required to see what happened.
-    lines.push('UNRECOGNISED EVENT TYPES — send the JSON too, the digest cannot read these');
-    for (const u of coverage.unknownTypes) lines.push(`  ${u.type} ×${u.count}`);
-    lines.push('');
-  }
   return lines.join('\n');
 }
 

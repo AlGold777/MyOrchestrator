@@ -116,7 +116,9 @@ describe('telemetry digest', () => {
       ledger: { events: [...doc.ledger.events, event(99, 'GPT', 'SOME_FUTURE_EVENT_TYPE', {})] }
     });
     expect(withNew.coverage.unknownTypes.map((u) => u.type)).toContain('SOME_FUTURE_EVENT_TYPE');
-    expect(render(withNew)).toContain('send the JSON too');
+    // The escalation now lives in the reader contract at the top of the file.
+    expect(render(withNew)).toContain('[UNRECOGNISED — this digest has no rule for it]');
+    expect(render(withNew)).toContain('Ask for the full report.');
   });
 });
 
@@ -200,5 +202,55 @@ describe('the Export button writes the digest alongside the JSON', () => {
     expect(cli).toContain("require('../shared/telemetry-digest.js')");
     // No second copy of the logic to drift out of sync.
     expect(cli).not.toContain('function buildDigest');
+  });
+});
+
+describe('the digest tells the model reading it what it cannot see', () => {
+  const digestFixture = () => buildDigest({
+    ...doc,
+    ledger: {
+      events: [
+        ...doc.ledger.events,
+        event(20, 'GPT', 'OBSERVER_HEALTH_INTERVAL_CLOSED', {}),
+        event(21, 'GPT', 'OBSERVER_HEALTH_INTERVAL_CLOSED', {})
+      ]
+    }
+  });
+  const text = render(digestFixture());
+
+  test('it declares itself lossy, up front', () => {
+    expect(text.indexOf('READ THIS FIRST')).toBeLessThan(200);
+    expect(text).toContain('not the report itself. It is lossy');
+  });
+
+  test('it lists the event types it does not carry, with counts', () => {
+    expect(text).toContain('It does NOT carry these event types');
+    // Present in the fixture but deliberately ignored by the digest.
+    expect(text).toMatch(/OBSERVER_HEALTH_INTERVAL_CLOSED ×\d+/);
+  });
+
+  test('it forbids inferring absence and requires asking for the full report', () => {
+    expect(text).toContain('do not infer the absence of anything from this document alone');
+    expect(text).toContain('you MUST ask the');
+    expect(text).toContain('user for the full report before concluding');
+  });
+
+  test('it says exactly how the full report is produced', () => {
+    expect(text).toContain('uncheck the');
+    expect(text).toContain('`digest` checkbox');
+    expect(text).toContain('delivers the complete report as JSON');
+  });
+
+  test('an unreadable event type is marked and escalated', () => {
+    const withNew = render(buildDigest({
+      ...doc,
+      ledger: { events: [...doc.ledger.events, event(98, 'GPT', 'SOME_FUTURE_EVENT_TYPE', {})] }
+    }));
+    expect(withNew).toContain('SOME_FUTURE_EVENT_TYPE ×1   [UNRECOGNISED');
+    expect(withNew).toContain('Ask for the full report.');
+  });
+
+  test('the contract states how many events were carried against the total', () => {
+    expect(text).toMatch(/event \(\d+ of \d+ events in this run\)/);
   });
 });

@@ -1,5 +1,26 @@
 # CHANGELOG — Project
 
+### 2026-07-31 — The digest states its own limits to its reader, version 2.81.210
+
+A digest is lossy by construction, and a model reading one cannot otherwise
+tell the difference between "this run had no such event" and "this document
+does not carry that kind of event". The file now opens with a block addressed
+to whatever model reads it:
+
+- what it carries, with the count of events carried against the run total;
+- **the exact event types it does not carry, with their counts in this run** —
+  derived from the run itself, not a static list, so it is always accurate;
+- types the digest has no rule for at all are marked `[UNRECOGNISED]`, which is
+  the case where the digest may be misleading rather than merely incomplete;
+- the rule: do not infer absence from this document, and if the question
+  depends on an omitted event type or the failure is not explained here, ask
+  the user for the full report before concluding;
+- how to produce it: uncheck the `digest` checkbox next to Export.
+
+The previous trailing "unrecognised types" note is folded into this block, so
+the warning appears before the data rather than after it. The digest grew from
+~9.1KB to ~10.7KB on the reference run — 1.6% of the 640KB report.
+
 ### 2026-07-31 — Export delivers digest or full report, by checkbox, version 2.81.209
 
 - A `digest` checkbox sits next to the telemetry Export button on both extension
