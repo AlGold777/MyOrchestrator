@@ -1,5 +1,19 @@
 # CHANGELOG — Project
 
+### 2026-08-01 — Complete text wins over truncated rich HTML, version 2.81.219
+
+- Results rendering now checks the visible-text projection of rich HTML against
+  the committed answer text. When the HTML shares the answer beginning but loses
+  a material tail, the card is rendered from the complete text payload.
+- The guard covers live panels, debate cards, post-terminal revisions, and
+  global-state recovery after a missed delivery message or page reload.
+- Regression coverage reproduces a long Gemini answer whose HTML projection is
+  missing its tail and verifies that both result surfaces retain the ending.
+
+Field evidence: run `1785611627407` committed 6198 normalized Gemini characters,
+while `panel-gemini` rendered 6046; the post-terminal audit marked that boundary
+as contradicted.
+
 ### 2026-08-01 — Results reload preserves delivered answers, version 2.81.218
 
 - Reloading the results page still clears its old live DOM, but it now hydrates

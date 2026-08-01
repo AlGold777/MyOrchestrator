@@ -963,6 +963,21 @@ describe('Pipeline debate favorites view', () => {
     expect(indicator.classList.contains('partial')).toBe(true);
   });
 
+  test('a truncated rich-HTML projection cannot cut the committed answer text', () => {
+    const debug = window.__pipelineLifecycleDebug;
+    const fullAnswer = `${'Gemini complete paragraph with stable content. '.repeat(30)}FINAL-TAIL-KEPT`;
+    const truncatedHtml = `<p>${fullAnswer.slice(0, -120)}</p>`;
+
+    debug.updateLLMPanelOutput('Gemini', fullAnswer, truncatedHtml, {
+      status: 'SUCCESS',
+      requestId: 'gemini-complete-render'
+    });
+
+    expect(document.getElementById('output-gemini').textContent).toContain('FINAL-TAIL-KEPT');
+    const card = document.querySelector('.debate-model-card[data-llm-name="Gemini"][data-request-id="gemini-complete-render"]');
+    expect(card.querySelector('.debate-model-card-output').textContent).toContain('FINAL-TAIL-KEPT');
+  });
+
   test('a settled debate card indicator is not repainted by a later force status for the same model', () => {
     const debug = window.__pipelineLifecycleDebug;
     const card = document.createElement('div');

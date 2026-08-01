@@ -1,5 +1,15 @@
 # Codex phase change log
 
+## 2.81.219 — Truncated HTML cannot hide the committed answer tail
+
+- Rich answer HTML is treated as a projection, while the committed text remains
+  authoritative for completeness.
+- A materially shorter HTML projection with the same answer beginning falls
+  back to the full text rendering across live, debate, revision, and recovery
+  surfaces.
+- The regression reproduces the Gemini 6198-to-6046 render loss observed in run
+  `1785611627407` and requires the final tail to remain visible.
+
 ## 2.81.218 — Results reload no longer discards persisted answers
 
 - Results-page registration now reconciles the answer-bearing background

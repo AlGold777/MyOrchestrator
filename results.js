@@ -15404,7 +15404,7 @@ document.addEventListener('click', (event) => {
         const panelHasAnswer = !!outputElement && !!String(outputElement.textContent || '').trim();
         if (panelHasAnswer) return true;
         if (outputElement) {
-            const finalHtml = answerHtml || convertMarkdownToHTML(answerText);
+            const finalHtml = resolveCompleteAnswerHtml(answerText, answerHtml);
             replaceChildrenFromSanitizedHtml(outputElement, finalHtml);
             decorateLinksForNewTab(outputElement);
             outputElement.dataset.hash = String(finalHtml || '').length
@@ -16243,6 +16243,36 @@ document.addEventListener('click', (event) => {
         } catch (_) {}
     }
 
+    const normalizeRenderedAnswerText = (value = '') => String(value || '')
+        .normalize('NFKC')
+        .replace(/\u00a0/g, ' ')
+        .replace(/[\u200B-\u200D\u2060\uFEFF]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    function resolveCompleteAnswerHtml(answerText = '', answerHtml = '') {
+        const text = String(answerText || '').trim();
+        const sanitizedHtml = sanitizeInlineHtml(String(answerHtml || '').trim());
+        const textHtml = convertMarkdownToHTML(text);
+        if (!sanitizedHtml || !text) return sanitizedHtml || textHtml;
+
+        // The text payload is the committed answer. Rich HTML is only a
+        // projection of it and may have been captured from an incomplete DOM
+        // subtree. If that projection shares the answer's beginning but loses a
+        // material tail, render the authoritative text instead of a cut card.
+        const textProjection = normalizeRenderedAnswerText(plainTextFromHtml(textHtml));
+        const htmlProjection = normalizeRenderedAnswerText(plainTextFromHtml(sanitizedHtml));
+        const comparableHeadLength = Math.min(160, textProjection.length, htmlProjection.length);
+        const sameAnswerHead = comparableHeadLength >= 40
+            && textProjection.slice(0, comparableHeadLength) === htmlProjection.slice(0, comparableHeadLength);
+        const missingTailChars = textProjection.length - htmlProjection.length;
+        const htmlProjectionIsTruncated = textProjection.length >= 120
+            && sameAnswerHead
+            && missingTailChars >= 24
+            && htmlProjection.length < textProjection.length * 0.99;
+        return htmlProjectionIsTruncated ? textHtml : sanitizedHtml;
+    }
+
     function updateLLMPanelOutput(llmName, answer, answerHtml = '', meta = {}) {
         const panelId = llmName.toLowerCase().replace(/[^a-z0-9]+/g, '');
         const panel = document.getElementById(`panel-${panelId}`);
@@ -16261,7 +16291,8 @@ document.addEventListener('click', (event) => {
         const normalizedText = payload.text || '';
         const rawHtml = payload.html || '';
         const sanitizedHtml = sanitizeInlineHtml(rawHtml);
-        const resolvedHtml = sanitizedHtml || (looksLikeHtml(normalizedText) ? sanitizeInlineHtml(normalizedText) : '');
+        const richHtml = sanitizedHtml || (looksLikeHtml(normalizedText) ? sanitizeInlineHtml(normalizedText) : '');
+        const resolvedHtml = resolveCompleteAnswerHtml(normalizedText, richHtml);
         const debateUpdate = updateDebateModelCardOutput(llmName, normalizedText, resolvedHtml, meta);
         if (debateUpdate?.postTerminalRevision) return debateUpdate;
         if (panel) {
@@ -19093,8 +19124,7 @@ function checkCompareButtonState() {
     }
     function renderDebateResponseBody(outputEl, text = '', html = '') {
         if (!outputEl) return '';
-        const sanitizedHtml = sanitizeInlineHtml(String(html || '').trim());
-        const formattedHtml = sanitizedHtml || convertMarkdownToHTML(String(text || ''));
+        const formattedHtml = resolveCompleteAnswerHtml(text, html);
         replaceChildrenFromSanitizedHtml(outputEl, formattedHtml);
         decorateLinksForNewTab(outputEl);
         return String(outputEl.innerHTML || '').trim();
