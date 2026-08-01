@@ -1,5 +1,25 @@
 # CHANGELOG — Project
 
+### 2026-07-31 — Export delivers digest or full report, by checkbox, version 2.81.209
+
+- A `digest` checkbox sits next to the telemetry Export button on both extension
+  pages, checked by default and remembered in `chrome.storage.local`.
+  - **Checked** — the export delivers the digest, `…-digest.txt` (~9KB).
+  - **Unchecked** — the export delivers the complete report, `…json` (~640KB).
+- The report itself is still built in full in both cases. `buildAllPresets` runs
+  either way and the digest is derived from its output, so the two documents
+  always describe the same run; the toggle only decides which one is handed over.
+- The export can never come back empty-handed: if the digest is requested but
+  cannot be produced, the full JSON is written instead and the status line says
+  `Digest unavailable — full JSON exported`. An absent checkbox or an unset
+  preference behaves as checked.
+- 2.81.207 wrote both files on every export. That was a misreading of the
+  request; the choice is between the two documents, not an extra companion file.
+- One existing test sliced a fixed 800 characters from the telemetry toolbar to
+  assert button order; the new control pushed a later button past that window.
+  The slice now runs to the end of the container, so adding a control cannot
+  break the assertion again.
+
 ### 2026-07-31 — The digest carries exceptions instead of counting them, version 2.81.208
 
 The 2.81.206 digest read 19% of events and dropped 81%, including

@@ -125,17 +125,49 @@ describe('the Export button writes the digest alongside the JSON', () => {
   const path = require('path');
   const DEVTOOLS = fs.readFileSync(path.join(__dirname, '..', 'results-devtools.js'), 'utf8');
 
-  test('the digest is written for the all-presets export', () => {
+  test('checked exports the digest, unchecked exports the complete report', () => {
     const branch = DEVTOOLS.slice(
       DEVTOOLS.indexOf("if (task === 'all') {"),
       DEVTOOLS.indexOf('const selectedModelId')
     );
+    // The full report is built either way; only the delivered document changes.
+    expect(branch).toContain('buildAllPresets(canonicalEvents, buildOptions)');
+    expect(branch).toContain('digestExportEnabled() ? downloadTelemetryDigest(payload, filename) : null');
+    expect(branch).toContain('if (!digest) {');
     expect(branch).toContain('downloadProofArtifact(payload, filename)');
-    expect(branch).toContain('downloadTelemetryDigest(payload, filename)');
-    // The archive must be written first: if the digest throws, the export is
-    // already safely on disk.
-    expect(branch.indexOf('downloadProofArtifact(payload, filename)'))
-      .toBeLessThan(branch.indexOf('downloadTelemetryDigest(payload, filename)'));
+  });
+
+  test('the export is never left empty-handed', () => {
+    const branch = DEVTOOLS.slice(
+      DEVTOOLS.indexOf("if (task === 'all') {"),
+      DEVTOOLS.indexOf('const selectedModelId')
+    );
+    // A digest that cannot be produced must still yield the full JSON, so the
+    // toggle can never cost the user their export.
+    const guardAt = branch.indexOf('if (!digest) {');
+    const jsonAt = branch.indexOf('downloadProofArtifact(payload, filename)', guardAt);
+    expect(guardAt).toBeGreaterThan(-1);
+    expect(jsonAt).toBeGreaterThan(guardAt);
+    expect(branch).toContain('Digest unavailable — full JSON exported');
+  });
+
+  test('the toggle defaults to on and is remembered', () => {
+    const wiring = DEVTOOLS.slice(
+      DEVTOOLS.indexOf('const DIGEST_TOGGLE_KEY'),
+      DEVTOOLS.indexOf('const downloadTelemetryDigest')
+    );
+    expect(wiring).toContain("chrome.storage?.local?.get?.([DIGEST_TOGGLE_KEY]");
+    expect(wiring).toContain('chrome.storage?.local?.set?.({ [DIGEST_TOGGLE_KEY]');
+    // Absent element or unset preference must behave as enabled.
+    expect(wiring).toContain('const digestExportEnabled = () => !digestToggle || digestToggle.checked === true;');
+  });
+
+  test('both pages carry the toggle, checked by default', () => {
+    for (const page of ['result_new.html', 'pipeline_panel.html']) {
+      const html = fs.readFileSync(path.join(__dirname, '..', page), 'utf8');
+      expect(html).toContain('id="telemetry-export-digest-toggle"');
+      expect(html).toMatch(/id="telemetry-export-digest-toggle"[^>]*checked/);
+    }
   });
 
   test('a digest failure never costs the user the export', () => {

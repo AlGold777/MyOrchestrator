@@ -1142,6 +1142,28 @@
     // The JSON stays the archive; the digest is the part meant to be read.
     // Same implementation as scripts/telemetry-digest.js, so a digest produced
     // here and one produced from the file can never disagree.
+    // The report is still built in full either way — the toggle only decides
+    // which document the user receives. Checked (default) delivers the digest;
+    // unchecked delivers the complete report as JSON.
+    const DIGEST_TOGGLE_KEY = 'telemetryExportDigestEnabled';
+    const digestToggle = document.getElementById('telemetry-export-digest-toggle');
+    if (digestToggle) {
+        try {
+            chrome.storage?.local?.get?.([DIGEST_TOGGLE_KEY], (stored) => {
+                if (chrome.runtime?.lastError) return;
+                if (stored && typeof stored[DIGEST_TOGGLE_KEY] === 'boolean') {
+                    digestToggle.checked = stored[DIGEST_TOGGLE_KEY];
+                }
+            });
+        } catch (_) {}
+        digestToggle.addEventListener('change', () => {
+            try {
+                chrome.storage?.local?.set?.({ [DIGEST_TOGGLE_KEY]: digestToggle.checked === true });
+            } catch (_) {}
+        });
+    }
+    const digestExportEnabled = () => !digestToggle || digestToggle.checked === true;
+
     const downloadTelemetryDigest = (payload, jsonFilename) => {
         if (!window.TelemetryDigest?.buildDigest) return null;
         try {
@@ -1220,15 +1242,21 @@
                 pendingRecordCount: Number(proofSnapshot.pendingRecordCount || 0)
             };
             if (task === 'all') {
+                // The full report is always built; the toggle only decides which
+                // document is handed to the user.
                 const payload = await window.ProofOrientedTelemetry.buildAllPresets(canonicalEvents, buildOptions);
                 const filename = `telemetry-all-presets-${Date.now()}.json`;
-                downloadProofArtifact(payload, filename);
-                const digest = downloadTelemetryDigest(payload, filename);
+                const boundary = proofSnapshot.barrierTimedOut ? ' from the latest committed boundary' : '';
+                const digest = digestExportEnabled() ? downloadTelemetryDigest(payload, filename) : null;
+                if (!digest) {
+                    // Either the user asked for the complete report, or the digest
+                    // could not be produced. Never leave the export empty-handed.
+                    downloadProofArtifact(payload, filename);
+                }
                 if (telemetryStatus) {
-                    const base = proofSnapshot.barrierTimedOut
-                        ? 'JSON exported from the latest committed boundary'
-                        : 'JSON exported';
-                    telemetryStatus.textContent = digest ? `${base} + digest` : base;
+                    telemetryStatus.textContent = digest
+                        ? `Digest exported${boundary}`
+                        : `${digestExportEnabled() ? 'Digest unavailable — full JSON exported' : 'Full JSON exported'}${boundary}`;
                 }
                 return;
             }
