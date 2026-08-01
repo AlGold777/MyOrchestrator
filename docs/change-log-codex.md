@@ -1,5 +1,13 @@
 # Codex phase change log
 
+## 2.81.195 — Automatic extraction recovery collects the latest answer
+
+- Recovery after `empty_answer`, prompt echo, UI noise, or extraction failure
+  now uses the latest-answer strategy instead of repeating the failed selector.
+- The collection and acceptance phases reuse one correlation object, preserving
+  the run and dispatch identity through automatic delivery.
+- Regression coverage verifies both the chosen strategy and its plumbing.
+
 ## 2.81.194 — Generated answers keep their dispatch identity
 
 - Grok no longer drops the active dispatch metadata on its primary automatic

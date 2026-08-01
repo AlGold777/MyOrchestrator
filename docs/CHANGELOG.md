@@ -1,5 +1,14 @@
 # CHANGELOG — Project
 
+### 2026-08-01 — Automatic recovery collects the latest answer, version 2.81.195
+
+- Terminal extraction recovery now requests the latest provider answer instead
+  of retrying the same target that already returned empty text, prompt echo, or
+  UI noise.
+- Collection and acceptance share one metadata object, preventing a recovered
+  answer from being rejected at the lifecycle-correlation boundary.
+- Added regression coverage for the recovery strategy and identity plumbing.
+
 ### 2026-08-01 — Preserve answer delivery identity, version 2.81.194
 
 - Grok's primary automatic answer path now includes the active `dispatchId`

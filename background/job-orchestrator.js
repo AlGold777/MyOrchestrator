@@ -1315,32 +1315,17 @@ async function runTerminalExtractionRecovery(llmName, trigger = {}) {
   if (!isValidTabId(tabId)) return false;
   const runSessionId = getCurrentRunSessionId();
   const source = trigger.source || 'terminal_extraction_auto_recovery';
-  const result = await lateCollectAnswer({
-    llmName,
-    tabId,
-    reason: source,
-    meta: {
-      source,
-      runSessionId,
-      sessionId: runSessionId,
-      dispatchId,
-      responseMeta: {
-        source,
-        completionReason: trigger.lifecycleComplete
-          ? 'lifecycle_complete_auto_recovery'
-          : 'terminal_extraction_auto_recovery',
-        lateCollectFinal: true,
-        forceTerminalSuccess: true,
-        recovered: true,
-        lifecycleComplete: !!trigger.lifecycleComplete
-      }
-    }
-  });
-  const accepted = Boolean(result?.ok && result.text && acceptLateCollectResult(llmName, result, {
+  // A terminal extraction failure means the default target was empty, a prompt
+  // echo, UI noise, or otherwise unusable. Retrying that same target repeats the
+  // failure. Use the latest-answer collector, which is also used by the working
+  // explicit recovery action, and keep one correlation object from collection
+  // through acceptance.
+  const recoveryMeta = {
     source,
     runSessionId,
     sessionId: runSessionId,
     dispatchId,
+    manualLatestRecovery: true,
     responseMeta: {
       source,
       completionReason: trigger.lifecycleComplete
@@ -1349,9 +1334,21 @@ async function runTerminalExtractionRecovery(llmName, trigger = {}) {
       lateCollectFinal: true,
       forceTerminalSuccess: true,
       recovered: true,
+      manualLatestRecovery: true,
       lifecycleComplete: !!trigger.lifecycleComplete
     }
-  }));
+  };
+  const result = await lateCollectAnswer({
+    llmName,
+    tabId,
+    reason: source,
+    meta: recoveryMeta
+  });
+  const accepted = Boolean(
+    result?.ok
+    && result.text
+    && acceptLateCollectResult(llmName, result, recoveryMeta)
+  );
   emitTelemetry(llmName, accepted ? 'TERMINAL_EXTRACTION_AUTO_RECOVERY_SUCCESS' : 'TERMINAL_EXTRACTION_AUTO_RECOVERY_MISS', {
     level: accepted ? 'success' : 'warning',
     details: `${source}:${result?.status || result?.reason || 'missed'}`,

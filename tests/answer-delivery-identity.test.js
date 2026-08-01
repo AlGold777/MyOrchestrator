@@ -30,3 +30,30 @@ describe('generated answers keep the identity of their dispatch', () => {
     expect(ensure).toContain('if (storedDispatchId && !base.dispatchId)');
   });
 });
+
+describe('automatic terminal extraction recovery uses the working collector', () => {
+  const ORCH = fs.readFileSync(path.join(__dirname, '..', 'background', 'job-orchestrator.js'), 'utf8');
+  const recoveryStart = ORCH.indexOf('async function runTerminalExtractionRecovery');
+  const recovery = ORCH.slice(
+    recoveryStart,
+    ORCH.indexOf("emitTelemetry(llmName, accepted ? 'TERMINAL_EXTRACTION_AUTO_RECOVERY_SUCCESS'", recoveryStart)
+  );
+
+  test('requests the latest answer rather than repeating the failed default target', () => {
+    const flagAt = recovery.indexOf('manualLatestRecovery: true');
+    expect(flagAt).toBeGreaterThan(-1);
+    expect(flagAt).toBeLessThan(recovery.indexOf('lateCollectAnswer({'));
+  });
+
+  test('collection and acceptance share the exact same correlation object', () => {
+    expect(recovery).toContain('meta: recoveryMeta');
+    expect(recovery).toContain('acceptLateCollectResult(llmName, result, recoveryMeta)');
+  });
+
+  test('the latest-answer flag is consumed by late collection plumbing', () => {
+    const plumbingAt = ORCH.indexOf('const manualLatestRecovery = Boolean(manualRecovery?.manualLatestRecovery');
+    const plumbing = ORCH.slice(plumbingAt, plumbingAt + 240);
+    expect(plumbing).toContain('meta?.manualLatestRecovery');
+    expect(plumbing).toContain('meta?.responseMeta?.manualLatestRecovery');
+  });
+});
