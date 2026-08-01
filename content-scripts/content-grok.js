@@ -2013,7 +2013,12 @@
         responseDelivered = true;
         if (payload.html) lastResponseHtml = payload.html;
         if (text) lastResponseCache = text;
-        sendResult(payload, true);
+        // Field evidence 2026-08-01: this delivery carried no dispatch meta, so
+        // the background's lifecycle correlation rejected the answer with
+        // LLM_RESPONSE:dispatch_mismatch and a null incoming dispatchId — the
+        // answer existed and was simply thrown away. Every other Grok delivery
+        // path already passes it; this one, the main one, did not.
+        sendResult(payload, true, dispatchMeta);
         activity.stop({ status: 'success', answerLength: text.length, source });
         return true;
       };

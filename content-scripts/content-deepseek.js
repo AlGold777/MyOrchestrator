@@ -1208,6 +1208,16 @@ const buildLifecycleContext = (prompt = '', extra = {}) => ({
 
   function sendResult(resp, ok = true, responseType = 'LLM_RESPONSE', meta = null) {
     const { text, html, meta: responseMeta } = normalizeResponsePayload(resp, lastResponseHtml);
+    // Field evidence 2026-08-01: an answer was rejected with
+    // LLM_RESPONSE:run_session_mismatch. The manual-ping path forwards
+    // `msg?.meta` straight through, and a manual ping carries no dispatch
+    // identity, so the delivery went out under whatever session was left over —
+    // and the background discarded a real answer. Normalising here covers every
+    // delivery path at once; ensureDispatchMeta only fills gaps, so an explicit
+    // meta passed by the caller still wins.
+    const identity = window.ContentUtils?.ensureDispatchMeta
+      ? window.ContentUtils.ensureDispatchMeta(meta && typeof meta === 'object' ? meta : {}, MODEL)
+      : (meta && typeof meta === 'object' ? meta : null);
     if (ok) {
       const stats = contentCleaner.getStats();
       chrome.runtime.sendMessage({
@@ -1223,8 +1233,8 @@ const buildLifecycleContext = (prompt = '', extra = {}) => ({
       answer: ok ? text : `Error: ${text}`,
       answerHtml: ok ? html : '',
       meta: responseMeta
-        ? Object.assign({}, meta && typeof meta === 'object' ? meta : {}, { responseMeta })
-        : (meta && typeof meta === 'object' ? meta : null)
+        ? Object.assign({}, identity || {}, { responseMeta })
+        : identity
     });
   }
 

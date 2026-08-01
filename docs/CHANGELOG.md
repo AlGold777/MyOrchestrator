@@ -1,5 +1,32 @@
 # CHANGELOG — Project
 
+### 2026-08-01 — Generated answers were discarded on delivery, version 2.81.211
+
+Full telemetry report of run 1785580394378. All nine models received the prompt
+and wrote answers; two of those answers never reached the user because the
+background's lifecycle correlation rejected them — for two different reasons.
+
+| model | rejection | cause |
+|---|---|---|
+| Grok | `LLM_RESPONSE:dispatch_mismatch` | delivered with a null dispatchId |
+| DeepSeek | `LLM_RESPONSE:run_session_mismatch` | delivered under a leftover session |
+
+- **Grok**: the main delivery path called `sendResult(payload, true)` while
+  `dispatchMeta` was already in scope a few lines above, and every other Grok
+  delivery path passed it. The answer arrived with no identity and was dropped.
+- **DeepSeek**: `sendResult` forwarded the caller's meta unchanged, and the
+  manual-ping path forwards `msg?.meta` — a manual ping carries no dispatch
+  identity. Identity is now normalised inside `sendResult`, so every delivery
+  path is covered at once. `ensureDispatchMeta` only fills gaps, so an explicit
+  meta from a caller still wins.
+- Neither answer was missing or short: the same run shows Claude recovering 2997
+  characters and Gemini 2726 through manual collection, after the automatic run
+  had recorded `send_failed` and `extract_failed` for them.
+
+Not addressed here: why the automatic collection misses answers that manual
+collection retrieves, and why most successes are still forced rather than
+proven. Those are the same evidence-layer problem, and they are separate.
+
 ### 2026-07-31 — The digest states its own limits to its reader, version 2.81.210
 
 A digest is lossy by construction, and a model reading one cannot otherwise
