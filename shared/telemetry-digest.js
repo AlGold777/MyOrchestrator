@@ -30,13 +30,31 @@ const SECTIONS = Object.freeze({
 // about a kilobyte and removes the need to go back to the JSON for the failure
 // modes we already know about.
 const EXCEPTION_TYPES = Object.freeze({
-  ANSWER_DELIVERY_REJECTED: (p, m) => `${p.sourceEventType || 'rejected'} ${m.attemptId || ''}`.trim(),
+  // correlationReason is what distinguishes "arrived with the wrong id" from
+  // "arrived with none" — two different defects that read identically without it.
+  ANSWER_DELIVERY_REJECTED: (p, m) => [
+    m.correlationReason || p.sourceEventType || 'rejected',
+    m.expectedDispatchId ? `expected=${m.expectedDispatchId}` : '',
+    m.incomingDispatchId ? `incoming=${m.incomingDispatchId}` : '',
+    m.expectedRunSessionId ? `expectedRun=${m.expectedRunSessionId}` : '',
+    m.incomingRunSessionId ? `incomingRun=${m.incomingRunSessionId}` : ''
+  ].filter(Boolean).join(' '),
+  // The extraction chain: a frame length that shrinks into a tiny materialised
+  // answer is the signature of reading the wrong node — 131 -> 47 while the real
+  // answer was 1797 (2026-08-01).
+  ANSWER_SOURCE_MATERIALIZED: (p, m) => `len=${m.normalizedLength ?? '?'} source=${m.source || '?'}`,
+  EXTRACTION_COMPLETED: (p, m) => `len=${m.normalizedLength ?? '?'} ${m.outcome || m.status || ''}`.trim(),
+  STRUCTURAL_VERIFICATION_EVALUATED: (p, m) => `${(p.typed && p.typed.state) || m.status || '?'}`,
+  CANDIDATE_SET_CHANGED: (p, m) => `count=${m.candidateCount ?? '?'} ${(p.typed && p.typed.state) || ''}`.trim(),
+  CANDIDATE_IDENTITY_INFERRED: (p, m) => `${m.answerIdentity || (p.typed && p.typed.state) || '?'}`,
+  GENERATION_SIGNAL_CHANGED: (p, m) => `${(p.typed && p.typed.state) || m.signal || '?'}`,
+  GENERATION_STATE_INFERRED: (p) => `${(p.typed && p.typed.state) || '?'}`,
   MISSING_EVIDENCE_RECORDED: (p) => `${p.missingEvidence || '?'} (${p.status || '?'}) — ${p.impact || ''}`.trim(),
   POST_TERMINAL_AUDIT_COMPLETED: (p) => `accepted=${p.acceptedLength} observed=${p.observedLength} growth=${p.growthChars}`,
   SELECTOR_FORENSIC_SNAPSHOT_CAPTURED: (p) => `${p.anomalyTrigger || '?'} available=${p.captureAvailable}${p.omissionReason ? ` — ${p.omissionReason}` : ''}`,
   POLICY_OVERRIDE_APPLIED: (p) => `${p.trigger || '?'} (${p.mode || '?'}) waived: ${(p.waivedRules || []).join(', ')}`,
   GENERATION_START_EVALUATED: (p, m) => `${(p.typed && p.typed.state) || '?'} ${m.step || ''}`.trim(),
-  OBSERVATION_FRAME_CAPTURED: (p, m) => `${m.reason || '?'} status=${m.status || '?'} state=${m.state || '?'}`
+  OBSERVATION_FRAME_CAPTURED: (p, m) => `${m.reason || '?'} status=${m.status || '?'} state=${m.state || '?'} len=${m.textLength ?? '?'}`
 });
 
 // Types the digest deliberately reads or deliberately ignores. Anything outside
@@ -49,7 +67,7 @@ const READ_TYPES = Object.freeze([
 const IGNORED_TYPES = Object.freeze([
   'OBSERVER_HEALTH_INTERVAL_CLOSED', 'OBSERVER_HEALTH_OBSERVED', 'OBSERVATION_INTERVAL_CLOSED',
   'SUBMIT_ACTION_OBSERVED', 'SUBMISSION_EVIDENCE_CHANGED', 'SUBMISSION_INFERRED',
-  'ANSWER_SOURCE_MATERIALIZED', 'EXTRACTION_COMPLETED', 'ANSWER_CARD_RENDER_EVALUATED',
+  'ANSWER_CARD_RENDER_EVALUATED',
   'ANSWER_COMMIT_EVALUATED', 'FINALIZATION_POLICY_EVALUATED', 'PAGE_HEALTH_OBSERVED',
   'PAGE_CONTEXT_OBSERVED', 'RUN_CONFIG_RECORDED', 'CLOCK_EPOCH_STARTED'
 ]);

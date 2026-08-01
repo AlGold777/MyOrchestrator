@@ -960,7 +960,16 @@ const validateLifecycleCorrelation = (llmName, message, messageType) => {
         emitTelemetry(llmName, 'LIFECYCLE_CORRELATION_REJECTED', {
             level: 'warning',
             details: `${messageType}:dispatch_mismatch`,
-            meta: { messageType, expectedDispatchId, incomingDispatchId, ...deliveryIdentityMeta(meta) },
+            meta: {
+                messageType,
+                // Exported field, unlike `details`: metadata-only privacy strips
+                // the text, and the reason was previously recoverable only by
+                // measuring detailsLength.
+                correlationReason: incomingDispatchId ? 'dispatch_mismatch' : 'missing_dispatch_id',
+                expectedDispatchId,
+                incomingDispatchId,
+                ...deliveryIdentityMeta(meta)
+            },
             force: true
         });
         return { ok: false, reason: incomingDispatchId ? 'dispatch_mismatch' : 'missing_dispatch_id' };
@@ -969,7 +978,13 @@ const validateLifecycleCorrelation = (llmName, message, messageType) => {
         emitTelemetry(llmName, 'LIFECYCLE_CORRELATION_REJECTED', {
             level: 'warning',
             details: `${messageType}:run_session_mismatch`,
-            meta: { messageType, expectedRunSessionId, incomingRunSessionId, ...deliveryIdentityMeta(meta) },
+            meta: {
+                messageType,
+                correlationReason: incomingRunSessionId ? 'run_session_mismatch' : 'missing_run_session_id',
+                expectedRunSessionId,
+                incomingRunSessionId,
+                ...deliveryIdentityMeta(meta)
+            },
             force: true
         });
         return { ok: false, reason: incomingRunSessionId ? 'run_session_mismatch' : 'missing_run_session_id' };

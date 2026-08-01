@@ -254,3 +254,58 @@ describe('the digest tells the model reading it what it cannot see', () => {
     expect(text).toMatch(/event \(\d+ of \d+ events in this run\)/);
   });
 });
+
+describe('the digest carries what the last two fixes needed', () => {
+  const fs2 = require('fs');
+  const path2 = require('path');
+  const ROUTER2 = fs2.readFileSync(path2.join(__dirname, '..', 'background', 'message-router.js'), 'utf8');
+
+  test('the rejection reason is an exported field, not only in details text', () => {
+    // Under metadata-only privacy the `details` string is not exported at all;
+    // the reason was previously recoverable only by measuring detailsLength.
+    expect(ROUTER2).toContain("correlationReason: incomingDispatchId ? 'dispatch_mismatch' : 'missing_dispatch_id'");
+    expect(ROUTER2).toContain("correlationReason: incomingRunSessionId ? 'run_session_mismatch' : 'missing_run_session_id'");
+  });
+
+  test('a rejected delivery reports which identity disagreed', () => {
+    const d = buildDigest({
+      ledger: { events: [{
+        seq: 1, modelId: 'Grok', eventType: 'ANSWER_DELIVERY_REJECTED', runSessionId: '1',
+        payload: { sourceEventType: 'LIFECYCLE_CORRELATION_REJECTED', metadata: {
+          correlationReason: 'missing_dispatch_id', expectedDispatchId: 'Grok:1:1'
+        } }
+      }] }
+    });
+    expect(d.exceptions[0].detail).toContain('missing_dispatch_id');
+    expect(d.exceptions[0].detail).toContain('expected=Grok:1:1');
+  });
+
+  test('the extraction chain is visible: frame length, materialised length', () => {
+    const d = buildDigest({
+      ledger: { events: [
+        { seq: 1, modelId: 'Grok', eventType: 'OBSERVATION_FRAME_CAPTURED', runSessionId: '1',
+          payload: { metadata: { reason: 'manual_ping_late_collect', status: 'success', state: 'ALIVE', textLength: 131 } } },
+        { seq: 2, modelId: 'Grok', eventType: 'ANSWER_SOURCE_MATERIALIZED', runSessionId: '1',
+          payload: { metadata: { normalizedLength: 47, source: 'manual_ping' } } },
+        { seq: 3, modelId: 'Grok', eventType: 'OBSERVATION_FRAME_CAPTURED', runSessionId: '1',
+          payload: { metadata: { reason: 'manual_latest_recovery', status: 'success', state: 'ALIVE', textLength: 1797 } } }
+      ] }
+    });
+    const text = render(d);
+    // 131 -> 47 while the real answer was 1797: the wrong-node signature.
+    expect(text).toContain('len=131');
+    expect(text).toContain('len=47');
+    expect(text).toContain('len=1797');
+  });
+
+  test('the five previously unreadable types are read now', () => {
+    const d = buildDigest({
+      ledger: { events: ['STRUCTURAL_VERIFICATION_EVALUATED', 'CANDIDATE_SET_CHANGED',
+        'CANDIDATE_IDENTITY_INFERRED', 'GENERATION_SIGNAL_CHANGED', 'GENERATION_STATE_INFERRED']
+        .map((t, i) => ({ seq: i + 1, modelId: 'Grok', eventType: t, runSessionId: '1',
+          payload: { typed: { state: 'rejected' }, metadata: {} } })) }
+    });
+    expect(d.coverage.unknownTypes).toHaveLength(0);
+    expect(d.exceptions).toHaveLength(5);
+  });
+});

@@ -1,5 +1,31 @@
 # CHANGELOG — Project
 
+### 2026-08-01 — The digest now carries what the last two fixes needed, version 2.81.213
+
+Both 2.81.211 and 2.81.212 were diagnosed from the full JSON, not the digest.
+Worse, one of them was only diagnosable by measuring `detailsLength` (30 vs 33)
+to tell `dispatch_mismatch` from `run_session_mismatch` — the reason text itself
+is never exported under metadata-only privacy.
+
+- `correlationReason` is now emitted as a metadata field on both lifecycle
+  rejections, so the reason survives export instead of being inferred from a
+  string length. It also distinguishes *missing* identity from *wrong* identity,
+  which are different defects.
+- The digest reports that reason together with the expected and incoming ids.
+- The extraction chain is now visible: `OBSERVATION_FRAME_CAPTURED` carries its
+  text length, and `ANSWER_SOURCE_MATERIALIZED` / `EXTRACTION_COMPLETED` are
+  carried at all. The wrong-node signature — a 131-character frame yielding a
+  47-character answer while the real one is 1797 — reads directly off the digest.
+- The five types previously marked `[UNRECOGNISED]` are read now:
+  `STRUCTURAL_VERIFICATION_EVALUATED`, `CANDIDATE_SET_CHANGED`,
+  `CANDIDATE_IDENTITY_INFERRED`, `GENERATION_SIGNAL_CHANGED`,
+  `GENERATION_STATE_INFERRED`.
+
+Newly visible in the same data, not yet investigated: deliveries also get
+rejected by the *sender* gate — `SENDER_TAB_MISMATCH_REJECTED` for Grok and GPT,
+`SENDER_WITHOUT_BINDING_REJECTED` for Qwen. That is a different check from
+lifecycle correlation and has no `correlationReason` yet.
+
 ### 2026-08-01 — A failed extraction now retries the way that works, version 2.81.212
 
 Isolated single-model run (Grok), three exports around one answer:
