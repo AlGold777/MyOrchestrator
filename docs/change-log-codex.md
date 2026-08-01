@@ -1,5 +1,13 @@
 # Codex phase change log
 
+## 2.81.194 — Generated answers keep their dispatch identity
+
+- Grok no longer drops the active dispatch metadata on its primary automatic
+  answer-delivery call.
+- DeepSeek normalizes missing run/dispatch metadata in its shared `sendResult`
+  boundary, so successful recovery output is accepted by background correlation.
+- Regression tests lock both paths and verify that explicit identity still wins.
+
 ## 2.81.123 — Perplexity insertion no longer trusts execCommand
 
 > Renumbered from a duplicate "2.81.122" heading: two independent sessions each

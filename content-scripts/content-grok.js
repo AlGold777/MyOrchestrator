@@ -2013,7 +2013,10 @@
         responseDelivered = true;
         if (payload.html) lastResponseHtml = payload.html;
         if (text) lastResponseCache = text;
-        sendResult(payload, true);
+        // This is the primary automatic delivery path. Keep the dispatch
+        // identity that was captured for this request; otherwise the background
+        // correlation gate correctly rejects a generated answer as unrelated.
+        sendResult(payload, true, dispatchMeta);
         activity.stop({ status: 'success', answerLength: text.length, source });
         return true;
       };

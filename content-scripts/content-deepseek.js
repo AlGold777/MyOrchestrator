@@ -1208,6 +1208,13 @@ const buildLifecycleContext = (prompt = '', extra = {}) => ({
 
   function sendResult(resp, ok = true, responseType = 'LLM_RESPONSE', meta = null) {
     const { text, html, meta: responseMeta } = normalizeResponsePayload(resp, lastResponseHtml);
+    // Some recovery paths (including a manual/latest probe used by automatic
+    // recovery) do not carry message meta of their own. Fill only the missing
+    // identity fields from the active dispatch so a real answer is not rejected
+    // as belonging to an old or unknown run.
+    const identity = window.ContentUtils?.ensureDispatchMeta
+      ? window.ContentUtils.ensureDispatchMeta(meta && typeof meta === 'object' ? meta : {}, MODEL)
+      : (meta && typeof meta === 'object' ? meta : null);
     if (ok) {
       const stats = contentCleaner.getStats();
       chrome.runtime.sendMessage({
@@ -1223,8 +1230,8 @@ const buildLifecycleContext = (prompt = '', extra = {}) => ({
       answer: ok ? text : `Error: ${text}`,
       answerHtml: ok ? html : '',
       meta: responseMeta
-        ? Object.assign({}, meta && typeof meta === 'object' ? meta : {}, { responseMeta })
-        : (meta && typeof meta === 'object' ? meta : null)
+        ? Object.assign({}, identity || {}, { responseMeta })
+        : identity
     });
   }
 

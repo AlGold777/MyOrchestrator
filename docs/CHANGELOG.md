@@ -1,5 +1,14 @@
 # CHANGELOG — Project
 
+### 2026-08-01 — Preserve answer delivery identity, version 2.81.194
+
+- Grok's primary automatic answer path now includes the active `dispatchId`
+  instead of sending an uncorrelated payload that the background rejects.
+- DeepSeek now fills missing run and dispatch identity at its shared delivery
+  boundary, covering automatic recovery paths without overwriting explicit meta.
+- Added regression coverage for both delivery paths and the fill-only identity
+  contract.
+
 ### 2026-07-30 — Eager telemetry export click bootstrap, version 2.81.182
 
 - A small bootstrap is loaded before the heavy results runtime on both result
