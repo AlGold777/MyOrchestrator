@@ -54,6 +54,12 @@ describe('main-page UI recovery triggers', () => {
     expect(RESULTS_SRC).toContain('updateDebateModelCardOutput(llmName, answerText, answerHtml');
   });
 
+  test('results-page reload reconciles persisted answers instead of discarding them', () => {
+    expect(RESULTS_SRC).toContain("const reconciliationState = response?.runtimeReset === true");
+    expect(RESULTS_SRC).toContain('syncStatusFromGlobalState(reconciliationState, { replace: true });');
+    expect(RESULTS_SRC).not.toContain('syncStatusFromGlobalState(pageWasReloaded ? {}');
+  });
+
   test('manual ping success carries and applies the persisted answer as a backup channel', () => {
     expect(ORCHESTRATOR_SRC).toContain("answer: String(updatedEntry?.answer || result.text || '')");
     expect(RESULTS_SRC).toContain("source: 'MANUAL_PING_RESULT_RECOVERY'");

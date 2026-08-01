@@ -28,11 +28,13 @@ describe('extension reload state reset', () => {
 
     expect(routerSource).toMatch(/case 'REGISTER_RESULTS_TAB':[\s\S]*state: buildGlobalStateSnapshot\(\{ includeAnswers: true \}\)/);
     expect(routerSource).toContain('runtimeReset');
-    expect(resultsSource).toContain("syncStatusFromGlobalState(pageWasReloaded ? {} : (response?.state || {}), { replace: true });");
     expect(resultsSource).toContain('function clearLiveResponseCards()');
     expect(resultsSource).toContain('const pageWasReloaded = isPageReloadNavigation();');
     expect(resultsSource).toContain("if (pageWasReloaded || response?.runtimeReset === true || !hasLiveSnapshot) {");
-    expect(resultsSource).toContain("syncStatusFromGlobalState(pageWasReloaded ? {} : (response?.state || {}), { replace: true });");
+    expect(resultsSource).toContain("const reconciliationState = response?.runtimeReset === true");
+    expect(resultsSource).toContain(': (response?.state || {});');
+    expect(resultsSource).toContain('syncStatusFromGlobalState(reconciliationState, { replace: true });');
+    expect(resultsSource).not.toContain('syncStatusFromGlobalState(pageWasReloaded ? {}');
     expect(resultsSource).toContain('clearLiveResponseCards();');
     expect(resultsSource).toContain('applyModelButtonSelection([]);');
     expect(resultsSource).toContain("new CustomEvent('extension-runtime-reset'");

@@ -15639,7 +15639,13 @@ document.addEventListener('click', (event) => {
         if (pageWasReloaded || response?.runtimeReset === true || !hasLiveSnapshot) {
             clearLiveResponseCards();
         }
-        syncStatusFromGlobalState(pageWasReloaded ? {} : (response?.state || {}), { replace: true });
+        // A page reload clears the old DOM, but the answer-bearing background
+        // snapshot is the recovery channel for messages missed during reload.
+        // Only a genuine extension-runtime reset invalidates that snapshot.
+        const reconciliationState = response?.runtimeReset === true
+            ? {}
+            : (response?.state || {});
+        syncStatusFromGlobalState(reconciliationState, { replace: true });
         if (response?.runtimeReset === true) {
             applyModelButtonSelection([]);
             void safeStorageLocalRemove([

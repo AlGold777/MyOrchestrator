@@ -1,5 +1,14 @@
 # CHANGELOG — Project
 
+### 2026-08-01 — Results reload preserves delivered answers, version 2.81.218
+
+- Reloading the results page still clears its old live DOM, but it now hydrates
+  the authoritative background snapshot instead of replacing that snapshot
+  with an empty object.
+- A genuine extension-runtime reset remains the only condition that invalidates
+  the returned snapshot, so stale runtime state is not restored.
+- Added regression coverage for both reload hydration and runtime-reset clearing.
+
 ### 2026-08-01 — A strong transition and a resolved identity survive to the decision, version 2.81.217
 
 Two more facts were being stated by the runtime and lost before the decision

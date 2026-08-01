@@ -1,5 +1,14 @@
 # Codex phase change log
 
+## 2.81.218 — Results reload no longer discards persisted answers
+
+- Results-page registration now reconciles the answer-bearing background
+  snapshot even after a page reload.
+- The old DOM is still cleared before hydration; only a confirmed extension
+  runtime reset suppresses restoration.
+- Regression coverage locks the distinction between page reload and runtime
+  reset.
+
 ## 2.81.196 — Perplexity single-flight and live Send control
 
 - Field result on 2.81.195: Le Chat submitted quickly; Perplexity inserted the
