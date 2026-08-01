@@ -1205,6 +1205,19 @@ const chatgptScrollCoordinator = window.ScrollCoordinator
         } else {
           console.warn('[CONTENT-GPT] Duplicate dispatch detected, reusing existing composer text');
         }
+        // The composer was never checked after typing here, so a silently empty
+        // ChatGPT composer produced no evidence at all — neither a failure nor a
+        // confirmation. State the observed outcome before Send is attempted.
+        const composerAfterPrepare = readComposerValue(inputField);
+        const composerHoldsPrompt = Boolean(promptHead
+          && normalizeForComparison(composerAfterPrepare).includes(promptHead));
+        window.ContentUtils?.reportPromptInsertion?.(MODEL, dispatchMeta, {
+          state: composerHoldsPrompt ? 'inserted' : 'failed',
+          method: preparedRecently && hasPreparedPrompt ? 'reused_prepared_composer' : 'composer_prepared',
+          reason: composerHoldsPrompt ? null : 'prompt_head_absent_from_composer',
+          promptLength: String(prompt || '').length,
+          composerLength: String(composerAfterPrepare || '').length
+        });
         activity.heartbeat(0.35, { phase: 'typing' });
 
         console.log('[CONTENT-GPT] Prompt injected, waiting for UI to update...');

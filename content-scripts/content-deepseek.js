@@ -1426,6 +1426,14 @@ const buildLifecycleContext = (prompt = '', extra = {}) => ({
                 settleMs: 150
               })
             : { ok: false, reason: 'composer_transaction_unavailable' };
+          window.ContentUtils?.reportPromptInsertion?.(MODEL, dispatchMeta, {
+            state: prepared.ok ? 'inserted' : 'failed',
+            method: prepared.method || null,
+            reason: prepared.reason || null,
+            promptLength: String(prompt || '').length,
+            composerLength: String(prepared.value || '').length,
+            attempt: prepared.attempt ?? null
+          });
           if (!prepared.ok) {
             throw { type: 'prompt_injection_failed', message: `DeepSeek prompt preparation failed: ${prepared.reason}` };
           }

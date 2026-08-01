@@ -1948,9 +1948,27 @@ function isLikelyClaudeModelLabel(text = '') {
           composerLength: readComposerValue(inputArea).length
         });
         activity.heartbeat(0.35, { phase: 'typing' });
-        if (!typingSuccess) throw new Error('Text input failed');
+        if (!typingSuccess) {
+          window.ContentUtils?.reportPromptInsertion?.(MODEL, dispatchMeta, {
+            state: 'failed',
+            reason: 'text_input_failed',
+            promptLength: String(prompt || '').length,
+            composerLength: readComposerValue(inputArea).length
+          });
+          throw new Error('Text input failed');
+        }
 
         const composerConfirmed = await ensureComposerValue(inputArea, prompt);
+        window.ContentUtils?.reportPromptInsertion?.(MODEL, dispatchMeta, {
+          // An unconfirmed composer is not a failed insertion here: Claude keeps
+          // sending on the fallback path below, so the verdict states what was
+          // observed and leaves the send outcome to the submission events.
+          state: composerConfirmed ? 'inserted' : 'failed',
+          method: composerConfirmed ? 'composer_confirmed' : null,
+          reason: composerConfirmed ? null : 'composer_not_confirmed',
+          promptLength: String(prompt || '').length,
+          composerLength: readComposerValue(inputArea).length
+        });
         if (!composerConfirmed) {
           const fallbackText = String(readComposerValue(inputArea)).trim();
           console.warn('[content-claude] Composer text not confirmed, proceeding with send fallback', {

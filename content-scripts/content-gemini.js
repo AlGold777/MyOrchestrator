@@ -1300,7 +1300,14 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
             await geminiHumanType(inputField, prompt, { wpm: 115 });
             preparedText = normalizeGeminiComposerText(readComposerText(inputField));
         }
-        if (!promptHead || !preparedText.includes(promptHead)) {
+        const geminiPromptInserted = Boolean(promptHead && preparedText.includes(promptHead));
+        window.ContentUtils?.reportPromptInsertion?.(MODEL, dispatchMeta, {
+            state: geminiPromptInserted ? 'inserted' : 'failed',
+            reason: geminiPromptInserted ? null : 'prompt_head_absent_from_composer',
+            promptLength: String(prompt || '').length,
+            composerLength: readComposerText(inputField).length
+        });
+        if (!geminiPromptInserted) {
             emitGeminiDiagnostic({
                 type: 'DISPATCH',
                 label: 'Gemini prompt injection failed',

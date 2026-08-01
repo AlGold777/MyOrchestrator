@@ -1429,15 +1429,26 @@ const hydrateAttachments = (raw = []) =>
             prepared = { ok: true, method: 'reacquired_exact_prompt' };
           }
         }
+        const reportInsertion = (state, reason, observedLength) => window.ContentUtils?.reportPromptInsertion?.(MODEL, dispatchMeta, {
+          state,
+          method: prepared.method || null,
+          reason,
+          promptLength: String(prompt || '').length,
+          composerLength: observedLength,
+          attempt: prepared.attempt ?? null
+        });
         if (!prepared.ok) {
+          reportInsertion('failed', prepared.reason || 'prompt_not_present', String(prepared.value || '').length);
           throw { type: 'prompt_injection_failed', message: `Le Chat prompt preparation failed: ${prepared.reason}` };
         }
 
         await sleep(100);
         const validationText = (composer.value ?? composer.textContent ?? '').trim();
         if (!validationText.length) {
+          reportInsertion('failed', 'react_guard_empty_composer', 0);
           throw { type: 'injection_failed', message: 'Input did not accept value (React guard).' };
         }
+        reportInsertion('inserted', null, validationText.length);
         activity.heartbeat(0.45, { phase: 'typing' });
 
         const preDispatchBaseline = grabLatestAssistantMarkup().text || '';

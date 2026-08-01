@@ -85,6 +85,7 @@
     LEASE_RELEASED: 'OBSERVATION_SLOT_RELEASED',
     COMMAND_SEND_ERROR: 'SUBMISSION_EVIDENCE_CHANGED',
     PROMPT_INSERTION_FAILED: 'PROMPT_INSERTION_EVALUATED',
+    PROMPT_INSERTION_CONFIRMED: 'PROMPT_INSERTION_EVALUATED',
     SEND_DEFERRED_TRANSIENT_BLOCKER: 'SUBMISSION_EVIDENCE_CHANGED',
     SEND_DEGRADED_AFTER_SUBMIT: 'SUBMISSION_EVIDENCE_CHANGED',
     GEMINI_STALE_BASELINE_REJECTED: 'CANDIDATE_SET_CHANGED',
@@ -109,6 +110,7 @@
   const RUNTIME_TYPED_FACTS = Object.freeze({
     COMMAND_SEND_ERROR: { kind: 'submission', state: 'failed' },
     PROMPT_INSERTION_FAILED: { kind: 'prompt_insertion', state: 'failed' },
+    PROMPT_INSERTION_CONFIRMED: { kind: 'prompt_insertion', state: 'inserted' },
     SEND_DEFERRED_TRANSIENT_BLOCKER: { kind: 'submission', state: 'deferred' },
     SEND_DEGRADED_AFTER_SUBMIT: { kind: 'submission', state: 'confirmed' },
     GEMINI_STALE_BASELINE_REJECTED: { kind: 'candidate_identity', state: 'stale' },

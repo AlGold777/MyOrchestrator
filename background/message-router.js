@@ -1223,6 +1223,8 @@ const DIAG_PINNED_LABELS = new Set([
     'PROMPT_SUBMITTED_INFERRED',
     'PROMPT_SUBMITTED_PENDING',
     'PAGE_READY_BLOCKED',
+    'PROMPT_INSERTION_CONFIRMED',
+    'PROMPT_INSERTION_FAILED',
     'DISPATCH_BASELINE_CAPTURED',
     'STALE_BASELINE_ANSWER_IGNORED',
     'UNSAFE_REUSE_SKIPPED',
@@ -1841,6 +1843,40 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     message.answerHtml || message.html || ''
                 );
                 sendResponse({ status: 'final_response_handled' });
+                break;
+            }
+
+            case 'PROMPT_INSERTION_OBSERVED': {
+                // Adapter reports the composer transaction outcome for the current
+                // dispatch, success as well as failure. The failure path alone left
+                // the insertion_outcome slot unavailable on every successful run, so
+                // "was the prompt inserted?" was unanswerable from the ledger.
+                const llmName = message.llmName;
+                const entry = llmName && jobState?.llms?.[llmName];
+                if (entry) {
+                    const incomingMeta = message?.meta && typeof message.meta === 'object' ? message.meta : {};
+                    const inserted = message.insertionState === 'inserted';
+                    emitTelemetry(llmName, inserted ? 'PROMPT_INSERTION_CONFIRMED' : 'PROMPT_INSERTION_FAILED', {
+                        level: inserted ? 'info' : 'error',
+                        details: inserted ? (message.method || 'inserted') : (message.reason || 'not_inserted'),
+                        meta: {
+                            dispatchId: incomingMeta.dispatchId || entry?.lastDispatchMeta?.dispatchId || null,
+                            generationEpoch: incomingMeta.generationEpoch
+                                ?? entry?.lastDispatchMeta?.generationEpoch
+                                ?? entry?.generationEpoch
+                                ?? null,
+                            attemptId: incomingMeta.attemptId || entry?.lastDispatchMeta?.attemptId || null,
+                            insertionState: inserted ? 'inserted' : 'failed',
+                            method: message.method || null,
+                            reason: message.reason || null,
+                            promptLength: Number.isFinite(Number(message.promptLength)) ? Number(message.promptLength) : null,
+                            composerLength: Number.isFinite(Number(message.composerLength)) ? Number(message.composerLength) : null,
+                            attempt: Number.isFinite(Number(message.attempt)) ? Number(message.attempt) : null
+                        },
+                        force: true
+                    });
+                }
+                if (typeof sendResponse === 'function') sendResponse({ status: 'prompt_insertion_ack' });
                 break;
             }
 

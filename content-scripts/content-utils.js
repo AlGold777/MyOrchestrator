@@ -441,6 +441,31 @@
     return false;
   };
 
+  // Report whether the prompt actually reached the composer, for both outcomes.
+  // Without a positive report the `insertion_outcome` slot of the
+  // prompt-not-inserted report stays `unavailable`, and the question "was the
+  // prompt inserted at all?" cannot be answered from the run's own telemetry —
+  // absence of an insertion event is not evidence of a failed insertion.
+  // Call it from the adapter's own verdict, after any recovery path has run —
+  // the composer gate below does not know whether the adapter still intends to
+  // repair a detached or replaced composer. Exactly one verdict per dispatch.
+  // Fire-and-forget: dispatch must never wait on a proof message.
+  const reportPromptInsertion = (llmName, meta, outcome = {}) => {
+    if (!llmName) return false;
+    const inserted = outcome.state === 'inserted' || outcome.ok === true;
+    return safeRuntimeSendMessage({
+      type: 'PROMPT_INSERTION_OBSERVED',
+      llmName,
+      insertionState: inserted ? 'inserted' : 'failed',
+      method: outcome.method ? String(outcome.method) : null,
+      reason: outcome.reason ? String(outcome.reason) : null,
+      promptLength: Number.isFinite(Number(outcome.promptLength)) ? Number(outcome.promptLength) : null,
+      composerLength: Number.isFinite(Number(outcome.composerLength)) ? Number(outcome.composerLength) : null,
+      attempt: Number.isFinite(Number(outcome.attempt)) ? Number(outcome.attempt) : null,
+      meta: ensureDispatchMeta(meta && typeof meta === 'object' ? meta : {}, llmName) || {}
+    });
+  };
+
   // Canonical composer transaction gate. Dispatch code may proceed to Send only
   // when the live composer contains the current prompt, never merely because an
   // input/paste event was fired or because the composer is non-empty.
@@ -1112,6 +1137,7 @@
     promptMatchesComposer: pasteMatchesPrompt,
     countPromptOccurrences,
     ensurePromptPrepared,
+    reportPromptInsertion,
     reportDispatchBaseline,
     isBaselineEquivalent,
     detectProviderErrorSurface,

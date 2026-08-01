@@ -1588,15 +1588,26 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
         { ok: prepared.ok === true, method: prepared.method || null, reason: prepared.reason || null, stage: 'trusted_native_input' }
       );
     }
+    const reportInsertion = (state, reason, observedLength) => window.ContentUtils?.reportPromptInsertion?.(MODEL, dispatchMeta, {
+      state,
+      method: prepared.method || null,
+      reason,
+      promptLength: String(prompt || '').length,
+      composerLength: observedLength,
+      attempt: prepared.attempt ?? null
+    });
     if (!prepared.ok) {
+      reportInsertion('failed', prepared.reason || 'prompt_not_present', String(prepared.value || '').length);
       throw { type: 'prompt_injection_failed', message: `Perplexity prompt preparation failed: ${prepared.reason}` };
     }
     activity.heartbeat(0.3, { phase: 'typing' });
     await sleep(100);
     const __val = (inputField.value ?? inputField.textContent ?? '').trim();
     if (!__val.length) {
+      reportInsertion('failed', 'react_guard_empty_composer', 0);
       throw { type: 'injection_failed', message: 'Textarea did not accept value (React guard).' };
     }
+    reportInsertion('inserted', null, __val.length);
     inputField = findLivePromptComposer() || inputField;
     const visible = (element) => {
       const rect = element?.getBoundingClientRect?.();

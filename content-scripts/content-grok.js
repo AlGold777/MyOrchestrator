@@ -2208,6 +2208,13 @@
           await window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, baselineSnapshot.text || '');
         } catch (_) {}
         const committedComposer = await waitForGrokComposerCommit(composer, prompt, 5000, 250);
+        window.ContentUtils?.reportPromptInsertion?.(MODEL, dispatchMeta, {
+          state: committedComposer ? 'inserted' : 'failed',
+          method: committedComposer ? 'composer_commit_window' : null,
+          reason: committedComposer ? null : 'composer_not_stable_for_commit_window',
+          promptLength: String(prompt || '').length,
+          composerLength: readComposerValue(committedComposer || composer).length
+        });
         if (!committedComposer) {
           throw { type: 'injection_failed', message: 'Grok composer did not remain stable for the 5-second commit window.' };
         }

@@ -1,5 +1,22 @@
 # Telemetry - tab/session diagnostics
 
+## Insertion verdict from every adapter v2.81.216 - 2026-08-01
+
+Each adapter now states the outcome of its composer transaction for the current
+dispatch, success as well as failure: `PROMPT_INSERTION_OBSERVED` from the
+content script, mapped in the background onto `PROMPT_INSERTION_CONFIRMED` or
+`PROMPT_INSERTION_FAILED` and canonically onto `PROMPT_INSERTION_EVALUATED`
+with `prompt_insertion/inserted` or `prompt_insertion/failed`. Both labels are
+pinned, and the report carries `promptLength`, `composerLength`, `method` and
+`reason` — never prompt text.
+
+Until now only failure was reported, and only by some adapters, so the critical
+`insertion_outcome` slot of the `prompt-not-inserted` report stayed
+`unavailable` on every run and the question "was the prompt inserted at all?"
+was unanswerable from the ledger. Absence of an insertion event was not, and is
+not, evidence of a failed insertion. ChatGPT additionally never verified its
+composer after typing; it now does, before Send is attempted.
+
 ## Pipeline generation proof routing v2.81.192 - 2026-07-30
 
 Concrete `PIPELINE_STEP` values are now canonical proof events:

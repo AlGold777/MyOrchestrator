@@ -2766,7 +2766,15 @@ const keepAliveMutex = (() => {
             validationText = forceComposerValue(composer, prompt);
             normalizedValue = normalizeForComparison(validationText);
           }
-          if (!normalizedValue.length || (normalizedPromptHead && !normalizedValue.includes(normalizedPromptHead))) {
+          const qwenPromptInserted = Boolean(normalizedValue.length
+            && (!normalizedPromptHead || normalizedValue.includes(normalizedPromptHead)));
+          window.ContentUtils?.reportPromptInsertion?.(MODEL, dispatchMeta, {
+            state: qwenPromptInserted ? 'inserted' : 'failed',
+            reason: qwenPromptInserted ? null : 'react_guard_value_rejected',
+            promptLength: String(prompt || '').length,
+            composerLength: String(validationText || '').length
+          });
+          if (!qwenPromptInserted) {
             throw { type: 'injection_failed', message: 'Input did not accept value (React guard).' };
           }
           emitDiagnostic({

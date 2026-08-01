@@ -192,6 +192,34 @@ describe('native proof telemetry ledger', () => {
     });
   });
 
+  test('records both insertion verdicts as the prompt-not-inserted slot needs them', async () => {
+    await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
+    const meta = { runSessionId: 42, dispatchId: 'GPT:42:1', generationEpoch: 1 };
+    await global.ProofTelemetryLedger.record({
+      ts: 1000,
+      label: 'PROMPT_INSERTION_CONFIRMED',
+      meta: { ...meta, insertionState: 'inserted', method: 'composer_prepared', promptLength: 6153, composerLength: 6153 }
+    }, 'GPT');
+    await global.ProofTelemetryLedger.record({
+      ts: 1100,
+      label: 'PROMPT_INSERTION_FAILED',
+      meta: { runSessionId: 42, dispatchId: 'Claude:42:1', generationEpoch: 1, insertionState: 'failed', reason: 'react_guard_empty_composer' }
+    }, 'Claude');
+
+    const events = (await global.ProofTelemetryLedger.snapshot()).events
+      .filter((event) => event.eventType === 'PROMPT_INSERTION_EVALUATED');
+    expect(events.map((event) => [event.modelId, event.payload.typed])).toEqual([
+      ['GPT', { kind: 'prompt_insertion', state: 'inserted' }],
+      ['Claude', { kind: 'prompt_insertion', state: 'failed' }]
+    ]);
+    events.forEach((event) => {
+      expect(global.ProofTelemetryContracts.typedCanonicalConflict(event)).toBeNull();
+    });
+    // The slot the prompt-not-inserted report calls critical is exactly this event type.
+    expect(global.ProofTelemetryContracts.normalizedSlots('prompt-not-inserted')
+      .find((slot) => slot.slotId === 'insertion_outcome').eventTypes).toContain('PROMPT_INSERTION_EVALUATED');
+  });
+
   test('snapshot flushes records queued immediately before export', async () => {
     await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
     const pendingRecord = global.ProofTelemetryLedger.record({

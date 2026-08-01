@@ -1,5 +1,26 @@
 # CHANGELOG — Project
 
+### 2026-08-01 — Every adapter states whether the prompt reached the composer, version 2.81.216
+
+In run 1785603157691 the prompt-not-inserted report answered `not_confirmed`
+for GPT, Claude and Z.ai and `unknown` for DeepSeek, Le Chat and Perplexity —
+exactly the models whose prompts the user saw fail to appear. Its critical
+`insertion_outcome` slot was `unavailable` for all nine models: only insertion
+*failure* was ever reported, and only from some adapters, so a run in which
+insertion silently did nothing looked identical to a run in which it worked.
+
+Every adapter now reports its own verdict once per dispatch through
+`ContentUtils.reportPromptInsertion` — `PROMPT_INSERTION_OBSERVED` in the
+content script, `PROMPT_INSERTION_CONFIRMED` / `PROMPT_INSERTION_FAILED` in the
+background, `PROMPT_INSERTION_EVALUATED` in the ledger. The verdict is placed
+after each adapter's own recovery path, not inside the shared composer gate,
+which does not know whether the adapter still intends to repair a replaced
+composer. It is fire-and-forget: dispatch never waits on a proof message.
+
+ChatGPT never checked its composer after typing at all — an empty ChatGPT
+composer produced no evidence in either direction. It is now checked before
+Send is attempted.
+
 ### 2026-08-01 — An accepted submit is recorded as confirmed, version 2.81.215
 
 All-presets run 1785603157691 (nine models) failed the same six decision rules
