@@ -1521,7 +1521,7 @@ async function respondProofTelemetrySnapshot(message, sendResponse) {
             runSessionId: message?.runSessionId || null
         }).catch(() => timeoutToken);
         const barrierDeadline = new Promise((resolve) => {
-            timeoutId = setTimeout(() => resolve(timeoutToken), 10000);
+            timeoutId = setTimeout(() => resolve(timeoutToken), 750);
         });
         let snapshot = await Promise.race([barrierSnapshot, barrierDeadline]);
         if (timeoutId) clearTimeout(timeoutId);
@@ -1530,14 +1530,16 @@ async function respondProofTelemetrySnapshot(message, sendResponse) {
             const committed = await ledger.snapshotCommitted?.({
                 runSessionId: message?.runSessionId || null
             });
+            if (!committed) {
+                sendResponse({ success: false, error: 'proof_telemetry_ledger_unavailable' });
+                return;
+            }
             sendResponse({
-                success: false,
-                error: 'proof_telemetry_snapshot_incomplete',
-                retryable: true,
+                success: true,
+                ...committed,
                 barrierTimedOut: true,
                 snapshotWaitMs: Date.now() - snapshotStartedAt,
                 snapshotConsistency: committed?.snapshotConsistency || 'committed_boundary',
-                eventCount: Number(committed?.eventCount || 0),
                 queuedMutationCount: Number(committed?.queuedMutationCount || 0),
                 pendingRecordCount: Number(committed?.pendingRecordCount || 0)
             });

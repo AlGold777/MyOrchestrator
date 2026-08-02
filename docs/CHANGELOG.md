@@ -1,5 +1,13 @@
 # CHANGELOG — Project
 
+### 2026-08-02 — JSON export no longer waits for a quiet ledger, version 2.81.221
+
+- Full telemetry export waits at most 750 ms for the live persistence queue.
+- If observation continues, export proceeds from the latest durable committed
+  boundary instead of waiting ten seconds and requiring another click.
+- The exported audit records the committed-boundary consistency and outstanding
+  queue counts, so diagnostic limitations remain explicit rather than hidden.
+
 ### 2026-08-01 — Telemetry export no longer builds unused reports, version 2.81.220
 
 - The default digest export is now generated directly from the canonical event

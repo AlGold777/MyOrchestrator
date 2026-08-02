@@ -1,5 +1,14 @@
 # Codex phase change log
 
+## 2.81.221 — Full JSON export cannot be starved by live telemetry writes
+
+- The persistence barrier is bounded at 750 ms instead of ten seconds.
+- A busy ledger returns its latest durable snapshot as a successful export
+  source, marked `committed_boundary` and diagnostically incomplete when writes
+  are still queued.
+- The results page no longer discards that coherent snapshot or asks the user
+  to repeat an export that may encounter the same continuously active queue.
+
 ## 2.81.220 — Telemetry export avoids unnecessary full-container work
 
 - The checked digest path now scans canonical events once and downloads without

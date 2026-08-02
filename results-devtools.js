@@ -1215,12 +1215,6 @@
             // also the persistence barrier: it waits for all earlier ledger
             // appends and returns one immutable boundary.
             const proofSnapshot = await requestProofTelemetrySnapshot(null);
-            if (proofSnapshot?.error === 'proof_telemetry_snapshot_incomplete') {
-                if (telemetryStatus) {
-                    telemetryStatus.textContent = `Telemetry is still saving (${proofSnapshot.queuedMutationCount || 0} queued). Please retry export.`;
-                }
-                return;
-            }
             if (!proofSnapshot?.events?.length || !window.ProofOrientedTelemetry?.buildAllPresets) {
                 if (telemetryStatus) telemetryStatus.textContent = 'Native telemetry ledger is empty';
                 return;
