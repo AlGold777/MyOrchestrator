@@ -468,7 +468,7 @@ Performance-набор: 500, 2 000, 5 000 и 10 000 событий; нескол
 7. Контракт всех `stateAxes`, точный `stateAxesProvenance` и проверка basis-ссылок. - Done.
 8. Общее incident semantics ядро. - Done.
 9. Canonical evidence schema/builder/validator и доверенный `readerGuidance`. - Done.
-10. Offline report CLI.
+10. Offline report CLI. - Done.
 11. UI-вариант canonical evidence.
 12. Shadow Timeline и proof-based MD.
 13. Stress/performance/recovery gates.

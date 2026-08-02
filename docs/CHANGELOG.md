@@ -5692,3 +5692,8 @@ Backlog `what-to-do.md`, батч 1 (UI + Финализация).
 
 - Добавлен контейнер `canonical-evidence`: полный canonical ledger, registry и компактный индекс всех incident axes/provenance без `reports` и полного `derivedViews`.
 - Доверенный `readerGuidance` берётся только из версионированной константы; schema и offline validator проверяют allowlist, boundaries, basis refs, privacy и все section/artifact hashes.
+
+# 2.81.231
+
+- Добавлен офлайн CLI `build-proof-telemetry-report.js`: проверяет canonical/full input, перечисляет incidents и строит standalone либо full forensic тем же shared builder.
+- Неоднозначный incident требует явного `--incident`; unknown generator требует явного `--reproduction=reinterpretation`, а выход хранит source и полный cache-key provenance.

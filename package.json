@@ -1,6 +1,6 @@
 {
   "name": "llm-selector-manager",
-  "version": "2.81.230",
+  "version": "2.81.231",
   "private": true,
   "description": "Selector management and content scripts for multi-LLM browser extension",
   "scripts": {
@@ -9,6 +9,7 @@
     "validate:telemetry": "node scripts/validate-proof-telemetry.js",
     "measure:telemetry": "node scripts/analyze-proof-telemetry-size.js",
     "test:telemetry-parity": "jest --config tests/jest.config.js --runInBand tests/proof-telemetry-semantic-comparator.test.js",
+    "build:telemetry-report": "node scripts/build-proof-telemetry-report.js",
     "test:qwen": "node tests/qwen-playwright-check.js",
     "test:answer-matrix": "node scripts/answer-completeness-matrix.js",
     "fixtures:import-b1": "node scripts/import-b1-skeletons.js",

@@ -685,6 +685,21 @@ incident index со всеми `stateAxes`/`stateAxesProvenance`, но не со
 Offline validator проверяет schema, границу snapshot, registry/generator,
 incident projection, basis refs, privacy, размеры и artifact hash.
 
+С v2.81.231 отчёты из сохранённого canonical evidence строятся офлайн:
+
+```bash
+npm run build:telemetry-report -- telemetry.json --list-incidents
+npm run build:telemetry-report -- telemetry.json --task=cutted --incident=<id> --out=report.json
+npm run build:telemetry-report -- telemetry.json --all --out=full-forensic.json
+```
+
+CLI сначала валидирует исходный файл и compatibility, не выбирает неоднозначный
+incident молча, затем вызывает штатный shared builder и валидирует результат.
+Исходный файл никогда не перезаписывается. Для неизвестной версии возможна
+только явная маркированная `--reproduction=reinterpretation`; exact reproduction
+по умолчанию завершается отказом. В выходе сохраняются source artifact hashes и
+полный ключ воспроизводимого кэша.
+
 - Platform/Tasks фильтруют canonical envelopes по `modelId` и безопасному
   event payload. Исходные `seq` не перенумеровываются; filtered ledger остаётся
   immutable, а export boundary равен фактическому последнему включённому `seq`.

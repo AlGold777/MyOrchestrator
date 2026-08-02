@@ -2121,7 +2121,8 @@
           queuedMutationCount: Number(options.queuedMutationCount || 0),
           pendingRecordCount: Number(options.pendingRecordCount || 0),
           diagnosticUsability: diagnosticUsability.status
-        }
+        },
+        ...(options.sourceProvenance ? { sourceArtifact: options.sourceProvenance } : {})
       },
       crossReportCompatibility: {
         mode: 'same_export',
@@ -2441,6 +2442,7 @@
       },
       crossReportCompatibility: {
         mode: 'same_incident',
+        ...(options.sourceProvenance ? { sourceArtifact: options.sourceProvenance } : {}),
         exactMatch: {
           runSessionId: selection.selected.scope.runSessionId,
           runGeneration: selection.selected.scope.runGeneration,
