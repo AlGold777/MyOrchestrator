@@ -91,8 +91,8 @@ describe('Telemetry export actions', () => {
     expect(exportWorkerSource).toContain("'BUILD_CANONICAL_EVIDENCE_JSON'");
     expect(exportWorkerSource).toContain('self.ProofOrientedTelemetry.buildAllPresets');
     expect(exportWorkerSource).toContain('self.ProofOrientedTelemetry.buildCanonicalEvidence');
-    expect(exportWorkerSource).toContain('self.SecretRedaction.redactDeep(payload)');
-    expect(exportWorkerSource).toContain('JSON.stringify(redacted)');
+    expect(exportWorkerSource).toContain('self.SecretRedaction.redactDeep(Array.isArray(request.events) ? request.events : [])');
+    expect(exportWorkerSource).toContain('JSON.stringify(payload)');
     const allPresetsBranch = devtoolsSource.slice(
       devtoolsSource.indexOf("if (task === 'all') {"),
       devtoolsSource.indexOf('const selectedModelId')

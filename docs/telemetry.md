@@ -744,6 +744,11 @@ triage-only и не выдаётся за материал для integrity vali
 Фактический прогон восьми выгрузок описан в
 `docs/telemetry-field-validation-2026-08-02.md`.
 
+С v2.81.236 defense-in-depth redaction выполняется в export worker до вызова
+builder. Поэтому ledger, section/artifact hashes и `measuredBytes` вычисляются
+уже по безопасному представлению и не становятся недействительными, когда в
+исходном событии действительно обнаружен token-shaped секрет.
+
 - Platform/Tasks фильтруют canonical envelopes по `modelId` и безопасному
   event payload. Исходные `seq` не перенумеровываются; filtered ledger остаётся
   immutable, а export boundary равен фактическому последнему включённому `seq`.

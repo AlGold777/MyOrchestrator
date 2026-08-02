@@ -86,9 +86,9 @@ describe('telemetry export worker', () => {
     ]);
     expect(messages.filter((message) => message.type === 'stage').map((message) => message.stage))
       .toEqual([
-        'building', 'incident-index', 'derived-views',
+        'building', 'redacting', 'incident-index', 'derived-views',
         ...ProofTelemetry.REPORT_TYPES.map((type) => `report:${type}`),
-        'hashes', 'attachments', 'finalizing', 'redacting', 'serializing'
+        'hashes', 'attachments', 'finalizing', 'serializing'
       ]);
     const complete = messages.find((message) => message.type === 'complete');
     const container = JSON.parse(complete.json);
@@ -153,5 +153,26 @@ describe('telemetry export worker', () => {
     expect(messages.some((message) => message.type === 'complete')).toBe(false);
     expect(messages.find((message) => message.type === 'error')?.error).toMatch(/valid ledger/i);
     expect(JSON.stringify(events)).toBe(original);
+  });
+
+  test('redacts before hashing so a real secret produces a valid canonical artifact', async () => {
+    const events = ProofTelemetry.buildLedger([
+      runtimeEvent('ANSWER_GENERATING', 1000, { textLength: 20 })
+    ], { runSessionId: 42, exportedAt: 2000 });
+    events[0].payload.metadata.reason = 'transport sk-1234567890abcdefghijkl failed';
+    const messages = [];
+    const worker = loadWorker(messages);
+    await vm.runInContext(`self.onmessage(${JSON.stringify({
+      data: {
+        type: 'BUILD_CANONICAL_EVIDENCE_JSON',
+        requestId: 'worker-redaction-integrity-test',
+        events,
+        options: { canonicalLedger: true, exportedAt: 2000, snapshotConsistency: 'queue_drained' }
+      }
+    })})`, worker);
+
+    const artifact = JSON.parse(messages.find((message) => message.type === 'complete').json);
+    expect(artifact.ledger.events[0].payload.metadata.reason).toBe('transport [REDACTED] failed');
+    await expect(validateCanonicalEvidence(artifact)).resolves.toEqual(expect.objectContaining({ valid: true }));
   });
 });

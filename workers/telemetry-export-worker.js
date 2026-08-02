@@ -23,17 +23,21 @@ self.onmessage = async (event) => {
   const startedAt = Date.now();
   try {
     stage(requestId, 'building', startedAt);
+    stage(requestId, 'redacting', startedAt);
+    // Integrity hashes and measuredBytes must describe the representation that
+    // is actually downloaded. Redact the structured-cloned input before the
+    // builder computes any ledger, section, or artifact hash.
+    const safeEvents = self.SecretRedaction.redactDeep(Array.isArray(request.events) ? request.events : []);
+    const safeOptions = self.SecretRedaction.redactDeep(request.options || {});
     const builder = request.type === 'BUILD_CANONICAL_EVIDENCE_JSON'
       ? self.ProofOrientedTelemetry.buildCanonicalEvidence
       : self.ProofOrientedTelemetry.buildAllPresets;
-    const payload = await builder(Array.isArray(request.events) ? request.events : [], {
-      ...(request.options || {}),
+    const payload = await builder(safeEvents, {
+      ...safeOptions,
       onProgress: (name) => stage(requestId, name, startedAt)
     });
-    stage(requestId, 'redacting', startedAt);
-    const redacted = self.SecretRedaction.redactDeep(payload);
     stage(requestId, 'serializing', startedAt);
-    const json = JSON.stringify(redacted);
+    const json = JSON.stringify(payload);
     if (!json || json === '{}') throw new Error('telemetry serialization returned an empty document');
     self.postMessage({
       type: 'complete',
