@@ -5734,3 +5734,8 @@ Backlog `what-to-do.md`, батч 1 (UI + Финализация).
 
 - Results pages и background теперь загружают proof telemetry policy до export builder, как это уже делал worker.
 - Page-side task reports используют точный `stateAxesProvenance` с реальными basis event IDs вместо `legacy-fallback-*`; порядок закреплён browser-context тестом.
+
+# 2.81.239
+
+- Field validator принимает historical drift только по точной сигнатуре, структуре и ожидаемому числу migration findings; дополнительные либо частичные S22 теперь блокируют gate.
+- Project version читается из manifest, а exact identity учитывает generator, report version и registry hash вместо hardcoded версии и одной проверки generator.

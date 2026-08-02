@@ -759,6 +759,12 @@ builder. Поэтому ledger, section/artifact hashes и `measuredBytes` вы�
 одинаковый точный `stateAxesProvenance`; fallback provenance больше не возникает
 из-за порядка загрузки скриптов.
 
+С v2.81.239 field validator больше не подавляет ошибки только по их коду и
+возрасту файла. Historical migration считается объяснённой лишь при точном
+совпадении message signature, отсутствующей старой структуры и ожидаемого
+количества findings. Project version читается из manifest; exact identity также
+проверяет report version и registry hash.
+
 - Platform/Tasks фильтруют canonical envelopes по `modelId` и безопасному
   event payload. Исходные `seq` не перенумеровываются; filtered ledger остаётся
   immutable, а export boundary равен фактическому последнему включённому `seq`.

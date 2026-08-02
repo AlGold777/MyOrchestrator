@@ -8,6 +8,8 @@ const { performance } = require('perf_hooks');
 const ProofTelemetry = require('../shared/proof-oriented-telemetry.js');
 const Comparator = require('../shared/proof-telemetry-semantic-comparator.js');
 const { validateArtifact, validateCanonicalEvidence, validateContainer } = require('./validate-proof-telemetry.js');
+const PROJECT_VERSION = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'manifest.json'), 'utf8')).version;
+const AXIS_NAMES = ProofTelemetry.STATE_AXIS_NAMES;
 
 const sha256File = (buffer) => crypto.createHash('sha256').update(buffer).digest('hex');
 const byteLength = (value) => Buffer.byteLength(JSON.stringify(value), 'utf8');
@@ -25,28 +27,65 @@ function versionBefore(value, boundary) {
   return false;
 }
 
-function explainSourceError(error, extensionVersion) {
-  const message = String(error?.message || '');
+const signatureOf = (item) => `${String(item?.code || 'UNKNOWN')}|${String(item?.message || '')}`;
+
+function expectedMigrationFindings(extensionVersion, source = {}) {
+  const expected = new Map();
+  const add = (code, message, count, explanation) => expected.set(`${code}|${message}`, { count, explanation });
+  const sourceSnapshot = source?.manifest?.sourceSnapshot || {};
+  const exportAudit = source?.exportAudit || {};
   if (versionBefore(extensionVersion, '2.81.226')
-    && (['RUN_COMPLETENESS', 'SNAPSHOT_COMPLETENESS'].includes(error?.code)
-      || (error?.code === 'JSON_SCHEMA' && /snapshotCompleteness|exportAudit.*completeness/.test(message)))) {
-    return 'artifact predates active-run completeness contract (2.81.226)';
+    && !Object.prototype.hasOwnProperty.call(sourceSnapshot, 'snapshotCompleteness')
+    && !Object.prototype.hasOwnProperty.call(exportAudit, 'completeness')) {
+    const explanation = 'artifact predates active-run completeness contract (2.81.226)';
+    add('JSON_SCHEMA', "all-presets.schema.json/manifest/sourceSnapshot: must have required property 'snapshotCompleteness'", 1, explanation);
+    add('JSON_SCHEMA', "all-presets.schema.json/exportAudit: must have required property 'completeness'", 1, explanation);
+    add('RUN_COMPLETENESS', 'exportedDuringActiveRun disagrees with runCompleteness', 1, explanation);
+    add('SNAPSHOT_COMPLETENESS', 'snapshot completeness disagrees with the recorded boundary', 1, explanation);
   }
-  if (versionBefore(extensionVersion, '2.81.228') && error?.code === 'S22') {
-    return 'artifact predates exact stateAxesProvenance contract (2.81.228)';
+  const incidents = Object.values(source?.derivedViews?.['incident-timeline']?.data || {});
+  const reportCount = Object.keys(source?.reports || {}).length;
+  if (versionBefore(extensionVersion, '2.81.228')
+    && incidents.length > 0
+    && reportCount > 0
+    && incidents.every((incident) => !Object.prototype.hasOwnProperty.call(incident, 'stateAxesProvenance'))) {
+    const count = reportCount * incidents.length;
+    const explanation = 'artifact predates exact stateAxesProvenance contract (2.81.228)';
+    add('S22', 'stateAxesProvenance does not match the fourteen contracted axes', count, explanation);
+    AXIS_NAMES.forEach((axis) => add('S22', `invalid provenance contract for state axis ${axis}`, count, explanation));
   }
-  return null;
+  return expected;
 }
 
-function summarizeFindings(items, extensionVersion) {
+function explainSourceError(error, extensionVersion, source = {}, observedCount = 1) {
+  const expected = expectedMigrationFindings(extensionVersion, source).get(signatureOf(error));
+  return expected && expected.count === observedCount ? expected.explanation : null;
+}
+
+function summarizeFindings(items, extensionVersion, source = {}) {
+  const counts = new Map();
+  (items || []).forEach((item) => counts.set(signatureOf(item), (counts.get(signatureOf(item)) || 0) + 1));
   const grouped = {};
-  (items || []).forEach((item) => {
-    const key = String(item.code || 'UNKNOWN');
-    if (!grouped[key]) grouped[key] = { count: 0, explanation: explainSourceError(item, extensionVersion) };
-    grouped[key].count += 1;
-    if (!grouped[key].explanation) grouped[key].explanation = explainSourceError(item, extensionVersion);
+  const unexplained = [];
+  counts.forEach((count, signature) => {
+    const separator = signature.indexOf('|');
+    const code = signature.slice(0, separator);
+    const message = signature.slice(separator + 1);
+    const explanation = explainSourceError({ code, message }, extensionVersion, source, count);
+    if (!grouped[code]) grouped[code] = { count: 0, explanations: new Set(), unexplainedCount: 0 };
+    grouped[code].count += count;
+    if (explanation) grouped[code].explanations.add(explanation);
+    else {
+      grouped[code].unexplainedCount += count;
+      unexplained.push({ code, message, count });
+    }
   });
-  return grouped;
+  const findings = Object.fromEntries(Object.entries(grouped).map(([code, value]) => [code, {
+    count: value.count,
+    explanation: value.unexplainedCount === 0 ? [...value.explanations].join('; ') : null,
+    unexplainedCount: value.unexplainedCount
+  }]));
+  return { findings, unexplained };
 }
 
 function analyzeDigestText(text, filename = 'digest.txt') {
@@ -72,10 +111,8 @@ async function inspectJsonArtifact(source, metadata = {}) {
   const sourceValidationStartedAt = performance.now();
   const sourceValidation = await validateArtifact(source);
   const sourceValidationMs = performance.now() - sourceValidationStartedAt;
-  const explained = summarizeFindings(sourceValidation.errors, extensionVersion);
-  const unexplainedSourceErrorCodes = Object.entries(explained)
-    .filter(([, value]) => !value.explanation)
-    .map(([code]) => code);
+  const sourceFindings = summarizeFindings(sourceValidation.errors, extensionVersion, source);
+  const unexplainedSourceErrorCodes = [...new Set(sourceFindings.unexplained.map((item) => item.code))].sort();
   const ledger = Array.isArray(source?.ledger?.events) ? source.ledger.events : [];
   const exportedAt = Number(Date.parse(source?.manifest?.createdAt || source?.createdAt) || Date.now());
   const options = {
@@ -99,6 +136,15 @@ async function inspectJsonArtifact(source, metadata = {}) {
   const sourceLedgerHash = source?.ledger?.ledgerHash || await ProofTelemetry.sha256(ledger);
   const ledgerHashPreserved = sourceLedgerHash === canonical?.ledger?.ledgerHash
     && sourceLedgerHash === full?.ledger?.ledgerHash;
+  const currentRegistryHash = await ProofTelemetry.sha256(ProofTelemetry.dependencyRegistrySnapshot());
+  const sourceRegistryHash = await ProofTelemetry.sha256(source?.sharedConfig?.dependencyRegistry || {});
+  const sourceReportVersions = Array.from(new Set(ProofTelemetry.REPORT_TYPES
+    .map((reportType) => source?.reports?.[reportType]?.reportDescriptor?.reportVersion)
+    .filter(Boolean))).sort();
+  const exactIdentityMatch = source?.sharedConfig?.generatorVersion === ProofTelemetry.GENERATOR_VERSION
+    && sourceRegistryHash === currentRegistryHash
+    && sourceReportVersions.length === 1
+    && sourceReportVersions[0] === ProofTelemetry.REPORT_VERSION;
   const gatePassed = unexplainedSourceErrorCodes.length === 0
     && canonicalValidation.valid
     && fullValidation.valid
@@ -119,12 +165,13 @@ async function inspectJsonArtifact(source, metadata = {}) {
       incidentCount: Object.keys(source?.derivedViews?.['incident-timeline']?.data || {}).length,
       validationValid: sourceValidation.valid,
       validationMs: Number(sourceValidationMs.toFixed(1)),
-      errors: explained,
+      errors: sourceFindings.findings,
       warningCodes: [...new Set((sourceValidation.warnings || []).map((item) => item.code))].sort(),
-      unexplainedErrorCodes: unexplainedSourceErrorCodes
+      unexplainedErrorCodes: unexplainedSourceErrorCodes,
+      unexplainedFindings: sourceFindings.unexplained
     },
     reinterpretation: {
-      mode: source?.sharedConfig?.generatorVersion === ProofTelemetry.GENERATOR_VERSION
+      mode: exactIdentityMatch
         ? 'exact-current-generator'
         : 'explicit-historical-reinterpretation',
       currentGeneratorVersion: ProofTelemetry.GENERATOR_VERSION,
@@ -165,7 +212,7 @@ async function inspectFile(filename) {
       file: path.basename(resolved),
       bytes: raw.length,
       sha256: sha256File(raw),
-      currentExtensionVersion: '2.81.235'
+      currentExtensionVersion: PROJECT_VERSION
     }))
   };
 }
@@ -177,6 +224,7 @@ async function runFieldValidation(filenames) {
   const jsonResults = results.filter((item) => item.kind === 'json');
   return {
     validatorVersion: 'field-validation@1.0.0',
+    projectVersion: PROJECT_VERSION,
     currentGeneratorVersion: ProofTelemetry.GENERATOR_VERSION,
     fileCount: results.length,
     jsonGatePassed: jsonResults.length > 0 && jsonResults.every((item) => item.gatePassed),
@@ -192,6 +240,7 @@ async function main(argv = process.argv.slice(2)) {
 
 module.exports = {
   versionBefore,
+  expectedMigrationFindings,
   explainSourceError,
   summarizeFindings,
   analyzeDigestText,
