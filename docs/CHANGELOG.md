@@ -5749,3 +5749,8 @@ Backlog `what-to-do.md`, батч 1 (UI + Финализация).
 
 - Offline CLI больше не скрывает допустимые диагностические нарушения S06/S15: они записываются в source provenance итогового артефакта и печатаются в stderr.
 - Артефакт перестраивается с limitations до окончательной проверки, поэтому добавленная диагностика входит в integrity hashes.
+
+# 2.81.242
+
+- Выводы `none`/`not_started`/tier 0 из полного отсутствия сигналов теперь имеют слой `audit`, а не необоснованный `inference`.
+- Валидатор отклоняет `fact`, `inference` и `decision` provenance без basis event; версия derivation повышена до 1.1.0, generator — до 2.8.0.

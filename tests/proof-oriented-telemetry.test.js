@@ -403,6 +403,12 @@ describe('Proof-oriented telemetry schema 6 event export', () => {
     crossed.submission.basisEventIds = [foreign.eventId];
     expect(ProofTelemetry.validateStateAxesProvenance(report.stateAxes, crossed, ledger, scope))
       .toEqual(expect.arrayContaining([expect.objectContaining({ invariantId: 'S24' })]));
+    const emptyInference = JSON.parse(JSON.stringify(report.stateAxesProvenance));
+    emptyInference.submission = { ...emptyInference.submission, layer: 'inference', basisEventIds: [] };
+    expect(ProofTelemetry.validateStateAxesProvenance(report.stateAxes, emptyInference, ledger, scope))
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({ invariantId: 'S22', message: expect.stringContaining('requires basis evidence') })
+      ]));
   });
 
   test('does not serialize prompt, answer, token or arbitrary details', () => {

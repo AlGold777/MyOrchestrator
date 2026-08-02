@@ -18,7 +18,7 @@
   const SCHEMA_VERSION = '5.0';
   const CANONICAL_EVIDENCE_SCHEMA_VERSION = '1.0';
   const EVENT_SCHEMA_VERSION = Contracts?.EVENT_SCHEMA_VERSION || 6;
-  const GENERATOR_VERSION = 'proof-export@2.7.0';
+  const GENERATOR_VERSION = 'proof-export@2.8.0';
   const REPORT_VERSION = '3.6.0';
   const READER_GUIDANCE_VERSION = 'canonical-reader-guidance@1.0.0';
   const TRUSTED_READER_GUIDANCE = Object.freeze([
@@ -1658,6 +1658,9 @@
       }
       if (new Set(item.basisEventIds).size !== item.basisEventIds.length) {
         violations.push({ invariantId: 'S23', eventId: null, message: `duplicate basisEventIds for state axis ${axis}` });
+      }
+      if (item.layer !== 'audit' && item.basisEventIds.length === 0) {
+        violations.push({ invariantId: 'S22', eventId: null, message: `non-audit provenance requires basis evidence for state axis ${axis}` });
       }
       item.basisEventIds.forEach((eventId) => {
         const basis = byId.get(eventId);

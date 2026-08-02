@@ -52,7 +52,7 @@ describe('proof telemetry browser load order', () => {
       layer: 'fact',
       ruleId: 'generation-start-observed',
       basisEventIds: [ledger[0].eventId],
-      derivationVersion: 'state-axes-provenance@1.0.0'
+      derivationVersion: 'state-axes-provenance@1.1.0'
     }));
   });
 });

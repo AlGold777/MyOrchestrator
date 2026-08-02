@@ -4,7 +4,7 @@
 
   const contracts = () => root.ProofTelemetryContracts || (typeof require === 'function' ? require('./proof-telemetry-contracts.js') : null);
   const AUTOMATIC_MINIMUM_EVIDENCE_TIER = 3;
-  const AXIS_PROVENANCE_VERSION = 'state-axes-provenance@1.0.0';
+  const AXIS_PROVENANCE_VERSION = 'state-axes-provenance@1.1.0';
 
   function sameScope(left, right) {
     return contracts()?.sameIncidentScope?.(left, right) === true;
@@ -106,7 +106,7 @@
     }
     const weak = stable || entries.find(({ fact }) => ['completion_hypothesis', 'deadline', 'terminal_action'].includes(fact.kind));
     if (weak) return { value: 1, provenance: provenance('inference', 'weak-completion-evidence', [weak]) };
-    return { value: 0, provenance: provenance('inference', 'no-completion-evidence', []) };
+    return { value: 0, provenance: provenance('audit', 'no-completion-evidence', []) };
   }
 
   function observationReliabilityDerivation(entries, scoped) {
@@ -167,12 +167,14 @@
     else if (latestSubmission?.fact.state === 'confirmed') set('generationStart', 'not_started', 'inference', 'submission-confirmed-without-generation-start', [latestSubmission]);
     else set('generationStart', 'not_evaluated', 'audit', 'generation-start-not-evaluable', latestSubmission ? [latestSubmission] : []);
     if (latestIdentity) set('answerIdentity', latestIdentity.fact.state, sourceLayer(latestIdentity), 'latest-candidate-identity', [latestIdentity]);
-    else set('answerIdentity', started ? 'candidate' : 'none', 'inference', started ? 'generation-start-implies-candidate' : 'no-candidate-evidence', startFact ? [startFact] : []);
+    else if (started) set('answerIdentity', 'candidate', 'inference', 'generation-start-implies-candidate', [startFact]);
+    else set('answerIdentity', 'none', 'audit', 'no-candidate-evidence', []);
     if (terminal) set('observedGeneration', 'inactive', 'decision', 'terminal-action-closes-generation', [terminal]);
     else if (latestGeneration?.fact.state === 'provider_ui_completed') set('observedGeneration', 'inactive', sourceLayer(latestGeneration, 'fact'), 'provider-ui-completed', [latestGeneration]);
     else if (latestGeneration?.fact.state === 'active') set('observedGeneration', 'active', sourceLayer(latestGeneration, 'fact'), 'latest-generation-active', [latestGeneration]);
     else if (latestGeneration?.fact.state === 'stable') set('observedGeneration', 'quiescent', sourceLayer(latestGeneration, 'fact'), 'latest-generation-stable', [latestGeneration]);
-    else set('observedGeneration', started ? 'unknown' : 'not_started', 'inference', started ? 'generation-started-without-current-state' : 'generation-not-started', startFact ? [startFact] : []);
+    else if (started) set('observedGeneration', 'unknown', 'inference', 'generation-started-without-current-state', [startFact]);
+    else set('observedGeneration', 'not_started', 'audit', 'generation-not-started', []);
     if (regressed) set('textEvolution', 'regressed', sourceLayer(regressed, 'fact'), 'text-regression-observed', [regressed]);
     else if (latestGeneration?.fact.state === 'active') set('textEvolution', 'changing', sourceLayer(latestGeneration, 'fact'), 'active-generation-implies-changing-text', [latestGeneration]);
     else if (stable) set('textEvolution', 'stable', sourceLayer(stable, 'fact'), 'stable-text-observed', [stable]);
@@ -181,9 +183,11 @@
     else if (terminal) set('answerCompleteness', 'unknown', 'decision', 'terminal-without-completion-proof', [terminal, ...tier.provenance.basisEventIds.map((eventId) => scoped.find((event) => event.eventId === eventId))]);
     else set('answerCompleteness', 'not_evaluated', 'audit', 'completion-not-evaluable', tier.provenance.basisEventIds.map((eventId) => scoped.find((event) => event.eventId === eventId)));
     if (latestExtraction) set('extraction', latestExtraction.fact.state, sourceLayer(latestExtraction), 'latest-extraction-result', [latestExtraction]);
-    else set('extraction', started ? 'candidate' : 'none', 'inference', started ? 'generation-started-without-extraction' : 'no-extraction-evidence', startFact ? [startFact] : []);
+    else if (started) set('extraction', 'candidate', 'inference', 'generation-started-without-extraction', [startFact]);
+    else set('extraction', 'none', 'audit', 'no-extraction-evidence', []);
     if (latestVerification) set('verification', latestVerification.fact.state, sourceLayer(latestVerification), 'latest-verification-result', [latestVerification]);
-    else set('verification', started ? 'pending' : 'none', 'inference', started ? 'generation-started-verification-pending' : 'no-verification-evidence', startFact ? [startFact] : []);
+    else if (started) set('verification', 'pending', 'inference', 'generation-started-verification-pending', [startFact]);
+    else set('verification', 'none', 'audit', 'no-verification-evidence', []);
     if (providerTerminal) set('completionDetection', 'provider_complete', sourceLayer(providerTerminal, 'fact'), 'provider-terminal-signal', [providerTerminal]);
     else if (tier.value >= 3) set('completionDetection', 'inferred_complete', 'inference', 'completion-evidence-tier-threshold', tier.provenance.basisEventIds.map((eventId) => scoped.find((event) => event.eventId === eventId)));
     else if (completionHypothesis) set('completionDetection', 'probably_complete', sourceLayer(completionHypothesis, 'inference'), 'completion-hypothesis', [completionHypothesis]);

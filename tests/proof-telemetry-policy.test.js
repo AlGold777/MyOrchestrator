@@ -81,8 +81,19 @@ describe('proof telemetry evidence and policy replay', () => {
         derivationVersion: Policy.AXIS_PROVENANCE_VERSION
       }));
       item.basisEventIds.forEach((eventId) => expect(ledger.some((event) => event.eventId === eventId)).toBe(true));
+      if (item.layer !== 'audit') expect(item.basisEventIds.length).toBeGreaterThan(0);
     });
     expect(result.stateAxesProvenance.completionEvidenceTier.basisEventIds)
       .toContain(ledger[ledger.length - 1].eventId);
+  });
+
+  test('classifies conclusions from missing evidence as audit rather than inference', () => {
+    const ledger = ProofTelemetry.buildLedger([evt('RUN_CONFIG_RECORDED', 1000)], { runSessionId: 42 });
+    const result = Policy.deriveAxesWithProvenance(ledger, ledger[0]);
+    ['answerIdentity', 'observedGeneration', 'extraction', 'verification', 'completionEvidenceTier']
+      .forEach((axis) => expect(result.stateAxesProvenance[axis]).toEqual(expect.objectContaining({
+        layer: 'audit',
+        basisEventIds: []
+      })));
   });
 });

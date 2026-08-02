@@ -775,6 +775,10 @@ canonical recovery и отложенный `URL.revokeObjectURL`.
 `diagnosticLimitations` в source provenance результирующего артефакта и выводит
 их в stderr. Эти ограничения больше не теряются при успешном коде завершения.
 
+С v2.81.242 отсутствие evidence представляется аудиторским результатом, а не
+инференсом без основания. Для слоёв `fact`, `inference` и `decision` валидатор
+требует хотя бы один разрешимый basis event внутри incident scope.
+
 - Platform/Tasks фильтруют canonical envelopes по `modelId` и безопасному
   event payload. Исходные `seq` не перенумеровываются; filtered ledger остаётся
   immutable, а export boundary равен фактическому последнему включённому `seq`.
