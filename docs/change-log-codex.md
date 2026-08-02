@@ -1,5 +1,14 @@
 # Codex phase change log
 
+## 2.81.222 — Telemetry export is an isolated, bounded pipeline
+
+- Full schema construction and safe serialization moved to a dedicated worker,
+  removing long synchronous work from both result surfaces.
+- Worker progress distinguishes report construction from JSON serialization and
+  reports elapsed time after download starts.
+- The pipeline terminates a stalled worker after 20 seconds and downloads a
+  canonical recovery ledger with all raw proof events and failure metadata.
+
 ## 2.81.221 — Full JSON export cannot be starved by live telemetry writes
 
 - The persistence barrier is bounded at 750 ms instead of ten seconds.

@@ -1,5 +1,14 @@
 # CHANGELOG — Project
 
+### 2026-08-02 — Full telemetry export moved off the UI thread, version 2.81.222
+
+- All-presets construction, hashing, redaction, and JSON serialization now run
+  in a dedicated extension worker instead of the results-page event loop.
+- The toolbar remains responsive and displays the current build/serialization
+  stage while the immutable snapshot is processed.
+- A 20-second hard boundary guarantees an artifact: if derived report building
+  fails, a recovery JSON containing every canonical event is downloaded.
+
 ### 2026-08-02 — JSON export no longer waits for a quiet ledger, version 2.81.221
 
 - Full telemetry export waits at most 750 ms for the live persistence queue.

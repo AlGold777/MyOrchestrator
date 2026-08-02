@@ -133,13 +133,13 @@ describe('the Export button writes the digest alongside the JSON', () => {
       DEVTOOLS.indexOf('const selectedModelId')
     );
     const digestAt = branch.indexOf('buildTelemetryDigestSource(canonicalEvents, buildOptions)');
-    const fullAt = branch.indexOf('buildAllPresets(canonicalEvents, buildOptions)');
+    const fullAt = branch.indexOf('buildFullTelemetryJsonInWorker(canonicalEvents, buildOptions');
     expect(digestAt).toBeGreaterThan(-1);
     expect(fullAt).toBeGreaterThan(digestAt);
     expect(branch).toContain('if (digest) {');
     expect(branch).toContain('return;');
-    expect(branch).toContain('buildAllPresets(canonicalEvents, buildOptions)');
-    expect(branch).toContain('downloadProofArtifact(payload, filename)');
+    expect(branch).toContain('buildFullTelemetryJsonInWorker(canonicalEvents, buildOptions');
+    expect(branch).toContain('downloadSerializedProofArtifact(built.json, filename)');
   });
 
   test('the export is never left empty-handed', () => {
@@ -150,7 +150,7 @@ describe('the Export button writes the digest alongside the JSON', () => {
     // A digest that cannot be produced must still yield the full JSON, so the
     // toggle can never cost the user their export.
     const digestAt = branch.indexOf('downloadTelemetryDigest(');
-    const jsonAt = branch.indexOf('downloadProofArtifact(payload, filename)');
+    const jsonAt = branch.indexOf('downloadSerializedProofArtifact(built.json, filename)');
     expect(digestAt).toBeGreaterThan(-1);
     expect(jsonAt).toBeGreaterThan(digestAt);
     expect(branch).toContain('Digest unavailable — full JSON exported');

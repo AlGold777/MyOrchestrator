@@ -1122,10 +1122,7 @@
             resolve(null);
         }
     });
-    const downloadProofArtifact = (payload, filename) => {
-        const json = window.SecretRedaction?.stringifySafe
-            ? window.SecretRedaction.stringifySafe(payload)
-            : JSON.stringify(payload);
+    const downloadSerializedProofArtifact = (json, filename) => {
         if (!json || json === '{}') return;
         const blob = new Blob([json], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
@@ -1135,6 +1132,77 @@
         a.click();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
     };
+    const downloadProofArtifact = (payload, filename) => {
+        const json = window.SecretRedaction?.stringifySafe
+            ? window.SecretRedaction.stringifySafe(payload)
+            : JSON.stringify(payload);
+        downloadSerializedProofArtifact(json, filename);
+    };
+
+    const FULL_EXPORT_WORKER_TIMEOUT_MS = 20000;
+    const buildFullTelemetryJsonInWorker = (events, options, onStage) => new Promise((resolve, reject) => {
+        if (typeof Worker !== 'function') {
+            reject(new Error('telemetry export worker is unavailable'));
+            return;
+        }
+        const requestId = `telemetry-export-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        const worker = new Worker(chrome.runtime.getURL('workers/telemetry-export-worker.js'));
+        let settled = false;
+        const finish = (callback, value) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timeoutId);
+            worker.terminate();
+            callback(value);
+        };
+        const timeoutId = setTimeout(() => {
+            finish(reject, new Error(`full telemetry export exceeded ${FULL_EXPORT_WORKER_TIMEOUT_MS} ms`));
+        }, FULL_EXPORT_WORKER_TIMEOUT_MS);
+        worker.onmessage = (event) => {
+            const message = event?.data || {};
+            if (message.requestId !== requestId) return;
+            if (message.type === 'stage') {
+                onStage?.(message);
+                return;
+            }
+            if (message.type === 'complete') {
+                finish(resolve, message);
+                return;
+            }
+            if (message.type === 'error') finish(reject, new Error(message.error || 'telemetry export worker failed'));
+        };
+        worker.onerror = (event) => finish(reject, new Error(event?.message || 'telemetry export worker failed to load'));
+        worker.postMessage({ type: 'BUILD_FULL_TELEMETRY_JSON', requestId, events, options });
+    });
+
+    const buildCanonicalTelemetryRecovery = (events, options, error) => ({
+        schemaVersion: '6.0',
+        containerType: 'canonical-ledger-recovery',
+        manifest: {
+            createdAt: new Date(options.exportedAt).toISOString(),
+            eventCount: events.length,
+            reason: 'all-presets worker did not complete'
+        },
+        sharedConfig: { extensionVersion: options.extensionVersion },
+        ledger: {
+            encoding: 'inline-json',
+            eventCount: events.length,
+            firstSeq: events[0]?.seq || 0,
+            lastSeq: events[events.length - 1]?.seq || 0,
+            events
+        },
+        exportAudit: {
+            recoveryExport: true,
+            allCanonicalEventsPreserved: true,
+            workerError: String(error?.message || error || 'unknown worker failure'),
+            sourceSnapshot: {
+                consistency: options.snapshotConsistency,
+                barrierTimedOut: options.snapshotBarrierTimedOut === true,
+                queuedMutationCount: options.queuedMutationCount,
+                pendingRecordCount: options.pendingRecordCount
+            }
+        }
+    });
     // The full "all presets" export runs ~640KB, and roughly half of it is
     // preset report definitions carrying no run data. Every diagnosis in
     // practice comes from about a dozen fields inside ledger.events, so the
@@ -1253,14 +1321,23 @@
                         return;
                     }
                 }
-                // Full schema construction is deferred until it is explicitly
-                // requested or the lightweight digest cannot be produced.
-                if (telemetryStatus) telemetryStatus.textContent = `Building full report for ${canonicalEvents.length} events…`;
-                await new Promise((resolve) => setTimeout(resolve, 0));
-                const payload = await window.ProofOrientedTelemetry.buildAllPresets(canonicalEvents, buildOptions);
-                downloadProofArtifact(payload, filename);
-                if (telemetryStatus) {
-                    telemetryStatus.textContent = `${digestExportEnabled() ? 'Digest unavailable — full JSON exported' : 'Full JSON exported'}${boundary}`;
+                try {
+                    const built = await buildFullTelemetryJsonInWorker(canonicalEvents, buildOptions, (progress) => {
+                        if (!telemetryStatus) return;
+                        telemetryStatus.textContent = progress.stage === 'serializing'
+                            ? `Serializing full telemetry JSON (${canonicalEvents.length} events)…`
+                            : `Building full report for ${canonicalEvents.length} events…`;
+                    });
+                    downloadSerializedProofArtifact(built.json, filename);
+                    if (telemetryStatus) {
+                        telemetryStatus.textContent = `${digestExportEnabled() ? 'Digest unavailable — full JSON exported' : 'Full JSON exported'} in ${built.elapsedMs} ms${boundary}`;
+                    }
+                } catch (error) {
+                    console.error('[devtools] full telemetry worker failed; exporting canonical recovery ledger', error);
+                    const recovery = buildCanonicalTelemetryRecovery(canonicalEvents, buildOptions, error);
+                    const recoveryFilename = filename.replace('all-presets', 'canonical-recovery');
+                    downloadProofArtifact(recovery, recoveryFilename);
+                    if (telemetryStatus) telemetryStatus.textContent = `Full report timed out — canonical JSON exported (${canonicalEvents.length} events)`;
                 }
                 return;
             }

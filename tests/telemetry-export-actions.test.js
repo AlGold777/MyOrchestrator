@@ -8,6 +8,7 @@ const devtoolsSource = fs.readFileSync(path.join(__dirname, '..', 'results-devto
 const messageRouterSource = fs.readFileSync(path.join(__dirname, '..', 'background', 'message-router.js'), 'utf8');
 const proofStoreSource = fs.readFileSync(path.join(__dirname, '..', 'background', 'proof-telemetry-store.js'), 'utf8');
 const exportBootstrapSource = fs.readFileSync(path.join(__dirname, '..', 'results-telemetry-export-bootstrap.js'), 'utf8');
+const exportWorkerSource = fs.readFileSync(path.join(__dirname, '..', 'workers', 'telemetry-export-worker.js'), 'utf8');
 
 describe('Telemetry export actions', () => {
   test('both result pages expose the extension-native sanitized B1 capture action', () => {
@@ -82,6 +83,27 @@ describe('Telemetry export actions', () => {
     expect(devtoolsSource).toContain('targets.length');
     expect(devtoolsSource).toContain('incident-${target.rank + 1}');
     expect(devtoolsSource).toContain("proofTelemetryShadowCompare");
+  });
+
+  test('full all-presets construction and serialization run outside the results UI', () => {
+    expect(devtoolsSource).toContain("new Worker(chrome.runtime.getURL('workers/telemetry-export-worker.js'))");
+    expect(devtoolsSource).toContain('buildFullTelemetryJsonInWorker(canonicalEvents, buildOptions');
+    expect(exportWorkerSource).toContain("request.type !== 'BUILD_FULL_TELEMETRY_JSON'");
+    expect(exportWorkerSource).toContain('self.ProofOrientedTelemetry.buildAllPresets(');
+    expect(exportWorkerSource).toContain('self.SecretRedaction.stringifySafe(payload)');
+    const allPresetsBranch = devtoolsSource.slice(
+      devtoolsSource.indexOf("if (task === 'all') {"),
+      devtoolsSource.indexOf('const selectedModelId')
+    );
+    expect(allPresetsBranch).not.toContain('window.ProofOrientedTelemetry.buildAllPresets(');
+  });
+
+  test('worker timeout still downloads every canonical event as recovery JSON', () => {
+    expect(devtoolsSource).toContain('const FULL_EXPORT_WORKER_TIMEOUT_MS = 20000;');
+    expect(devtoolsSource).toContain("containerType: 'canonical-ledger-recovery'");
+    expect(devtoolsSource).toContain('allCanonicalEventsPreserved: true');
+    expect(devtoolsSource).toContain("filename.replace('all-presets', 'canonical-recovery')");
+    expect(devtoolsSource).toContain('Full report timed out — canonical JSON exported');
   });
 
   test('JSON snapshot has a short queue wait and exports a marked committed fallback', () => {
