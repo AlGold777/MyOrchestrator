@@ -50,6 +50,11 @@ describe('offline proof telemetry report CLI', () => {
         reproductionMode: 'exact-reproduction'
       })
     }));
+    expect(report.crossReportCompatibility.sourceArtifact.diagnosticLimitations)
+      .toEqual([expect.objectContaining({ code: 'S15' })]);
+    const stderr = { write: jest.fn() };
+    Cli.writeDiagnosticLimitations(report, stderr);
+    expect(stderr.write).toHaveBeenCalledWith(expect.stringContaining('[telemetry limitation] S15:'));
     expect(fs.readFileSync(filename)).toEqual(sourceBytes);
   });
 
@@ -58,6 +63,8 @@ describe('offline proof telemetry report CLI', () => {
     const output = await Cli.run([filename, '--all', '--exported-at=21000']);
     expect(output.containerType).toBe('all-presets');
     expect(output.manifest.sourceArtifact).toEqual(expect.objectContaining({ reproductionMode: 'exact-reproduction' }));
+    expect(output.manifest.sourceArtifact.diagnosticLimitations.map((item) => item.code).sort())
+      .toEqual(['S06', 'S06', 'S15']);
     expect((await validateContainer(output)).errors.map((error) => error.code).sort())
       .toEqual(['S06', 'S06', 'S15']);
     expect(fs.readFileSync(filename)).toEqual(sourceBytes);

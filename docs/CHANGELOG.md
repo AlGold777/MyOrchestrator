@@ -5744,3 +5744,8 @@ Backlog `what-to-do.md`, батч 1 (UI + Финализация).
 
 - Worker orchestration вынесена в общий исполняемый runtime, используемый production UI и поведенческими тестами.
 - Реально проверяются single-flight cancel, stage/overall timeout, worker crash, synchronous postMessage failure, terminate, canonical recovery и Blob URL cleanup; прежние строковые проверки больше не являются единственным gate.
+
+# 2.81.241
+
+- Offline CLI больше не скрывает допустимые диагностические нарушения S06/S15: они записываются в source provenance итогового артефакта и печатаются в stderr.
+- Артефакт перестраивается с limitations до окончательной проверки, поэтому добавленная диагностика входит в integrity hashes.

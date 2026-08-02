@@ -12,6 +12,8 @@ const {
   validateStandaloneReport
 } = require('./validate-proof-telemetry.js');
 
+const NON_BLOCKING_DIAGNOSTIC_CODES = new Set(['S06', 'S15']);
+
 function parseArgs(argv) {
   const options = {};
   argv.forEach((argument) => {
@@ -98,7 +100,7 @@ function selectIncident(incidents, { incident, model }) {
   return matches[0];
 }
 
-function sourceProvenance(descriptor, reproductionMode, selection = null, reportType = null) {
+function sourceProvenance(descriptor, reproductionMode, selection = null, reportType = null, diagnosticLimitations = []) {
   const provenance = {
     sourceContainerType: descriptor.kind,
     sourceExportId: descriptor.exportId,
@@ -108,6 +110,7 @@ function sourceProvenance(descriptor, reproductionMode, selection = null, report
     generatorVersion: descriptor.generatorVersion,
     reproductionMode
   };
+  if (diagnosticLimitations.length) provenance.diagnosticLimitations = diagnosticLimitations;
   if (selection && reportType) {
     provenance.cacheKey = {
       sourceLedgerHash: descriptor.ledgerHash,
@@ -137,10 +140,26 @@ function writeOutput(filename, value, sourceFilename) {
 }
 
 function assertOutputValidation(validation) {
-  const diagnosticLimitations = new Set(['S06', 'S15']);
-  const blocking = (validation?.errors || []).filter((error) => !diagnosticLimitations.has(error.code));
+  const errors = validation?.errors || [];
+  const blocking = errors.filter((error) => !NON_BLOCKING_DIAGNOSTIC_CODES.has(error.code));
   if (blocking.length) throw new Error(`OUTPUT_VALIDATION_FAILED: ${blocking.map((item) => item.code).join(',')}`);
-  return validation;
+  return errors.filter((error) => NON_BLOCKING_DIAGNOSTIC_CODES.has(error.code)).map((error) => ({
+    code: error.code,
+    eventId: error.eventId || null,
+    message: error.message
+  }));
+}
+
+function diagnosticLimitations(output) {
+  return output?.manifest?.sourceArtifact?.diagnosticLimitations
+    || output?.crossReportCompatibility?.sourceArtifact?.diagnosticLimitations
+    || [];
+}
+
+function writeDiagnosticLimitations(output, stream = process.stderr) {
+  diagnosticLimitations(output).forEach((limitation) => {
+    stream.write(`[telemetry limitation] ${limitation.code}: ${limitation.message}\n`);
+  });
 }
 
 async function run(argv = process.argv.slice(2)) {
@@ -172,40 +191,49 @@ async function run(argv = process.argv.slice(2)) {
   }
   const exportedAt = Number(options['exported-at'] || Date.now());
   if (options.all) {
-    const output = await ProofTelemetry.buildAllPresets(descriptor.events, {
+    const build = (limitations = []) => ProofTelemetry.buildAllPresets(descriptor.events, {
       canonicalLedger: true,
       exportedAt,
       extensionVersion: descriptor.extensionVersion,
-      sourceProvenance: sourceProvenance(descriptor, reproductionMode)
+      sourceProvenance: sourceProvenance(descriptor, reproductionMode, null, null, limitations)
     });
-    const outputValidation = await validateContainer(output);
-    assertOutputValidation(outputValidation);
+    let output = await build();
+    let limitations = assertOutputValidation(await validateContainer(output));
+    if (limitations.length) {
+      output = await build(limitations);
+      limitations = assertOutputValidation(await validateContainer(output));
+    }
     return output;
   }
   const reportType = String(options.task || '');
   if (!ProofTelemetry.REPORT_TYPES.includes(reportType)) throw new Error(`unsupported or missing --task: ${reportType || '(empty)'}`);
   const selection = selectIncident(incidents, { incident: options.incident, model: options.model });
-  const output = await ProofTelemetry.buildStandaloneReport(descriptor.events, {
+  const build = (limitations = []) => ProofTelemetry.buildStandaloneReport(descriptor.events, {
     canonicalLedger: true,
     exportedAt,
     extensionVersion: descriptor.extensionVersion,
     reportType,
     modelId: selection.modelId,
     incidentId: selection.incidentId,
-    sourceProvenance: sourceProvenance(descriptor, reproductionMode, selection, reportType)
+    sourceProvenance: sourceProvenance(descriptor, reproductionMode, selection, reportType, limitations)
   });
-  const outputValidation = await validateStandaloneReport(output);
-  assertOutputValidation(outputValidation);
+  let output = await build();
+  let limitations = assertOutputValidation(await validateStandaloneReport(output));
+  if (limitations.length) {
+    output = await build(limitations);
+    limitations = assertOutputValidation(await validateStandaloneReport(output));
+  }
   return output;
 }
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   const output = await run(process.argv.slice(2));
+  writeDiagnosticLimitations(output);
   writeOutput(options.out === true ? null : options.out, output, options.filename);
 }
 
-module.exports = { parseArgs, inputDescriptor, reproductionCompatibility, incidentList, selectIncident, sourceProvenance, assertOutputValidation, run, writeOutput };
+module.exports = { parseArgs, inputDescriptor, reproductionCompatibility, incidentList, selectIncident, sourceProvenance, assertOutputValidation, diagnosticLimitations, writeDiagnosticLimitations, run, writeOutput };
 if (require.main === module) main().catch((error) => {
   console.error(error?.message || error);
   process.exitCode = 1;

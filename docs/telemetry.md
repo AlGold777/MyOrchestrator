@@ -771,6 +771,10 @@ worker orchestration, которую запускают тесты. Gate соз�
 crash, synchronous structured-clone failure, обязательный `terminate()`,
 canonical recovery и отложенный `URL.revokeObjectURL`.
 
+С v2.81.241 offline report CLI сохраняет неблокирующие S06/S15 как
+`diagnosticLimitations` в source provenance результирующего артефакта и выводит
+их в stderr. Эти ограничения больше не теряются при успешном коде завершения.
+
 - Platform/Tasks фильтруют canonical envelopes по `modelId` и безопасному
   event payload. Исходные `seq` не перенумеровываются; filtered ledger остаётся
   immutable, а export boundary равен фактическому последнему включённому `seq`.
