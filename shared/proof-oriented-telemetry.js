@@ -17,7 +17,7 @@
   const Policy = root.ProofTelemetryPolicy || (typeof require === 'function' ? require('./proof-telemetry-policy.js') : null);
   const SCHEMA_VERSION = '5.0';
   const EVENT_SCHEMA_VERSION = Contracts?.EVENT_SCHEMA_VERSION || 6;
-  const GENERATOR_VERSION = 'proof-export@2.6.0';
+  const GENERATOR_VERSION = 'proof-export@2.7.0';
   const REPORT_VERSION = '3.6.0';
   const REPORT_TYPES = Object.freeze([
     'cutted',
@@ -1303,42 +1303,141 @@
     };
   }
 
+  function buildIncidentReportSemantics(events, incident, reportType, context = null, options = {}) {
+    if (!REPORT_TYPES.includes(reportType)) throw new Error(`unsupported proof telemetry report: ${reportType}`);
+    const scope = incident?.scope || incident?.incidentScope || incident;
+    const incidentId = incident?.incidentId || `incident:${Incidents.scopeKey(scope)}`;
+    const incidentRef = { ...(incident || {}), incidentId, scope };
+    const scopedEvents = (events || []).filter((event) => Incidents.exactScope(event, scope));
+    const view = context?.derivedViews || deriveModelView(scope.modelId, scopedEvents);
+    assignAxisState(view, scopedEvents);
+    const evaluationContext = { stateAxes: view.stateAxes, derivedViews: view };
+    const shared = options.shared || {};
+    const integrity = shared.integrity || (Incidents.temporalIntegrity?.(events, incidentRef, { legacyMode: options.legacyMode === true })
+      || { violations: [], limitations: [] });
+    const applicabilityByType = shared.applicabilityByType
+      || Object.fromEntries(REPORT_TYPES.map((type) => [type, evaluateApplicability(type, evaluationContext)]));
+    const evidenceByType = shared.evidenceByType
+      || Object.fromEntries(REPORT_TYPES.map((type) => [type, Incidents.resolveEvidenceSlots(events, incidentRef, type, evaluationContext)]));
+    const verdictByType = shared.verdictByType
+      || Object.fromEntries(REPORT_TYPES.map((type) => [type, diagnosticVerdict(applicabilityByType[type], evidenceByType[type], integrity.violations, type)]));
+    const confirmedDiagnoses = shared.confirmedDiagnoses
+      || DIAGNOSIS_PRIORITY.filter((type) => verdictByType[type] === 'confirmed');
+    const primaryDiagnosis = shared.primaryDiagnosis === undefined ? (confirmedDiagnoses[0] || null) : shared.primaryDiagnosis;
+    Object.assign(shared, { integrity, applicabilityByType, evidenceByType, verdictByType, confirmedDiagnoses, primaryDiagnosis });
+    const applicability = applicabilityByType[reportType];
+    const evidence = evidenceByType[reportType];
+    const verdict = verdictByType[reportType];
+    const closure = Incidents.buildEvidenceClosure(events, incidentRef, reportType, {
+      context: evaluationContext,
+      legacyMode: options.legacyMode === true
+    });
+    const effectiveSlots = evidence.slots.filter((slot) => slot.effectiveCriticality !== 'conditional');
+    const completenessLevel = applicability.status === 'not_confirmed' ? 'not_applicable' : evidence.sufficiency;
+    const completeness = {
+      level: completenessLevel,
+      evidenceCoveragePct: applicability.status === 'not_confirmed' || !effectiveSlots.length
+        ? 0
+        : Math.round((effectiveSlots.filter((slot) => slot.status === 'satisfied').length / effectiveSlots.length) * 10000) / 100,
+      missingCriticalEvidence: evidence.missingEvidence.some((item) => item.criticality === 'critical'),
+      missingItems: applicability.status === 'not_confirmed' ? [] : evidence.missingEvidence,
+      safeConclusions: completenessLevel === 'not_applicable'
+        ? ['diagnosis is refuted or not applicable for the selected incident']
+        : (completenessLevel === 'complete' ? ['all required evidence slots are materialized'] : ['only conclusions supported by satisfied slots']),
+      blockedConclusions: ['complete', 'not_applicable'].includes(completenessLevel)
+        ? []
+        : evidence.missingEvidence.map((item) => `blocked by ${item.slotId}`)
+    };
+    const conclusions = buildConclusions(reportType, verdict, effectiveSlots, evidence.missingEvidence);
+    const relation = applicability.status !== 'confirmed'
+      ? { explanationRole: 'not_applicable', causedBy: null }
+      : diagnosisRelation(reportType, primaryDiagnosis, confirmedDiagnoses);
+    const siblings = (SIBLING_RULES[reportType] || []).map(([target, path, operator, value]) => {
+      const result = evaluatePredicate(evaluationContext, { path, operator, value });
+      return {
+        reportType: target,
+        relation: 'diagnostic-dependency',
+        relationClassification: SIBLING_RELATION_CLASSIFICATIONS[siblingPairKey(reportType, target)],
+        priority: 'required',
+        requestIf: { any: [{ path, operator, value }] },
+        evaluation: {
+          matched: result.matched,
+          predicateResults: [{ modelId: scope.modelId, incidentId, predicate: result.predicate, observedValue: result.observedValue, known: result.known, matched: result.matched }]
+        },
+        antiLoop: { sourceReportType: reportType, requestTargetOnlyOnce: true }
+      };
+    });
+    return {
+      reportType,
+      incident: { incidentId, scope, modelId: scope.modelId },
+      applicability,
+      diagnosticVerdict: verdict,
+      evidence,
+      evidenceSlots: evidence.slots,
+      temporalIntegrity: integrity,
+      invariantViolations: integrity.violations,
+      completeness,
+      missingEvidence: evidence.missingEvidence,
+      conclusions,
+      diagnosisArbitration: { primaryDiagnosis, confirmedDiagnoses, ...relation },
+      siblings,
+      closure,
+      limitations: [
+        ...(integrity.limitations || []),
+        ...(closure.limitations || []),
+        ...(closure.confidenceLimitations || [])
+      ],
+      provenance: {
+        stateAxes: view.stateAxes,
+        stateAxesProvenance: view.stateAxesProvenance
+      },
+      noDeliveryProjection: reportType === 'no-delivery' ? noDeliveryReportProjection(view, evidence, verdict) : null,
+      identity: {
+        generatorVersion: GENERATOR_VERSION,
+        reportVersion: REPORT_VERSION,
+        dependencyRegistryVersion: Contracts?.REGISTRY_VERSION || '5.0.0',
+        dependencyRegistryHash: options.registryHash || null
+      },
+      view,
+      applicabilityByType,
+      verdictByType
+    };
+  }
+
   function buildReports(ledger, modelViews, incidentViews, ledgerHash, registryHash, { legacyMode = false } = {}) {
     const allViews = Object.values(incidentViews);
     const eventSeqById = new Map(ledger.map((event) => [event.eventId, event.seq]));
+    const semanticSharedByIncident = Object.fromEntries(allViews.map((view) => [view.incidentId, {}]));
+    const semanticsByReport = Object.fromEntries(REPORT_TYPES.map((reportType) => [reportType,
+      Object.fromEntries(allViews.map((view) => [view.incidentId, buildIncidentReportSemantics(
+        ledger,
+        { incidentId: view.incidentId, scope: view.incidentScope },
+        reportType,
+        { stateAxes: view.stateAxes, derivedViews: view },
+        { legacyMode, registryHash, shared: semanticSharedByIncident[view.incidentId] }
+      )]))
+    ]));
     const rawApplicability = Object.fromEntries(REPORT_TYPES.map((reportType) => [reportType,
-      Object.fromEntries(allViews.map((view) => [view.incidentId,
-        evaluateApplicability(reportType, { stateAxes: view.stateAxes, derivedViews: view })]))
+      Object.fromEntries(allViews.map((view) => [view.incidentId, semanticsByReport[reportType][view.incidentId].applicability]))
     ]));
     const slotResultsByReport = Object.fromEntries(REPORT_TYPES.map((reportType) => [reportType,
-      Object.fromEntries(allViews.map((view) => [view.incidentId,
-        Incidents.resolveEvidenceSlots(ledger, { scope: view.incidentScope }, reportType, {
-          stateAxes: view.stateAxes,
-          derivedViews: view
-        })
-      ]))
+      Object.fromEntries(allViews.map((view) => [view.incidentId, semanticsByReport[reportType][view.incidentId].evidence]))
     ]));
     const integrityByIncident = Object.fromEntries(allViews.map((view) => [
       view.incidentId,
-      Incidents.temporalIntegrity?.(ledger, { scope: view.incidentScope }, { legacyMode }) || { violations: [], limitations: [] }
+      semanticsByReport[REPORT_TYPES[0]][view.incidentId].temporalIntegrity
     ]));
     const invariantViolationsByIncident = Object.fromEntries(Object.entries(integrityByIncident)
       .map(([incidentId, integrity]) => [incidentId, integrity.violations]));
     const verdicts = Object.fromEntries(REPORT_TYPES.map((reportType) => [reportType,
-      Object.fromEntries(allViews.map((view) => [view.incidentId, diagnosticVerdict(
-        rawApplicability[reportType][view.incidentId],
-        slotResultsByReport[reportType][view.incidentId],
-        invariantViolationsByIncident[view.incidentId],
-        reportType
-      )]))
+      Object.fromEntries(allViews.map((view) => [view.incidentId, semanticsByReport[reportType][view.incidentId].diagnosticVerdict]))
     ]));
     const arbitrationByIncident = Object.fromEntries(allViews.map((view) => {
-      const confirmed = DIAGNOSIS_PRIORITY.filter((reportType) => verdicts[reportType][view.incidentId] === 'confirmed');
-      const primaryDiagnosis = confirmed[0] || null;
+      const first = semanticsByReport[REPORT_TYPES[0]][view.incidentId].diagnosisArbitration;
+      const confirmed = first.confirmedDiagnoses;
+      const primaryDiagnosis = first.primaryDiagnosis;
       const relations = {};
-      confirmed.forEach((reportType) => {
-        relations[reportType] = diagnosisRelation(reportType, primaryDiagnosis, confirmed);
-      });
+      confirmed.forEach((reportType) => { relations[reportType] = semanticsByReport[reportType][view.incidentId].diagnosisArbitration; });
       return [view.incidentId, { primaryDiagnosis, confirmedDiagnoses: confirmed, relations }];
     }));
     const reports = Object.fromEntries(REPORT_TYPES.map((reportType) => {
@@ -1370,16 +1469,9 @@
       const applicabilityStatus = aggregateApplicability(Object.values(applicabilityByIncident).map((result) => ({ status: result.status })));
       const diagnosticStatus = aggregateApplicability(Object.values(applicabilityByIncident).map((result) => ({ status: result.diagnosticVerdict })));
       const siblingEvaluations = (SIBLING_RULES[reportType] || []).map(([target, path, operator, value]) => {
-        const perIncident = allViews.map((view) => {
-          const result = evaluatePredicate({ stateAxes: view.stateAxes, derivedViews: view }, { path, operator, value });
-          return {
-            modelId: view.modelId,
-            incidentId: view.incidentId,
-            observedValue: result.observedValue,
-            known: result.known,
-            matched: result.matched
-          };
-        });
+        const perIncident = allViews.map((view) => semanticsByReport[reportType][view.incidentId].siblings
+          .find((item) => item.reportType === target)?.evaluation?.predicateResults?.[0])
+          .filter(Boolean);
         return {
           reportType: target,
           relation: 'diagnostic-dependency',
@@ -1396,10 +1488,7 @@
         .filter((incidentId) => rawApplicability[reportType][incidentId].status !== 'not_confirmed');
       const completenessIncidentIds = supportedIncidentIds.length ? supportedIncidentIds : unresolvedIncidentIds;
       const incidentEvidenceClosures = Object.fromEntries(Object.keys(applicabilityByIncident).map((incidentId) => {
-        const view = incidentViews[incidentId];
-        return [incidentId, Incidents.buildEvidenceClosure(ledger, { incidentId, scope: view.incidentScope }, reportType, {
-          context: { stateAxes: view.stateAxes, derivedViews: view }, legacyMode
-        })];
+        return [incidentId, semanticsByReport[reportType][incidentId].closure];
       }));
       const evidenceClosures = Object.fromEntries(completenessIncidentIds.map((incidentId) => [
         incidentId,
@@ -1447,11 +1536,7 @@
       }));
       const orderedSelectedEvents = [...selectedEvents.values()].sort((left, right) => Number(left.seq) - Number(right.seq));
       const noDeliveryByIncident = reportType === 'no-delivery'
-        ? Object.fromEntries(allViews.map((view) => [view.incidentId, noDeliveryReportProjection(
-          view,
-          slotResults[view.incidentId],
-          verdicts[reportType][view.incidentId]
-        )]))
+        ? Object.fromEntries(allViews.map((view) => [view.incidentId, semanticsByReport[reportType][view.incidentId].noDeliveryProjection]))
         : null;
       return [reportType, {
         reportDescriptor: {
@@ -1483,11 +1568,7 @@
             diagnosticVerdict: applicabilityByIncident[view.incidentId].diagnosticVerdict,
             sufficiency: slotResults[view.incidentId].sufficiency,
             invariantViolations: invariantViolationsByIncident[view.incidentId],
-            limitations: [
-              ...(integrityByIncident[view.incidentId].limitations || []),
-              ...(incidentEvidenceClosures[view.incidentId]?.limitations || []),
-              ...(incidentEvidenceClosures[view.incidentId]?.confidenceLimitations || [])
-            ],
+            limitations: semanticsByReport[reportType][view.incidentId].limitations,
             evidenceSlots: slotResults[view.incidentId].slots.map((slot) => ({
               slotId: slot.slotId,
               status: slot.status,
@@ -1955,11 +2036,11 @@
         const view = deriveModelView(modelId, scoped);
         enrichPriorIncidentComparison(view, sourceEvents, incident);
         assignAxisState(view, scoped);
-        const context = { stateAxes: view.stateAxes, derivedViews: view };
-        const evidence = Incidents.resolveEvidenceSlots(sourceEvents, incident, reportType, context);
-        const integrity = Incidents.temporalIntegrity?.(sourceEvents, incident, { legacyMode: compatibility.mode === 'legacy-runtime-adapter' })
-          || { violations: [] };
-        return [incident.incidentId, diagnosticVerdict(evaluateApplicability(reportType, context), evidence, integrity.violations, reportType)];
+        const semantics = buildIncidentReportSemantics(sourceEvents, incident, reportType, {
+          stateAxes: view.stateAxes,
+          derivedViews: view
+        }, { legacyMode: compatibility.mode === 'legacy-runtime-adapter' });
+        return [incident.incidentId, semantics.diagnosticVerdict];
       }));
     const selection = Incidents.selectIncident(sourceEvents, {
       platform: modelId,
@@ -1973,11 +2054,15 @@
     enrichPriorIncidentComparison(preliminaryView, sourceEvents, selection.selected);
     assignAxisState(preliminaryView, preliminaryEvents);
     const fullContext = { stateAxes: preliminaryView.stateAxes, derivedViews: preliminaryView };
-    const fullApplicability = Object.fromEntries(REPORT_TYPES.map((type) => [type, evaluateApplicability(type, fullContext)]));
-    const closure = Incidents.buildEvidenceClosure(sourceEvents, selection.selected, reportType, {
-      context: fullContext,
-      legacyMode: compatibility.mode === 'legacy-runtime-adapter'
+    const registrySnapshot = dependencyRegistrySnapshot();
+    const registryHash = await sha256(registrySnapshot);
+    const semantics = buildIncidentReportSemantics(sourceEvents, selection.selected, reportType, fullContext, {
+      legacyMode: compatibility.mode === 'legacy-runtime-adapter',
+      registryHash
     });
+    const fullApplicability = Object.fromEntries(REPORT_TYPES.map((type) => [type,
+      type === reportType ? semantics.applicability : evaluateApplicability(type, fullContext)]));
+    const closure = semantics.closure;
     let materializedEvents = closure.events;
     // A false-success report is only useful when the runtime decision path is
     // present, even if the diagnosis is still unknown. Evidence-slot closure
@@ -2012,8 +2097,8 @@
       });
       materializedEvents = [...existing.values()].sort((left, right) => Number(left.ingestSeq || left.seq) - Number(right.ingestSeq || right.seq));
     }
-    const fullEvidence = Incidents.resolveEvidenceSlots(sourceEvents, selection.selected, reportType, fullContext);
-    const fullVerdict = diagnosticVerdict(fullApplicability[reportType], fullEvidence, closure.violations, reportType);
+    const fullEvidence = semantics.evidence;
+    const fullVerdict = semantics.diagnosticVerdict;
     const slotProjection = (evidence) => (evidence?.slots || []).map((slot) => ({
       slotId: slot.slotId,
       status: slot.status,
@@ -2064,36 +2149,15 @@
     const sourceLedgerHash = await sha256(sourceEvents);
     const modelView = preliminaryView;
     const axes = preliminaryView.stateAxes;
-    const registrySnapshot = dependencyRegistrySnapshot();
-    const registryHash = await sha256(registrySnapshot);
     const context = fullContext;
     const applicability = fullApplicability[reportType];
-    const allApplicability = fullApplicability;
-    const allVerdicts = Object.fromEntries(REPORT_TYPES.map((type) => {
-      const evidence = Incidents.resolveEvidenceSlots(sourceEvents, selection.selected, type, {
-        stateAxes: preliminaryView.stateAxes,
-        derivedViews: preliminaryView
-      });
-      return [type, diagnosticVerdict(allApplicability[type], evidence, closure.violations, type)];
-    }));
+    const allApplicability = semantics.applicabilityByType;
+    const allVerdicts = semantics.verdictByType;
     const verdict = allVerdicts[reportType];
-    const confirmedDiagnoses = DIAGNOSIS_PRIORITY.filter((type) => allVerdicts[type] === 'confirmed');
-    const primaryDiagnosis = confirmedDiagnoses[0] || null;
-    const reportDiagnosisRelation = applicability.status !== 'confirmed'
-      ? { explanationRole: 'not_applicable', causedBy: null }
-      : diagnosisRelation(reportType, primaryDiagnosis, confirmedDiagnoses);
-    const siblings = (SIBLING_RULES[reportType] || []).map(([target, path, operator, value]) => {
-      const result = evaluatePredicate(context, { path, operator, value });
-      return {
-        reportType: target,
-        relation: 'diagnostic-dependency',
-        relationClassification: SIBLING_RELATION_CLASSIFICATIONS[siblingPairKey(reportType, target)],
-        priority: 'required',
-        requestIf: { any: [{ path, operator, value }] },
-        evaluation: { matched: result.matched, predicateResults: [{ modelId, ...result }] },
-        antiLoop: { sourceReportType: reportType, requestTargetOnlyOnce: true }
-      };
-    });
+    const confirmedDiagnoses = semantics.diagnosisArbitration.confirmedDiagnoses;
+    const primaryDiagnosis = semantics.diagnosisArbitration.primaryDiagnosis;
+    const { primaryDiagnosis: _primary, confirmedDiagnoses: _confirmed, ...reportDiagnosisRelation } = semantics.diagnosisArbitration;
+    const siblings = semantics.siblings;
     const fieldProvenance = buildFieldProvenance(modelView, materializedEvents.filter((event) => Incidents.exactScope(event, selection.selected.scope)));
     const replayAxes = axes;
     const replayValid = stableStringify(fullVerdictProjection) === stableStringify(materializedVerdictProjection);
@@ -2113,22 +2177,9 @@
     const fullIncidentSemanticHash = await sha256({ incident: selection.selected.scope, events: fullSemanticEvents, axes: preliminaryView.stateAxes, axesProvenance: preliminaryView.stateAxesProvenance });
     const fullVerdictHash = await sha256(fullVerdictProjection);
     const materializedVerdictHash = await sha256(materializedVerdictProjection);
-    const effectiveSlots = closure.slots.filter((slot) => slot.effectiveCriticality !== 'conditional');
-    const standaloneCompletenessLevel = applicability.status === 'not_confirmed' ? 'not_applicable' : closure.sufficiency;
-    const completeness = {
-      level: standaloneCompletenessLevel,
-      evidenceCoveragePct: effectiveSlots.length ? Math.round((effectiveSlots.filter((slot) => slot.status === 'satisfied').length / effectiveSlots.length) * 10000) / 100 : 0,
-      missingCriticalEvidence: closure.missingEvidence.some((item) => item.criticality === 'critical'),
-      missingItems: closure.missingEvidence,
-      safeConclusions: standaloneCompletenessLevel === 'not_applicable'
-        ? ['diagnosis is refuted or not applicable for the selected incident']
-        : (closure.sufficiency === 'complete' ? ['all required evidence slots are materialized'] : ['only conclusions supported by satisfied slots']),
-      blockedConclusions: ['complete', 'not_applicable'].includes(standaloneCompletenessLevel) ? [] : closure.missingEvidence.map((item) => `blocked by ${item.slotId}`)
-    };
-    const conclusions = buildConclusions(reportType, verdict, effectiveSlots, closure.missingEvidence);
-    const noDeliveryProjection = reportType === 'no-delivery'
-      ? noDeliveryReportProjection(modelView, closure, verdict)
-      : null;
+    const completeness = semantics.completeness;
+    const conclusions = semantics.conclusions;
+    const noDeliveryProjection = semantics.noDeliveryProjection;
     const report = {
       schemaVersion: SCHEMA_VERSION,
       fileKind: 'diagnostic-report',
@@ -2320,6 +2371,7 @@
     evaluateApplicability,
     diagnosticVerdict,
     buildConclusions,
+    buildIncidentReportSemantics,
     buildFieldProvenance,
     validateLedger,
     buildAllPresets,

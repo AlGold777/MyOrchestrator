@@ -670,6 +670,12 @@ gate обнаруживает изменение verdict, evidence slot, limitat
 на другой incident. Basis-события входят в самостоятельный отчёт, а axes вместе
 с provenance участвуют в semantic и artifact hashes.
 
+С v2.81.229 диагностическая семантика инцидента вычисляется одним чистым ядром
+`buildIncidentReportSemantics`. Embedded all-presets и standalone report только
+преобразуют его канонический результат в разные формы хранения. Parity gate для
+каждой задачи и каждого инцидента сравнивает embedded, standalone и core-проекции;
+отдельного второго диагностического движка больше нет.
+
 - Platform/Tasks фильтруют canonical envelopes по `modelId` и безопасному
   event payload. Исходные `seq` не перенумеровываются; filtered ledger остаётся
   immutable, а export boundary равен фактическому последнему включённому `seq`.

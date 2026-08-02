@@ -466,7 +466,7 @@ Performance-набор: 500, 2 000, 5 000 и 10 000 событий; нескол
 5. Active-run completeness schema. - Done.
 6. Embedded/standalone semantic comparator. - Done.
 7. Контракт всех `stateAxes`, точный `stateAxesProvenance` и проверка basis-ссылок. - Done.
-8. Общее incident semantics ядро.
+8. Общее incident semantics ядро. - Done.
 9. Canonical evidence schema/builder/validator и доверенный `readerGuidance`.
 10. Offline report CLI.
 11. UI-вариант canonical evidence.

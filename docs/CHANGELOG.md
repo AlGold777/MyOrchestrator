@@ -5682,3 +5682,8 @@ Backlog `what-to-do.md`, батч 1 (UI + Финализация).
 
 - Все четырнадцать `stateAxes` теперь вычисляются вместе с точным `stateAxesProvenance`: слоем, фактическими basis-событиями, правилом и версией.
 - Basis-ссылки входят в semantic/artifact hashes, материализуются в standalone отчёте и проверяются на существование и принадлежность тому же инциденту.
+
+# 2.81.229
+
+- Embedded и standalone отчёты теперь используют одно чистое ядро `buildIncidentReportSemantics` для applicability, verdict, slots, completeness, arbitration, siblings и provenance.
+- Parity gate сравнивает обе экспортные формы ещё и с канонической проекцией ядра для каждой задачи, модели и инцидента.

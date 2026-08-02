@@ -158,6 +158,35 @@
     };
   }
 
+  function normalizeCore(semantics) {
+    const slots = normalizeSlots(semantics?.evidenceSlots);
+    const arbitration = semantics?.diagnosisArbitration || {};
+    return {
+      reportType: semantics?.reportType || semantics?.closure?.reportType || null,
+      incident: { incidentId: semantics?.incident?.incidentId, ...(semantics?.incident?.scope || {}) },
+      applicabilityStatus: semantics?.applicability?.status,
+      diagnosticVerdict: semantics?.diagnosticVerdict,
+      sufficiency: semantics?.evidence?.sufficiency,
+      slots,
+      conclusions: conclusionsFromSlots(slots),
+      invariantViolations: normalizeViolations(semantics?.invariantViolations),
+      limitations: normalizeLimitations(semantics?.limitations),
+      diagnosisArbitration: {
+        primaryDiagnosis: arbitration.primaryDiagnosis || null,
+        confirmedDiagnoses: sortedUnique(arbitration.confirmedDiagnoses || []),
+        explanationRole: arbitration.explanationRole || 'not_applicable',
+        causedBy: arbitration.causedBy || null
+      },
+      siblings: (semantics?.siblings || []).map((rule) => normalizeSibling(rule)),
+      registry: {
+        version: semantics?.identity?.dependencyRegistryVersion,
+        hash: semantics?.identity?.dependencyRegistryHash,
+        reportVersion: semantics?.identity?.reportVersion
+      },
+      ...(semantics?.noDeliveryProjection ? { noDelivery: normalizeNoDelivery(semantics.noDeliveryProjection) } : {})
+    };
+  }
+
   function differences(left, right, currentPath = '$', output = []) {
     if (ProofTelemetry.stableStringify(left) === ProofTelemetry.stableStringify(right)) return output;
     if (left === null || right === null || typeof left !== 'object' || typeof right !== 'object'
@@ -197,10 +226,34 @@
           incidentId,
           reportType
         });
-        results.push({ reportType, incidentId, ...compare(
-          normalizeEmbedded(container, reportType, incidentId),
-          normalizeStandalone(standalone)
-        ) });
+        const embeddedProjection = normalizeEmbedded(container, reportType, incidentId);
+        const standaloneProjection = normalizeStandalone(standalone);
+        const coreProjection = normalizeCore(ProofTelemetry.buildIncidentReportSemantics(
+          events,
+          { incidentId, scope: incident.incidentScope },
+          reportType,
+          { stateAxes: incident.stateAxes, derivedViews: incident },
+          {
+            legacyMode: container?.exportAudit?.sourceCompatibility?.mode === 'legacy-runtime-adapter',
+            registryHash: container?.reports?.[reportType]?.reportDescriptor?.dependencyRegistryHash
+          }
+        ));
+        const embeddedStandalone = compare(embeddedProjection, standaloneProjection);
+        const embeddedCore = compare(embeddedProjection, coreProjection);
+        const standaloneCore = compare(standaloneProjection, coreProjection);
+        results.push({
+          reportType,
+          incidentId,
+          equivalent: embeddedStandalone.equivalent && embeddedCore.equivalent && standaloneCore.equivalent,
+          differences: [
+            ...embeddedStandalone.differences.map((item) => ({ comparison: 'embedded-standalone', ...item })),
+            ...embeddedCore.differences.map((item) => ({ comparison: 'embedded-core', ...item })),
+            ...standaloneCore.differences.map((item) => ({ comparison: 'standalone-core', ...item }))
+          ],
+          embedded: embeddedProjection,
+          standalone: standaloneProjection,
+          core: coreProjection
+        });
       }
     }
     return {
@@ -213,6 +266,7 @@
   const api = Object.freeze({
     normalizeEmbedded,
     normalizeStandalone,
+    normalizeCore,
     differences,
     compare,
     compareContainer

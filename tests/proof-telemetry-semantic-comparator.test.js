@@ -37,6 +37,7 @@ describe('embedded/standalone semantic comparator', () => {
     expect(result.comparisonCount).toBe(ProofTelemetry.REPORT_TYPES.length * incidents.length);
     expect(result.equivalent).toBe(true);
     expect(result.results.every((item) => item.differences.length === 0)).toBe(true);
+    expect(result.results.every((item) => item.core?.registry?.version)).toBe(true);
   });
 
   test.each([

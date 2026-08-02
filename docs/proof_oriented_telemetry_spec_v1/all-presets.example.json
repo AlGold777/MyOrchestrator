@@ -56,7 +56,7 @@
     "mode": "same_export",
     "exactMatch": {
       "runSessionId": "synthetic-run",
-      "ledgerHash": "sha256:43d2b098f65b44c76b86f851af6784aecc4c77ed5a8a4173cb72dd6e77e6e518",
+      "ledgerHash": "sha256:35f855cf11b6e005202a034fbe0b57d783ecb93b75e1303f00682fa07b362e4b",
       "ledgerCompleteThroughSeq": 20
     }
   },
@@ -64,7 +64,7 @@
     "extensionVersion": "2.81.169",
     "generationWaitProfile": "unknown",
     "schemaVersion": "5.0",
-    "generatorVersion": "proof-export@2.6.0",
+    "generatorVersion": "proof-export@2.7.0",
     "policy": {
       "policyId": "proof-default-v2",
       "automaticMinimumEvidenceTier": 3,
@@ -3744,7 +3744,7 @@
     "firstSeq": 1,
     "lastSeq": 20,
     "eventCount": 20,
-    "ledgerHash": "sha256:43d2b098f65b44c76b86f851af6784aecc4c77ed5a8a4173cb72dd6e77e6e518",
+    "ledgerHash": "sha256:35f855cf11b6e005202a034fbe0b57d783ecb93b75e1303f00682fa07b362e4b",
     "events": [
       {
         "schemaVersion": 6,
@@ -3759,7 +3759,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.6.0"
+          "version": "proof-export@2.7.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -3802,7 +3802,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.6.0"
+          "version": "proof-export@2.7.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -3845,7 +3845,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.6.0"
+          "version": "proof-export@2.7.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -3888,7 +3888,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.6.0"
+          "version": "proof-export@2.7.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -3932,7 +3932,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.6.0"
+          "version": "proof-export@2.7.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -3975,7 +3975,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.6.0"
+          "version": "proof-export@2.7.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -4019,7 +4019,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.6.0"
+          "version": "proof-export@2.7.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -4062,7 +4062,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.6.0"
+          "version": "proof-export@2.7.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -4106,7 +4106,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.6.0"
+          "version": "proof-export@2.7.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -4152,7 +4152,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.6.0"
+          "version": "proof-export@2.7.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -4195,7 +4195,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.6.0"
+          "version": "proof-export@2.7.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -4239,7 +4239,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.6.0"
+          "version": "proof-export@2.7.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -4283,7 +4283,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.6.0"
+          "version": "proof-export@2.7.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -4327,7 +4327,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.6.0"
+          "version": "proof-export@2.7.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -4373,7 +4373,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.6.0"
+          "version": "proof-export@2.7.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -4416,7 +4416,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.6.0"
+          "version": "proof-export@2.7.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -4459,7 +4459,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.6.0"
+          "version": "proof-export@2.7.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -4502,7 +4502,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.6.0"
+          "version": "proof-export@2.7.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -4545,7 +4545,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.6.0"
+          "version": "proof-export@2.7.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -4588,7 +4588,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.6.0"
+          "version": "proof-export@2.7.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -4645,8 +4645,8 @@
         19,
         20
       ],
-      "generatorVersion": "proof-export@2.6.0",
-      "ledgerHash": "sha256:43d2b098f65b44c76b86f851af6784aecc4c77ed5a8a4173cb72dd6e77e6e518",
+      "generatorVersion": "proof-export@2.7.0",
+      "ledgerHash": "sha256:35f855cf11b6e005202a034fbe0b57d783ecb93b75e1303f00682fa07b362e4b",
       "data": {
         "GPT": {
           "modelId": "GPT",
@@ -4683,8 +4683,8 @@
         19,
         20
       ],
-      "generatorVersion": "proof-export@2.6.0",
-      "ledgerHash": "sha256:43d2b098f65b44c76b86f851af6784aecc4c77ed5a8a4173cb72dd6e77e6e518",
+      "generatorVersion": "proof-export@2.7.0",
+      "ledgerHash": "sha256:35f855cf11b6e005202a034fbe0b57d783ecb93b75e1303f00682fa07b362e4b",
       "data": {
         "incident:synthetic-run|1|GPT|synthetic-dispatch|1": {
           "modelId": "GPT",
@@ -4979,7 +4979,7 @@
   "reports": {
     "cutted": {
       "reportDescriptor": {
-        "reportId": "rpt-cutted-9fd07a9a",
+        "reportId": "rpt-cutted-ac034562",
         "reportType": "cutted",
         "reportVersion": "3.6.0",
         "title": "Почему зафиксирован SUCCESS, а текст явно неполный?",
@@ -5220,6 +5220,11 @@
               {
                 "modelId": "GPT",
                 "incidentId": "incident:synthetic-run|1|GPT|synthetic-dispatch|1",
+                "predicate": {
+                  "path": "$.derivedViews.postTerminalGrowthProven",
+                  "operator": "eq",
+                  "value": true
+                },
                 "observedValue": null,
                 "known": false,
                 "matched": false
@@ -5254,6 +5259,11 @@
               {
                 "modelId": "GPT",
                 "incidentId": "incident:synthetic-run|1|GPT|synthetic-dispatch|1",
+                "predicate": {
+                  "path": "$.derivedViews.oldAnswerEvidence",
+                  "operator": "eq",
+                  "value": true
+                },
                 "observedValue": null,
                 "known": false,
                 "matched": false
@@ -5270,7 +5280,7 @@
     },
     "false-success": {
       "reportDescriptor": {
-        "reportId": "rpt-false-success-9fd07a9a",
+        "reportId": "rpt-false-success-ac034562",
         "reportType": "false-success",
         "reportVersion": "3.6.0",
         "title": "Почему система решила «готово», а ответ продолжил расти?",
@@ -5651,6 +5661,11 @@
               {
                 "modelId": "GPT",
                 "incidentId": "incident:synthetic-run|1|GPT|synthetic-dispatch|1",
+                "predicate": {
+                  "path": "$.derivedViews.incompleteCaptureEvidence",
+                  "operator": "eq",
+                  "value": true
+                },
                 "observedValue": false,
                 "known": true,
                 "matched": false
@@ -5685,6 +5700,11 @@
               {
                 "modelId": "GPT",
                 "incidentId": "incident:synthetic-run|1|GPT|synthetic-dispatch|1",
+                "predicate": {
+                  "path": "$.derivedViews.lateEndEvidence",
+                  "operator": "eq",
+                  "value": true
+                },
                 "observedValue": null,
                 "known": false,
                 "matched": false
@@ -5701,7 +5721,7 @@
     },
     "old-answer": {
       "reportDescriptor": {
-        "reportId": "rpt-old-answer-9fd07a9a",
+        "reportId": "rpt-old-answer-ac034562",
         "reportType": "old-answer",
         "reportVersion": "3.6.0",
         "title": "Почему принят текст от предыдущего запроса?",
@@ -6067,6 +6087,11 @@
               {
                 "modelId": "GPT",
                 "incidentId": "incident:synthetic-run|1|GPT|synthetic-dispatch|1",
+                "predicate": {
+                  "path": "$.derivedViews.incompleteCaptureEvidence",
+                  "operator": "eq",
+                  "value": true
+                },
                 "observedValue": false,
                 "known": true,
                 "matched": false
@@ -6083,7 +6108,7 @@
     },
     "no-delivery": {
       "reportDescriptor": {
-        "reportId": "rpt-no-delivery-9fd07a9a",
+        "reportId": "rpt-no-delivery-ac034562",
         "reportType": "no-delivery",
         "reportVersion": "3.6.0",
         "title": "Почему материализованный ответ текущего запроса не оказался в правильной карточке?",
@@ -6552,6 +6577,11 @@
               {
                 "modelId": "GPT",
                 "incidentId": "incident:synthetic-run|1|GPT|synthetic-dispatch|1",
+                "predicate": {
+                  "path": "$.derivedViews.oldAnswerEvidence",
+                  "operator": "eq",
+                  "value": true
+                },
                 "observedValue": null,
                 "known": false,
                 "matched": false
@@ -6582,6 +6612,11 @@
               {
                 "modelId": "GPT",
                 "incidentId": "incident:synthetic-run|1|GPT|synthetic-dispatch|1",
+                "predicate": {
+                  "path": "$.derivedViews.incompleteCaptureEvidence",
+                  "operator": "eq",
+                  "value": true
+                },
                 "observedValue": false,
                 "known": true,
                 "matched": false
@@ -6598,7 +6633,7 @@
     },
     "prompt-not-inserted": {
       "reportDescriptor": {
-        "reportId": "rpt-prompt-not-inserted-9fd07a9a",
+        "reportId": "rpt-prompt-not-inserted-ac034562",
         "reportType": "prompt-not-inserted",
         "reportVersion": "3.6.0",
         "title": "Почему prompt не вставился в поле ввода?",
@@ -6815,6 +6850,11 @@
               {
                 "modelId": "GPT",
                 "incidentId": "incident:synthetic-run|1|GPT|synthetic-dispatch|1",
+                "predicate": {
+                  "path": "$.derivedViews.promptNotSentEvidence",
+                  "operator": "eq",
+                  "value": true
+                },
                 "observedValue": false,
                 "known": true,
                 "matched": false
@@ -6831,7 +6871,7 @@
     },
     "prompt-not-sent": {
       "reportDescriptor": {
-        "reportId": "rpt-prompt-not-sent-9fd07a9a",
+        "reportId": "rpt-prompt-not-sent-ac034562",
         "reportType": "prompt-not-sent",
         "reportVersion": "3.6.0",
         "title": "Почему модель не получила запрос?",
@@ -7048,6 +7088,11 @@
               {
                 "modelId": "GPT",
                 "incidentId": "incident:synthetic-run|1|GPT|synthetic-dispatch|1",
+                "predicate": {
+                  "path": "$.derivedViews.promptNotInsertedEvidence",
+                  "operator": "eq",
+                  "value": true
+                },
                 "observedValue": false,
                 "known": true,
                 "matched": false
@@ -7064,7 +7109,7 @@
     },
     "late-end": {
       "reportDescriptor": {
-        "reportId": "rpt-late-end-9fd07a9a",
+        "reportId": "rpt-late-end-ac034562",
         "reportType": "late-end",
         "reportVersion": "3.6.0",
         "title": "Текст давно стабилен — почему система ждала ещё N секунд?",
@@ -7449,6 +7494,11 @@
               {
                 "modelId": "GPT",
                 "incidentId": "incident:synthetic-run|1|GPT|synthetic-dispatch|1",
+                "predicate": {
+                  "path": "$.derivedViews.postTerminalGrowthProven",
+                  "operator": "eq",
+                  "value": true
+                },
                 "observedValue": null,
                 "known": false,
                 "matched": false
@@ -7485,12 +7535,12 @@
       "frozenAt": 12000
     },
     "hashes": {
-      "ledger": "sha256:43d2b098f65b44c76b86f851af6784aecc4c77ed5a8a4173cb72dd6e77e6e518",
-      "sharedConfig": "sha256:177c6ed26e301935440c63b440ca0110f8a2d639e38d2d240869dea21daf92f0",
-      "derivedViews": "sha256:543a324ec5fd13f03e3872bb1066fd63ac0cec8b2a0ad1fbc0874422cb9d35c2",
-      "reports": "sha256:0f8f0329de8bc79cf792d9ba046e2d60d78d4245b672f58ebb4663539fb5a2a4",
+      "ledger": "sha256:35f855cf11b6e005202a034fbe0b57d783ecb93b75e1303f00682fa07b362e4b",
+      "sharedConfig": "sha256:46a53a28e20ceed19e338881795a977d52fb2ec465f6517dc3aafbcb44e7aa1b",
+      "derivedViews": "sha256:fff2d5b1b487b91d6d5070386f1714bdf570c6997468c616c7ebe7b7643423bc",
+      "reports": "sha256:3c239d87c0ffbd80e12eff7938fe937a2c2dfa90e14e0da688f6c95aac3ddb4b",
       "attachments": "sha256:b1968c832915f5cdc3320b65fc5ad56f2c9f3a9d20eaa0919b749ad664b9c18a",
-      "container": "sha256:f52eb8ead95a1eec92872427bbca33a2a1baddc14905b915146313ec4cc039ff"
+      "container": "sha256:433f621730e15079f2eabaa1c42d90fb4d14ada645fb1daf362c61b6753ea95e"
     },
     "schemaValidation": {
       "valid": true,
@@ -7504,7 +7554,7 @@
     },
     "budget": {
       "limitBytes": 1000000,
-      "measuredBytes": 131854,
+      "measuredBytes": 132752,
       "withinBudget": true,
       "status": "within_budget"
     },
