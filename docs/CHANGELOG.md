@@ -5763,3 +5763,8 @@ Backlog `what-to-do.md`, батч 1 (UI + Финализация).
 
 - Контракт CLI различает exact, conditional legacy, explicit reinterpretation и unsupported outcome.
 - `legacy-reproduction` больше не является нераспознанной строкой: без зарегистрированного исторического адаптера он fail-closed завершается кодом `REPRODUCTION_UNSUPPORTED`; текущая policy не выдаётся за legacy.
+
+# 2.81.245
+
+- Строгий field validator распознаёт миграцию пяти zero-basis inference из артефактов до 2.81.242 только по точной версии generator, derivation version, ruleId, пустому basis и вычисленному из структуры числу находок.
+- Любое частичное совпадение, изменённое правило или неверное число S22 остаётся блокирующей необъяснённой ошибкой.

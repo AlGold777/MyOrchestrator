@@ -54,6 +54,32 @@ function expectedMigrationFindings(extensionVersion, source = {}) {
     add('S22', 'stateAxesProvenance does not match the fourteen contracted axes', count, explanation);
     AXIS_NAMES.forEach((axis) => add('S22', `invalid provenance contract for state axis ${axis}`, count, explanation));
   }
+  const zeroBasisRules = {
+    answerIdentity: 'no-candidate-evidence',
+    observedGeneration: 'generation-not-started',
+    extraction: 'no-extraction-evidence',
+    verification: 'no-verification-evidence',
+    completionEvidenceTier: 'no-completion-evidence'
+  };
+  if (versionBefore(extensionVersion, '2.81.242')
+    && source?.sharedConfig?.generatorVersion === 'proof-export@2.6.0'
+    && incidents.length > 0
+    && reportCount > 0) {
+    const explanation = 'artifact predates non-audit basis requirement (2.81.242)';
+    Object.entries(zeroBasisRules).forEach(([axis, ruleId]) => {
+      const matchingIncidentCount = incidents.filter((incident) => {
+        const provenance = incident?.stateAxesProvenance?.[axis];
+        return provenance?.layer === 'inference'
+          && provenance.ruleId === ruleId
+          && provenance.derivationVersion === 'state-axes-provenance@1.0.0'
+          && Array.isArray(provenance.basisEventIds)
+          && provenance.basisEventIds.length === 0;
+      }).length;
+      if (matchingIncidentCount > 0) {
+        add('S22', `non-audit provenance requires basis evidence for state axis ${axis}`, matchingIncidentCount * reportCount, explanation);
+      }
+    });
+  }
   return expected;
 }
 
@@ -223,7 +249,7 @@ async function runFieldValidation(filenames) {
   for (const filename of filenames) results.push(await inspectFile(filename));
   const jsonResults = results.filter((item) => item.kind === 'json');
   return {
-    validatorVersion: 'field-validation@1.0.0',
+    validatorVersion: 'field-validation@1.1.0',
     projectVersion: PROJECT_VERSION,
     currentGeneratorVersion: ProofTelemetry.GENERATOR_VERSION,
     fileCount: results.length,

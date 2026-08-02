@@ -788,6 +788,10 @@ persistence writes и `queuedMutationCount`.
 Исторических адаптеров пока нет: запрос legacy завершается fail-closed с
 `REPRODUCTION_UNSUPPORTED`, а не пересчитывается текущей policy.
 
+С v2.81.245 field validator знает точную миграционную сигнатуру старых
+zero-basis inference. Allowlist требует generator 2.6.0, derivation 1.0.0,
+ожидаемый ruleId, пустой basis и точное структурно вычисленное число S22.
+
 - Platform/Tasks фильтруют canonical envelopes по `modelId` и безопасному
   event payload. Исходные `seq` не перенумеровываются; filtered ledger остаётся
   immutable, а export boundary равен фактическому последнему включённому `seq`.

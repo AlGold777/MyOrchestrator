@@ -43,6 +43,30 @@ describe('proof telemetry field validation', () => {
     expect(result.findings.S22).toEqual(expect.objectContaining({ explanation: null, unexplainedCount: 2 }));
   });
 
+  test('recognizes only the exact historical zero-basis provenance structure', () => {
+    const oldProvenance = (ruleId) => ({
+      layer: 'inference',
+      ruleId,
+      derivationVersion: 'state-axes-provenance@1.0.0',
+      basisEventIds: []
+    });
+    const source = {
+      sharedConfig: { generatorVersion: 'proof-export@2.6.0' },
+      reports: { cutted: {}, 'false-success': {} },
+      derivedViews: { 'incident-timeline': { data: {
+        first: { stateAxesProvenance: { answerIdentity: oldProvenance('no-candidate-evidence') } },
+        second: { stateAxesProvenance: { answerIdentity: oldProvenance('no-candidate-evidence') } }
+      } } }
+    };
+    const finding = { code: 'S22', message: 'non-audit provenance requires basis evidence for state axis answerIdentity' };
+    expect(summarizeFindings(Array(4).fill(finding), '2.81.227', source).unexplained).toEqual([]);
+    expect(summarizeFindings(Array(3).fill(finding), '2.81.227', source).unexplained)
+      .toEqual([expect.objectContaining({ count: 3 })]);
+    source.derivedViews['incident-timeline'].data.first.stateAxesProvenance.answerIdentity.ruleId = 'different-rule';
+    expect(summarizeFindings(Array(4).fill(finding), '2.81.227', source).unexplained)
+      .toEqual([expect.objectContaining({ count: 4 })]);
+  });
+
   test('marks digest as triage-only and extracts only safe envelope metadata', () => {
     const result = analyzeDigestText([
       '# READ THIS FIRST',
