@@ -734,6 +734,16 @@ memory pressure. В эталонном прогоне 2026-08-02 сборка 10
 322,4 мс для canonical evidence и 495,2 мс для full forensic; до индексирования
 temporal slot matching тот же full forensic занимал около 32,4 с.
 
+С v2.81.235 сохранённые реальные выгрузки проверяются командой
+`npm run validate:telemetry-field -- <files...>`. Для JSON она выполняет текущую
+валидацию, объясняет только известный versioned contract drift, сохраняет ledger
+hash, перестраивает canonical/full и сравнивает embedded/standalone/core для всех
+задач и инцидентов. Любое необъяснённое расхождение закрывает gate с ошибкой.
+Для digest фиксируются только безопасные envelope-метаданные; он явно считается
+triage-only и не выдаётся за материал для integrity validation либо replay.
+Фактический прогон восьми выгрузок описан в
+`docs/telemetry-field-validation-2026-08-02.md`.
+
 - Platform/Tasks фильтруют canonical envelopes по `modelId` и безопасному
   event payload. Исходные `seq` не перенумеровываются; filtered ledger остаётся
   immutable, а export boundary равен фактическому последнему включённому `seq`.

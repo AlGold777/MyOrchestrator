@@ -1,12 +1,13 @@
 {
   "name": "llm-selector-manager",
-  "version": "2.81.234",
+  "version": "2.81.235",
   "private": true,
   "description": "Selector management and content scripts for multi-LLM browser extension",
   "scripts": {
     "test": "jest --config tests/jest.config.js",
     "test:telemetry": "node tests/telemetry-devtools-check.js",
     "validate:telemetry": "node scripts/validate-proof-telemetry.js",
+    "validate:telemetry-field": "node scripts/validate-proof-telemetry-field.js",
     "measure:telemetry": "node scripts/analyze-proof-telemetry-size.js",
     "test:telemetry-parity": "jest --config tests/jest.config.js --runInBand tests/proof-telemetry-semantic-comparator.test.js",
     "test:telemetry-stress": "node scripts/run-proof-telemetry-stress.js",
