@@ -754,6 +754,11 @@ builder. Поэтому ledger, section/artifact hashes и `measuredBytes` вы�
 Проверка выполняется одинаково для `canonical-evidence` и `all-presets`;
 исторический контейнер требует явного `--reproduction=reinterpretation`.
 
+С v2.81.238 policy загружается до proof export builder во всех browser/worker
+контекстах. Поэтому UI task reports, background и export worker вычисляют
+одинаковый точный `stateAxesProvenance`; fallback provenance больше не возникает
+из-за порядка загрузки скриптов.
+
 - Platform/Tasks фильтруют canonical envelopes по `modelId` и безопасному
   event payload. Исходные `seq` не перенумеровываются; filtered ledger остаётся
   immutable, а export boundary равен фактическому последнему включённому `seq`.

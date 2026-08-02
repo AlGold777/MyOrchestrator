@@ -5729,3 +5729,8 @@ Backlog `what-to-do.md`, батч 1 (UI + Финализация).
 
 - Offline report CLI теперь независимо сравнивает generator, report version и registry hash с текущим toolchain для canonical и all-presets inputs.
 - Исторический all-presets больше не может быть помечен как exact reproduction; без явного `--reproduction=reinterpretation` CLI завершает работу с `REPRODUCTION_UNSUPPORTED`.
+
+# 2.81.238
+
+- Results pages и background теперь загружают proof telemetry policy до export builder, как это уже делал worker.
+- Page-side task reports используют точный `stateAxesProvenance` с реальными basis event IDs вместо `legacy-fallback-*`; порядок закреплён browser-context тестом.
