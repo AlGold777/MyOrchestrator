@@ -1140,7 +1140,7 @@
     };
 
     const FULL_EXPORT_WORKER_TIMEOUT_MS = 20000;
-    const buildFullTelemetryJsonInWorker = (events, options, onStage) => new Promise((resolve, reject) => {
+    const buildTelemetryJsonInWorker = (events, options, artifactType, onStage) => new Promise((resolve, reject) => {
         if (typeof Worker !== 'function') {
             reject(new Error('telemetry export worker is unavailable'));
             return;
@@ -1172,7 +1172,12 @@
             if (message.type === 'error') finish(reject, new Error(message.error || 'telemetry export worker failed'));
         };
         worker.onerror = (event) => finish(reject, new Error(event?.message || 'telemetry export worker failed to load'));
-        worker.postMessage({ type: 'BUILD_FULL_TELEMETRY_JSON', requestId, events, options });
+        worker.postMessage({
+            type: artifactType === 'canonical-evidence' ? 'BUILD_CANONICAL_EVIDENCE_JSON' : 'BUILD_FULL_TELEMETRY_JSON',
+            requestId,
+            events,
+            options
+        });
     });
 
     const buildCanonicalTelemetryRecovery = (events, options, error) => ({
@@ -1210,26 +1215,28 @@
     // The JSON stays the archive; the digest is the part meant to be read.
     // Same implementation as scripts/telemetry-digest.js, so a digest produced
     // here and one produced from the file can never disagree.
-    // Checked (default) builds the digest directly from the canonical ledger;
-    // unchecked builds the substantially heavier complete report as JSON.
-    const DIGEST_TOGGLE_KEY = 'telemetryExportDigestEnabled';
-    const digestToggle = document.getElementById('telemetry-export-digest-toggle');
-    if (digestToggle) {
+    // Digest remains the default. Canonical evidence is an explicit middle
+    // option; Full forensic remains available and unchanged.
+    const EXPORT_FORMAT_KEY = 'telemetryExportFormat';
+    const LEGACY_DIGEST_TOGGLE_KEY = 'telemetryExportDigestEnabled';
+    const exportFormatSelect = document.getElementById('telemetry-export-format-select');
+    if (exportFormatSelect) {
         try {
-            chrome.storage?.local?.get?.([DIGEST_TOGGLE_KEY], (stored) => {
+            chrome.storage?.local?.get?.([EXPORT_FORMAT_KEY, LEGACY_DIGEST_TOGGLE_KEY], (stored) => {
                 if (chrome.runtime?.lastError) return;
-                if (stored && typeof stored[DIGEST_TOGGLE_KEY] === 'boolean') {
-                    digestToggle.checked = stored[DIGEST_TOGGLE_KEY];
-                }
+                const saved = stored?.[EXPORT_FORMAT_KEY];
+                if (['digest', 'canonical-evidence', 'full-forensic'].includes(saved)) exportFormatSelect.value = saved;
+                else if (typeof stored?.[LEGACY_DIGEST_TOGGLE_KEY] === 'boolean') exportFormatSelect.value = stored[LEGACY_DIGEST_TOGGLE_KEY] ? 'digest' : 'full-forensic';
             });
         } catch (_) {}
-        digestToggle.addEventListener('change', () => {
+        exportFormatSelect.addEventListener('change', () => {
             try {
-                chrome.storage?.local?.set?.({ [DIGEST_TOGGLE_KEY]: digestToggle.checked === true });
+                chrome.storage?.local?.set?.({ [EXPORT_FORMAT_KEY]: exportFormatSelect.value });
             } catch (_) {}
         });
     }
-    const digestExportEnabled = () => !digestToggle || digestToggle.checked === true;
+    const telemetryExportFormat = () => exportFormatSelect?.value || 'digest';
+    const digestExportEnabled = () => telemetryExportFormat() === 'digest';
 
     const buildTelemetryDigestSource = (events, options) => ({
         manifest: { createdAt: new Date(options.exportedAt).toISOString() },
@@ -1310,7 +1317,10 @@
                 pendingRecordCount: Number(proofSnapshot.pendingRecordCount || 0)
             };
             if (task === 'all') {
-                const filename = `telemetry-all-presets-${Date.now()}.json`;
+                const exportFormat = telemetryExportFormat();
+                const filename = exportFormat === 'canonical-evidence'
+                    ? `telemetry-canonical-evidence-${Date.now()}.json`
+                    : `telemetry-all-presets-${Date.now()}.json`;
                 const boundary = proofSnapshot.barrierTimedOut ? ' from the latest committed boundary' : '';
                 if (digestExportEnabled()) {
                     const digest = downloadTelemetryDigest(
@@ -1323,22 +1333,25 @@
                     }
                 }
                 try {
-                    const built = await buildFullTelemetryJsonInWorker(canonicalEvents, buildOptions, (progress) => {
+                    const built = await buildTelemetryJsonInWorker(canonicalEvents, buildOptions, exportFormat, (progress) => {
                         if (!telemetryStatus) return;
                         telemetryStatus.textContent = progress.stage === 'serializing'
-                            ? `Serializing full telemetry JSON (${canonicalEvents.length} events)…`
-                            : `Building full report for ${canonicalEvents.length} events…`;
+                            ? `Serializing ${exportFormat === 'canonical-evidence' ? 'canonical evidence' : 'full telemetry'} JSON (${canonicalEvents.length} events)…`
+                            : `Building ${exportFormat === 'canonical-evidence' ? 'canonical evidence' : 'full report'} for ${canonicalEvents.length} events…`;
                     });
                     downloadSerializedProofArtifact(built.json, filename);
                     if (telemetryStatus) {
-                        telemetryStatus.textContent = `${digestExportEnabled() ? 'Digest unavailable — full JSON exported' : 'Full JSON exported'} in ${built.elapsedMs} ms${boundary}`;
+                        const label = exportFormat === 'canonical-evidence'
+                            ? 'Canonical evidence exported'
+                            : (digestExportEnabled() ? 'Digest unavailable — full JSON exported' : 'Full forensic JSON exported');
+                        telemetryStatus.textContent = `${label} in ${built.elapsedMs} ms${boundary}`;
                     }
                 } catch (error) {
-                    console.error('[devtools] full telemetry worker failed; exporting canonical recovery ledger', error);
+                    console.error('[devtools] telemetry worker failed; exporting canonical recovery ledger', error);
                     const recovery = buildCanonicalTelemetryRecovery(canonicalEvents, buildOptions, error);
-                    const recoveryFilename = filename.replace('all-presets', 'canonical-recovery');
+                    const recoveryFilename = filename.replace(/all-presets|canonical-evidence/, 'canonical-recovery');
                     downloadProofArtifact(recovery, recoveryFilename);
-                    if (telemetryStatus) telemetryStatus.textContent = `Full report timed out — canonical JSON exported (${canonicalEvents.length} events)`;
+                    if (telemetryStatus) telemetryStatus.textContent = `Telemetry build timed out — canonical recovery JSON exported (${canonicalEvents.length} events)`;
                 }
                 return;
             }

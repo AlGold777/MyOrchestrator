@@ -18,15 +18,15 @@ const stage = (requestId, name, startedAt) => {
 
 self.onmessage = async (event) => {
   const request = event?.data || {};
-  if (request.type !== 'BUILD_FULL_TELEMETRY_JSON') return;
+  if (!['BUILD_FULL_TELEMETRY_JSON', 'BUILD_CANONICAL_EVIDENCE_JSON'].includes(request.type)) return;
   const requestId = String(request.requestId || 'telemetry-export');
   const startedAt = Date.now();
   try {
     stage(requestId, 'building', startedAt);
-    const payload = await self.ProofOrientedTelemetry.buildAllPresets(
-      Array.isArray(request.events) ? request.events : [],
-      request.options || {}
-    );
+    const builder = request.type === 'BUILD_CANONICAL_EVIDENCE_JSON'
+      ? self.ProofOrientedTelemetry.buildCanonicalEvidence
+      : self.ProofOrientedTelemetry.buildAllPresets;
+    const payload = await builder(Array.isArray(request.events) ? request.events : [], request.options || {});
     stage(requestId, 'serializing', startedAt);
     const json = self.SecretRedaction.stringifySafe(payload);
     if (!json || json === '{}') throw new Error('telemetry serialization returned an empty document');

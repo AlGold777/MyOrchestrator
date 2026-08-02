@@ -4,7 +4,7 @@ const vm = require('vm');
 const { webcrypto } = require('crypto');
 const { TextEncoder } = require('util');
 const ProofTelemetry = require('../shared/proof-oriented-telemetry.js');
-const { validateContainer } = require('../scripts/validate-proof-telemetry.js');
+const { validateContainer, validateCanonicalEvidence } = require('../scripts/validate-proof-telemetry.js');
 
 const ROOT = path.join(__dirname, '..');
 const WORKER_DIR = path.join(ROOT, 'workers');
@@ -99,5 +99,28 @@ describe('telemetry export worker', () => {
     expect(validation.errors.map((error) => error.code))
       .not.toEqual(expect.arrayContaining(['JSON_SCHEMA', 'HASH_MISMATCH', 'SIZE_MISMATCH']));
     expect(validation.errors.map((error) => error.code).sort()).toEqual(['S06', 'S15']);
+  });
+
+  test('builds canonical evidence in the worker without embedded reports', async () => {
+    const events = ProofTelemetry.buildLedger([
+      runtimeEvent('PROMPT_SUBMITTED_ACCEPTED', 1000),
+      runtimeEvent('ANSWER_GENERATING', 1100, { textLength: 20 })
+    ], { runSessionId: 42, exportedAt: 2000 });
+    const messages = [];
+    const worker = loadWorker(messages);
+    const request = {
+      data: {
+        type: 'BUILD_CANONICAL_EVIDENCE_JSON',
+        requestId: 'canonical-worker-test',
+        events,
+        options: { canonicalLedger: true, runSessionId: 42, exportedAt: 2000, extensionVersion: 'test', snapshotConsistency: 'queue_drained' }
+      }
+    };
+    await vm.runInContext(`self.onmessage(${JSON.stringify(request)})`, worker);
+    const artifact = JSON.parse(messages.find((message) => message.type === 'complete').json);
+    expect(artifact.containerType).toBe('canonical-evidence');
+    expect(artifact).not.toHaveProperty('reports');
+    expect(artifact).not.toHaveProperty('derivedViews');
+    expect((await validateCanonicalEvidence(artifact)).valid).toBe(true);
   });
 });

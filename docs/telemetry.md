@@ -700,6 +700,13 @@ incident молча, затем вызывает штатный shared builder �
 по умолчанию завершается отказом. В выходе сохраняются source artifact hashes и
 полный ключ воспроизводимого кэша.
 
+С v2.81.232 в панели Telemetry обеих страниц результатов есть три явно
+названных формата: `Digest`, `Canonical evidence` и `Full forensic`. По умолчанию
+по-прежнему выбран Digest; сохранённое старое значение checkbox автоматически
+переводится в Digest либо Full forensic. Оба JSON-формата строятся и
+сериализуются вне UI-потока в export worker. При timeout остаётся recovery-файл,
+содержащий все canonical events.
+
 - Platform/Tasks фильтруют canonical envelopes по `modelId` и безопасному
   event payload. Исходные `seq` не перенумеровываются; filtered ledger остаётся
   immutable, а export boundary равен фактическому последнему включённому `seq`.

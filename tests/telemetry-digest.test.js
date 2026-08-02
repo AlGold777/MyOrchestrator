@@ -127,18 +127,18 @@ describe('the Export button writes the digest alongside the JSON', () => {
   const path = require('path');
   const DEVTOOLS = fs.readFileSync(path.join(__dirname, '..', 'results-devtools.js'), 'utf8');
 
-  test('checked builds the digest directly, unchecked builds the complete report', () => {
+  test('Digest builds directly before either JSON worker format', () => {
     const branch = DEVTOOLS.slice(
       DEVTOOLS.indexOf("if (task === 'all') {"),
       DEVTOOLS.indexOf('const selectedModelId')
     );
     const digestAt = branch.indexOf('buildTelemetryDigestSource(canonicalEvents, buildOptions)');
-    const fullAt = branch.indexOf('buildFullTelemetryJsonInWorker(canonicalEvents, buildOptions');
+    const fullAt = branch.indexOf('buildTelemetryJsonInWorker(canonicalEvents, buildOptions, exportFormat');
     expect(digestAt).toBeGreaterThan(-1);
     expect(fullAt).toBeGreaterThan(digestAt);
     expect(branch).toContain('if (digest) {');
     expect(branch).toContain('return;');
-    expect(branch).toContain('buildFullTelemetryJsonInWorker(canonicalEvents, buildOptions');
+    expect(branch).toContain('buildTelemetryJsonInWorker(canonicalEvents, buildOptions, exportFormat');
     expect(branch).toContain('downloadSerializedProofArtifact(built.json, filename)');
   });
 
@@ -167,22 +167,24 @@ describe('the Export button writes the digest alongside the JSON', () => {
     expect(helper).not.toContain('buildAllPresets');
   });
 
-  test('the toggle defaults to on and is remembered', () => {
+  test('the format defaults to Digest, remembers the choice and migrates the old toggle', () => {
     const wiring = DEVTOOLS.slice(
-      DEVTOOLS.indexOf('const DIGEST_TOGGLE_KEY'),
+      DEVTOOLS.indexOf('const EXPORT_FORMAT_KEY'),
       DEVTOOLS.indexOf('const downloadTelemetryDigest')
     );
-    expect(wiring).toContain("chrome.storage?.local?.get?.([DIGEST_TOGGLE_KEY]");
-    expect(wiring).toContain('chrome.storage?.local?.set?.({ [DIGEST_TOGGLE_KEY]');
-    // Absent element or unset preference must behave as enabled.
-    expect(wiring).toContain('const digestExportEnabled = () => !digestToggle || digestToggle.checked === true;');
+    expect(wiring).toContain('LEGACY_DIGEST_TOGGLE_KEY');
+    expect(wiring).toContain('chrome.storage?.local?.set?.({ [EXPORT_FORMAT_KEY]');
+    expect(wiring).toContain("const telemetryExportFormat = () => exportFormatSelect?.value || 'digest';");
+    expect(wiring).toContain("const digestExportEnabled = () => telemetryExportFormat() === 'digest';");
   });
 
-  test('both pages carry the toggle, checked by default', () => {
+  test('both pages carry the three format choices with Digest selected by default', () => {
     for (const page of ['result_new.html', 'pipeline_panel.html']) {
       const html = fs.readFileSync(path.join(__dirname, '..', page), 'utf8');
-      expect(html).toContain('id="telemetry-export-digest-toggle"');
-      expect(html).toMatch(/id="telemetry-export-digest-toggle"[^>]*checked/);
+      expect(html).toContain('id="telemetry-export-format-select"');
+      expect(html).toContain('<option value="digest" selected>Digest</option>');
+      expect(html).toContain('<option value="canonical-evidence">Canonical evidence</option>');
+      expect(html).toContain('<option value="full-forensic">Full forensic</option>');
     }
   });
 

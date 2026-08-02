@@ -87,9 +87,10 @@ describe('Telemetry export actions', () => {
 
   test('full all-presets construction and serialization run outside the results UI', () => {
     expect(devtoolsSource).toContain("new Worker(chrome.runtime.getURL('workers/telemetry-export-worker.js'))");
-    expect(devtoolsSource).toContain('buildFullTelemetryJsonInWorker(canonicalEvents, buildOptions');
-    expect(exportWorkerSource).toContain("request.type !== 'BUILD_FULL_TELEMETRY_JSON'");
-    expect(exportWorkerSource).toContain('self.ProofOrientedTelemetry.buildAllPresets(');
+    expect(devtoolsSource).toContain('buildTelemetryJsonInWorker(canonicalEvents, buildOptions, exportFormat');
+    expect(exportWorkerSource).toContain("'BUILD_CANONICAL_EVIDENCE_JSON'");
+    expect(exportWorkerSource).toContain('self.ProofOrientedTelemetry.buildAllPresets');
+    expect(exportWorkerSource).toContain('self.ProofOrientedTelemetry.buildCanonicalEvidence');
     expect(exportWorkerSource).toContain('self.SecretRedaction.stringifySafe(payload)');
     const allPresetsBranch = devtoolsSource.slice(
       devtoolsSource.indexOf("if (task === 'all') {"),
@@ -102,8 +103,19 @@ describe('Telemetry export actions', () => {
     expect(devtoolsSource).toContain('const FULL_EXPORT_WORKER_TIMEOUT_MS = 20000;');
     expect(devtoolsSource).toContain("containerType: 'canonical-ledger-recovery'");
     expect(devtoolsSource).toContain('allCanonicalEventsPreserved: true');
-    expect(devtoolsSource).toContain("filename.replace('all-presets', 'canonical-recovery')");
-    expect(devtoolsSource).toContain('Full report timed out — canonical JSON exported');
+    expect(devtoolsSource).toContain("filename.replace(/all-presets|canonical-evidence/, 'canonical-recovery')");
+    expect(devtoolsSource).toContain('Telemetry build timed out — canonical recovery JSON exported');
+  });
+
+  test('both pages expose Digest, Canonical evidence and Full forensic without changing the default', () => {
+    for (const page of [html, pipelineHtml]) {
+      expect(page).toContain('id="telemetry-export-format-select"');
+      expect(page).toContain('<option value="digest" selected>Digest</option>');
+      expect(page).toContain('<option value="canonical-evidence">Canonical evidence</option>');
+      expect(page).toContain('<option value="full-forensic">Full forensic</option>');
+    }
+    expect(devtoolsSource).toContain("const telemetryExportFormat = () => exportFormatSelect?.value || 'digest'");
+    expect(devtoolsSource).toContain("telemetry-canonical-evidence-${Date.now()}.json");
   });
 
   test('JSON snapshot has a short queue wait and exports a marked committed fallback', () => {

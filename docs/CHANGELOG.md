@@ -5697,3 +5697,8 @@ Backlog `what-to-do.md`, батч 1 (UI + Финализация).
 
 - Добавлен офлайн CLI `build-proof-telemetry-report.js`: проверяет canonical/full input, перечисляет incidents и строит standalone либо full forensic тем же shared builder.
 - Неоднозначный incident требует явного `--incident`; unknown generator требует явного `--reproduction=reinterpretation`, а выход хранит source и полный cache-key provenance.
+
+# 2.81.232
+
+- В обеих страницах результатов добавлен явный выбор `Digest` / `Canonical evidence` / `Full forensic`; default остаётся `Digest`, прежняя настройка toggle мигрируется.
+- Canonical evidence и full forensic строятся/сериализуются в worker, а timeout по-прежнему гарантирует recovery JSON со всеми canonical events.
