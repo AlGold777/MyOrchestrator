@@ -676,6 +676,15 @@ gate обнаруживает изменение verdict, evidence slot, limitat
 каждой задачи и каждого инцидента сравнивает embedded, standalone и core-проекции;
 отдельного второго диагностического движка больше нет.
 
+С v2.81.230 `buildCanonicalEvidence` создаёт отдельный формат
+`canonical-evidence`. Он сохраняет полный ledger, runtime-конфигурацию, полный
+dependency registry, состояние запуска, attachments/omissions и компактный
+incident index со всеми `stateAxes`/`stateAxesProvenance`, но не содержит семь
+предвычисленных `reports` и полный `derivedViews`. Версионированный
+`readerGuidance` считается доверенным только после проверки allowlist и хешей.
+Offline validator проверяет schema, границу snapshot, registry/generator,
+incident projection, basis refs, privacy, размеры и artifact hash.
+
 - Platform/Tasks фильтруют canonical envelopes по `modelId` и безопасному
   event payload. Исходные `seq` не перенумеровываются; filtered ledger остаётся
   immutable, а export boundary равен фактическому последнему включённому `seq`.

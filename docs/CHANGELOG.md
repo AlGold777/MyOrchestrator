@@ -5687,3 +5687,8 @@ Backlog `what-to-do.md`, батч 1 (UI + Финализация).
 
 - Embedded и standalone отчёты теперь используют одно чистое ядро `buildIncidentReportSemantics` для applicability, verdict, slots, completeness, arbitration, siblings и provenance.
 - Parity gate сравнивает обе экспортные формы ещё и с канонической проекцией ядра для каждой задачи, модели и инцидента.
+
+# 2.81.230
+
+- Добавлен контейнер `canonical-evidence`: полный canonical ledger, registry и компактный индекс всех incident axes/provenance без `reports` и полного `derivedViews`.
+- Доверенный `readerGuidance` берётся только из версионированной константы; schema и offline validator проверяют allowlist, boundaries, basis refs, privacy и все section/artifact hashes.

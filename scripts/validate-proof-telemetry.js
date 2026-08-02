@@ -450,10 +450,92 @@ async function optimizeRepresentation(report, { transportLimitBytes = null, exte
   return optimized;
 }
 
+async function validateCanonicalEvidence(artifact, { verifyArtifactHash = true } = {}) {
+  const errors = [];
+  const warnings = [];
+  const addError = (code, message) => errors.push({ code, message });
+  if (!artifact || typeof artifact !== 'object') return { valid: false, errors: [{ code: 'CANONICAL_INVALID', message: 'artifact must be an object' }], warnings };
+  schemaErrors('canonical-evidence.schema.json', artifact).forEach((error) => addError(error.code, error.message));
+  if (artifact.containerType !== 'canonical-evidence') addError('CONTAINER_TYPE', 'containerType must equal canonical-evidence');
+  if (Object.prototype.hasOwnProperty.call(artifact, 'reports')) addError('PRECOMPUTED_REPORTS', 'canonical evidence must not contain reports');
+  if (Object.prototype.hasOwnProperty.call(artifact, 'derivedViews')) addError('DERIVED_VIEWS', 'canonical evidence must not contain full derivedViews');
+  const events = Array.isArray(artifact?.ledger?.events) ? artifact.ledger.events : [];
+  events.forEach((event) => schemaErrors('telemetry-event-v6.schema.json', event).forEach((error) => addError(error.code, error.message)));
+  ProofTelemetry.validateLedger(events).forEach((violation) => addError(violation.invariantId, violation.message));
+  const ledgerHash = await ProofTelemetry.sha256(events);
+  if (artifact?.ledger?.ledgerHash !== ledgerHash || artifact?.integrity?.hashes?.ledger !== ledgerHash) addError('HASH_MISMATCH', 'ledger hash mismatch');
+  if (Number(artifact?.ledger?.eventCount || 0) !== events.length) addError('LEDGER_COUNT', 'ledger eventCount mismatch');
+  const lastSeq = events[events.length - 1]?.seq || 0;
+  if (Number(artifact?.ledger?.lastSeq || 0) !== Number(lastSeq)
+    || Number(artifact?.sourceSnapshot?.ledgerCompleteThroughSeq || 0) !== Number(lastSeq)) addError('EXPORT_BOUNDARY', 'source snapshot boundary differs from ledger lastSeq');
+  const registryHash = await ProofTelemetry.sha256(artifact?.dependencyRegistry || {});
+  if (artifact?.integrity?.hashes?.registry !== registryHash) addError('HASH_MISMATCH', 'registry hash mismatch');
+  const currentRegistryHash = await ProofTelemetry.sha256(ProofTelemetry.dependencyRegistrySnapshot());
+  if (artifact?.sharedConfig?.generatorVersion !== ProofTelemetry.GENERATOR_VERSION
+    || artifact?.sharedConfig?.reportVersion !== ProofTelemetry.REPORT_VERSION
+    || registryHash !== currentRegistryHash) {
+    addError('REPRODUCTION_UNSUPPORTED', 'generator, report, or dependency registry is not supported for exact reproduction');
+  }
+  const guidanceCore = {
+    kind: artifact?.readerGuidance?.kind,
+    version: artifact?.readerGuidance?.version,
+    trustedSource: artifact?.readerGuidance?.trustedSource,
+    instructions: artifact?.readerGuidance?.instructions
+  };
+  const guidanceHash = await ProofTelemetry.sha256(guidanceCore);
+  if (artifact?.readerGuidance?.version !== ProofTelemetry.READER_GUIDANCE_VERSION
+    || ProofTelemetry.stableStringify(artifact?.readerGuidance?.instructions) !== ProofTelemetry.stableStringify(ProofTelemetry.TRUSTED_READER_GUIDANCE)
+    || artifact?.readerGuidance?.trustedSource !== 'versioned-code-constant'
+    || artifact?.readerGuidance?.hash !== guidanceHash
+    || artifact?.integrity?.hashes?.readerGuidance !== guidanceHash) {
+    addError('UNTRUSTED_READER_GUIDANCE', 'readerGuidance is not the trusted versioned code constant');
+  }
+  const incidents = artifact?.incidentIndex?.incidents || {};
+  const indexed = Incidents.indexIncidents(events);
+  if (Number(artifact?.incidentIndex?.incidentCount || 0) !== indexed.length
+    || Object.keys(incidents).length !== indexed.length) addError('INCIDENT_INDEX_COUNT', 'incident index count mismatch');
+  indexed.forEach((incident) => {
+    const recorded = incidents[incident.incidentId];
+    if (!recorded) {
+      addError('INCIDENT_INDEX_MISSING', `missing incident ${incident.incidentId}`);
+      return;
+    }
+    const scoped = events.filter((event) => Incidents.exactScope(event, incident.scope));
+    const recomputed = ProofTelemetry.deriveAxisState(scoped);
+    if (ProofTelemetry.stableStringify(recorded.stateAxes) !== ProofTelemetry.stableStringify(recomputed.stateAxes)
+      || ProofTelemetry.stableStringify(recorded.stateAxesProvenance) !== ProofTelemetry.stableStringify(recomputed.stateAxesProvenance)) {
+      addError('INCIDENT_INDEX_MISMATCH', `state index mismatch for ${incident.incidentId}`);
+    }
+    ProofTelemetry.validateStateAxesProvenance(recorded.stateAxes, recorded.stateAxesProvenance, events, incident.scope)
+      .forEach((violation) => addError(violation.invariantId, violation.message));
+    if (Number(recorded.firstSeq || 0) !== Number(scoped[0]?.seq || 0)
+      || Number(recorded.lastSeq || 0) !== Number(scoped[scoped.length - 1]?.seq || 0)
+      || Number(recorded.eventCount || 0) !== scoped.length) addError('INCIDENT_BOUNDARY', `incident boundary mismatch for ${incident.incidentId}`);
+  });
+  const attachmentsHash = await ProofTelemetry.sha256(artifact?.attachments || {});
+  if (artifact?.integrity?.hashes?.attachments !== attachmentsHash) addError('HASH_MISMATCH', 'attachments hash mismatch');
+  if (verifyArtifactHash) {
+    const hashInput = JSON.parse(JSON.stringify(artifact));
+    delete hashInput.integrity.hashes.artifact;
+    const artifactHash = await ProofTelemetry.sha256(hashInput);
+    if (artifact?.integrity?.hashes?.artifact !== artifactHash) addError('HASH_MISMATCH', 'artifact hash mismatch');
+  }
+  if (Number(artifact?.integrity?.size?.measuredBytes || 0) !== byteLength(artifact)) addError('SIZE_MISMATCH', 'recorded measuredBytes differs from serialized size');
+  privacyViolations(artifact).forEach((violation) => addError(violation.code, `forbidden privacy key at ${violation.path}`));
+  return {
+    valid: errors.length === 0,
+    errors,
+    warnings,
+    reproductionMode: errors.some((error) => error.code === 'REPRODUCTION_UNSUPPORTED') ? 'unsupported' : 'exact-reproduction',
+    readerGuidanceTrusted: verifyArtifactHash
+      && !errors.some((error) => ['UNTRUSTED_READER_GUIDANCE', 'HASH_MISMATCH'].includes(error.code))
+  };
+}
+
 async function validateArtifact(artifact, options = {}) {
-  return artifact?.fileKind === 'diagnostic-report'
-    ? validateStandaloneReport(artifact, options)
-    : validateContainer(artifact, options);
+  if (artifact?.fileKind === 'diagnostic-report') return validateStandaloneReport(artifact, options);
+  if (artifact?.containerType === 'canonical-evidence') return validateCanonicalEvidence(artifact, options);
+  return validateContainer(artifact, options);
 }
 
 async function main(argv = process.argv.slice(2)) {
@@ -470,7 +552,7 @@ async function main(argv = process.argv.slice(2)) {
   if (!result.valid) process.exitCode = 1;
 }
 
-module.exports = { validateContainer, validateStandaloneReport, validateArtifact, reconstructAtSeq, privacyViolations, semanticInvariantViolations, optimizeRepresentation, registryCompatibility };
+module.exports = { validateContainer, validateStandaloneReport, validateCanonicalEvidence, validateArtifact, reconstructAtSeq, privacyViolations, semanticInvariantViolations, optimizeRepresentation, registryCompatibility };
 if (require.main === module) main().catch((error) => {
   console.error(error?.stack || error);
   process.exitCode = 1;

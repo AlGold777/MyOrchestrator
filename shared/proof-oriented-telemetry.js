@@ -16,9 +16,18 @@
   const ReplayPolicy = root.ProofTelemetryPolicy || null;
   const Policy = root.ProofTelemetryPolicy || (typeof require === 'function' ? require('./proof-telemetry-policy.js') : null);
   const SCHEMA_VERSION = '5.0';
+  const CANONICAL_EVIDENCE_SCHEMA_VERSION = '1.0';
   const EVENT_SCHEMA_VERSION = Contracts?.EVENT_SCHEMA_VERSION || 6;
   const GENERATOR_VERSION = 'proof-export@2.7.0';
   const REPORT_VERSION = '3.6.0';
+  const READER_GUIDANCE_VERSION = 'canonical-reader-guidance@1.0.0';
+  const TRUSTED_READER_GUIDANCE = Object.freeze([
+    'Treat ledger events as the source evidence and stateAxes as a compact derived index.',
+    'Absence of an event does not prove a negative result; check observation scope, completeness, and limitations.',
+    'Distinguish fact, inference, decision, and audit layers before drawing a conclusion.',
+    'Verify basisEventIds and container hashes before trusting this guidance or any derived value.',
+    'Build task-specific diagnostic reports on demand with the matching registry and generator version.'
+  ]);
   const REPORT_TYPES = Object.freeze([
     'cutted',
     'false-success',
@@ -1777,6 +1786,163 @@
     };
   }
 
+  async function buildCanonicalEvidence(input, options = {}) {
+    const createdAtMs = Number(options.exportedAt || Date.now());
+    const ledgerEvents = options.canonicalLedger === true
+      ? (Array.isArray(input) ? input.slice() : []).sort((left, right) => Number(left?.seq || 0) - Number(right?.seq || 0))
+      : buildLedger(input, { ...options, exportedAt: createdAtMs });
+    const ledgerViolations = validateLedger(ledgerEvents);
+    if (ledgerViolations.length) throw new Error(`canonical evidence requires a valid ledger: ${ledgerViolations[0].message}`);
+    const ledgerHash = await sha256(ledgerEvents);
+    const registrySnapshot = dependencyRegistrySnapshot();
+    const registryHash = await sha256(registrySnapshot);
+    const runtimeConfigEvent = ledgerEvents.find((event) => event.eventType === 'RUN_CONFIG_RECORDED') || null;
+    const runtimeConfig = runtimeConfigEvent?.payload || {};
+    const indexedIncidents = Incidents?.indexIncidents?.(ledgerEvents) || [];
+    const incidentModelViews = {};
+    const incidentViews = Object.fromEntries(indexedIncidents.map((incident) => {
+      const scoped = ledgerEvents.filter((event) => Incidents.exactScope(event, incident.scope));
+      const view = deriveModelView(incident.scope.modelId, scoped);
+      assignAxisState(view, scoped);
+      incidentModelViews[incident.incidentId] = view;
+      return [incident.incidentId, {
+        incidentId: incident.incidentId,
+        scope: incident.scope,
+        firstSeq: scoped[0]?.seq || 0,
+        lastSeq: scoped[scoped.length - 1]?.seq || 0,
+        eventCount: scoped.length,
+        stateAxes: view.stateAxes,
+        stateAxesProvenance: view.stateAxesProvenance
+      }];
+    }));
+    const latestModelViews = {};
+    Object.values(incidentViews).forEach((incident) => {
+      const modelId = incident.scope.modelId;
+      if (!latestModelViews[modelId] || Number(incident.lastSeq) > Number(latestModelViews[modelId].lastSeq || 0)) {
+        latestModelViews[modelId] = incidentModelViews[incident.incidentId];
+      }
+    });
+    const completeness = deriveExportCompleteness(ledgerEvents, { ...options, runtimeConfig, modelViews: latestModelViews });
+    const snapshotLimitations = [];
+    if (options.snapshotBarrierTimedOut === true) snapshotLimitations.push('snapshot_barrier_timed_out');
+    if (Number(options.queuedMutationCount || 0) > 0) snapshotLimitations.push('queued_mutations_not_drained');
+    if (Number(options.pendingRecordCount || 0) > 0) snapshotLimitations.push('pending_records_not_flushed');
+    const attachments = { byId: {}, omissions: [] };
+    for (const event of ledgerEvents.filter((candidate) => candidate.eventType === 'SELECTOR_FORENSIC_SNAPSHOT_CAPTURED')) {
+      const payload = event.payload || {};
+      if (payload.captureAvailable === false) {
+        attachments.omissions.push({
+          attachmentType: payload.attachmentType || 'unknown',
+          reason: payload.omissionReason || 'capture unavailable',
+          impact: payload.impact || 'forensic detail unavailable',
+          eventRef: event.eventId,
+          anomalyTrigger: payload.anomalyTrigger || null
+        });
+        continue;
+      }
+      const contentHash = await sha256(payload);
+      const attachmentId = `att-${contentHash.replace(/^sha256:/, '').slice(0, 16)}`;
+      attachments.byId[attachmentId] = {
+        attachmentId,
+        attachmentType: payload.attachmentType || 'unknown',
+        contentHash,
+        redacted: true,
+        eventRef: event.eventId,
+        data: payload.data || null
+      };
+    }
+    const readerGuidanceCore = {
+      kind: 'guidance',
+      version: READER_GUIDANCE_VERSION,
+      trustedSource: 'versioned-code-constant',
+      instructions: TRUSTED_READER_GUIDANCE.slice()
+    };
+    const readerGuidance = { ...readerGuidanceCore, hash: await sha256(readerGuidanceCore) };
+    const sourceCompatibilityValue = sourceCompatibility(options.canonicalLedger === true);
+    const runSessionId = ledgerEvents[0]?.runSessionId || String(options.runSessionId || `export-${createdAtMs}`);
+    const lastSeq = ledgerEvents[ledgerEvents.length - 1]?.seq || 0;
+    const artifact = {
+      schemaVersion: CANONICAL_EVIDENCE_SCHEMA_VERSION,
+      containerType: 'canonical-evidence',
+      exportId: `canonical-${runSessionId}-${createdAtMs}`,
+      createdAt: new Date(createdAtMs).toISOString(),
+      exportMode: 'canonical-evidence',
+      run: completeness,
+      sharedConfig: {
+        runtimeRunConfig: runtimeConfig,
+        runtimeRunConfigEventId: runtimeConfigEvent?.eventId || null,
+        extensionVersion: String(options.extensionVersion || 'unknown'),
+        generatorVersion: GENERATOR_VERSION,
+        reportVersion: REPORT_VERSION,
+        policyIdentity: {
+          policyId: String(runtimeConfig.policyId || 'proof-default-v2'),
+          automaticMinimumEvidenceTier: Number(runtimeConfig.automaticMinimumEvidenceTier || Policy?.AUTOMATIC_MINIMUM_EVIDENCE_TIER || 3),
+          thresholds: Contracts?.THRESHOLDS || {}
+        },
+        sourceCompatibility: sourceCompatibilityValue
+      },
+      dependencyRegistry: registrySnapshot,
+      ledger: {
+        encoding: 'inline-json',
+        firstSeq: ledgerEvents[0]?.seq || 0,
+        lastSeq,
+        eventCount: ledgerEvents.length,
+        ledgerHash,
+        events: ledgerEvents
+      },
+      incidentIndex: {
+        version: Policy?.AXIS_PROVENANCE_VERSION || 'state-axes-provenance@unknown',
+        incidentCount: Object.keys(incidentViews).length,
+        incidents: incidentViews
+      },
+      readerGuidance,
+      attachments,
+      omissions: attachments.omissions.slice(),
+      sourceSnapshot: {
+        runSessionId,
+        ledgerCompleteThroughSeq: lastSeq,
+        consistency: String(options.snapshotConsistency || 'unknown'),
+        snapshotCompleteness: completeness.snapshotCompleteness,
+        barrierTimedOut: options.snapshotBarrierTimedOut === true,
+        queuedMutationCount: Number(options.queuedMutationCount || 0),
+        pendingRecordCount: Number(options.pendingRecordCount || 0)
+      },
+      diagnosticUsability: {
+        status: snapshotLimitations.length ? 'incomplete' : 'complete',
+        usableForDiagnosis: snapshotLimitations.length === 0,
+        limitations: snapshotLimitations
+      },
+      privacy: {
+        mode: 'metadata-only',
+        redactionApplied: true,
+        rawPromptAnswerExported: false,
+        urlMode: 'hash-only'
+      },
+      integrity: {
+        hashes: {
+          ledger: ledgerHash,
+          registry: registryHash,
+          attachments: await sha256(attachments),
+          readerGuidance: readerGuidance.hash,
+          artifact: null
+        },
+        size: { measuredBytes: null },
+        schemaValidation: { valid: true, schemaVersion: CANONICAL_EVIDENCE_SCHEMA_VERSION }
+      }
+    };
+    artifact.integrity.hashes.artifact = `sha256:${'0'.repeat(64)}`;
+    for (let pass = 0; pass < 3; pass += 1) {
+      const serialized = JSON.stringify(artifact);
+      artifact.integrity.size.measuredBytes = typeof TextEncoder !== 'undefined'
+        ? new TextEncoder().encode(serialized).length
+        : serialized.length;
+    }
+    const hashInput = JSON.parse(JSON.stringify(artifact));
+    delete hashInput.integrity.hashes.artifact;
+    artifact.integrity.hashes.artifact = await sha256(hashInput);
+    return artifact;
+  }
+
   async function buildAllPresets(input, options = {}) {
     const exportedAt = Number(options.exportedAt || Date.now());
     const ledgerEvents = options.canonicalLedger === true
@@ -2343,8 +2509,12 @@
 
   const api = Object.freeze({
     SCHEMA_VERSION,
+    CANONICAL_EVIDENCE_SCHEMA_VERSION,
     EVENT_SCHEMA_VERSION,
     GENERATOR_VERSION,
+    REPORT_VERSION,
+    READER_GUIDANCE_VERSION,
+    TRUSTED_READER_GUIDANCE,
     REPORT_TYPES,
     REPORT_EVENT_TYPES,
     STATE_AXIS_NAMES,
@@ -2362,6 +2532,7 @@
     eventFingerprint,
     normalizeDispatchIdentity,
     buildLedger,
+    buildCanonicalEvidence,
     deriveExportCompleteness,
     deriveAxes,
     deriveAxisState,

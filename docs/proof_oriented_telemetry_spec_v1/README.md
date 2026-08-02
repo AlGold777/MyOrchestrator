@@ -3,6 +3,7 @@
 Основной документ: `SPECIFICATION.md`.
 
 - `all-presets.example.json` — пример дедуплицированного контейнера.
+- `canonical-evidence.example.json` — полный журнал и компактный доказательный индекс без предвычисленных отчётов.
 - `schemas/` — JSON Schemas.
 - `registry/report-dependency-registry.json` — единый реестр количественных escalation rules.
 - `presets/*.example.json` — семь текущих standalone reports.
@@ -10,6 +11,11 @@
 Примеры используют конкретные синтетические данные и помечены `exportIntegrity.sampleData=true`.
 
 ## Статус реализации
+
+Версия `2.81.230` добавляет `canonical-evidence` schema/builder/validator:
+полный ledger и registry сохраняются без embedded reports, а компактный incident
+index содержит все axes и точные provenance-ссылки. Reader guidance допускается
+только из версионированной константы и доверяется после проверки хешей.
 
 Версия `2.81.169` добавляет bounded post-terminal observation window на
 1/3/8 секундах. Только закрытое неизменное окно опровергает рост; изменение

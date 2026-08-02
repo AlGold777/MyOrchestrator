@@ -220,6 +220,8 @@ async function main() {
   };
   const all = await ProofTelemetry.buildAllPresets(ledger, options);
   fs.writeFileSync(path.join(root, 'all-presets.example.json'), `${JSON.stringify(all, null, 2)}\n`);
+  const canonical = await ProofTelemetry.buildCanonicalEvidence(ledger, options);
+  fs.writeFileSync(path.join(root, 'canonical-evidence.example.json'), `${JSON.stringify(canonical, null, 2)}\n`);
 
   const registry = ProofTelemetry.dependencyRegistrySnapshot();
   fs.writeFileSync(path.join(root, 'registry', 'report-dependency-registry.json'), `${JSON.stringify(registry, null, 2)}\n`);
