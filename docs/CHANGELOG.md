@@ -5754,3 +5754,7 @@ Backlog `what-to-do.md`, батч 1 (UI + Финализация).
 
 - Выводы `none`/`not_started`/tier 0 из полного отсутствия сигналов теперь имеют слой `audit`, а не необоснованный `inference`.
 - Валидатор отклоняет `fact`, `inference` и `decision` provenance без basis event; версия derivation повышена до 1.1.0, generator — до 2.8.0.
+
+# 2.81.243
+
+- Исполняемый ledger-тест фиксирует инвариант экспортной границы: export builder не добавляет событий, persistence writes или queued mutations после ожидаемого snapshot.

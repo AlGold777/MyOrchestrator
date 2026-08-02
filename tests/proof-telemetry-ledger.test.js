@@ -257,6 +257,34 @@ describe('native proof telemetry ledger', () => {
     ]));
   });
 
+  test('building an export cannot append to the persistence queue it awaited', async () => {
+    await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
+    const pendingRecord = global.ProofTelemetryLedger.record({
+      ts: 1000,
+      label: 'ANSWER_GENERATING',
+      meta: { runSessionId: 42, dispatchId: 'GPT:42:1', generationEpoch: 1, answerLength: 10 }
+    }, 'GPT');
+
+    const boundary = await global.ProofTelemetryLedger.snapshot();
+    await pendingRecord;
+    expect(boundary.queuedMutationCount).toBe(0);
+    const writesAtBoundary = global.chrome.storage.local.set.mock.calls.length;
+
+    await global.ProofOrientedTelemetry.buildCanonicalEvidence(boundary.events, {
+      canonicalLedger: true,
+      runSessionId: 42,
+      exportedAt: 2000,
+      extensionVersion: 'test',
+      snapshotConsistency: 'queue_drained'
+    });
+
+    const afterExport = await global.ProofTelemetryLedger.snapshot();
+    expect(afterExport.queuedMutationCount).toBe(0);
+    expect(afterExport.eventCount).toBe(boundary.eventCount);
+    expect(afterExport.events).toEqual(boundary.events);
+    expect(global.chrome.storage.local.set.mock.calls.length).toBe(writesAtBoundary);
+  });
+
   test('closes a one-frame observation interval with unique evidence refs', async () => {
     await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
     const identity = { runSessionId: 42, dispatchId: 'GPT:42:1', generationEpoch: 1 };

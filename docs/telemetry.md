@@ -779,6 +779,10 @@ canonical recovery и отложенный `URL.revokeObjectURL`.
 инференсом без основания. Для слоёв `fact`, `inference` и `decision` валидатор
 требует хотя бы один разрешимый basis event внутри incident scope.
 
+С v2.81.243 инвариант export/persistence boundary закреплён исполняемым тестом:
+после ожидания queued record построение артефакта не меняет ledger, число
+persistence writes и `queuedMutationCount`.
+
 - Platform/Tasks фильтруют canonical envelopes по `modelId` и безопасному
   event payload. Исходные `seq` не перенумеровываются; filtered ledger остаётся
   immutable, а export boundary равен фактическому последнему включённому `seq`.
