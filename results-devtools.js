@@ -1151,7 +1151,8 @@
         }
     });
     const downloadSerializedProofArtifact = (json, filename) => {
-        if (!json || json === '{}') return;
+        if (!json || json === '{}') return null;
+        const startedAt = performance.now();
         const blob = new Blob([json], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -1159,6 +1160,7 @@
         a.download = filename;
         a.click();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
+        return { blobBytes: blob.size, blobDownloadMs: Math.max(0, performance.now() - startedAt) };
     };
     const downloadProofArtifact = (payload, filename) => {
         const json = window.SecretRedaction?.stringifySafe
@@ -1168,33 +1170,78 @@
     };
 
     const FULL_EXPORT_WORKER_TIMEOUT_MS = 20000;
+    const EXPORT_STAGE_DEADLINES_MS = Object.freeze({
+        cloning: 5000,
+        building: 15000,
+        'incident-index': 10000,
+        'derived-views': 10000,
+        attachments: 5000,
+        hashes: 10000,
+        finalizing: 5000,
+        redacting: 5000,
+        serializing: 5000
+    });
+    let activeTelemetryExportJob = null;
     const buildTelemetryJsonInWorker = (events, options, artifactType, onStage) => new Promise((resolve, reject) => {
         if (typeof Worker !== 'function') {
             reject(new Error('telemetry export worker is unavailable'));
             return;
         }
+        activeTelemetryExportJob?.cancel?.('superseded by a newer telemetry export');
         const requestId = `telemetry-export-${Date.now()}-${Math.random().toString(16).slice(2)}`;
         const worker = new Worker(chrome.runtime.getURL('workers/telemetry-export-worker.js'));
+        const requestedAt = performance.now();
+        const stageTimings = {};
+        let currentStage = 'cloning';
+        let currentStageStartedAt = requestedAt;
         let settled = false;
+        let stageTimeoutId = null;
+        const deadlineError = (message, code) => {
+            const error = new Error(message);
+            error.code = code;
+            return error;
+        };
         const finish = (callback, value) => {
             if (settled) return;
             settled = true;
-            clearTimeout(timeoutId);
+            clearTimeout(overallTimeoutId);
+            clearTimeout(stageTimeoutId);
             worker.terminate();
+            if (activeTelemetryExportJob?.requestId === requestId) activeTelemetryExportJob = null;
             callback(value);
         };
-        const timeoutId = setTimeout(() => {
-            finish(reject, new Error(`full telemetry export exceeded ${FULL_EXPORT_WORKER_TIMEOUT_MS} ms`));
+        const armStageDeadline = (stageName) => {
+            clearTimeout(stageTimeoutId);
+            const limit = EXPORT_STAGE_DEADLINES_MS[stageName]
+                || (stageName.startsWith('report:') ? 5000 : FULL_EXPORT_WORKER_TIMEOUT_MS);
+            stageTimeoutId = setTimeout(() => {
+                finish(reject, deadlineError(`telemetry export stage ${stageName} exceeded ${limit} ms`, 'TELEMETRY_EXPORT_STAGE_TIMEOUT'));
+            }, limit);
+        };
+        const overallTimeoutId = setTimeout(() => {
+            finish(reject, deadlineError(`telemetry export exceeded ${FULL_EXPORT_WORKER_TIMEOUT_MS} ms`, 'TELEMETRY_EXPORT_TIMEOUT'));
         }, FULL_EXPORT_WORKER_TIMEOUT_MS);
+        activeTelemetryExportJob = {
+            requestId,
+            cancel: (reason = 'telemetry export cancelled') => finish(reject, deadlineError(reason, 'TELEMETRY_EXPORT_CANCELLED'))
+        };
+        armStageDeadline(currentStage);
         worker.onmessage = (event) => {
             const message = event?.data || {};
             if (message.requestId !== requestId) return;
             if (message.type === 'stage') {
+                const now = performance.now();
+                stageTimings[currentStage] = Math.max(0, now - currentStageStartedAt);
+                currentStage = message.stage;
+                currentStageStartedAt = now;
+                armStageDeadline(currentStage);
                 onStage?.(message);
                 return;
             }
             if (message.type === 'complete') {
-                finish(resolve, message);
+                const now = performance.now();
+                stageTimings[currentStage] = Math.max(0, now - currentStageStartedAt);
+                finish(resolve, { ...message, stageTimings, totalClientMs: Math.max(0, now - requestedAt) });
                 return;
             }
             if (message.type === 'error') finish(reject, new Error(message.error || 'telemetry export worker failed'));
@@ -1307,6 +1354,7 @@
         if (telemetryStatus) telemetryStatus.textContent = describeSelectedIncident(selection);
     };
     const exportTelemetryJson = async () => {
+        const exportRequestedAt = performance.now();
         const exportButton = telemetryExportJsonBtn;
         if (exportButton) {
             exportButton.disabled = true;
@@ -1318,6 +1366,7 @@
             // also the persistence barrier: it waits for all earlier ledger
             // appends and returns one immutable boundary.
             const proofSnapshot = await requestProofTelemetrySnapshot(null);
+            const snapshotResponseAt = performance.now();
             if (!proofSnapshot?.events?.length || !window.ProofOrientedTelemetry?.buildAllPresets) {
                 if (telemetryStatus) telemetryStatus.textContent = 'Native telemetry ledger is empty';
                 return;
@@ -1367,7 +1416,20 @@
                             ? `Serializing ${exportFormat === 'canonical-evidence' ? 'canonical evidence' : 'full telemetry'} JSON (${canonicalEvents.length} events)…`
                             : `Building ${exportFormat === 'canonical-evidence' ? 'canonical evidence' : 'full report'} for ${canonicalEvents.length} events…`;
                     });
-                    downloadSerializedProofArtifact(built.json, filename);
+                    const downloadMetrics = downloadSerializedProofArtifact(built.json, filename);
+                    window.__PROOF_TELEMETRY_LAST_EXPORT_METRICS__ = Object.freeze({
+                        measuredAt: new Date().toISOString(),
+                        eventCount: canonicalEvents.length,
+                        artifactType: exportFormat,
+                        snapshotRequestMs: Math.max(0, snapshotResponseAt - exportRequestedAt),
+                        persistenceBoundaryMs: Number(proofSnapshot.snapshotWaitMs || 0),
+                        workerElapsedMs: Number(built.elapsedMs || 0),
+                        workerClientMs: Number(built.totalClientMs || 0),
+                        stageTimingsMs: Object.freeze({ ...(built.stageTimings || {}) }),
+                        blobBytes: Number(downloadMetrics?.blobBytes || 0),
+                        blobDownloadMs: Number(downloadMetrics?.blobDownloadMs || 0),
+                        overallMs: Math.max(0, performance.now() - exportRequestedAt)
+                    });
                     if (telemetryStatus) {
                         const label = exportFormat === 'canonical-evidence'
                             ? 'Canonical evidence exported'
@@ -1375,11 +1437,15 @@
                         telemetryStatus.textContent = `${label} in ${built.elapsedMs} ms${boundary}`;
                     }
                 } catch (error) {
+                    if (error?.code === 'TELEMETRY_EXPORT_CANCELLED') return;
                     console.error('[devtools] telemetry worker failed; exporting canonical recovery ledger', error);
                     const recovery = buildCanonicalTelemetryRecovery(canonicalEvents, buildOptions, error);
                     const recoveryFilename = filename.replace(/all-presets|canonical-evidence/, 'canonical-recovery');
                     downloadProofArtifact(recovery, recoveryFilename);
-                    if (telemetryStatus) telemetryStatus.textContent = `Telemetry build timed out — canonical recovery JSON exported (${canonicalEvents.length} events)`;
+                    if (telemetryStatus) {
+                        const reason = /TIMEOUT/.test(String(error?.code || '')) ? 'timed out' : 'failed';
+                        telemetryStatus.textContent = `Telemetry build ${reason} — canonical recovery JSON exported (${canonicalEvents.length} events)`;
+                    }
                 }
                 return;
             }

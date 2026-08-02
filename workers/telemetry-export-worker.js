@@ -26,9 +26,14 @@ self.onmessage = async (event) => {
     const builder = request.type === 'BUILD_CANONICAL_EVIDENCE_JSON'
       ? self.ProofOrientedTelemetry.buildCanonicalEvidence
       : self.ProofOrientedTelemetry.buildAllPresets;
-    const payload = await builder(Array.isArray(request.events) ? request.events : [], request.options || {});
+    const payload = await builder(Array.isArray(request.events) ? request.events : [], {
+      ...(request.options || {}),
+      onProgress: (name) => stage(requestId, name, startedAt)
+    });
+    stage(requestId, 'redacting', startedAt);
+    const redacted = self.SecretRedaction.redactDeep(payload);
     stage(requestId, 'serializing', startedAt);
-    const json = self.SecretRedaction.stringifySafe(payload);
+    const json = JSON.stringify(redacted);
     if (!json || json === '{}') throw new Error('telemetry serialization returned an empty document');
     self.postMessage({
       type: 'complete',

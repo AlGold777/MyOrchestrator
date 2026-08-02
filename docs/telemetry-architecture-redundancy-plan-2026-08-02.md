@@ -471,7 +471,7 @@ Performance-набор: 500, 2 000, 5 000 и 10 000 событий; нескол
 10. Offline report CLI. - Done.
 11. UI-вариант canonical evidence. - Done.
 12. Shadow Timeline и proof-based MD. - Done.
-13. Stress/performance/recovery gates.
+13. Stress/performance/recovery gates. - Done.
 14. Полевые проверки.
 
 Ни один этап этого документа сам по себе не разрешает удалять legacy buffer, `stageTimeline`, `decisionLedger`, `legacyDebugRing`, старые exporter/replay модули, embedded reports или full forensic режим.

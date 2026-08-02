@@ -1413,18 +1413,18 @@
     };
   }
 
-  function buildReports(ledger, modelViews, incidentViews, ledgerHash, registryHash, { legacyMode = false } = {}) {
+  function buildReports(ledger, modelViews, incidentViews, ledgerHash, registryHash, { legacyMode = false, onProgress = null } = {}) {
     const allViews = Object.values(incidentViews);
     const eventSeqById = new Map(ledger.map((event) => [event.eventId, event.seq]));
     const semanticSharedByIncident = Object.fromEntries(allViews.map((view) => [view.incidentId, {}]));
     const semanticsByReport = Object.fromEntries(REPORT_TYPES.map((reportType) => [reportType,
-      Object.fromEntries(allViews.map((view) => [view.incidentId, buildIncidentReportSemantics(
+      (onProgress?.(`report:${reportType}`), Object.fromEntries(allViews.map((view) => [view.incidentId, buildIncidentReportSemantics(
         ledger,
         { incidentId: view.incidentId, scope: view.incidentScope },
         reportType,
         { stateAxes: view.stateAxes, derivedViews: view },
         { legacyMode, registryHash, shared: semanticSharedByIncident[view.incidentId] }
-      )]))
+      )])))
     ]));
     const rawApplicability = Object.fromEntries(REPORT_TYPES.map((reportType) => [reportType,
       Object.fromEntries(allViews.map((view) => [view.incidentId, semanticsByReport[reportType][view.incidentId].applicability]))
@@ -1798,6 +1798,7 @@
     const registryHash = await sha256(registrySnapshot);
     const runtimeConfigEvent = ledgerEvents.find((event) => event.eventType === 'RUN_CONFIG_RECORDED') || null;
     const runtimeConfig = runtimeConfigEvent?.payload || {};
+    options.onProgress?.('incident-index');
     const indexedIncidents = Incidents?.indexIncidents?.(ledgerEvents) || [];
     const incidentModelViews = {};
     const incidentViews = Object.fromEntries(indexedIncidents.map((incident) => {
@@ -1827,6 +1828,7 @@
     if (options.snapshotBarrierTimedOut === true) snapshotLimitations.push('snapshot_barrier_timed_out');
     if (Number(options.queuedMutationCount || 0) > 0) snapshotLimitations.push('queued_mutations_not_drained');
     if (Number(options.pendingRecordCount || 0) > 0) snapshotLimitations.push('pending_records_not_flushed');
+    options.onProgress?.('attachments');
     const attachments = { byId: {}, omissions: [] };
     for (const event of ledgerEvents.filter((candidate) => candidate.eventType === 'SELECTOR_FORENSIC_SNAPSHOT_CAPTURED')) {
       const payload = event.payload || {};
@@ -1861,6 +1863,7 @@
     const sourceCompatibilityValue = sourceCompatibility(options.canonicalLedger === true);
     const runSessionId = ledgerEvents[0]?.runSessionId || String(options.runSessionId || `export-${createdAtMs}`);
     const lastSeq = ledgerEvents[ledgerEvents.length - 1]?.seq || 0;
+    options.onProgress?.('hashes');
     const artifact = {
       schemaVersion: CANONICAL_EVIDENCE_SCHEMA_VERSION,
       containerType: 'canonical-evidence',
@@ -1930,6 +1933,7 @@
         schemaValidation: { valid: true, schemaVersion: CANONICAL_EVIDENCE_SCHEMA_VERSION }
       }
     };
+    options.onProgress?.('finalizing');
     artifact.integrity.hashes.artifact = `sha256:${'0'.repeat(64)}`;
     for (let pass = 0; pass < 3; pass += 1) {
       const serialized = JSON.stringify(artifact);
@@ -1960,6 +1964,7 @@
     const replayResult = ReplayPolicy?.replay
       ? ReplayPolicy.replay(ledgerEvents)
       : null;
+    options.onProgress?.('incident-index');
     const indexedIncidents = Incidents?.indexIncidents?.(ledgerEvents) || [];
     const incidentViews = Object.fromEntries(indexedIncidents.map((incident) => {
       const scopedEvents = ledgerEvents.filter((event) => Incidents.exactScope(event, incident.scope));
@@ -1982,6 +1987,7 @@
       latest.incidentCount = ordered.length;
       return [modelId, latest];
     }));
+    options.onProgress?.('derived-views');
     const registrySnapshot = dependencyRegistrySnapshot();
     const registryHash = await sha256(registrySnapshot);
     const sharedConfig = {
@@ -2025,7 +2031,8 @@
     };
     const compatibility = sourceCompatibility(options.canonicalLedger === true);
     const reportBuild = buildReports(ledgerEvents, modelViews, incidentViews, ledgerHash, registryHash, {
-      legacyMode: compatibility.mode === 'legacy-runtime-adapter'
+      legacyMode: compatibility.mode === 'legacy-runtime-adapter',
+      onProgress: options.onProgress
     });
     // Freeze the exact JSON representation before it is hashed and returned so
     // in-memory validation and validation after file export see identical data.
@@ -2036,6 +2043,7 @@
         incident.limitations = [...compatibility.limitations, ...(incident.limitations || [])];
       });
     });
+    options.onProgress?.('hashes');
     const viewsHash = await sha256(derivedViews);
     // Hash the serialized artifact shape. Optional undefined values do not
     // survive JSON export and therefore cannot be part of the offline hash.
@@ -2075,6 +2083,7 @@
       runtimeConfig,
       modelViews
     });
+    options.onProgress?.('attachments');
     const attachments = { byId: {}, omissions: [] };
     for (const event of ledgerEvents.filter((candidate) => candidate.eventType === 'SELECTOR_FORENSIC_SNAPSHOT_CAPTURED')) {
       const payload = event.payload || {};
@@ -2099,6 +2108,7 @@
         data: payload.data || null
       };
     }
+    options.onProgress?.('finalizing');
     const container = {
       schemaVersion: SCHEMA_VERSION,
       containerType: 'all-presets',

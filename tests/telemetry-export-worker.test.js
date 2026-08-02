@@ -79,9 +79,17 @@ describe('telemetry export worker', () => {
     // worker payload objects belong to the worker realm, not the page realm.
     await vm.runInContext(`self.onmessage(${JSON.stringify(request)})`, worker);
 
-    expect(messages.map((message) => message.type)).toEqual(['stage', 'stage', 'complete']);
+    expect(messages.map((message) => message.type)).toEqual([
+      'stage', 'stage', 'stage', 'stage',
+      ...Array(7).fill('stage'),
+      'stage', 'stage', 'stage', 'stage', 'complete'
+    ]);
     expect(messages.filter((message) => message.type === 'stage').map((message) => message.stage))
-      .toEqual(['building', 'serializing']);
+      .toEqual([
+        'building', 'incident-index', 'derived-views',
+        ...ProofTelemetry.REPORT_TYPES.map((type) => `report:${type}`),
+        'hashes', 'attachments', 'finalizing', 'redacting', 'serializing'
+      ]);
     const complete = messages.find((message) => message.type === 'complete');
     const container = JSON.parse(complete.json);
     expect(container.containerType).toBe('all-presets');
@@ -122,5 +130,28 @@ describe('telemetry export worker', () => {
     expect(artifact).not.toHaveProperty('reports');
     expect(artifact).not.toHaveProperty('derivedViews');
     expect((await validateCanonicalEvidence(artifact)).valid).toBe(true);
+  });
+
+  test('reports a malformed-ledger failure without mutating or completing the request', async () => {
+    const events = ProofTelemetry.buildLedger([
+      runtimeEvent('ANSWER_GENERATING', 1000, { textLength: 20 }),
+      runtimeEvent('ANSWER_GENERATING', 1100, { textLength: 30 })
+    ], { runSessionId: 42, exportedAt: 2000 });
+    events[1].seq = events[0].seq;
+    const original = JSON.stringify(events);
+    const messages = [];
+    const worker = loadWorker(messages);
+    await vm.runInContext(`self.onmessage(${JSON.stringify({
+      data: {
+        type: 'BUILD_CANONICAL_EVIDENCE_JSON',
+        requestId: 'worker-malformed-test',
+        events,
+        options: { canonicalLedger: true, exportedAt: 2000 }
+      }
+    })})`, worker);
+
+    expect(messages.some((message) => message.type === 'complete')).toBe(false);
+    expect(messages.find((message) => message.type === 'error')?.error).toMatch(/valid ledger/i);
+    expect(JSON.stringify(events)).toBe(original);
   });
 });

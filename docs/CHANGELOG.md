@@ -5707,3 +5707,9 @@ Backlog `what-to-do.md`, батч 1 (UI + Финализация).
 
 - Добавлены read-only proof-ledger проекции Timeline и Markdown с eventId, scope, layer и typed fact без сырых prompt/answer данных.
 - Timeline сравнивается с legacy потоком в shadow-режиме; MD сохраняет прежние разделы и добавляет canonical proof appendix из той же snapshot boundary.
+
+# 2.81.234
+
+- Большой JSON-экспорт получил progress по стадиям, single-flight отмену, отдельные stage/overall deadlines, обязательное завершение worker и transient-метрики без записи в наблюдаемый ledger.
+- Temporal slot matching переведён с повторного полного сканирования на индексированный поиск; full forensic для 10 000 событий в контрольном прогоне ускорен примерно с 32,4 с до 0,5 с.
+- Добавлен воспроизводимый stress gate для 500/2 000/5 000/10 000 событий, трёх параллельных экспортов, malformed ledger, missing registry и 32 MiB memory pressure.

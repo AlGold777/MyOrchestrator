@@ -718,6 +718,22 @@ canonical proof appendix с `seq`, `eventId`, scope, layer и typed fact из
 `window.__PROOF_TELEMETRY_MARKDOWN_SHADOW__`. Оба пути read-only и ничего не
 записывают в журнал, который наблюдают.
 
+С v2.81.234 JSON worker сообщает стадии `incident-index`, `derived-views`, каждый
+тип отчёта, `hashes`, `attachments`, `finalizing`, `redacting` и `serializing`.
+На клиенте дополнительно измеряются snapshot/persistence boundary, structured
+clone, worker response и Blob/download. Последний завершённый замер доступен
+только в памяти страницы как `window.__PROOF_TELEMETRY_LAST_EXPORT_METRICS__` и
+никогда не добавляется в экспортируемый ledger. Новый запрос отменяет предыдущий;
+на каждой стадии и на всей операции действуют deadlines, worker завершается при
+любом исходе, object URL освобождается, а при ошибке выгружается полный canonical
+recovery ledger.
+
+Команда `npm run test:telemetry-stress` проверяет 500, 2 000, 5 000 и 10 000
+событий, параллельные сборки, повреждённое событие, отсутствующий registry и
+memory pressure. В эталонном прогоне 2026-08-02 сборка 10 000 событий заняла
+322,4 мс для canonical evidence и 495,2 мс для full forensic; до индексирования
+temporal slot matching тот же full forensic занимал около 32,4 с.
+
 - Platform/Tasks фильтруют canonical envelopes по `modelId` и безопасному
   event payload. Исходные `seq` не перенумеровываются; filtered ledger остаётся
   immutable, а export boundary равен фактическому последнему включённому `seq`.

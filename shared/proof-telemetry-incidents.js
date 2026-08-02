@@ -183,7 +183,35 @@
     return [...selected.values()].sort((left, right) => Number(left.ingestSeq || left.seq) - Number(right.ingestSeq || right.seq));
   }
 
-  function eventMatchesSlot(event, contract, scoped) {
+  function buildEventMatchIndex(scoped) {
+    const eventsByType = new Map();
+    const eventById = new Map();
+    (scoped || []).forEach((event) => {
+      eventById.set(event.eventId, event);
+      if (!eventsByType.has(event.eventType)) eventsByType.set(event.eventType, []);
+      eventsByType.get(event.eventType).push(event);
+    });
+    return { eventById, eventsByType };
+  }
+
+  function lastEventAtOrBefore(index, eventType, seq = Infinity) {
+    const events = index?.eventsByType?.get(eventType) || [];
+    let low = 0;
+    let high = events.length - 1;
+    let found = null;
+    while (low <= high) {
+      const middle = (low + high) >> 1;
+      if (Number(events[middle].seq) <= Number(seq)) {
+        found = events[middle];
+        low = middle + 1;
+      } else {
+        high = middle - 1;
+      }
+    }
+    return found;
+  }
+
+  function eventMatchesSlot(event, contract, scoped, preparedIndex = null) {
     const rule = contract.matchRule;
     if (!rule) return true;
     if (rule.fact) {
@@ -200,7 +228,8 @@
       if (allowedStates.length && !allowedStates.includes(state)) return false;
     }
     if (rule.temporal) {
-      const eventById = new Map(scoped.map((candidate) => [candidate.eventId, candidate]));
+      const matchIndex = preparedIndex || buildEventMatchIndex(scoped);
+      const eventById = matchIndex.eventById;
       if (Array.isArray(rule.temporal.requiresAnyNumericField)) {
         const hasNumericMeasurement = rule.temporal.requiresAnyNumericField.some((key) => {
           const raw = event?.payload?.[key] ?? event?.payload?.metadata?.[key];
@@ -209,8 +238,7 @@
         if (!hasNumericMeasurement) return false;
       }
       if (rule.temporal.afterEventType) {
-        const boundary = [...scoped].reverse().find((candidate) => candidate.eventType === rule.temporal.afterEventType
-          && Number(candidate.seq) < Number(event.seq));
+        const boundary = lastEventAtOrBefore(matchIndex, rule.temporal.afterEventType, Number(event.seq) - 1);
         if (!boundary) return false;
         const referenced = (event.evidenceRefs || []).map((id) => eventById.get(id)).filter(Boolean);
         if ((rule.temporal.requiresEvidenceRefTypes || []).some((eventType) => !referenced.some((candidate) => candidate.eventType === eventType))) return false;
@@ -218,9 +246,8 @@
           && !referenced.some((candidate) => candidate.eventId !== boundary.eventId && Number(candidate.seq) > Number(boundary.seq) && Number(candidate.seq) < Number(event.seq))) return false;
       }
       if (rule.temporal.closestBeforeEventType) {
-        const terminal = [...scoped].reverse().find((candidate) => candidate.eventType === rule.temporal.closestBeforeEventType);
-        const closest = terminal && [...scoped].reverse().find((candidate) => candidate.eventType === event.eventType
-          && Number(candidate.seq) <= Number(terminal.seq));
+        const terminal = lastEventAtOrBefore(matchIndex, rule.temporal.closestBeforeEventType);
+        const closest = terminal && lastEventAtOrBefore(matchIndex, event.eventType, terminal.seq);
         if (!closest || closest.eventId !== event.eventId) return false;
       }
     }
@@ -314,6 +341,7 @@
 
   function resolveEvidenceSlots(events, incident, task, context = {}) {
     const scoped = (events || []).filter((event) => exactScope(event, incident.scope));
+    const eventMatchIndex = buildEventMatchIndex(scoped);
     const priorLane = task === 'old-answer' ? priorIncidentFor(events, incident) : { priorIncidentRef: null, incident: null, terminal: null };
     const slots = (contracts()?.normalizedSlots?.(task) || []).map((contract) => {
       const typeMatched = contract.slotId === 'prior_incident_evidence'
@@ -335,7 +363,7 @@
           }
           if (task === 'late-end' && contract.slotId === 'candidate_identity'
             && context?.derivedViews?.lateEndCandidateBinding !== 'candidate_proven') return false;
-          if (!eventMatchesSlot(event, contract, scoped)) return false;
+          if (!eventMatchesSlot(event, contract, scoped, eventMatchIndex)) return false;
           const candidateBoundSlot = ['extraction_boundary', 'extraction_result', 'structural_verification', 'post_terminal_mutation',
             'stable_boundary', 'terminal_boundary', 'generation_state', 'text_evolution', 'completion_policy', 'decision_lineage'].includes(contract.slotId);
           const expectedCandidateId = context?.derivedViews?.measurementCandidateId;

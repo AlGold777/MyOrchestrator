@@ -91,7 +91,8 @@ describe('Telemetry export actions', () => {
     expect(exportWorkerSource).toContain("'BUILD_CANONICAL_EVIDENCE_JSON'");
     expect(exportWorkerSource).toContain('self.ProofOrientedTelemetry.buildAllPresets');
     expect(exportWorkerSource).toContain('self.ProofOrientedTelemetry.buildCanonicalEvidence');
-    expect(exportWorkerSource).toContain('self.SecretRedaction.stringifySafe(payload)');
+    expect(exportWorkerSource).toContain('self.SecretRedaction.redactDeep(payload)');
+    expect(exportWorkerSource).toContain('JSON.stringify(redacted)');
     const allPresetsBranch = devtoolsSource.slice(
       devtoolsSource.indexOf("if (task === 'all') {"),
       devtoolsSource.indexOf('const selectedModelId')
@@ -104,7 +105,32 @@ describe('Telemetry export actions', () => {
     expect(devtoolsSource).toContain("containerType: 'canonical-ledger-recovery'");
     expect(devtoolsSource).toContain('allCanonicalEventsPreserved: true');
     expect(devtoolsSource).toContain("filename.replace(/all-presets|canonical-evidence/, 'canonical-recovery')");
-    expect(devtoolsSource).toContain('Telemetry build timed out — canonical recovery JSON exported');
+    expect(devtoolsSource).toContain('Telemetry build ${reason} — canonical recovery JSON exported');
+  });
+
+  test('large export orchestration is cancellable, single-flight and always cleans up resources', () => {
+    expect(devtoolsSource).toContain("activeTelemetryExportJob?.cancel?.('superseded by a newer telemetry export')");
+    expect(devtoolsSource).toContain("'TELEMETRY_EXPORT_CANCELLED'");
+    expect(devtoolsSource).toContain("'TELEMETRY_EXPORT_STAGE_TIMEOUT'");
+    expect(devtoolsSource).toContain('worker.terminate()');
+    expect(devtoolsSource).toContain('URL.revokeObjectURL(url)');
+    expect(devtoolsSource).toContain("stageName.startsWith('report:')");
+    expect(devtoolsSource).toContain("if (error?.code === 'TELEMETRY_EXPORT_CANCELLED') return;");
+  });
+
+  test('export progress remains outside the observed telemetry ledger', () => {
+    expect(exportWorkerSource).toContain("onProgress: (name) => stage(requestId, name, startedAt)");
+    expect(exportWorkerSource).not.toMatch(/recordProof|appendEvent|chrome\.runtime\.sendMessage|chrome\.storage/);
+    const workerBuild = devtoolsSource.slice(
+      devtoolsSource.indexOf('const buildTelemetryJsonInWorker'),
+      devtoolsSource.indexOf('const buildCanonicalTelemetryRecovery')
+    );
+    expect(workerBuild).not.toMatch(/recordProof|appendEvent|recordTelemetry|persist/);
+    expect(devtoolsSource).toContain('window.__PROOF_TELEMETRY_LAST_EXPORT_METRICS__ = Object.freeze({');
+    expect(devtoolsSource).toContain('snapshotRequestMs:');
+    expect(devtoolsSource).toContain('persistenceBoundaryMs:');
+    expect(devtoolsSource).toContain('stageTimingsMs:');
+    expect(devtoolsSource).toContain('blobDownloadMs:');
   });
 
   test('both pages expose Digest, Canonical evidence and Full forensic without changing the default', () => {
