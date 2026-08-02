@@ -5658,3 +5658,9 @@ Backlog `what-to-do.md`, батч 1 (UI + Финализация).
 - Добавлена общая воспроизводимая матрица из 13 обязательных сценариев телеметрии.
 - Добавлен read-only анализатор размеров, повторов, event envelope, observer/lease потоков и покрытия legacy/native producers.
 - Команда `npm run measure:telemetry -- <file.json>` измеряет пользовательский all-presets JSON без его изменения.
+
+# 2.81.225
+
+- Replay harness теперь явно различает legacy events, grouped legacy export, schema 6 events, all-presets и standalone report.
+- Schema 6 адаптер читает `modelId`, `eventType` и `wallTs` и сверяет набор моделей с `ProofTelemetryPolicy.replay`.
+- Смешанный и неизвестный вход завершается ошибкой `UNSUPPORTED_REPLAY_SCHEMA` вместо молчаливого пустого или неверного replay.

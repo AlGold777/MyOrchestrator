@@ -20,3 +20,5 @@
 ```bash
 npm run measure:telemetry -- telemetry-all-presets.json
 ```
+
+`shared/log-replay-harness.js` принимает legacy-массив, grouped legacy export, массив schema 6, all-presets или standalone report. Формат определяется до replay; смешанные и неизвестные данные отклоняются без интерпретации.
