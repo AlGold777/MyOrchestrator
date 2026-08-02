@@ -204,7 +204,63 @@ buildIncidentReportSemantics(events, incident, reportType, context, options)
 
 Эквивалентность проверяется для каждого report type, каждой модели и каждого incident, а не только для автоматически выбранного последнего инцидента.
 
-### 9.4. Контейнер `canonical-evidence`
+Тест выполняется на frozen ledger с зафиксированными snapshot boundary, registry, generator/report versions и временем экспорта. Он сравнивает смысл, а не порядок полей, форму ссылок или служебные envelope-поля.
+
+Обязателен отрицательный контроль: намеренное изменение verdict, одного slot status, criticality, evidence event ID, limitation либо causal relation должно ломать проверку. Тест, который не обнаруживает такую мутацию, не считается доказательством эквивалентности.
+
+Этот этап ничего не удаляет, не отключает embedded reports и не меняет формат экспорта. Он только создаёт проверяемое условие для последующих изменений.
+
+### 9.4. Доказательный индекс на основе `stateAxes`
+
+Новый task-specific индекс с 63 заранее записанными вердиктами не создаётся. Он повторил бы основную проблему семи встроенных отчётов: направлял бы анализ предвычисленными диагнозами и занимал место в контексте.
+
+Компактный доказательный индекс строится как проекция уже существующих `stateAxes` из incident timeline. Включаются все четырнадцать осей без произвольного подмножества:
+
+- `submission`;
+- `generationStart`;
+- `answerIdentity`;
+- `observedGeneration`;
+- `textEvolution`;
+- `answerCompleteness`;
+- `extraction`;
+- `verification`;
+- `completionDetection`;
+- `completionEvidenceTier`;
+- `observationReliability`;
+- `finalization`;
+- `terminalMode`;
+- `terminationCause`.
+
+Плоский `stateAxes` сохраняется для совместимости. Рядом добавляется `stateAxesProvenance`, чтобы значение оси нельзя было ошибочно принять за непосредственное наблюдение:
+
+```json
+{
+  "answerCompleteness": {
+    "layer": "inference",
+    "basisEventIds": ["event-id"],
+    "ruleId": "completion-evidence-tier-threshold",
+    "derivationVersion": "axis-provenance-version"
+  }
+}
+```
+
+Допустимые слои согласуются с существующей моделью происхождения (`fact`, `inference`, `decision`, при необходимости `audit`), а не сводятся декларативно к «нейтральным фактам». Слой определяется применённой ветвью правила и источниками конкретного значения. Одна и та же ось может иметь разный слой в разных инцидентах.
+
+`basisEventIds` содержит только точные события, действительно участвовавшие в вычислении значения или ограничившие допустимый вывод. Текущий общий `fieldProvenance`, который консервативно связывает поле со всеми событиями подходящих типов в scope, используется как инфраструктурная основа, но не считается достаточным доказательством точной причинности.
+
+Значение оси и его provenance вычисляются одновременно в одной ветви `deriveAxes` либо в общем вызываемом им чистом ядре. Восстанавливать basis позднее по типам событий запрещено: это создаёт приблизительную, а не причинную связь. Для каждой записи обязательны `ruleId` и `derivationVersion`; ссылки проверяются валидатором, а вся проекция участвует в semantic/artifact hash.
+
+`readerGuidance` хранится отдельно от фактов и осей. Его текст:
+
+- поступает только из версионированной константы кода;
+- никогда не формируется из prompt, ответа, DOM или других данных прогона;
+- маркируется как guidance, а не evidence;
+- содержит правило, что отсутствие события не доказывает отрицательный результат;
+- имеет version/hash и проверяется по allowlist валидатором.
+
+Внешний потребитель не должен доверять одному лишь тексту `readerGuidance` внутри неизвестного файла. Доверие появляется только после проверки контейнера и его хешей доверенным валидатором; без неё guidance считается недоверенными данными артефакта.
+
+### 9.5. Контейнер `canonical-evidence`
 
 Минимальный обязательный состав без потери исходных доказательств:
 
@@ -217,15 +273,17 @@ sharedConfig and runtime RUN_CONFIG_RECORDED
 full dependencyRegistry snapshot
 generatorVersion / reportVersion / policy identity
 ledger with all canonical events
+compact incident index with all stateAxes and stateAxesProvenance
+versioned readerGuidance
 attachments and omissions
 source snapshot boundary and diagnosticUsability
 ledger/registry/attachments/artifact hashes
 privacy/redaction declaration
 ```
 
-Он не содержит `reports` и `derivedViews`. На текущем baseline ожидаемый порядок размера — около 435 КБ вместо 774 КБ; это измерение, не контракт и не основание менять режим по умолчанию.
+Он не содержит `reports` и полного `derivedViews`. Компактная проекция `stateAxes` не является восьмым диагностическим отчётом и не содержит task-specific verdict. Предварительная оценка самой проекции с точными basis-ссылками — около 11–12 КБ, всего контейнера — около 443 КБ вместо 774 КБ. Это измерение, не контракт и не основание менять режим по умолчанию.
 
-### 9.5. Почему registry обязателен
+### 9.6. Почему registry обязателен
 
 Отчёт является функцией не только журнала, но и:
 
@@ -246,7 +304,7 @@ privacy/redaction declaration
 
 Несовпадение нельзя молча превращать в текущий verdict.
 
-### 9.6. Офлайн CLI
+### 9.7. Офлайн CLI
 
 Добавить один CLI поверх существующего shared builder:
 
@@ -269,7 +327,7 @@ CLI обязан:
 8. записать provenance исходного canonical file;
 9. никогда не изменять исходный файл.
 
-### 9.7. Ключ кэша
+### 9.8. Ключ кэша
 
 Если отчёты кэшируются, ключ обязан включать:
 
@@ -286,7 +344,7 @@ reproductionMode
 
 Кэш не входит в источник истины и может быть удалён без потери доказательств.
 
-### 9.8. Обратимость
+### 9.9. Обратимость
 
 Для одного frozen ledger должны выполняться:
 
@@ -305,11 +363,21 @@ build(canonicalEvidence, task, incident)
 
 Сравнение выполняется по смыслу, а не по JSON-форме.
 
-### 9.9. UI и режим по умолчанию
+Дополнительно для каждого incident должно выполняться:
+
+```text
+canonicalEvidence.stateAxes
+  == fullForensic.derivedViews['incident-timeline'].stateAxes
+
+all stateAxesProvenance.basisEventIds
+  resolve to events inside the declared incident/sibling scope
+```
+
+### 9.10. UI и режим по умолчанию
 
 Сначала canonical evidence появляется как отдельный явно названный вариант. Full forensic остаётся текущим эталоном. Решение о default принимается только после parity, offline reproducibility и полевой проверки.
 
-### 9.10. Ошибки и ограничения
+### 9.11. Ошибки и ограничения
 
 - Invalid ledger/hash: построение прекращается.
 - Missing registry: разрешён только просмотр событий; exact report запрещён.
@@ -380,11 +448,12 @@ Performance-набор: 500, 2 000, 5 000 и 10 000 событий; нескол
 2. **Baseline reproducible** — fixtures и hashes воспроизводимы.
 3. **Capability parity** — legacy-уникальные возможности сохранены.
 4. **Shared semantics** — embedded и standalone используют или доказывают одну семантическую проекцию.
-5. **Offline reproducibility** — canonical evidence строит валидный отчёт без расширения и исходного запуска.
-6. **Diagnostic parity** — семь диагнозов не стали слабее.
-7. **Performance/recovery** — предельный экспорт ограничен и всегда отдаёт артефакт.
-8. **Field validation** — реальные запуски не дают необъяснённых расхождений.
-9. **Explicit approval** — изменение default или отключение старого механизма разрешено отдельно.
+5. **Axis provenance** — все четырнадцать `stateAxes` имеют проверяемые layer, rule/version и точные basis-ссылки; мутационные тесты обнаруживают ложную причинность.
+6. **Offline reproducibility** — canonical evidence строит валидный отчёт без расширения и исходного запуска.
+7. **Diagnostic parity** — семь диагнозов не стали слабее.
+8. **Performance/recovery** — предельный экспорт ограничен и всегда отдаёт артефакт.
+9. **Field validation** — реальные запуски не дают необъяснённых расхождений.
+10. **Explicit approval** — изменение default или отключение старого механизма разрешено отдельно.
 
 ## 14. Последовательность реализации и Git-дисциплина
 
@@ -396,12 +465,13 @@ Performance-набор: 500, 2 000, 5 000 и 10 000 событий; нескол
 4. Schema detection/fail-closed для replay harness.
 5. Active-run completeness schema.
 6. Embedded/standalone semantic comparator.
-7. Общее incident semantics ядро.
-8. Canonical evidence schema/builder/validator.
-9. Offline report CLI.
-10. UI-вариант canonical evidence.
-11. Shadow Timeline и proof-based MD.
-12. Stress/performance/recovery gates.
-13. Полевые проверки.
+7. Контракт всех `stateAxes`, точный `stateAxesProvenance` и проверка basis-ссылок.
+8. Общее incident semantics ядро.
+9. Canonical evidence schema/builder/validator и доверенный `readerGuidance`.
+10. Offline report CLI.
+11. UI-вариант canonical evidence.
+12. Shadow Timeline и proof-based MD.
+13. Stress/performance/recovery gates.
+14. Полевые проверки.
 
 Ни один этап этого документа сам по себе не разрешает удалять legacy buffer, `stageTimeline`, `decisionLedger`, `legacyDebugRing`, старые exporter/replay модули, embedded reports или full forensic режим.
