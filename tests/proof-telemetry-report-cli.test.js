@@ -92,4 +92,26 @@ describe('offline proof telemetry report CLI', () => {
     ]);
     expect(report.crossReportCompatibility.sourceArtifact.reproductionMode).toBe('reinterpretation');
   });
+
+  test('never labels a historical all-presets generator as exact reproduction', async () => {
+    const { directory } = await fixture();
+    const source = JSON.parse(fs.readFileSync(path.join(
+      __dirname,
+      '..',
+      'docs',
+      'proof_oriented_telemetry_spec_v1',
+      'all-presets.example.json'
+    ), 'utf8'));
+    source.sharedConfig.generatorVersion = 'proof-export@2.6.0';
+    source.exportAudit.hashes.sharedConfig = await ProofTelemetry.sha256(source.sharedConfig);
+    delete source.exportAudit.hashes.container;
+    source.exportAudit.hashes.container = await ProofTelemetry.sha256(source);
+    const filename = path.join(directory, 'historical-all-presets.json');
+    fs.writeFileSync(filename, JSON.stringify(source));
+
+    await expect(Cli.run([filename, '--list-incidents']))
+      .rejects.toThrow(/REPRODUCTION_UNSUPPORTED.*generator/);
+    const listed = await Cli.run([filename, '--list-incidents', '--reproduction=reinterpretation']);
+    expect(listed.reproductionMode).toBe('reinterpretation');
+  });
 });

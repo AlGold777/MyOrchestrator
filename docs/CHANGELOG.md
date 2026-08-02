@@ -5724,3 +5724,8 @@ Backlog `what-to-do.md`, батч 1 (UI + Финализация).
 
 - Export worker теперь применяет secret redaction к входному ledger до построения артефакта; hashes и measuredBytes относятся к фактически скачиваемому представлению.
 - Добавлен регрессионный тест с реальным token-shaped значением: redacted canonical evidence остаётся полностью валидным.
+
+# 2.81.237
+
+- Offline report CLI теперь независимо сравнивает generator, report version и registry hash с текущим toolchain для canonical и all-presets inputs.
+- Исторический all-presets больше не может быть помечен как exact reproduction; без явного `--reproduction=reinterpretation` CLI завершает работу с `REPRODUCTION_UNSUPPORTED`.

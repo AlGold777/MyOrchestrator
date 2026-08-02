@@ -749,6 +749,11 @@ builder. Поэтому ledger, section/artifact hashes и `measuredBytes` вы�
 уже по безопасному представлению и не становятся недействительными, когда в
 исходном событии действительно обнаружен token-shaped секрет.
 
+С v2.81.237 offline CLI разрешает `exact-reproduction` только при одновременном
+совпадении generator version, единой report version и полного registry hash.
+Проверка выполняется одинаково для `canonical-evidence` и `all-presets`;
+исторический контейнер требует явного `--reproduction=reinterpretation`.
+
 - Platform/Tasks фильтруют canonical envelopes по `modelId` и безопасному
   event payload. Исходные `seq` не перенумеровываются; filtered ledger остаётся
   immutable, а export boundary равен фактическому последнему включённому `seq`.

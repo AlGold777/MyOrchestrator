@@ -36,6 +36,7 @@ function inputDescriptor(artifact) {
       artifactHash: artifact?.integrity?.hashes?.artifact || null,
       ledgerHash: artifact?.ledger?.ledgerHash || null,
       generatorVersion: artifact?.sharedConfig?.generatorVersion || null,
+      reportVersions: [artifact?.sharedConfig?.reportVersion].filter(Boolean),
       registryHash: artifact?.integrity?.hashes?.registry || null,
       extensionVersion: artifact?.sharedConfig?.extensionVersion || 'unknown'
     };
@@ -48,11 +49,29 @@ function inputDescriptor(artifact) {
       artifactHash: artifact?.exportAudit?.hashes?.container || null,
       ledgerHash: artifact?.ledger?.ledgerHash || null,
       generatorVersion: artifact?.sharedConfig?.generatorVersion || null,
+      reportVersions: Array.from(new Set(ProofTelemetry.REPORT_TYPES
+        .map((reportType) => artifact?.reports?.[reportType]?.reportDescriptor?.reportVersion)
+        .filter(Boolean))).sort(),
       registryHash: artifact?.reports?.[ProofTelemetry.REPORT_TYPES[0]]?.reportDescriptor?.dependencyRegistryHash || null,
       extensionVersion: artifact?.sharedConfig?.extensionVersion || 'unknown'
     };
   }
   throw new Error('UNSUPPORTED_CONTAINER: expected canonical-evidence or all-presets');
+}
+
+async function reproductionCompatibility(descriptor) {
+  const currentRegistryHash = await ProofTelemetry.sha256(ProofTelemetry.dependencyRegistrySnapshot());
+  const reasons = [];
+  if (descriptor.generatorVersion !== ProofTelemetry.GENERATOR_VERSION) {
+    reasons.push(`generator ${descriptor.generatorVersion || 'missing'} != ${ProofTelemetry.GENERATOR_VERSION}`);
+  }
+  if (descriptor.registryHash !== currentRegistryHash) {
+    reasons.push(`registry ${descriptor.registryHash || 'missing'} != ${currentRegistryHash}`);
+  }
+  if (descriptor.reportVersions.length !== 1 || descriptor.reportVersions[0] !== ProofTelemetry.REPORT_VERSION) {
+    reasons.push(`report versions ${descriptor.reportVersions.join(',') || 'missing'} != ${ProofTelemetry.REPORT_VERSION}`);
+  }
+  return { exactSupported: reasons.length === 0, reasons, currentRegistryHash };
 }
 
 function incidentList(events) {
@@ -131,16 +150,22 @@ async function run(argv = process.argv.slice(2)) {
   const artifact = JSON.parse(fs.readFileSync(sourceFilename, 'utf8'));
   const descriptor = inputDescriptor(artifact);
   const validation = await validateArtifact(artifact);
+  const compatibility = await reproductionCompatibility(descriptor);
   const requestedMode = String(options.reproduction || 'exact-reproduction');
   if (!['exact-reproduction', 'reinterpretation'].includes(requestedMode)) throw new Error(`unsupported reproduction mode: ${requestedMode}`);
   const compatibilityErrors = validation.errors.filter((error) => error.code === 'REPRODUCTION_UNSUPPORTED');
+  if (!compatibility.exactSupported) compatibilityErrors.push({
+    code: 'REPRODUCTION_UNSUPPORTED',
+    message: compatibility.reasons.join('; ')
+  });
   const blockingErrors = validation.errors.filter((error) => error.code !== 'REPRODUCTION_UNSUPPORTED');
   if (blockingErrors.length || (compatibilityErrors.length && requestedMode !== 'reinterpretation')) {
-    const error = new Error(`SOURCE_VALIDATION_FAILED: ${validation.errors.map((item) => `${item.code}:${item.message}`).join('; ')}`);
+    const reportedErrors = [...blockingErrors, ...compatibilityErrors];
+    const error = new Error(`SOURCE_VALIDATION_FAILED: ${reportedErrors.map((item) => `${item.code}:${item.message}`).join('; ')}`);
     error.validation = validation;
     throw error;
   }
-  const reproductionMode = compatibilityErrors.length ? 'reinterpretation' : 'exact-reproduction';
+  const reproductionMode = requestedMode === 'reinterpretation' ? 'reinterpretation' : 'exact-reproduction';
   const incidents = incidentList(descriptor.events);
   if (options['list-incidents']) {
     return { kind: descriptor.kind, reproductionMode, incidentCount: incidents.length, incidents };
@@ -180,7 +205,7 @@ async function main() {
   writeOutput(options.out === true ? null : options.out, output, options.filename);
 }
 
-module.exports = { parseArgs, inputDescriptor, incidentList, selectIncident, sourceProvenance, assertOutputValidation, run, writeOutput };
+module.exports = { parseArgs, inputDescriptor, reproductionCompatibility, incidentList, selectIncident, sourceProvenance, assertOutputValidation, run, writeOutput };
 if (require.main === module) main().catch((error) => {
   console.error(error?.message || error);
   process.exitCode = 1;
