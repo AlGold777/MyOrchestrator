@@ -765,6 +765,12 @@ builder. Поэтому ledger, section/artifact hashes и `measuredBytes` вы�
 количества findings. Project version читается из manifest; exact identity также
 проверяет report version и registry hash.
 
+С v2.81.240 production UI использует `TelemetryExportRuntime`: ту же исполняемую
+worker orchestration, которую запускают тесты. Gate создаёт fake workers и
+фактически проверяет completion, single-flight cancel, stage/overall timeout,
+crash, synchronous structured-clone failure, обязательный `terminate()`,
+canonical recovery и отложенный `URL.revokeObjectURL`.
+
 - Platform/Tasks фильтруют canonical envelopes по `modelId` и безопасному
   event payload. Исходные `seq` не перенумеровываются; filtered ledger остаётся
   immutable, а export boundary равен фактическому последнему включённому `seq`.

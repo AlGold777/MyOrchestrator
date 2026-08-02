@@ -1151,22 +1151,13 @@
         }
     });
     const downloadSerializedProofArtifact = (json, filename) => {
-        if (!json || json === '{}') return null;
-        const startedAt = performance.now();
-        const blob = new Blob([json], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        a.click();
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
-        return { blobBytes: blob.size, blobDownloadMs: Math.max(0, performance.now() - startedAt) };
+        return window.TelemetryExportRuntime.downloadSerializedArtifact(json, filename);
     };
     const downloadProofArtifact = (payload, filename) => {
         const json = window.SecretRedaction?.stringifySafe
             ? window.SecretRedaction.stringifySafe(payload)
             : JSON.stringify(payload);
-        downloadSerializedProofArtifact(json, filename);
+        return downloadSerializedProofArtifact(json, filename);
     };
 
     const FULL_EXPORT_WORKER_TIMEOUT_MS = 20000;
@@ -1181,79 +1172,13 @@
         redacting: 5000,
         serializing: 5000
     });
-    let activeTelemetryExportJob = null;
-    const buildTelemetryJsonInWorker = (events, options, artifactType, onStage) => new Promise((resolve, reject) => {
-        if (typeof Worker !== 'function') {
-            reject(new Error('telemetry export worker is unavailable'));
-            return;
-        }
-        activeTelemetryExportJob?.cancel?.('superseded by a newer telemetry export');
-        const requestId = `telemetry-export-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-        const worker = new Worker(chrome.runtime.getURL('workers/telemetry-export-worker.js'));
-        const requestedAt = performance.now();
-        const stageTimings = {};
-        let currentStage = 'cloning';
-        let currentStageStartedAt = requestedAt;
-        let settled = false;
-        let stageTimeoutId = null;
-        const deadlineError = (message, code) => {
-            const error = new Error(message);
-            error.code = code;
-            return error;
-        };
-        const finish = (callback, value) => {
-            if (settled) return;
-            settled = true;
-            clearTimeout(overallTimeoutId);
-            clearTimeout(stageTimeoutId);
-            worker.terminate();
-            if (activeTelemetryExportJob?.requestId === requestId) activeTelemetryExportJob = null;
-            callback(value);
-        };
-        const armStageDeadline = (stageName) => {
-            clearTimeout(stageTimeoutId);
-            const limit = EXPORT_STAGE_DEADLINES_MS[stageName]
-                || (stageName.startsWith('report:') ? 5000 : FULL_EXPORT_WORKER_TIMEOUT_MS);
-            stageTimeoutId = setTimeout(() => {
-                finish(reject, deadlineError(`telemetry export stage ${stageName} exceeded ${limit} ms`, 'TELEMETRY_EXPORT_STAGE_TIMEOUT'));
-            }, limit);
-        };
-        const overallTimeoutId = setTimeout(() => {
-            finish(reject, deadlineError(`telemetry export exceeded ${FULL_EXPORT_WORKER_TIMEOUT_MS} ms`, 'TELEMETRY_EXPORT_TIMEOUT'));
-        }, FULL_EXPORT_WORKER_TIMEOUT_MS);
-        activeTelemetryExportJob = {
-            requestId,
-            cancel: (reason = 'telemetry export cancelled') => finish(reject, deadlineError(reason, 'TELEMETRY_EXPORT_CANCELLED'))
-        };
-        armStageDeadline(currentStage);
-        worker.onmessage = (event) => {
-            const message = event?.data || {};
-            if (message.requestId !== requestId) return;
-            if (message.type === 'stage') {
-                const now = performance.now();
-                stageTimings[currentStage] = Math.max(0, now - currentStageStartedAt);
-                currentStage = message.stage;
-                currentStageStartedAt = now;
-                armStageDeadline(currentStage);
-                onStage?.(message);
-                return;
-            }
-            if (message.type === 'complete') {
-                const now = performance.now();
-                stageTimings[currentStage] = Math.max(0, now - currentStageStartedAt);
-                finish(resolve, { ...message, stageTimings, totalClientMs: Math.max(0, now - requestedAt) });
-                return;
-            }
-            if (message.type === 'error') finish(reject, new Error(message.error || 'telemetry export worker failed'));
-        };
-        worker.onerror = (event) => finish(reject, new Error(event?.message || 'telemetry export worker failed to load'));
-        worker.postMessage({
-            type: artifactType === 'canonical-evidence' ? 'BUILD_CANONICAL_EVIDENCE_JSON' : 'BUILD_FULL_TELEMETRY_JSON',
-            requestId,
-            events,
-            options
-        });
+    const telemetryExportWorkerClient = window.TelemetryExportRuntime.createWorkerClient({
+        workerFactory: () => new Worker(chrome.runtime.getURL('workers/telemetry-export-worker.js')),
+        overallTimeoutMs: FULL_EXPORT_WORKER_TIMEOUT_MS,
+        stageDeadlinesMs: EXPORT_STAGE_DEADLINES_MS,
+        reportStageTimeoutMs: 5000
     });
+    const buildTelemetryJsonInWorker = (...args) => telemetryExportWorkerClient.build(...args);
 
     const buildCanonicalTelemetryRecovery = (events, options, error) => ({
         schemaVersion: '6.0',
@@ -1409,15 +1334,32 @@
                         return;
                     }
                 }
-                try {
-                    const built = await buildTelemetryJsonInWorker(canonicalEvents, buildOptions, exportFormat, (progress) => {
+                const outcome = await window.TelemetryExportRuntime.executeWithRecovery({
+                    build: () => buildTelemetryJsonInWorker(canonicalEvents, buildOptions, exportFormat, (progress) => {
                         if (!telemetryStatus) return;
                         telemetryStatus.textContent = progress.stage === 'serializing'
                             ? `Serializing ${exportFormat === 'canonical-evidence' ? 'canonical evidence' : 'full telemetry'} JSON (${canonicalEvents.length} events)…`
                             : `Building ${exportFormat === 'canonical-evidence' ? 'canonical evidence' : 'full report'} for ${canonicalEvents.length} events…`;
-                    });
-                    const downloadMetrics = downloadSerializedProofArtifact(built.json, filename);
-                    window.__PROOF_TELEMETRY_LAST_EXPORT_METRICS__ = Object.freeze({
+                    }),
+                    download: (built) => downloadSerializedProofArtifact(built.json, filename),
+                    recover: (error) => {
+                        console.error('[devtools] telemetry worker failed; exporting canonical recovery ledger', error);
+                        const recovery = buildCanonicalTelemetryRecovery(canonicalEvents, buildOptions, error);
+                        const recoveryFilename = filename.replace(/all-presets|canonical-evidence/, 'canonical-recovery');
+                        return { recoveryFilename, downloadMetrics: downloadProofArtifact(recovery, recoveryFilename) };
+                    }
+                });
+                if (outcome.status === 'cancelled') return;
+                if (outcome.status === 'recovered') {
+                    if (telemetryStatus) {
+                        const reason = /TIMEOUT/.test(String(outcome.error?.code || '')) ? 'timed out' : 'failed';
+                        telemetryStatus.textContent = `Telemetry build ${reason} — canonical recovery JSON exported (${canonicalEvents.length} events)`;
+                    }
+                    return;
+                }
+                const built = outcome.built;
+                const downloadMetrics = outcome.downloadResult;
+                window.__PROOF_TELEMETRY_LAST_EXPORT_METRICS__ = Object.freeze({
                         measuredAt: new Date().toISOString(),
                         eventCount: canonicalEvents.length,
                         artifactType: exportFormat,
@@ -1429,23 +1371,12 @@
                         blobBytes: Number(downloadMetrics?.blobBytes || 0),
                         blobDownloadMs: Number(downloadMetrics?.blobDownloadMs || 0),
                         overallMs: Math.max(0, performance.now() - exportRequestedAt)
-                    });
-                    if (telemetryStatus) {
-                        const label = exportFormat === 'canonical-evidence'
-                            ? 'Canonical evidence exported'
-                            : (digestExportEnabled() ? 'Digest unavailable — full JSON exported' : 'Full forensic JSON exported');
-                        telemetryStatus.textContent = `${label} in ${built.elapsedMs} ms${boundary}`;
-                    }
-                } catch (error) {
-                    if (error?.code === 'TELEMETRY_EXPORT_CANCELLED') return;
-                    console.error('[devtools] telemetry worker failed; exporting canonical recovery ledger', error);
-                    const recovery = buildCanonicalTelemetryRecovery(canonicalEvents, buildOptions, error);
-                    const recoveryFilename = filename.replace(/all-presets|canonical-evidence/, 'canonical-recovery');
-                    downloadProofArtifact(recovery, recoveryFilename);
-                    if (telemetryStatus) {
-                        const reason = /TIMEOUT/.test(String(error?.code || '')) ? 'timed out' : 'failed';
-                        telemetryStatus.textContent = `Telemetry build ${reason} — canonical recovery JSON exported (${canonicalEvents.length} events)`;
-                    }
+                });
+                if (telemetryStatus) {
+                    const label = exportFormat === 'canonical-evidence'
+                        ? 'Canonical evidence exported'
+                        : (digestExportEnabled() ? 'Digest unavailable — full JSON exported' : 'Full forensic JSON exported');
+                    telemetryStatus.textContent = `${label} in ${built.elapsedMs} ms${boundary}`;
                 }
                 return;
             }

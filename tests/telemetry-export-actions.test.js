@@ -9,6 +9,7 @@ const messageRouterSource = fs.readFileSync(path.join(__dirname, '..', 'backgrou
 const proofStoreSource = fs.readFileSync(path.join(__dirname, '..', 'background', 'proof-telemetry-store.js'), 'utf8');
 const exportBootstrapSource = fs.readFileSync(path.join(__dirname, '..', 'results-telemetry-export-bootstrap.js'), 'utf8');
 const exportWorkerSource = fs.readFileSync(path.join(__dirname, '..', 'workers', 'telemetry-export-worker.js'), 'utf8');
+const exportRuntimeSource = fs.readFileSync(path.join(__dirname, '..', 'shared', 'telemetry-export-runtime.js'), 'utf8');
 
 describe('Telemetry export actions', () => {
   test('both result pages expose the extension-native sanitized B1 capture action', () => {
@@ -109,13 +110,13 @@ describe('Telemetry export actions', () => {
   });
 
   test('large export orchestration is cancellable, single-flight and always cleans up resources', () => {
-    expect(devtoolsSource).toContain("activeTelemetryExportJob?.cancel?.('superseded by a newer telemetry export')");
-    expect(devtoolsSource).toContain("'TELEMETRY_EXPORT_CANCELLED'");
-    expect(devtoolsSource).toContain("'TELEMETRY_EXPORT_STAGE_TIMEOUT'");
-    expect(devtoolsSource).toContain('worker.terminate()');
-    expect(devtoolsSource).toContain('URL.revokeObjectURL(url)');
-    expect(devtoolsSource).toContain("stageName.startsWith('report:')");
-    expect(devtoolsSource).toContain("if (error?.code === 'TELEMETRY_EXPORT_CANCELLED') return;");
+    expect(exportRuntimeSource).toContain("activeJob?.cancel('superseded by a newer telemetry export')");
+    expect(exportRuntimeSource).toContain("'TELEMETRY_EXPORT_CANCELLED'");
+    expect(exportRuntimeSource).toContain("'TELEMETRY_EXPORT_STAGE_TIMEOUT'");
+    expect(exportRuntimeSource).toContain('worker.terminate()');
+    expect(exportRuntimeSource).toContain('urlApi.revokeObjectURL(url)');
+    expect(exportRuntimeSource).toContain("String(stageName).startsWith('report:')");
+    expect(devtoolsSource).toContain("if (outcome.status === 'cancelled') return;");
   });
 
   test('export progress remains outside the observed telemetry ledger', () => {
@@ -126,6 +127,7 @@ describe('Telemetry export actions', () => {
       devtoolsSource.indexOf('const buildCanonicalTelemetryRecovery')
     );
     expect(workerBuild).not.toMatch(/recordProof|appendEvent|recordTelemetry|persist/);
+    expect(exportRuntimeSource).not.toMatch(/recordProof|appendEvent|recordTelemetry|persist/);
     expect(devtoolsSource).toContain('window.__PROOF_TELEMETRY_LAST_EXPORT_METRICS__ = Object.freeze({');
     expect(devtoolsSource).toContain('snapshotRequestMs:');
     expect(devtoolsSource).toContain('persistenceBoundaryMs:');
@@ -139,6 +141,7 @@ describe('Telemetry export actions', () => {
       expect(page).toContain('<option value="digest" selected>Digest</option>');
       expect(page).toContain('<option value="canonical-evidence">Canonical evidence</option>');
       expect(page).toContain('<option value="full-forensic">Full forensic</option>');
+      expect(page).toContain('src="shared/telemetry-export-runtime.js"');
     }
     expect(devtoolsSource).toContain("const telemetryExportFormat = () => exportFormatSelect?.value || 'digest'");
     expect(devtoolsSource).toContain("telemetry-canonical-evidence-${Date.now()}.json");

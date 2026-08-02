@@ -5739,3 +5739,8 @@ Backlog `what-to-do.md`, батч 1 (UI + Финализация).
 
 - Field validator принимает historical drift только по точной сигнатуре, структуре и ожидаемому числу migration findings; дополнительные либо частичные S22 теперь блокируют gate.
 - Project version читается из manifest, а exact identity учитывает generator, report version и registry hash вместо hardcoded версии и одной проверки generator.
+
+# 2.81.240
+
+- Worker orchestration вынесена в общий исполняемый runtime, используемый production UI и поведенческими тестами.
+- Реально проверяются single-flight cancel, stage/overall timeout, worker crash, synchronous postMessage failure, terminate, canonical recovery и Blob URL cleanup; прежние строковые проверки больше не являются единственным gate.
