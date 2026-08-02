@@ -11,6 +11,72 @@ const evt = (platform, label, ts, meta = {}, details = '') => ({
 });
 
 describe('Proof-oriented telemetry schema 6 event export', () => {
+  test('separates a drained snapshot from an active run with pending models', async () => {
+    const ledger = ProofTelemetry.buildLedger([
+      evt('GPT', 'PROMPT_SUBMITTED_ACCEPTED', 1000),
+      evt('GPT', 'MODEL_FINAL', 1100, { finalStatus: 'SUCCESS' }),
+      evt('Claude', 'PROMPT_SUBMITTED_ACCEPTED', 1200),
+      evt('Claude', 'ANSWER_GENERATING', 1300, { textLength: 40 })
+    ], { runSessionId: 42 });
+    const container = await ProofTelemetry.buildAllPresets(ledger, {
+      canonicalLedger: true,
+      exportedAt: 2000,
+      snapshotConsistency: 'queue_drained',
+      runLifecycleStatus: 'active',
+      expectedModels: ['GPT', 'Claude']
+    });
+    expect(container.exportAudit.completeness).toEqual(expect.objectContaining({
+      snapshotCompleteness: 'queue_drained',
+      runCompleteness: 'active',
+      expectedModels: ['Claude', 'GPT'],
+      terminalModels: ['GPT'],
+      pendingModels: ['Claude'],
+      exportedDuringActiveRun: true
+    }));
+    expect(container.exportAudit.completeness.modelStates.Claude.observedState).toBe('generating_partial_answer');
+  });
+
+  test('marks a closed run with pending models incomplete and a fully terminal run complete', async () => {
+    const partialLedger = ProofTelemetry.buildLedger([
+      evt('GPT', 'MODEL_FINAL', 1000, { finalStatus: 'SUCCESS' })
+    ], { runSessionId: 42 });
+    const incomplete = await ProofTelemetry.buildAllPresets(partialLedger, {
+      canonicalLedger: true, exportedAt: 2000, snapshotConsistency: 'committed_boundary',
+      runLifecycleStatus: 'closed', expectedModels: ['GPT', 'Claude']
+    });
+    expect(incomplete.exportAudit.completeness).toEqual(expect.objectContaining({
+      snapshotCompleteness: 'committed_boundary', runCompleteness: 'incomplete', pendingModels: ['Claude']
+    }));
+
+    const completeLedger = ProofTelemetry.buildLedger([
+      evt('GPT', 'MODEL_FINAL', 1000, { finalStatus: 'SUCCESS' }),
+      evt('Claude', 'MODEL_FINAL', 1100, { finalStatus: 'ERROR' })
+    ], { runSessionId: 42 });
+    const complete = await ProofTelemetry.buildAllPresets(completeLedger, {
+      canonicalLedger: true, exportedAt: 2000, snapshotConsistency: 'queue_drained',
+      runLifecycleStatus: 'closed', expectedModels: ['GPT', 'Claude']
+    });
+    expect(complete.exportAudit.completeness).toEqual(expect.objectContaining({
+      snapshotCompleteness: 'queue_drained', runCompleteness: 'complete', pendingModels: [], exportedDuringActiveRun: false
+    }));
+  });
+
+  test('preserves legacy active-run and terminal consistency states in schema 6 audit', async () => {
+    const ledger = ProofTelemetry.buildLedger([
+      evt('GPT', 'ANSWER_GENERATING', 1000, { textLength: 40 }),
+      evt('Claude', 'ANSWER_GENERATING', 1010, { textLength: 60 }),
+      evt('Claude', 'TAB_CLOSED', 1020, { closureState: 'tab_closed_during_generation', generationActive: true }),
+      evt('Gemini', 'MODEL_FINAL', 1030, { finalStatus: 'SUCCESS', doneReason: 'error' })
+    ], { runSessionId: 42 });
+    const result = ProofTelemetry.deriveExportCompleteness(ledger, {
+      snapshotConsistency: 'queue_drained', runLifecycleStatus: 'active',
+      expectedModels: ['GPT', 'Claude', 'Gemini']
+    });
+    expect(result.modelStates.GPT.observedState).toBe('generating_partial_answer');
+    expect(result.modelStates.Claude.observedState).toBe('tab_closed_during_generation');
+    expect(result.modelStates.Gemini.consistencyIssues).toContain('success_with_error_done_reason');
+  });
+
   const noDeliveryLedger = (renderOutcome, overrides = {}) => ProofTelemetry.buildLedger([
     evt('GPT', 'ANSWER_SOURCE_MATERIALIZED', 1000, {
       generationEpoch: 1,

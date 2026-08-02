@@ -86,6 +86,12 @@ describe('telemetry export worker', () => {
     const container = JSON.parse(complete.json);
     expect(container.containerType).toBe('all-presets');
     expect(container.ledger.events).toHaveLength(events.length);
+    expect(container.sharedConfig.dependencyRegistry.eventInventoryVersion).toBe('1.0.0');
+    expect(container.exportAudit.completeness).toEqual(expect.objectContaining({
+      snapshotCompleteness: 'queue_drained',
+      runCompleteness: 'unknown',
+      exportedDuringActiveRun: false
+    }));
     const validation = await validateContainer(container);
     // This intentionally sparse fixture lacks terminal audit/decision lineage,
     // but transport through the worker must not introduce structural, hash, or

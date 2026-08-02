@@ -202,6 +202,31 @@ async function validateContainer(container, { verifyContainerHash = true } = {})
   if (Number(container?.crossReportCompatibility?.exactMatch?.ledgerCompleteThroughSeq || 0) !== Number(boundary || 0)) addError('COMPATIBILITY_BOUNDARY', 'cross-report boundary mismatch');
   if (container?.crossReportCompatibility?.exactMatch?.ledgerHash !== container?.ledger?.ledgerHash) addError('COMPATIBILITY_HASH', 'cross-report ledger hash mismatch');
 
+  const completeness = container?.exportAudit?.completeness || {};
+  const expectedModels = Array.isArray(completeness.expectedModels) ? completeness.expectedModels : [];
+  const terminalModels = Array.isArray(completeness.terminalModels) ? completeness.terminalModels : [];
+  const expectedTerminal = new Set(terminalModels);
+  const expectedPending = expectedModels.filter((modelId) => !expectedTerminal.has(modelId)).sort();
+  if (JSON.stringify((completeness.pendingModels || []).slice().sort()) !== JSON.stringify(expectedPending)) {
+    addError('RUN_COMPLETENESS', 'pendingModels differs from expectedModels minus terminalModels');
+  }
+  if (completeness.exportedDuringActiveRun !== (completeness.runCompleteness === 'active')) {
+    addError('RUN_COMPLETENESS', 'exportedDuringActiveRun disagrees with runCompleteness');
+  }
+  const snapshot = container?.manifest?.sourceSnapshot || {};
+  const dirtySnapshot = snapshot.barrierTimedOut === true
+    || Number(snapshot.queuedMutationCount || 0) > 0
+    || Number(snapshot.pendingRecordCount || 0) > 0;
+  const expectedSnapshotCompleteness = dirtySnapshot
+    ? 'incomplete'
+    : (snapshot.consistency === 'queue_drained'
+      ? 'queue_drained'
+      : (snapshot.consistency === 'committed_boundary' ? 'committed_boundary' : 'incomplete'));
+  if (completeness.snapshotCompleteness !== expectedSnapshotCompleteness
+    || snapshot.snapshotCompleteness !== expectedSnapshotCompleteness) {
+    addError('SNAPSHOT_COMPLETENESS', 'snapshot completeness disagrees with the recorded boundary');
+  }
+
   const measuredBytes = byteLength(container);
   if (Number(container?.exportAudit?.budget?.measuredBytes || 0) !== measuredBytes) addError('SIZE_MISMATCH', 'recorded measuredBytes differs from serialized size');
   if (measuredBytes > Number(container?.manifest?.sizeBudgetBytes || 0)) warnings.push({ code: 'SIZE_BUDGET_EXCEEDED', measuredBytes });

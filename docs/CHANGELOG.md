@@ -5664,3 +5664,10 @@ Backlog `what-to-do.md`, батч 1 (UI + Финализация).
 - Replay harness теперь явно различает legacy events, grouped legacy export, schema 6 events, all-presets и standalone report.
 - Schema 6 адаптер читает `modelId`, `eventType` и `wallTs` и сверяет набор моделей с `ProofTelemetryPolicy.replay`.
 - Смешанный и неизвестный вход завершается ошибкой `UNSUPPORTED_REPLAY_SCHEMA` вместо молчаливого пустого или неверного replay.
+
+# 2.81.226
+
+- Export audit теперь независимо фиксирует `snapshotCompleteness` и `runCompleteness`.
+- `RUN_CONFIG_RECORDED` сохраняет ожидаемые модели, а audit перечисляет observed, terminal и pending models.
+- Для каждой модели сохраняются состояния активного запуска, включая partial answer, tab closed during generation и SUCCESS с error done reason.
+- Event inventory загружается в export worker и обе страницы результатов до построителя телеметрии.

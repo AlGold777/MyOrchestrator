@@ -328,7 +328,9 @@
         policyId: 'proof-default-v2',
         automaticMinimumEvidenceTier: 3,
         privacyMode: 'metadata-only',
-        initialProducer: options.producerComponent || 'runtime-telemetry'
+        initialProducer: options.producerComponent || 'runtime-telemetry',
+        expectedModels: Array.from(new Set((Array.isArray(options.expectedModels) ? options.expectedModels : [])
+          .map((modelId) => String(modelId || '').trim()).filter(Boolean))).sort()
       }
     });
   }

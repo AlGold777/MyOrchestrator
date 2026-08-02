@@ -1534,6 +1534,98 @@
     };
   }
 
+  function normalizedModelIds(value) {
+    return Array.from(new Set((Array.isArray(value) ? value : [])
+      .map((modelId) => String(modelId || '').trim())
+      .filter((modelId) => modelId && modelId !== 'SYSTEM'))).sort();
+  }
+
+  function lifecycleStateForModel(modelId, view, events) {
+    const scoped = (events || []).filter((event) => event.modelId === modelId);
+    const tabClosed = [...scoped].reverse().find((event) => /TAB_CLOSED/.test(String(event?.payload?.sourceEventType || ''))
+      || String(event?.payload?.metadata?.closureState || '') === 'tab_closed_during_generation');
+    const terminal = Boolean(view?.terminalOutcome);
+    const observedGeneration = view?.stateAxes?.observedGeneration || 'unknown';
+    const observedLength = Number(view?.maxObservedTextLength || 0);
+    let observedState = 'no_terminal_outcome';
+    if (terminal) observedState = 'terminal';
+    else if (tabClosed && (eventBoolean(tabClosed, ['generationActive']) === true || observedGeneration === 'active')) observedState = 'tab_closed_during_generation';
+    else if (observedGeneration === 'active' && observedLength > 0) observedState = 'generating_partial_answer';
+    else if (observedGeneration === 'active') observedState = 'generating';
+    else if (observedLength > 0) observedState = 'answer_observed_without_terminal';
+    const terminalEvent = [...scoped].reverse().find((event) => event.eventType === 'MODEL_TERMINAL_RECORDED') || null;
+    const doneReason = String(eventValue(terminalEvent, ['doneReason']) || '').toLowerCase();
+    const consistencyIssues = [];
+    if (String(view?.terminalOutcome || '').toUpperCase() === 'SUCCESS' && doneReason === 'error') {
+      consistencyIssues.push('success_with_error_done_reason');
+    }
+    return {
+      observedState,
+      terminal,
+      terminalStatus: view?.terminalOutcome || null,
+      observedGeneration,
+      latestObservedTextLength: observedLength,
+      consistencyIssues
+    };
+  }
+
+  function deriveExportCompleteness(events, options = {}) {
+    const ledgerEvents = Array.isArray(events) ? events : [];
+    const runtimeConfig = options.runtimeConfig || ledgerEvents.find((event) => event.eventType === 'RUN_CONFIG_RECORDED')?.payload || {};
+    let modelViews = options.modelViews || null;
+    if (!modelViews) {
+      const incidents = Incidents?.indexIncidents?.(ledgerEvents) || [];
+      const latestByModel = {};
+      incidents.forEach((incident) => {
+        const scoped = ledgerEvents.filter((event) => Incidents.exactScope(event, incident.scope));
+        const view = deriveModelView(incident.scope.modelId, scoped);
+        view.stateAxes = root.ProofTelemetryPolicy?.deriveAxes
+          ? root.ProofTelemetryPolicy.deriveAxes(scoped, scoped[scoped.length - 1])
+          : view.stateAxes;
+        if (!latestByModel[incident.scope.modelId]
+          || Number(view.lastSeq || 0) > Number(latestByModel[incident.scope.modelId].lastSeq || 0)) latestByModel[incident.scope.modelId] = view;
+      });
+      modelViews = latestByModel;
+    }
+    const observedModels = normalizedModelIds(Object.keys(modelViews || {}));
+    const configuredExpected = normalizedModelIds(options.expectedModels || runtimeConfig.expectedModels || runtimeConfig.selectedModels);
+    const expectedModels = configuredExpected;
+    const terminalModels = normalizedModelIds(Object.entries(modelViews || {})
+      .filter(([, view]) => Boolean(view?.terminalOutcome))
+      .map(([modelId]) => modelId));
+    const terminalSet = new Set(terminalModels);
+    const pendingModels = expectedModels.filter((modelId) => !terminalSet.has(modelId));
+    const runLifecycleStatus = String(options.runLifecycleStatus || options.runStatus || 'unknown').toLowerCase();
+    let runCompleteness = 'unknown';
+    if (['active', 'opening'].includes(runLifecycleStatus) || options.exportedDuringActiveRun === true) runCompleteness = 'active';
+    else if (expectedModels.length && pendingModels.length === 0) runCompleteness = 'complete';
+    else if (expectedModels.length && ['closed', 'closing'].includes(runLifecycleStatus)) runCompleteness = 'incomplete';
+    else if (expectedModels.length && pendingModels.length) runCompleteness = 'active';
+    const consistency = String(options.snapshotConsistency || 'unknown');
+    const dirtySnapshot = options.snapshotBarrierTimedOut === true
+      || Number(options.queuedMutationCount || 0) > 0
+      || Number(options.pendingRecordCount || 0) > 0;
+    const snapshotCompleteness = dirtySnapshot
+      ? 'incomplete'
+      : (consistency === 'queue_drained'
+        ? 'queue_drained'
+        : (consistency === 'committed_boundary' ? 'committed_boundary' : 'incomplete'));
+    return {
+      snapshotCompleteness,
+      runCompleteness,
+      runLifecycleStatus,
+      expectedModels,
+      observedModels,
+      terminalModels,
+      pendingModels,
+      exportedDuringActiveRun: runCompleteness === 'active',
+      modelStates: Object.fromEntries(observedModels.map((modelId) => [
+        modelId,
+        lifecycleStateForModel(modelId, modelViews?.[modelId], ledgerEvents)
+      ]))
+    };
+  }
+
   async function buildAllPresets(input, options = {}) {
     const exportedAt = Number(options.exportedAt || Date.now());
     const ledgerEvents = options.canonicalLedger === true
@@ -1654,6 +1746,11 @@
       usableForDiagnosis: snapshotLimitations.length === 0,
       limitations: snapshotLimitations
     };
+    const completeness = deriveExportCompleteness(ledgerEvents, {
+      ...options,
+      runtimeConfig,
+      modelViews
+    });
     const attachments = { byId: {}, omissions: [] };
     for (const event of ledgerEvents.filter((candidate) => candidate.eventType === 'SELECTOR_FORENSIC_SNAPSHOT_CAPTURED')) {
       const payload = event.payload || {};
@@ -1694,6 +1791,7 @@
         omissions: [],
         sourceSnapshot: {
           consistency: String(options.snapshotConsistency || 'unknown'),
+          snapshotCompleteness: completeness.snapshotCompleteness,
           barrierTimedOut: options.snapshotBarrierTimedOut === true,
           waitMs: Number(options.snapshotWaitMs || 0),
           queuedMutationCount: Number(options.queuedMutationCount || 0),
@@ -1732,6 +1830,7 @@
         budget: { limitBytes: 1000000, measuredBytes: null, withinBudget: null },
         sourceCompatibility: compatibility,
         diagnosticUsability,
+        completeness,
         configuration: {
           runtimePolicyId: runtimeConfig.policyId || null,
           exportedPolicyId: policyConfig.policyId,
@@ -2119,6 +2218,7 @@
     eventFingerprint,
     normalizeDispatchIdentity,
     buildLedger,
+    deriveExportCompleteness,
     deriveAxes,
     deriveModelView,
     evaluatePredicate,

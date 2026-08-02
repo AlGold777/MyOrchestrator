@@ -646,6 +646,17 @@ export barrier начинал отсчёт только после потенц�
 немедленно загружает exporter и автоматически продолжает тот же экспорт после
 события `load`. Кнопка и строка статуса сразу показывают busy-фазу.
 
+С v2.81.226 all-presets export независимо фиксирует два вида полноты:
+
+- `snapshotCompleteness` показывает, вошла ли очередь записи в экспортную границу;
+- `runCompleteness` показывает, завершили ли ожидаемые модели свой жизненный цикл.
+
+`RUN_CONFIG_RECORDED` сохраняет список ожидаемых моделей. `exportAudit.completeness`
+перечисляет expected, observed, terminal и pending models и отдельно отмечает
+`exportedDuringActiveRun`. Поэтому чистый `queue_drained` snapshot активного запуска
+больше не выглядит как завершённый run, а закрытый run с незавершённой моделью не
+выглядит как повреждённая persistence boundary.
+
 - Platform/Tasks фильтруют canonical envelopes по `modelId` и безопасному
   event payload. Исходные `seq` не перенумеровываются; filtered ledger остаётся
   immutable, а export boundary равен фактическому последнему включённому `seq`.

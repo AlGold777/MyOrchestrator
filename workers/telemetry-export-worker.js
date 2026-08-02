@@ -3,6 +3,7 @@
 
 importScripts(
   '../shared/proof-telemetry-contracts.js',
+  '../shared/proof-telemetry-inventory.js',
   '../shared/proof-telemetry-clock.js',
   '../shared/proof-telemetry-incidents.js',
   '../shared/proof-oriented-telemetry.js',

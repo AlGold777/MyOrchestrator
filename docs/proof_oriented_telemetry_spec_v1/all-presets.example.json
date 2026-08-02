@@ -44,6 +44,7 @@
     "omissions": [],
     "sourceSnapshot": {
       "consistency": "unknown",
+      "snapshotCompleteness": "incomplete",
       "barrierTimedOut": false,
       "waitMs": 0,
       "queuedMutationCount": 0,
@@ -7367,7 +7368,7 @@
       "derivedViews": "sha256:bc3ee182a330d7a3fe4d0fdb7e076b75045825f7d32b3efffafbe8fd034aa043",
       "reports": "sha256:da7c5878f218fb79f549fec7768c97ee7a3f25b98e836d54d52b37c93f68e5f5",
       "attachments": "sha256:b1968c832915f5cdc3320b65fc5ad56f2c9f3a9d20eaa0919b749ad664b9c18a",
-      "container": "sha256:16fcd9af45b86880832f64f5eb11aba4a7f67e226e7559eff95516334fe01fb0"
+      "container": "sha256:2f4ab0577319cbcd97abcb510de291cbbd48557db1498d4e24d5c57e3ac99151"
     },
     "schemaValidation": {
       "valid": true,
@@ -7381,7 +7382,7 @@
     },
     "budget": {
       "limitBytes": 1000000,
-      "measuredBytes": 128810,
+      "measuredBytes": 129275,
       "withinBudget": true,
       "status": "within_budget"
     },
@@ -7394,6 +7395,28 @@
       "status": "complete",
       "usableForDiagnosis": true,
       "limitations": []
+    },
+    "completeness": {
+      "snapshotCompleteness": "incomplete",
+      "runCompleteness": "unknown",
+      "runLifecycleStatus": "unknown",
+      "expectedModels": [],
+      "observedModels": [
+        "GPT"
+      ],
+      "terminalModels": [],
+      "pendingModels": [],
+      "exportedDuringActiveRun": false,
+      "modelStates": {
+        "GPT": {
+          "observedState": "answer_observed_without_terminal",
+          "terminal": false,
+          "terminalStatus": null,
+          "observedGeneration": "quiescent",
+          "latestObservedTextLength": 120,
+          "consistencyIssues": []
+        }
+      }
     },
     "configuration": {
       "runtimePolicyId": null,

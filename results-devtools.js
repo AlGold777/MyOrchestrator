@@ -1303,6 +1303,7 @@
                 generationWaitProfile: window.ResultsShared?.getGenerationWaitProfile?.(),
                 canonicalLedger: true,
                 snapshotConsistency: proofSnapshot.snapshotConsistency || 'unknown',
+                runLifecycleStatus: proofSnapshot.status || 'unknown',
                 snapshotBarrierTimedOut: proofSnapshot.barrierTimedOut === true,
                 snapshotWaitMs: Number(proofSnapshot.snapshotWaitMs || 0),
                 queuedMutationCount: Number(proofSnapshot.queuedMutationCount || 0),

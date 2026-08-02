@@ -33,7 +33,7 @@ describe('native proof telemetry ledger', () => {
   });
 
   test('persists immutable schema 6 envelopes with monotonic global ingestion order', async () => {
-    await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
+    await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900, expectedModels: ['GPT', 'Claude', 'GPT'] });
     await global.ProofTelemetryLedger.record({
       ts: 1000,
       label: 'DISPATCH_SEND',
@@ -57,6 +57,8 @@ describe('native proof telemetry ledger', () => {
       'SUBMISSION_EVIDENCE_CHANGED',
       'SUBMISSION_INFERRED'
     ]);
+    expect(snapshot.events.find((event) => event.eventType === 'RUN_CONFIG_RECORDED').payload.expectedModels)
+      .toEqual(['Claude', 'GPT']);
     expect(snapshot.events.every((event) => event.schemaVersion === 6)).toBe(true);
     expect(snapshot.events.every((event) => event.ingestSeq > 0 && event.runGeneration === 1)).toBe(true);
     expect(snapshot.events.every((event) => event.clock?.ingestEpochId)).toBe(true);
