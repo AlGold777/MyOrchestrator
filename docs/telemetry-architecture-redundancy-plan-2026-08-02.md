@@ -459,7 +459,7 @@ Performance-набор: 500, 2 000, 5 000 и 10 000 событий; нескол
 
 Каждый пункт — отдельный коммит, рискованные направления — отдельные ветки и теги:
 
-1. Этот план и baseline.
+1. Этот план и baseline. - Done.
 2. Event registry и capability matrix.
 3. Fixtures и measurement script.
 4. Schema detection/fail-closed для replay harness.
