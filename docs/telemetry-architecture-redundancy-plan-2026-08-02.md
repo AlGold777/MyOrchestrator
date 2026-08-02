@@ -464,7 +464,7 @@ Performance-набор: 500, 2 000, 5 000 и 10 000 событий; нескол
 3. Fixtures и measurement script. - Done.
 4. Schema detection/fail-closed для replay harness. - Done.
 5. Active-run completeness schema. - Done.
-6. Embedded/standalone semantic comparator.
+6. Embedded/standalone semantic comparator. - Done.
 7. Контракт всех `stateAxes`, точный `stateAxesProvenance` и проверка basis-ссылок.
 8. Общее incident semantics ядро.
 9. Canonical evidence schema/builder/validator и доверенный `readerGuidance`.

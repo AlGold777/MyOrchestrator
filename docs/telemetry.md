@@ -657,6 +657,12 @@ export barrier начинал отсчёт только после потенц�
 больше не выглядит как завершённый run, а закрытый run с незавершённой моделью не
 выглядит как повреждённая persistence boundary.
 
+С v2.81.227 команда `npm run test:telemetry-parity` строит standalone-вариант
+каждого embedded report для каждой модели и каждого incident frozen ledger.
+Comparator приводит ссылки `seq` к `eventId` и сравнивает диагностическую
+семантику, а не форму JSON. Отдельные мутационные проверки подтверждают, что
+gate обнаруживает изменение verdict, evidence slot, limitation и causal relation.
+
 - Platform/Tasks фильтруют canonical envelopes по `modelId` и безопасному
   event payload. Исходные `seq` не перенумеровываются; filtered ledger остаётся
   immutable, а export boundary равен фактическому последнему включённому `seq`.

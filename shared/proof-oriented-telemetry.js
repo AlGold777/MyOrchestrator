@@ -1366,12 +1366,16 @@
       const unresolvedIncidentIds = Object.keys(applicabilityByIncident)
         .filter((incidentId) => rawApplicability[reportType][incidentId].status !== 'not_confirmed');
       const completenessIncidentIds = supportedIncidentIds.length ? supportedIncidentIds : unresolvedIncidentIds;
-      const evidenceClosures = Object.fromEntries(completenessIncidentIds.map((incidentId) => {
+      const incidentEvidenceClosures = Object.fromEntries(Object.keys(applicabilityByIncident).map((incidentId) => {
         const view = incidentViews[incidentId];
         return [incidentId, Incidents.buildEvidenceClosure(ledger, { incidentId, scope: view.incidentScope }, reportType, {
           context: { stateAxes: view.stateAxes, derivedViews: view }, legacyMode
         })];
       }));
+      const evidenceClosures = Object.fromEntries(completenessIncidentIds.map((incidentId) => [
+        incidentId,
+        incidentEvidenceClosures[incidentId]
+      ]));
       const allSlots = completenessIncidentIds.flatMap((incidentId) => slotResults[incidentId].slots)
         .filter((slot) => slot.effectiveCriticality !== 'conditional');
       const evidenceCoveragePct = allSlots.length
@@ -1450,6 +1454,11 @@
             diagnosticVerdict: applicabilityByIncident[view.incidentId].diagnosticVerdict,
             sufficiency: slotResults[view.incidentId].sufficiency,
             invariantViolations: invariantViolationsByIncident[view.incidentId],
+            limitations: [
+              ...(integrityByIncident[view.incidentId].limitations || []),
+              ...(incidentEvidenceClosures[view.incidentId]?.limitations || []),
+              ...(incidentEvidenceClosures[view.incidentId]?.confidenceLimitations || [])
+            ],
             evidenceSlots: slotResults[view.incidentId].slots.map((slot) => ({
               slotId: slot.slotId,
               status: slot.status,
@@ -1717,6 +1726,9 @@
     const reports = JSON.parse(JSON.stringify(reportBuild.reports));
     Object.values(reports).forEach((report) => {
       report.reportDescriptor.limitations = compatibility.limitations;
+      Object.values(report?.diagnosticSummary?.incidents || {}).forEach((incident) => {
+        incident.limitations = [...compatibility.limitations, ...(incident.limitations || [])];
+      });
     });
     const viewsHash = await sha256(derivedViews);
     // Hash the serialized artifact shape. Optional undefined values do not

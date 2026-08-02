@@ -4984,6 +4984,12 @@
                 "message": "submit action precedes prompt insertion evaluation"
               }
             ],
+            "limitations": [
+              {
+                "code": "single_candidate_comparability",
+                "impact": "measurement continuity is inferred from a single-candidate incident"
+              }
+            ],
             "evidenceSlots": [
               {
                 "slotId": "success_terminal",
@@ -5382,6 +5388,7 @@
                 "message": "submit action precedes prompt insertion evaluation"
               }
             ],
+            "limitations": [],
             "evidenceSlots": [
               {
                 "slotId": "success_terminal",
@@ -5776,6 +5783,7 @@
                 "message": "submit action precedes prompt insertion evaluation"
               }
             ],
+            "limitations": [],
             "evidenceSlots": [
               {
                 "slotId": "dispatch_baseline",
@@ -6300,6 +6308,7 @@
                 "message": "submit action precedes prompt insertion evaluation"
               }
             ],
+            "limitations": [],
             "evidenceSlots": [
               {
                 "slotId": "incident_identity",
@@ -6594,6 +6603,7 @@
                 "message": "submit action precedes prompt insertion evaluation"
               }
             ],
+            "limitations": [],
             "evidenceSlots": [
               {
                 "slotId": "dispatch_baseline",
@@ -6826,6 +6836,7 @@
                 "message": "submit action precedes prompt insertion evaluation"
               }
             ],
+            "limitations": [],
             "evidenceSlots": [
               {
                 "slotId": "dispatch_baseline",
@@ -7154,6 +7165,7 @@
                 "message": "submit action precedes prompt insertion evaluation"
               }
             ],
+            "limitations": [],
             "evidenceSlots": [
               {
                 "slotId": "candidate_identity",
@@ -7366,9 +7378,9 @@
       "ledger": "sha256:43d2b098f65b44c76b86f851af6784aecc4c77ed5a8a4173cb72dd6e77e6e518",
       "sharedConfig": "sha256:177c6ed26e301935440c63b440ca0110f8a2d639e38d2d240869dea21daf92f0",
       "derivedViews": "sha256:bc3ee182a330d7a3fe4d0fdb7e076b75045825f7d32b3efffafbe8fd034aa043",
-      "reports": "sha256:da7c5878f218fb79f549fec7768c97ee7a3f25b98e836d54d52b37c93f68e5f5",
+      "reports": "sha256:0f8f0329de8bc79cf792d9ba046e2d60d78d4245b672f58ebb4663539fb5a2a4",
       "attachments": "sha256:b1968c832915f5cdc3320b65fc5ad56f2c9f3a9d20eaa0919b749ad664b9c18a",
-      "container": "sha256:2f4ab0577319cbcd97abcb510de291cbbd48557db1498d4e24d5c57e3ac99151"
+      "container": "sha256:b88d37c08ad2c7a8925ce529de555f1d2aa4e844922d346e5e05092a1afe7d3c"
     },
     "schemaValidation": {
       "valid": true,
@@ -7382,7 +7394,7 @@
     },
     "budget": {
       "limitBytes": 1000000,
-      "measuredBytes": 129275,
+      "measuredBytes": 129514,
       "withinBudget": true,
       "status": "within_budget"
     },

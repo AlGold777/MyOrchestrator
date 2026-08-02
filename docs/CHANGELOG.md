@@ -5671,3 +5671,9 @@ Backlog `what-to-do.md`, батч 1 (UI + Финализация).
 - `RUN_CONFIG_RECORDED` сохраняет ожидаемые модели, а audit перечисляет observed, terminal и pending models.
 - Для каждой модели сохраняются состояния активного запуска, включая partial answer, tab closed during generation и SUCCESS с error done reason.
 - Event inventory загружается в export worker и обе страницы результатов до построителя телеметрии.
+
+# 2.81.227
+
+- Добавлен семантический comparator embedded и standalone отчётов для каждой задачи, модели и инцидента.
+- Embedded `seq` нормализуется обратно в канонический `eventId`; сравниваются verdict, sufficiency, slots, evidence, ограничения, нарушения, arbitration и sibling relations.
+- Мутационные отрицательные тесты доказывают, что изменение verdict, slot, evidence, limitation или causal relation ломает parity gate.
