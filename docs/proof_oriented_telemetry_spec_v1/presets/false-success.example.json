@@ -79,8 +79,8 @@
       "blockedConclusions": []
     },
     "reportMode": "standalone",
-    "dependencyRegistryVersion": "6.6.0",
-    "dependencyRegistryHash": "sha256:2ef88d1afcc7b02340b395c1d23bd7e15fcaf796ae6e3f96c5a6874021caa076",
+    "dependencyRegistryVersion": "6.7.0",
+    "dependencyRegistryHash": "sha256:0342c392c68cbd1d1b393c3a5b495758d62b0267af382c353e8873bbf6e34dfc",
     "limitations": []
   },
   "correlation": {
@@ -499,7 +499,8 @@
         "includedFor": [
           "counterevidence:false-success",
           "slot-rejected:post_terminal_mutation",
-          "slot:generation_state"
+          "slot:generation_state",
+          "runtime-trace-context"
         ]
       },
       {
@@ -1021,7 +1022,7 @@
     "modelTimeline": {
       "viewType": "false-success",
       "generatorVersion": "proof-export@2.6.0",
-      "ledgerHash": "sha256:456094baf6ee8c083095b2dc042cf938215b58d5d77b5cdd3947555db4fa4ec7",
+      "ledgerHash": "sha256:214a65cbf9a594e9c647d366842077f24eb74651b6813e942650696098b25fab",
       "data": {
         "modelId": "GPT",
         "stateAxes": {
@@ -1437,7 +1438,7 @@
       "dispatchId": "synthetic-dispatch",
       "generationEpoch": 1,
       "sourceLedgerHash": "sha256:f822eef23920f75cf0b697c0895249e8ef0490e101387c95729b6435b6f981b2",
-      "materializedEventHash": "sha256:456094baf6ee8c083095b2dc042cf938215b58d5d77b5cdd3947555db4fa4ec7"
+      "materializedEventHash": "sha256:214a65cbf9a594e9c647d366842077f24eb74651b6813e942650696098b25fab"
     }
   },
   "attachments": [],
@@ -1445,8 +1446,8 @@
     "generatorVersion": "proof-export@2.6.0",
     "sampleData": true,
     "sourceLedgerHash": "sha256:f822eef23920f75cf0b697c0895249e8ef0490e101387c95729b6435b6f981b2",
-    "materializedEventHash": "sha256:456094baf6ee8c083095b2dc042cf938215b58d5d77b5cdd3947555db4fa4ec7",
-    "semanticHash": "sha256:d561629a26fb351adb43a885f81fbb51fa0063dcc0dd41f4aeb951f56c146fcc",
+    "materializedEventHash": "sha256:214a65cbf9a594e9c647d366842077f24eb74651b6813e942650696098b25fab",
+    "semanticHash": "sha256:1c15926144c90d5537804118679320e9bdde4d38b2bffd3c301129d2cbb7a640",
     "fullIncidentSemanticHash": "sha256:6957a5ac84c11da27a083cbcd60cf2d992a8fc04c1c6d8a621ea3ac61c6f1d7e",
     "fullIncidentEventCount": 8,
     "applicabilitySource": "full-frozen-incident",
@@ -1477,11 +1478,11 @@
       "reason": null
     },
     "hashes": {
-      "artifact": "sha256:886c7eebff1b805f17e968051dea7bf8b617980d396a458bbe601d4e44b74e7d",
-      "semantic": "sha256:d561629a26fb351adb43a885f81fbb51fa0063dcc0dd41f4aeb951f56c146fcc"
+      "artifact": "sha256:6d1b06d15a2443d622c8cd8338fbace2654ffafeb74c4a59418929bf412e0b5f",
+      "semantic": "sha256:1c15926144c90d5537804118679320e9bdde4d38b2bffd3c301129d2cbb7a640"
     },
     "size": {
-      "measuredBytes": 31802,
+      "measuredBytes": 31826,
       "category": "medium",
       "measurementOnly": true
     },

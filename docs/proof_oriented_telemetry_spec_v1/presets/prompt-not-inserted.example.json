@@ -2,7 +2,7 @@
   "schemaVersion": "5.0",
   "fileKind": "diagnostic-report",
   "reportDescriptor": {
-    "reportId": "rpt-prompt-not-inserted-GPT-7cffe388",
+    "reportId": "rpt-prompt-not-inserted-GPT-955c13d4",
     "reportType": "prompt-not-inserted",
     "reportVersion": "3.6.0",
     "title": "Почему prompt не вставился в поле ввода?",
@@ -35,18 +35,17 @@
         }
       ]
     },
-    "diagnosticVerdict": "confirmed",
+    "diagnosticVerdict": "unknown",
     "diagnosisArbitration": {
-      "primaryDiagnosis": "prompt-not-inserted",
-      "confirmedDiagnoses": [
-        "prompt-not-inserted"
-      ],
-      "explanationRole": "primary",
-      "causedBy": null
+      "primaryDiagnosis": null,
+      "confirmedDiagnoses": [],
+      "explanationRole": "co_occurring",
+      "causedBy": null,
+      "causalClaim": false
     },
     "canDiagnose": [
       {
-        "claim": "prompt-not-inserted is supported for this incident",
+        "claim": "Only satisfied evidence slots for prompt-not-inserted may be used",
         "basedOnSlotIds": [
           "dispatch_baseline",
           "insertion_outcome",
@@ -67,8 +66,8 @@
       "blockedConclusions": []
     },
     "reportMode": "standalone",
-    "dependencyRegistryVersion": "6.6.0",
-    "dependencyRegistryHash": "sha256:2ef88d1afcc7b02340b395c1d23bd7e15fcaf796ae6e3f96c5a6874021caa076",
+    "dependencyRegistryVersion": "6.7.0",
+    "dependencyRegistryHash": "sha256:0342c392c68cbd1d1b393c3a5b495758d62b0267af382c353e8873bbf6e34dfc",
     "limitations": []
   },
   "correlation": {
@@ -171,7 +170,7 @@
         }
       ]
     },
-    "diagnosticVerdict": "confirmed",
+    "diagnosticVerdict": "unknown",
     "sufficiency": "complete",
     "evidenceSlots": [
       {
@@ -396,8 +395,8 @@
         },
         "payload": {
           "typed": {
-            "kind": "unknown",
-            "state": "unknown"
+            "kind": "dispatch_baseline",
+            "state": "captured"
           },
           "sourceEventType": "DISPATCH_BASELINE_CAPTURED",
           "sourceLevel": "info",
@@ -665,8 +664,8 @@
   "derivedViews": {
     "recordedDerivedView": {
       "source": "full-frozen-incident",
-      "fullIncidentSemanticHash": "sha256:b03d871e44a1e66b40673b7bbc3ee5083504d0fa34f9e1b50f4d750e82ad865c",
-      "taskProjectionHash": "sha256:1d2d407f346cadaa46f21ae4d5f0a2979ec0a67678fe352b6a6344f9c0a34ac0",
+      "fullIncidentSemanticHash": "sha256:a2dc0bae8ddf7b80b4aac0df655a2450ab094446562602dfbc3e4dbe84d74b9a",
+      "taskProjectionHash": "sha256:007ac1650275a3170a977452f2c2b39d1c60a05aeaabc75b579f306582fb7bfd",
       "data": {
         "modelId": "GPT",
         "stateAxes": {
@@ -837,7 +836,7 @@
     "modelTimeline": {
       "viewType": "prompt-not-inserted",
       "generatorVersion": "proof-export@2.6.0",
-      "ledgerHash": "sha256:01778b3cf959df5380933322ff8ad3a0b097b23dcf2201fe8987fccbf0262bb3",
+      "ledgerHash": "sha256:ad0f711cb76691dc6d2db20fbda9982909cff457be9097ee4d009643256e6872",
       "data": {
         "modelId": "GPT",
         "stateAxes": {
@@ -1121,7 +1120,34 @@
       }
     }
   },
-  "contradictions": [],
+  "contradictions": [
+    {
+      "invariantId": "TYPED_CANONICAL_CONFLICT",
+      "eventId": "event-a7944681-08eef32d",
+      "affectedReportTypes": [
+        "cutted",
+        "false-success",
+        "old-answer",
+        "no-delivery",
+        "prompt-not-inserted",
+        "prompt-not-sent",
+        "late-end"
+      ],
+      "affectedSlotIds": [],
+      "affectedFields": [],
+      "conflict": {
+        "typed": {
+          "kind": "submission",
+          "state": "attempted"
+        },
+        "canonical": {
+          "kind": "submission",
+          "state": "evidence_partial"
+        }
+      },
+      "message": "typed fact contradicts canonical event payload"
+    }
+  ],
   "missingEvidence": [],
   "siblings": [
     {
@@ -1180,23 +1206,23 @@
       "modelId": "GPT",
       "dispatchId": "synthetic-dispatch",
       "generationEpoch": 1,
-      "sourceLedgerHash": "sha256:a0a9553015fdbaf283d23075177acb34871ddbb79a21f94f537f73ed30a4bf71",
-      "materializedEventHash": "sha256:01778b3cf959df5380933322ff8ad3a0b097b23dcf2201fe8987fccbf0262bb3"
+      "sourceLedgerHash": "sha256:08fd61c796f6e6000096b494b99f0f95ff878988f38bbca407bb1e4e9a3fe930",
+      "materializedEventHash": "sha256:ad0f711cb76691dc6d2db20fbda9982909cff457be9097ee4d009643256e6872"
     }
   },
   "attachments": [],
   "exportIntegrity": {
     "generatorVersion": "proof-export@2.6.0",
     "sampleData": true,
-    "sourceLedgerHash": "sha256:a0a9553015fdbaf283d23075177acb34871ddbb79a21f94f537f73ed30a4bf71",
-    "materializedEventHash": "sha256:01778b3cf959df5380933322ff8ad3a0b097b23dcf2201fe8987fccbf0262bb3",
-    "semanticHash": "sha256:b2c63f0ad7e7e6cea09d4a422e45a8af000c2e637bb8e2447f5a43f0cefd1008",
-    "fullIncidentSemanticHash": "sha256:b03d871e44a1e66b40673b7bbc3ee5083504d0fa34f9e1b50f4d750e82ad865c",
+    "sourceLedgerHash": "sha256:08fd61c796f6e6000096b494b99f0f95ff878988f38bbca407bb1e4e9a3fe930",
+    "materializedEventHash": "sha256:ad0f711cb76691dc6d2db20fbda9982909cff457be9097ee4d009643256e6872",
+    "semanticHash": "sha256:9d13ca9a22f44d9f7a9b6ec28f4dda87f9e55a7d8465815c39a72c3721fc6edc",
+    "fullIncidentSemanticHash": "sha256:a2dc0bae8ddf7b80b4aac0df655a2450ab094446562602dfbc3e4dbe84d74b9a",
     "fullIncidentEventCount": 6,
     "applicabilitySource": "full-frozen-incident",
     "verdictPreservation": {
-      "fullVerdictHash": "sha256:1d2d407f346cadaa46f21ae4d5f0a2979ec0a67678fe352b6a6344f9c0a34ac0",
-      "materializedVerdictHash": "sha256:1d2d407f346cadaa46f21ae4d5f0a2979ec0a67678fe352b6a6344f9c0a34ac0",
+      "fullVerdictHash": "sha256:007ac1650275a3170a977452f2c2b39d1c60a05aeaabc75b579f306582fb7bfd",
+      "materializedVerdictHash": "sha256:007ac1650275a3170a977452f2c2b39d1c60a05aeaabc75b579f306582fb7bfd",
       "equivalent": true,
       "fallbackMaterializedFullIncident": false
     },
@@ -1207,10 +1233,10 @@
       "duplicateEventIds": 0
     },
     "schemaValidation": {
-      "valid": true,
+      "valid": false,
       "scope": "materialized-events",
       "status": "validated",
-      "reason": null
+      "reason": "incident closure violations"
     },
     "replay": {
       "valid": true,
@@ -1221,11 +1247,11 @@
       "reason": null
     },
     "hashes": {
-      "artifact": "sha256:d2fff7fc18968f674fb5d08d98eaa750a598efc73d797cf873c9388a9e54b106",
-      "semantic": "sha256:b2c63f0ad7e7e6cea09d4a422e45a8af000c2e637bb8e2447f5a43f0cefd1008"
+      "artifact": "sha256:4163ac2bc3e7248cf164f54efccced9f7973e158c2c0bfc76a7d320c61b86763",
+      "semantic": "sha256:9d13ca9a22f44d9f7a9b6ec28f4dda87f9e55a7d8465815c39a72c3721fc6edc"
     },
     "size": {
-      "measuredBytes": 27489,
+      "measuredBytes": 27953,
       "category": "medium",
       "measurementOnly": true
     },

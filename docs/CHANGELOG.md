@@ -5647,3 +5647,8 @@ Backlog `what-to-do.md`, батч 1 (UI + Финализация).
 
 - Proof telemetry now coalesces mutations accumulated during an active persistence transaction, preventing a high-rate event stream from creating a transaction-per-event backlog.
 - JSON export no longer downloads the last committed boundary when the proof-ledger barrier times out. It returns a retryable incomplete-snapshot status and asks the user to export again after the queue drains.
+# 2.81.223
+
+- Добавлен машинно проверяемый реестр всех канонических событий proof-телеметрии: производители, идентичность, получатели, sampling, retention и потребители.
+- Добавлена матрица диагностических возможностей для legacy/schema 6 и всех экспортных представлений.
+- Dependency registry полного экспорта теперь содержит снимок event inventory и capability matrix.

@@ -56,6 +56,7 @@ function privacyViolations(value, currentPath = '$', violations = []) {
   Object.entries(value).forEach(([key, child]) => {
     const normalized = key.toLowerCase();
     const safeMetric = ProofTelemetry.REPORT_TYPES.includes(key)
+      || ProofTelemetry.CANONICAL_EVENT_TYPES.includes(key)
       || key.split('|').every((part) => ProofTelemetry.REPORT_TYPES.includes(part))
       || /(hash|length|len|count|id|status|state|reason|source|mode|tier|version|type|ref|exported|policy|report|preset|task)/.test(normalized);
     if (!safeMetric && /(prompt|answertext|html|token|cookie|secret|credential|authorization|api.?key|rawdom|fulltext)/.test(normalized)) {

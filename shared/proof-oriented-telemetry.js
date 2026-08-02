@@ -10,6 +10,7 @@
   'use strict';
 
   const Contracts = root.ProofTelemetryContracts || (typeof require === 'function' ? require('./proof-telemetry-contracts.js') : null);
+  const Inventory = root.ProofTelemetryInventory || (typeof require === 'function' ? require('./proof-telemetry-inventory.js') : null);
   const Incidents = root.ProofTelemetryIncidents || (typeof require === 'function' ? require('./proof-telemetry-incidents.js') : null);
   const Clock = root.ProofTelemetryClock || (typeof require === 'function' ? require('./proof-telemetry-clock.js') : null);
   const SCHEMA_VERSION = '5.0';
@@ -178,6 +179,7 @@
   const SYSTEM_TYPES = new Set(['RUN_CONFIG_RECORDED', 'SELECTOR_CANARY_RESULT']);
   const CANONICAL_EVENT_TYPES = new Set([
     ...Object.values(EVENT_MAP),
+    'OBSERVER_HEALTH_INTERVAL_CLOSED',
     ...INFERENCE_TYPES,
     ...DECISION_TYPES,
     ...ACTION_TYPES,
@@ -1214,6 +1216,10 @@
   function dependencyRegistrySnapshot() {
     return {
       registryVersion: Contracts?.REGISTRY_VERSION || '5.0.0',
+      eventInventoryVersion: Inventory?.INVENTORY_VERSION || null,
+      eventRegistry: Inventory?.EVENT_REGISTRY || {},
+      capabilityMatrixVersion: Inventory?.CAPABILITY_MATRIX_VERSION || null,
+      capabilityMatrix: Inventory?.CAPABILITY_MATRIX || [],
       predicateLanguageVersion: '1.0.0',
       maxEscalationDepth: 2,
       reports: Contracts?.REPORT_CONTRACTS || {},
@@ -2099,6 +2105,7 @@
     GENERATOR_VERSION,
     REPORT_TYPES,
     REPORT_EVENT_TYPES,
+    CANONICAL_EVENT_TYPES: Object.freeze(Array.from(CANONICAL_EVENT_TYPES).sort()),
     SIBLING_RULES,
     DIAGNOSIS_PRIORITY,
     DIAGNOSIS_CAUSAL_RULES,

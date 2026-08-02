@@ -2,7 +2,7 @@
   "schemaVersion": "5.0",
   "fileKind": "diagnostic-report",
   "reportDescriptor": {
-    "reportId": "rpt-prompt-not-sent-GPT-c2bdb655",
+    "reportId": "rpt-prompt-not-sent-GPT-7b3271b8",
     "reportType": "prompt-not-sent",
     "reportVersion": "3.6.0",
     "title": "Почему модель не получила запрос?",
@@ -35,18 +35,17 @@
         }
       ]
     },
-    "diagnosticVerdict": "confirmed",
+    "diagnosticVerdict": "unknown",
     "diagnosisArbitration": {
-      "primaryDiagnosis": "prompt-not-sent",
-      "confirmedDiagnoses": [
-        "prompt-not-sent"
-      ],
-      "explanationRole": "primary",
-      "causedBy": null
+      "primaryDiagnosis": null,
+      "confirmedDiagnoses": [],
+      "explanationRole": "co_occurring",
+      "causedBy": null,
+      "causalClaim": false
     },
     "canDiagnose": [
       {
-        "claim": "prompt-not-sent is supported for this incident",
+        "claim": "Only satisfied evidence slots for prompt-not-sent may be used",
         "basedOnSlotIds": [
           "dispatch_baseline",
           "submit_action",
@@ -68,8 +67,8 @@
       "blockedConclusions": []
     },
     "reportMode": "standalone",
-    "dependencyRegistryVersion": "6.6.0",
-    "dependencyRegistryHash": "sha256:2ef88d1afcc7b02340b395c1d23bd7e15fcaf796ae6e3f96c5a6874021caa076",
+    "dependencyRegistryVersion": "6.7.0",
+    "dependencyRegistryHash": "sha256:0342c392c68cbd1d1b393c3a5b495758d62b0267af382c353e8873bbf6e34dfc",
     "limitations": []
   },
   "correlation": {
@@ -172,7 +171,7 @@
         }
       ]
     },
-    "diagnosticVerdict": "confirmed",
+    "diagnosticVerdict": "unknown",
     "sufficiency": "complete",
     "evidenceSlots": [
       {
@@ -391,8 +390,8 @@
         },
         "payload": {
           "typed": {
-            "kind": "unknown",
-            "state": "unknown"
+            "kind": "dispatch_baseline",
+            "state": "captured"
           },
           "sourceEventType": "DISPATCH_BASELINE_CAPTURED",
           "sourceLevel": "info",
@@ -438,8 +437,8 @@
         },
         "payload": {
           "typed": {
-            "kind": "unknown",
-            "state": "unknown"
+            "kind": "submission",
+            "state": "attempted"
           },
           "sourceEventType": "SUBMIT_ACTION_OBSERVED",
           "sourceLevel": "info",
@@ -656,8 +655,8 @@
   "derivedViews": {
     "recordedDerivedView": {
       "source": "full-frozen-incident",
-      "fullIncidentSemanticHash": "sha256:1b585e147c96a3bd30631663b445442990e475f9424c254ece91fae9d0f77759",
-      "taskProjectionHash": "sha256:85fb83364040d300d973ec29358314e3a0604e8b7ad8fe3c3e84e9c4c6bd92be",
+      "fullIncidentSemanticHash": "sha256:248e58add35afdebb1fd3afc4b9194d1b952c9c78cd7c03b20c5454f928a203e",
+      "taskProjectionHash": "sha256:5b9165a2cd27038a335a88545132e24bea0ef5611dfb293b4295e408e94ec976",
       "data": {
         "modelId": "GPT",
         "stateAxes": {
@@ -826,7 +825,7 @@
     "modelTimeline": {
       "viewType": "prompt-not-sent",
       "generatorVersion": "proof-export@2.6.0",
-      "ledgerHash": "sha256:4312f085077a37ab1b765e469dcdab82c4ac94576f4053e42fd4f6c0cb59f0e9",
+      "ledgerHash": "sha256:4c8467117dc6131bd570529c08b9909f164526c43e4e93929740b429d66217f1",
       "data": {
         "modelId": "GPT",
         "stateAxes": {
@@ -1108,7 +1107,34 @@
       }
     }
   },
-  "contradictions": [],
+  "contradictions": [
+    {
+      "invariantId": "TYPED_CANONICAL_CONFLICT",
+      "eventId": "event-269d0103-a314b14b",
+      "affectedReportTypes": [
+        "cutted",
+        "false-success",
+        "old-answer",
+        "no-delivery",
+        "prompt-not-inserted",
+        "prompt-not-sent",
+        "late-end"
+      ],
+      "affectedSlotIds": [],
+      "affectedFields": [],
+      "conflict": {
+        "typed": {
+          "kind": "submission",
+          "state": "failed"
+        },
+        "canonical": {
+          "kind": "submission",
+          "state": "evidence_partial"
+        }
+      },
+      "message": "typed fact contradicts canonical event payload"
+    }
+  ],
   "missingEvidence": [],
   "siblings": [
     {
@@ -1167,23 +1193,23 @@
       "modelId": "GPT",
       "dispatchId": "synthetic-dispatch",
       "generationEpoch": 1,
-      "sourceLedgerHash": "sha256:6f9a0e4e432e4de9f45db4e88966af7f5a063ca010bea8aa72e9d4ac98d15e49",
-      "materializedEventHash": "sha256:4312f085077a37ab1b765e469dcdab82c4ac94576f4053e42fd4f6c0cb59f0e9"
+      "sourceLedgerHash": "sha256:4d82fddb5978ba18d0fb1e493b1f0ecbc4b312cde3c935db883bd721b8cd3584",
+      "materializedEventHash": "sha256:4c8467117dc6131bd570529c08b9909f164526c43e4e93929740b429d66217f1"
     }
   },
   "attachments": [],
   "exportIntegrity": {
     "generatorVersion": "proof-export@2.6.0",
     "sampleData": true,
-    "sourceLedgerHash": "sha256:6f9a0e4e432e4de9f45db4e88966af7f5a063ca010bea8aa72e9d4ac98d15e49",
-    "materializedEventHash": "sha256:4312f085077a37ab1b765e469dcdab82c4ac94576f4053e42fd4f6c0cb59f0e9",
-    "semanticHash": "sha256:343064176d6355d0ec94daa82a45611c1e0e107410c8b16d91cf8d4f488a331b",
-    "fullIncidentSemanticHash": "sha256:1b585e147c96a3bd30631663b445442990e475f9424c254ece91fae9d0f77759",
+    "sourceLedgerHash": "sha256:4d82fddb5978ba18d0fb1e493b1f0ecbc4b312cde3c935db883bd721b8cd3584",
+    "materializedEventHash": "sha256:4c8467117dc6131bd570529c08b9909f164526c43e4e93929740b429d66217f1",
+    "semanticHash": "sha256:fdd0b651cbdff04dd112b56eeb06a10fd71a86b9420f58d9c8903726cde5e8b4",
+    "fullIncidentSemanticHash": "sha256:248e58add35afdebb1fd3afc4b9194d1b952c9c78cd7c03b20c5454f928a203e",
     "fullIncidentEventCount": 6,
     "applicabilitySource": "full-frozen-incident",
     "verdictPreservation": {
-      "fullVerdictHash": "sha256:85fb83364040d300d973ec29358314e3a0604e8b7ad8fe3c3e84e9c4c6bd92be",
-      "materializedVerdictHash": "sha256:85fb83364040d300d973ec29358314e3a0604e8b7ad8fe3c3e84e9c4c6bd92be",
+      "fullVerdictHash": "sha256:5b9165a2cd27038a335a88545132e24bea0ef5611dfb293b4295e408e94ec976",
+      "materializedVerdictHash": "sha256:5b9165a2cd27038a335a88545132e24bea0ef5611dfb293b4295e408e94ec976",
       "equivalent": true,
       "fallbackMaterializedFullIncident": false
     },
@@ -1194,10 +1220,10 @@
       "duplicateEventIds": 0
     },
     "schemaValidation": {
-      "valid": true,
+      "valid": false,
       "scope": "materialized-events",
       "status": "validated",
-      "reason": null
+      "reason": "incident closure violations"
     },
     "replay": {
       "valid": true,
@@ -1208,11 +1234,11 @@
       "reason": null
     },
     "hashes": {
-      "artifact": "sha256:02f60b0295db68078ddb79b3410cc1b31f95f61f62decbb976d8395bd96e2099",
-      "semantic": "sha256:343064176d6355d0ec94daa82a45611c1e0e107410c8b16d91cf8d4f488a331b"
+      "artifact": "sha256:3125b28010045d2b4b2e4aa46545577d7825a8ca1e3d3c62ebcc950113efa21d",
+      "semantic": "sha256:fdd0b651cbdff04dd112b56eeb06a10fd71a86b9420f58d9c8903726cde5e8b4"
     },
     "size": {
-      "measuredBytes": 27029,
+      "measuredBytes": 27503,
       "category": "medium",
       "measurementOnly": true
     },

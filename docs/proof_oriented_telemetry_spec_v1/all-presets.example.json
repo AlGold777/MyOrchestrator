@@ -41,13 +41,21 @@
       "aggregate-repeated-checks",
       "preserve-canonical-proof-events"
     ],
-    "omissions": []
+    "omissions": [],
+    "sourceSnapshot": {
+      "consistency": "unknown",
+      "barrierTimedOut": false,
+      "waitMs": 0,
+      "queuedMutationCount": 0,
+      "pendingRecordCount": 0,
+      "diagnosticUsability": "complete"
+    }
   },
   "crossReportCompatibility": {
     "mode": "same_export",
     "exactMatch": {
       "runSessionId": "synthetic-run",
-      "ledgerHash": "sha256:aa800dc566a8fe5ad5c71866623d421c147b569b8f43080da9e778e11a9ae9f9",
+      "ledgerHash": "sha256:43d2b098f65b44c76b86f851af6784aecc4c77ed5a8a4173cb72dd6e77e6e518",
       "ledgerCompleteThroughSeq": 20
     }
   },
@@ -57,7 +65,7 @@
     "schemaVersion": "5.0",
     "generatorVersion": "proof-export@2.6.0",
     "policy": {
-      "policyId": "proof-default-v1",
+      "policyId": "proof-default-v2",
       "automaticMinimumEvidenceTier": 3,
       "maximumSignalSkewMs": 250
     },
@@ -67,7 +75,2570 @@
       "urlMode": "hash-only"
     },
     "dependencyRegistry": {
-      "registryVersion": "6.6.0",
+      "registryVersion": "6.7.0",
+      "eventInventoryVersion": "1.0.0",
+      "eventRegistry": {
+        "ANSWER_CARD_RENDER_EVALUATED": {
+          "eventType": "ANSWER_CARD_RENDER_EVALUATED",
+          "contractVersion": "1.0.0",
+          "layer": "fact",
+          "producers": [
+            "runtime-observer",
+            "legacy-telemetry-adapter"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "none",
+            "lossPolicy": "lossless"
+          },
+          "retention": {
+            "criticality": "critical",
+            "canonical": "lossless",
+            "legacyParallelStream": "runtime-dependent"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator",
+            "report:no-delivery"
+          ]
+        },
+        "ANSWER_COMMIT_EVALUATED": {
+          "eventType": "ANSWER_COMMIT_EVALUATED",
+          "contractVersion": "1.0.0",
+          "layer": "fact",
+          "producers": [
+            "runtime-observer",
+            "legacy-telemetry-adapter"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "none",
+            "lossPolicy": "lossless"
+          },
+          "retention": {
+            "criticality": "critical",
+            "canonical": "lossless",
+            "legacyParallelStream": "runtime-dependent"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator",
+            "report:no-delivery"
+          ]
+        },
+        "ANSWER_COMPLETENESS_EVALUATED": {
+          "eventType": "ANSWER_COMPLETENESS_EVALUATED",
+          "contractVersion": "1.0.0",
+          "layer": "inference",
+          "producers": [
+            "proof-telemetry-policy",
+            "legacy-telemetry-adapter"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "none",
+            "lossPolicy": "lossless"
+          },
+          "retention": {
+            "criticality": "required",
+            "canonical": "bounded-with-explicit-omission",
+            "legacyParallelStream": "not-required"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator",
+            "report:cutted",
+            "report:false-success"
+          ]
+        },
+        "ANSWER_DELIVERY_ACKNOWLEDGED": {
+          "eventType": "ANSWER_DELIVERY_ACKNOWLEDGED",
+          "contractVersion": "1.0.0",
+          "layer": "fact",
+          "producers": [
+            "runtime-observer",
+            "legacy-telemetry-adapter"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "none",
+            "lossPolicy": "lossless"
+          },
+          "retention": {
+            "criticality": "critical",
+            "canonical": "lossless",
+            "legacyParallelStream": "runtime-dependent"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator",
+            "report:no-delivery"
+          ]
+        },
+        "ANSWER_DELIVERY_REJECTED": {
+          "eventType": "ANSWER_DELIVERY_REJECTED",
+          "contractVersion": "1.0.0",
+          "layer": "fact",
+          "producers": [
+            "runtime-observer",
+            "legacy-telemetry-adapter"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "none",
+            "lossPolicy": "lossless"
+          },
+          "retention": {
+            "criticality": "critical",
+            "canonical": "lossless",
+            "legacyParallelStream": "runtime-dependent"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator",
+            "report:no-delivery"
+          ]
+        },
+        "ANSWER_SOURCE_MATERIALIZED": {
+          "eventType": "ANSWER_SOURCE_MATERIALIZED",
+          "contractVersion": "1.0.0",
+          "layer": "fact",
+          "producers": [
+            "runtime-observer",
+            "legacy-telemetry-adapter"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "none",
+            "lossPolicy": "lossless"
+          },
+          "retention": {
+            "criticality": "critical",
+            "canonical": "lossless",
+            "legacyParallelStream": "runtime-dependent"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator",
+            "report:false-success",
+            "report:no-delivery"
+          ]
+        },
+        "CANDIDATE_IDENTITY_INFERRED": {
+          "eventType": "CANDIDATE_IDENTITY_INFERRED",
+          "contractVersion": "1.0.0",
+          "layer": "inference",
+          "producers": [
+            "proof-telemetry-policy",
+            "legacy-telemetry-adapter"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "none",
+            "lossPolicy": "lossless"
+          },
+          "retention": {
+            "criticality": "required",
+            "canonical": "bounded-with-explicit-omission",
+            "legacyParallelStream": "not-required"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator",
+            "report:cutted",
+            "report:late-end",
+            "report:old-answer"
+          ]
+        },
+        "CANDIDATE_SET_CHANGED": {
+          "eventType": "CANDIDATE_SET_CHANGED",
+          "contractVersion": "1.0.0",
+          "layer": "fact",
+          "producers": [
+            "runtime-observer",
+            "legacy-telemetry-adapter"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "none",
+            "lossPolicy": "lossless"
+          },
+          "retention": {
+            "criticality": "required",
+            "canonical": "bounded-with-explicit-omission",
+            "legacyParallelStream": "runtime-dependent"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator",
+            "report:cutted",
+            "report:late-end",
+            "report:old-answer"
+          ]
+        },
+        "COMPLETION_HYPOTHESIS_EVALUATED": {
+          "eventType": "COMPLETION_HYPOTHESIS_EVALUATED",
+          "contractVersion": "1.0.0",
+          "layer": "inference",
+          "producers": [
+            "proof-telemetry-policy",
+            "legacy-telemetry-adapter"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "none",
+            "lossPolicy": "lossless"
+          },
+          "retention": {
+            "criticality": "required",
+            "canonical": "bounded-with-explicit-omission",
+            "legacyParallelStream": "not-required"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator",
+            "report:false-success",
+            "report:late-end"
+          ]
+        },
+        "DECISION_RECORDED": {
+          "eventType": "DECISION_RECORDED",
+          "contractVersion": "1.0.0",
+          "layer": "decision",
+          "producers": [
+            "proof-telemetry-policy",
+            "runtime-finalization"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "none",
+            "lossPolicy": "lossless"
+          },
+          "retention": {
+            "criticality": "critical",
+            "canonical": "lossless",
+            "legacyParallelStream": "not-required"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator",
+            "report:cutted",
+            "report:false-success",
+            "report:late-end"
+          ]
+        },
+        "DECISION_SUPERSEDED": {
+          "eventType": "DECISION_SUPERSEDED",
+          "contractVersion": "1.0.0",
+          "layer": "decision",
+          "producers": [
+            "proof-telemetry-policy",
+            "runtime-finalization"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "none",
+            "lossPolicy": "lossless"
+          },
+          "retention": {
+            "criticality": "required",
+            "canonical": "bounded-with-explicit-omission",
+            "legacyParallelStream": "not-required"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator"
+          ]
+        },
+        "DISPATCH_BASELINE_CAPTURED": {
+          "eventType": "DISPATCH_BASELINE_CAPTURED",
+          "contractVersion": "1.0.0",
+          "layer": "fact",
+          "producers": [
+            "runtime-observer",
+            "legacy-telemetry-adapter"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "none",
+            "lossPolicy": "lossless"
+          },
+          "retention": {
+            "criticality": "critical",
+            "canonical": "lossless",
+            "legacyParallelStream": "runtime-dependent"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator",
+            "report:old-answer",
+            "report:prompt-not-inserted",
+            "report:prompt-not-sent"
+          ]
+        },
+        "EXPORT_AUDIT_RECORDED": {
+          "eventType": "EXPORT_AUDIT_RECORDED",
+          "contractVersion": "1.0.0",
+          "layer": "audit",
+          "producers": [
+            "proof-telemetry-audit",
+            "export-validator"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": false,
+            "requiredFields": [
+              "runSessionId"
+            ],
+            "incidentDiscriminatorFields": []
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "none",
+            "lossPolicy": "lossless"
+          },
+          "retention": {
+            "criticality": "required",
+            "canonical": "bounded-with-explicit-omission",
+            "legacyParallelStream": "not-required"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator"
+          ]
+        },
+        "EXTRACTION_ATTEMPTED": {
+          "eventType": "EXTRACTION_ATTEMPTED",
+          "contractVersion": "1.0.0",
+          "layer": "fact",
+          "producers": [
+            "runtime-observer",
+            "legacy-telemetry-adapter"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "none",
+            "lossPolicy": "lossless"
+          },
+          "retention": {
+            "criticality": "required",
+            "canonical": "bounded-with-explicit-omission",
+            "legacyParallelStream": "runtime-dependent"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator",
+            "report:no-delivery"
+          ]
+        },
+        "EXTRACTION_COMPLETED": {
+          "eventType": "EXTRACTION_COMPLETED",
+          "contractVersion": "1.0.0",
+          "layer": "fact",
+          "producers": [
+            "runtime-observer",
+            "legacy-telemetry-adapter"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "none",
+            "lossPolicy": "lossless"
+          },
+          "retention": {
+            "criticality": "critical",
+            "canonical": "lossless",
+            "legacyParallelStream": "runtime-dependent"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator",
+            "report:cutted",
+            "report:late-end",
+            "report:no-delivery",
+            "report:old-answer"
+          ]
+        },
+        "FINALIZATION_POLICY_EVALUATED": {
+          "eventType": "FINALIZATION_POLICY_EVALUATED",
+          "contractVersion": "1.0.0",
+          "layer": "decision",
+          "producers": [
+            "proof-telemetry-policy",
+            "runtime-finalization"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "none",
+            "lossPolicy": "lossless"
+          },
+          "retention": {
+            "criticality": "required",
+            "canonical": "bounded-with-explicit-omission",
+            "legacyParallelStream": "not-required"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator",
+            "report:cutted",
+            "report:false-success",
+            "report:late-end"
+          ]
+        },
+        "GENERATION_SIGNAL_CHANGED": {
+          "eventType": "GENERATION_SIGNAL_CHANGED",
+          "contractVersion": "1.0.0",
+          "layer": "fact",
+          "producers": [
+            "runtime-observer",
+            "legacy-telemetry-adapter"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "none",
+            "lossPolicy": "lossless"
+          },
+          "retention": {
+            "criticality": "required",
+            "canonical": "bounded-with-explicit-omission",
+            "legacyParallelStream": "runtime-dependent"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator",
+            "report:false-success",
+            "report:late-end"
+          ]
+        },
+        "GENERATION_START_EVALUATED": {
+          "eventType": "GENERATION_START_EVALUATED",
+          "contractVersion": "1.0.0",
+          "layer": "inference",
+          "producers": [
+            "proof-telemetry-policy",
+            "legacy-telemetry-adapter"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "none",
+            "lossPolicy": "lossless"
+          },
+          "retention": {
+            "criticality": "required",
+            "canonical": "bounded-with-explicit-omission",
+            "legacyParallelStream": "not-required"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator"
+          ]
+        },
+        "GENERATION_STATE_INFERRED": {
+          "eventType": "GENERATION_STATE_INFERRED",
+          "contractVersion": "1.0.0",
+          "layer": "inference",
+          "producers": [
+            "proof-telemetry-policy",
+            "legacy-telemetry-adapter"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "none",
+            "lossPolicy": "lossless"
+          },
+          "retention": {
+            "criticality": "required",
+            "canonical": "bounded-with-explicit-omission",
+            "legacyParallelStream": "not-required"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator"
+          ]
+        },
+        "MISSING_EVIDENCE_RECORDED": {
+          "eventType": "MISSING_EVIDENCE_RECORDED",
+          "contractVersion": "1.0.0",
+          "layer": "decision",
+          "producers": [
+            "proof-telemetry-audit",
+            "proof-telemetry-policy"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "none",
+            "lossPolicy": "lossless"
+          },
+          "retention": {
+            "criticality": "required",
+            "canonical": "bounded-with-explicit-omission",
+            "legacyParallelStream": "not-required"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator",
+            "report:cutted",
+            "report:false-success",
+            "report:late-end",
+            "report:no-delivery",
+            "report:old-answer"
+          ]
+        },
+        "MODEL_TERMINAL_RECORDED": {
+          "eventType": "MODEL_TERMINAL_RECORDED",
+          "contractVersion": "1.0.0",
+          "layer": "action",
+          "producers": [
+            "proof-telemetry-ledger",
+            "runtime-finalization"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "none",
+            "lossPolicy": "lossless"
+          },
+          "retention": {
+            "criticality": "critical",
+            "canonical": "lossless",
+            "legacyParallelStream": "not-required"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator",
+            "report:cutted",
+            "report:false-success",
+            "report:late-end",
+            "report:no-delivery",
+            "report:old-answer"
+          ]
+        },
+        "OBSERVATION_FRAME_CAPTURED": {
+          "eventType": "OBSERVATION_FRAME_CAPTURED",
+          "contractVersion": "1.0.0",
+          "layer": "fact",
+          "producers": [
+            "runtime-observer",
+            "legacy-telemetry-adapter"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "change_or_heartbeat",
+            "lossPolicy": "preserve-boundaries"
+          },
+          "retention": {
+            "criticality": "context",
+            "canonical": "bounded-with-explicit-omission",
+            "legacyParallelStream": "runtime-dependent"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator",
+            "report:false-success",
+            "report:late-end",
+            "report:old-answer",
+            "report:prompt-not-inserted",
+            "report:prompt-not-sent"
+          ]
+        },
+        "OBSERVATION_INTERVAL_CLOSED": {
+          "eventType": "OBSERVATION_INTERVAL_CLOSED",
+          "contractVersion": "1.0.0",
+          "layer": "fact",
+          "producers": [
+            "runtime-observer",
+            "legacy-telemetry-adapter"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "interval_aggregate",
+            "lossPolicy": "preserve-coverage"
+          },
+          "retention": {
+            "criticality": "context",
+            "canonical": "bounded-with-explicit-omission",
+            "legacyParallelStream": "runtime-dependent"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator",
+            "report:late-end",
+            "report:prompt-not-inserted",
+            "report:prompt-not-sent"
+          ]
+        },
+        "OBSERVATION_SLOT_DENIED": {
+          "eventType": "OBSERVATION_SLOT_DENIED",
+          "contractVersion": "1.0.0",
+          "layer": "fact",
+          "producers": [
+            "runtime-observer",
+            "legacy-telemetry-adapter"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "per_transition",
+            "lossPolicy": "preserve-denials"
+          },
+          "retention": {
+            "criticality": "context",
+            "canonical": "bounded-with-explicit-omission",
+            "legacyParallelStream": "runtime-dependent"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator",
+            "report:late-end",
+            "report:prompt-not-inserted",
+            "report:prompt-not-sent"
+          ]
+        },
+        "OBSERVATION_SLOT_GRANTED": {
+          "eventType": "OBSERVATION_SLOT_GRANTED",
+          "contractVersion": "1.0.0",
+          "layer": "fact",
+          "producers": [
+            "runtime-observer",
+            "legacy-telemetry-adapter"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "per_transition",
+            "lossPolicy": "preserve-denials"
+          },
+          "retention": {
+            "criticality": "context",
+            "canonical": "bounded-with-explicit-omission",
+            "legacyParallelStream": "runtime-dependent"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator"
+          ]
+        },
+        "OBSERVATION_SLOT_RELEASED": {
+          "eventType": "OBSERVATION_SLOT_RELEASED",
+          "contractVersion": "1.0.0",
+          "layer": "fact",
+          "producers": [
+            "runtime-observer",
+            "legacy-telemetry-adapter"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "per_transition",
+            "lossPolicy": "preserve-denials"
+          },
+          "retention": {
+            "criticality": "context",
+            "canonical": "bounded-with-explicit-omission",
+            "legacyParallelStream": "runtime-dependent"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator"
+          ]
+        },
+        "OBSERVER_HEALTH_INTERVAL_CLOSED": {
+          "eventType": "OBSERVER_HEALTH_INTERVAL_CLOSED",
+          "contractVersion": "1.0.0",
+          "layer": "fact",
+          "producers": [
+            "runtime-observer",
+            "legacy-telemetry-adapter"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "none",
+            "lossPolicy": "lossless"
+          },
+          "retention": {
+            "criticality": "context",
+            "canonical": "bounded-with-explicit-omission",
+            "legacyParallelStream": "runtime-dependent"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator",
+            "report:late-end",
+            "report:no-delivery",
+            "report:prompt-not-inserted",
+            "report:prompt-not-sent"
+          ]
+        },
+        "OBSERVER_HEALTH_OBSERVED": {
+          "eventType": "OBSERVER_HEALTH_OBSERVED",
+          "contractVersion": "1.0.0",
+          "layer": "fact",
+          "producers": [
+            "runtime-observer",
+            "legacy-telemetry-adapter"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "state_transition",
+            "lossPolicy": "preserve-degradation"
+          },
+          "retention": {
+            "criticality": "context",
+            "canonical": "bounded-with-explicit-omission",
+            "legacyParallelStream": "runtime-dependent"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator",
+            "report:late-end",
+            "report:no-delivery",
+            "report:prompt-not-inserted",
+            "report:prompt-not-sent"
+          ]
+        },
+        "PAGE_CONTEXT_OBSERVED": {
+          "eventType": "PAGE_CONTEXT_OBSERVED",
+          "contractVersion": "1.0.0",
+          "layer": "fact",
+          "producers": [
+            "runtime-observer",
+            "legacy-telemetry-adapter"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "none",
+            "lossPolicy": "lossless"
+          },
+          "retention": {
+            "criticality": "context",
+            "canonical": "bounded-with-explicit-omission",
+            "legacyParallelStream": "runtime-dependent"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator",
+            "report:old-answer",
+            "report:prompt-not-sent"
+          ]
+        },
+        "PAGE_HEALTH_OBSERVED": {
+          "eventType": "PAGE_HEALTH_OBSERVED",
+          "contractVersion": "1.0.0",
+          "layer": "fact",
+          "producers": [
+            "runtime-observer",
+            "legacy-telemetry-adapter"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "none",
+            "lossPolicy": "lossless"
+          },
+          "retention": {
+            "criticality": "context",
+            "canonical": "bounded-with-explicit-omission",
+            "legacyParallelStream": "runtime-dependent"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator",
+            "report:prompt-not-inserted",
+            "report:prompt-not-sent"
+          ]
+        },
+        "POLICY_OVERRIDE_APPLIED": {
+          "eventType": "POLICY_OVERRIDE_APPLIED",
+          "contractVersion": "1.0.0",
+          "layer": "decision",
+          "producers": [
+            "proof-telemetry-policy",
+            "runtime-finalization"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "none",
+            "lossPolicy": "lossless"
+          },
+          "retention": {
+            "criticality": "required",
+            "canonical": "bounded-with-explicit-omission",
+            "legacyParallelStream": "not-required"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator",
+            "report:cutted",
+            "report:false-success"
+          ]
+        },
+        "POST_TERMINAL_AUDIT_COMPLETED": {
+          "eventType": "POST_TERMINAL_AUDIT_COMPLETED",
+          "contractVersion": "1.0.0",
+          "layer": "audit",
+          "producers": [
+            "proof-telemetry-audit",
+            "export-validator"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "none",
+            "lossPolicy": "lossless"
+          },
+          "retention": {
+            "criticality": "required",
+            "canonical": "bounded-with-explicit-omission",
+            "legacyParallelStream": "not-required"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator",
+            "report:cutted",
+            "report:false-success",
+            "report:late-end",
+            "report:old-answer"
+          ]
+        },
+        "PROMPT_INSERTION_EVALUATED": {
+          "eventType": "PROMPT_INSERTION_EVALUATED",
+          "contractVersion": "1.0.0",
+          "layer": "fact",
+          "producers": [
+            "runtime-observer",
+            "legacy-telemetry-adapter"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "none",
+            "lossPolicy": "lossless"
+          },
+          "retention": {
+            "criticality": "critical",
+            "canonical": "lossless",
+            "legacyParallelStream": "runtime-dependent"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator",
+            "report:prompt-not-inserted"
+          ]
+        },
+        "REPLAY_VALIDATION_RECORDED": {
+          "eventType": "REPLAY_VALIDATION_RECORDED",
+          "contractVersion": "1.0.0",
+          "layer": "audit",
+          "producers": [
+            "proof-telemetry-audit",
+            "export-validator"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "none",
+            "lossPolicy": "lossless"
+          },
+          "retention": {
+            "criticality": "required",
+            "canonical": "bounded-with-explicit-omission",
+            "legacyParallelStream": "not-required"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator"
+          ]
+        },
+        "RUN_CONFIG_RECORDED": {
+          "eventType": "RUN_CONFIG_RECORDED",
+          "contractVersion": "1.0.0",
+          "layer": "system",
+          "producers": [
+            "proof-telemetry-ledger"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": false,
+            "requiredFields": [
+              "runSessionId"
+            ],
+            "incidentDiscriminatorFields": []
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "none",
+            "lossPolicy": "lossless"
+          },
+          "retention": {
+            "criticality": "required",
+            "canonical": "bounded-with-explicit-omission",
+            "legacyParallelStream": "not-required"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator"
+          ]
+        },
+        "SELECTOR_CANARY_RESULT": {
+          "eventType": "SELECTOR_CANARY_RESULT",
+          "contractVersion": "1.0.0",
+          "layer": "system",
+          "producers": [
+            "proof-telemetry-ledger"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": false,
+            "requiredFields": [
+              "runSessionId"
+            ],
+            "incidentDiscriminatorFields": []
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "none",
+            "lossPolicy": "lossless"
+          },
+          "retention": {
+            "criticality": "required",
+            "canonical": "bounded-with-explicit-omission",
+            "legacyParallelStream": "not-required"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator"
+          ]
+        },
+        "SELECTOR_FORENSIC_SNAPSHOT_CAPTURED": {
+          "eventType": "SELECTOR_FORENSIC_SNAPSHOT_CAPTURED",
+          "contractVersion": "1.0.0",
+          "layer": "audit",
+          "producers": [
+            "proof-telemetry-audit",
+            "export-validator"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "none",
+            "lossPolicy": "lossless"
+          },
+          "retention": {
+            "criticality": "required",
+            "canonical": "bounded-with-explicit-omission",
+            "legacyParallelStream": "not-required"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator"
+          ]
+        },
+        "STABILITY_INTERVAL_CLOSED": {
+          "eventType": "STABILITY_INTERVAL_CLOSED",
+          "contractVersion": "1.0.0",
+          "layer": "fact",
+          "producers": [
+            "runtime-observer",
+            "legacy-telemetry-adapter"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "none",
+            "lossPolicy": "lossless"
+          },
+          "retention": {
+            "criticality": "required",
+            "canonical": "bounded-with-explicit-omission",
+            "legacyParallelStream": "runtime-dependent"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator",
+            "report:late-end"
+          ]
+        },
+        "STRUCTURAL_VERIFICATION_EVALUATED": {
+          "eventType": "STRUCTURAL_VERIFICATION_EVALUATED",
+          "contractVersion": "1.0.0",
+          "layer": "inference",
+          "producers": [
+            "proof-telemetry-policy",
+            "legacy-telemetry-adapter"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "none",
+            "lossPolicy": "lossless"
+          },
+          "retention": {
+            "criticality": "required",
+            "canonical": "bounded-with-explicit-omission",
+            "legacyParallelStream": "not-required"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator",
+            "report:cutted",
+            "report:old-answer"
+          ]
+        },
+        "SUBMISSION_EVIDENCE_CHANGED": {
+          "eventType": "SUBMISSION_EVIDENCE_CHANGED",
+          "contractVersion": "1.0.0",
+          "layer": "fact",
+          "producers": [
+            "runtime-observer",
+            "legacy-telemetry-adapter"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "none",
+            "lossPolicy": "lossless"
+          },
+          "retention": {
+            "criticality": "critical",
+            "canonical": "lossless",
+            "legacyParallelStream": "runtime-dependent"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator",
+            "report:prompt-not-inserted",
+            "report:prompt-not-sent"
+          ]
+        },
+        "SUBMISSION_INFERRED": {
+          "eventType": "SUBMISSION_INFERRED",
+          "contractVersion": "1.0.0",
+          "layer": "inference",
+          "producers": [
+            "proof-telemetry-policy",
+            "legacy-telemetry-adapter"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "none",
+            "lossPolicy": "lossless"
+          },
+          "retention": {
+            "criticality": "required",
+            "canonical": "bounded-with-explicit-omission",
+            "legacyParallelStream": "not-required"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator",
+            "report:prompt-not-inserted",
+            "report:prompt-not-sent"
+          ]
+        },
+        "SUBMIT_ACTION_OBSERVED": {
+          "eventType": "SUBMIT_ACTION_OBSERVED",
+          "contractVersion": "1.0.0",
+          "layer": "fact",
+          "producers": [
+            "runtime-observer",
+            "legacy-telemetry-adapter"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "none",
+            "lossPolicy": "lossless"
+          },
+          "retention": {
+            "criticality": "critical",
+            "canonical": "lossless",
+            "legacyParallelStream": "runtime-dependent"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator",
+            "report:prompt-not-sent"
+          ]
+        },
+        "TERMINAL_DEADLINE_REACHED": {
+          "eventType": "TERMINAL_DEADLINE_REACHED",
+          "contractVersion": "1.0.0",
+          "layer": "fact",
+          "producers": [
+            "runtime-observer",
+            "legacy-telemetry-adapter"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "none",
+            "lossPolicy": "lossless"
+          },
+          "retention": {
+            "criticality": "required",
+            "canonical": "bounded-with-explicit-omission",
+            "legacyParallelStream": "runtime-dependent"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator",
+            "report:false-success",
+            "report:late-end"
+          ]
+        },
+        "TEXT_STATE_CHANGED": {
+          "eventType": "TEXT_STATE_CHANGED",
+          "contractVersion": "1.0.0",
+          "layer": "fact",
+          "producers": [
+            "runtime-observer",
+            "legacy-telemetry-adapter"
+          ],
+          "requiredEnvelopeFields": [
+            "schemaVersion",
+            "eventId",
+            "eventType",
+            "layer",
+            "seq",
+            "wallTs",
+            "runSessionId",
+            "producer",
+            "payload"
+          ],
+          "identity": {
+            "modelScoped": true,
+            "requiredFields": [
+              "runSessionId",
+              "modelId"
+            ],
+            "incidentDiscriminatorFields": [
+              "dispatchId",
+              "generationEpoch",
+              "documentInstanceId",
+              "navigationEpoch"
+            ]
+          },
+          "recipients": [
+            "proof-ledger",
+            "all-presets-json",
+            "standalone-report",
+            "canonical-evidence"
+          ],
+          "sampling": {
+            "mode": "none",
+            "lossPolicy": "lossless"
+          },
+          "retention": {
+            "criticality": "required",
+            "canonical": "bounded-with-explicit-omission",
+            "legacyParallelStream": "runtime-dependent"
+          },
+          "consumers": [
+            "incident-timeline",
+            "model-timeline",
+            "telemetry-validator",
+            "report:cutted",
+            "report:false-success",
+            "report:late-end",
+            "report:old-answer"
+          ]
+        }
+      },
+      "capabilityMatrixVersion": "1.0.0",
+      "capabilityMatrix": [
+        {
+          "id": "model-without-terminal",
+          "title": "Модель без terminal",
+          "support": {
+            "legacyExport": "supported",
+            "schema6": "supported",
+            "json": "supported",
+            "markdown": "partial",
+            "timeline": "supported",
+            "digest": "partial"
+          },
+          "evidence": [
+            "runCompleteness.pendingModels",
+            "incident terminal=false"
+          ]
+        },
+        {
+          "id": "active-run-export",
+          "title": "Экспорт активного запуска",
+          "support": {
+            "legacyExport": "supported",
+            "schema6": "partial",
+            "json": "supported",
+            "markdown": "partial",
+            "timeline": "supported",
+            "digest": "partial"
+          },
+          "evidence": [
+            "exportedDuringActiveRun",
+            "snapshotCompleteness",
+            "runCompleteness"
+          ]
+        },
+        {
+          "id": "tab-closed-during-generation",
+          "title": "Вкладка закрыта во время генерации",
+          "support": {
+            "legacyExport": "supported",
+            "schema6": "supported",
+            "json": "supported",
+            "markdown": "partial",
+            "timeline": "supported",
+            "digest": "partial"
+          },
+          "evidence": [
+            "PAGE_CONTEXT_OBSERVED",
+            "generation state at boundary"
+          ]
+        },
+        {
+          "id": "success-with-error-reason",
+          "title": "SUCCESS с ошибочной причиной",
+          "support": {
+            "legacyExport": "supported",
+            "schema6": "supported",
+            "json": "supported",
+            "markdown": "supported",
+            "timeline": "supported",
+            "digest": "supported"
+          },
+          "evidence": [
+            "MODEL_TERMINAL_RECORDED",
+            "DECISION_RECORDED"
+          ]
+        },
+        {
+          "id": "pending-persistence",
+          "title": "Незавершённая persistence queue",
+          "support": {
+            "legacyExport": "partial",
+            "schema6": "partial",
+            "json": "supported",
+            "markdown": "unsupported",
+            "timeline": "partial",
+            "digest": "unsupported"
+          },
+          "evidence": [
+            "snapshotCompleteness",
+            "snapshot boundary"
+          ]
+        },
+        {
+          "id": "old-answer",
+          "title": "Старый ответ",
+          "support": {
+            "legacyExport": "partial",
+            "schema6": "supported",
+            "json": "supported",
+            "markdown": "supported",
+            "timeline": "supported",
+            "digest": "supported"
+          },
+          "evidence": [
+            "DISPATCH_BASELINE_CAPTURED",
+            "CANDIDATE_IDENTITY_INFERRED"
+          ]
+        },
+        {
+          "id": "cutted-answer",
+          "title": "Обрезанный ответ",
+          "support": {
+            "legacyExport": "partial",
+            "schema6": "supported",
+            "json": "supported",
+            "markdown": "supported",
+            "timeline": "supported",
+            "digest": "supported"
+          },
+          "evidence": [
+            "TEXT_STATE_CHANGED",
+            "ANSWER_COMPLETENESS_EVALUATED"
+          ]
+        },
+        {
+          "id": "post-terminal-growth",
+          "title": "Рост после terminal",
+          "support": {
+            "legacyExport": "partial",
+            "schema6": "supported",
+            "json": "supported",
+            "markdown": "supported",
+            "timeline": "supported",
+            "digest": "supported"
+          },
+          "evidence": [
+            "POST_TERMINAL_AUDIT_COMPLETED"
+          ]
+        },
+        {
+          "id": "delivery-rejected",
+          "title": "Отклонённая доставка",
+          "support": {
+            "legacyExport": "partial",
+            "schema6": "supported",
+            "json": "supported",
+            "markdown": "supported",
+            "timeline": "supported",
+            "digest": "supported"
+          },
+          "evidence": [
+            "ANSWER_DELIVERY_REJECTED"
+          ]
+        },
+        {
+          "id": "submission-unconfirmed",
+          "title": "Нет подтверждения отправки",
+          "support": {
+            "legacyExport": "partial",
+            "schema6": "supported",
+            "json": "supported",
+            "markdown": "supported",
+            "timeline": "supported",
+            "digest": "supported"
+          },
+          "evidence": [
+            "SUBMISSION_EVIDENCE_CHANGED",
+            "observation window completeness"
+          ]
+        }
+      ],
       "predicateLanguageVersion": "1.0.0",
       "maxEscalationDepth": 2,
       "reports": {
@@ -1172,7 +3743,7 @@
     "firstSeq": 1,
     "lastSeq": 20,
     "eventCount": 20,
-    "ledgerHash": "sha256:aa800dc566a8fe5ad5c71866623d421c147b569b8f43080da9e778e11a9ae9f9",
+    "ledgerHash": "sha256:43d2b098f65b44c76b86f851af6784aecc4c77ed5a8a4173cb72dd6e77e6e518",
     "events": [
       {
         "schemaVersion": 6,
@@ -1201,8 +3772,8 @@
         },
         "payload": {
           "typed": {
-            "kind": "unknown",
-            "state": "unknown"
+            "kind": "dispatch_baseline",
+            "state": "captured"
           },
           "sourceEventType": "DISPATCH_BASELINE_CAPTURED",
           "sourceLevel": "info",
@@ -1244,8 +3815,8 @@
         },
         "payload": {
           "typed": {
-            "kind": "unknown",
-            "state": "unknown"
+            "kind": "submission",
+            "state": "attempted"
           },
           "sourceEventType": "SUBMIT_ACTION_OBSERVED",
           "sourceLevel": "info",
@@ -1461,7 +4032,7 @@
         },
         "payload": {
           "typed": {
-            "kind": "unknown",
+            "kind": "generation_start",
             "state": "unknown"
           },
           "sourceEventType": "GENERATION_START_EVALUATED",
@@ -1987,8 +4558,8 @@
         },
         "payload": {
           "typed": {
-            "kind": "unknown",
-            "state": "unknown"
+            "kind": "decision",
+            "state": "rejected"
           },
           "sourceEventType": "FINALIZATION_POLICY_EVALUATED",
           "sourceLevel": "info",
@@ -2074,7 +4645,7 @@
         20
       ],
       "generatorVersion": "proof-export@2.6.0",
-      "ledgerHash": "sha256:aa800dc566a8fe5ad5c71866623d421c147b569b8f43080da9e778e11a9ae9f9",
+      "ledgerHash": "sha256:43d2b098f65b44c76b86f851af6784aecc4c77ed5a8a4173cb72dd6e77e6e518",
       "data": {
         "GPT": {
           "modelId": "GPT",
@@ -2112,7 +4683,7 @@
         20
       ],
       "generatorVersion": "proof-export@2.6.0",
-      "ledgerHash": "sha256:aa800dc566a8fe5ad5c71866623d421c147b569b8f43080da9e778e11a9ae9f9",
+      "ledgerHash": "sha256:43d2b098f65b44c76b86f851af6784aecc4c77ed5a8a4173cb72dd6e77e6e518",
       "data": {
         "incident:synthetic-run|1|GPT|synthetic-dispatch|1": {
           "modelId": "GPT",
@@ -2297,7 +4868,7 @@
   "reports": {
     "cutted": {
       "reportDescriptor": {
-        "reportId": "rpt-cutted-ae87e51e",
+        "reportId": "rpt-cutted-9fd07a9a",
         "reportType": "cutted",
         "reportVersion": "3.6.0",
         "title": "Почему зафиксирован SUCCESS, а текст явно неполный?",
@@ -2321,7 +4892,7 @@
               "status": "not_confirmed",
               "diagnosticVerdict": "not_confirmed",
               "sufficiency": "insufficient",
-              "invariantViolationCount": 0,
+              "invariantViolationCount": 1,
               "limitations": [],
               "primaryDiagnosis": null,
               "explanationRole": "not_applicable",
@@ -2357,8 +4928,8 @@
         },
         "diagnosisArbitrationRef": "diagnosisArbitration.byIncident",
         "reportMode": "embedded-in-all-presets",
-        "dependencyRegistryVersion": "6.6.0",
-        "dependencyRegistryHash": "sha256:2ef88d1afcc7b02340b395c1d23bd7e15fcaf796ae6e3f96c5a6874021caa076",
+        "dependencyRegistryVersion": "6.7.0",
+        "dependencyRegistryHash": "sha256:0342c392c68cbd1d1b393c3a5b495758d62b0267af382c353e8873bbf6e34dfc",
         "limitations": []
       },
       "diagnosticSummary": {
@@ -2368,6 +4939,32 @@
             "diagnosticVerdict": "not_confirmed",
             "sufficiency": "insufficient",
             "invariantViolations": [
+              {
+                "invariantId": "TYPED_CANONICAL_CONFLICT",
+                "eventId": "event-269d0103-a314b14b",
+                "affectedReportTypes": [
+                  "cutted",
+                  "false-success",
+                  "old-answer",
+                  "no-delivery",
+                  "prompt-not-inserted",
+                  "prompt-not-sent",
+                  "late-end"
+                ],
+                "affectedSlotIds": [],
+                "affectedFields": [],
+                "conflict": {
+                  "typed": {
+                    "kind": "submission",
+                    "state": "confirmed"
+                  },
+                  "canonical": {
+                    "kind": "submission",
+                    "state": "evidence_partial"
+                  }
+                },
+                "message": "typed fact contradicts canonical event payload"
+              },
               {
                 "invariantId": "TEMPORAL_PROMPT_SUBMIT_ORDER",
                 "eventId": "event-c8829cbb-018c5743",
@@ -2556,7 +5153,7 @@
     },
     "false-success": {
       "reportDescriptor": {
-        "reportId": "rpt-false-success-ae87e51e",
+        "reportId": "rpt-false-success-9fd07a9a",
         "reportType": "false-success",
         "reportVersion": "3.6.0",
         "title": "Почему система решила «готово», а ответ продолжил расти?",
@@ -2582,7 +5179,7 @@
               "status": "unknown",
               "diagnosticVerdict": "unknown",
               "sufficiency": "insufficient",
-              "invariantViolationCount": 0,
+              "invariantViolationCount": 1,
               "limitations": [],
               "primaryDiagnosis": null,
               "explanationRole": "not_applicable",
@@ -2729,8 +5326,8 @@
         },
         "diagnosisArbitrationRef": "diagnosisArbitration.byIncident",
         "reportMode": "embedded-in-all-presets",
-        "dependencyRegistryVersion": "6.6.0",
-        "dependencyRegistryHash": "sha256:2ef88d1afcc7b02340b395c1d23bd7e15fcaf796ae6e3f96c5a6874021caa076",
+        "dependencyRegistryVersion": "6.7.0",
+        "dependencyRegistryHash": "sha256:0342c392c68cbd1d1b393c3a5b495758d62b0267af382c353e8873bbf6e34dfc",
         "limitations": []
       },
       "diagnosticSummary": {
@@ -2740,6 +5337,32 @@
             "diagnosticVerdict": "unknown",
             "sufficiency": "insufficient",
             "invariantViolations": [
+              {
+                "invariantId": "TYPED_CANONICAL_CONFLICT",
+                "eventId": "event-269d0103-a314b14b",
+                "affectedReportTypes": [
+                  "cutted",
+                  "false-success",
+                  "old-answer",
+                  "no-delivery",
+                  "prompt-not-inserted",
+                  "prompt-not-sent",
+                  "late-end"
+                ],
+                "affectedSlotIds": [],
+                "affectedFields": [],
+                "conflict": {
+                  "typed": {
+                    "kind": "submission",
+                    "state": "confirmed"
+                  },
+                  "canonical": {
+                    "kind": "submission",
+                    "state": "evidence_partial"
+                  }
+                },
+                "message": "typed fact contradicts canonical event payload"
+              },
               {
                 "invariantId": "TEMPORAL_PROMPT_SUBMIT_ORDER",
                 "eventId": "event-c8829cbb-018c5743",
@@ -2960,7 +5583,7 @@
     },
     "old-answer": {
       "reportDescriptor": {
-        "reportId": "rpt-old-answer-ae87e51e",
+        "reportId": "rpt-old-answer-9fd07a9a",
         "reportType": "old-answer",
         "reportVersion": "3.6.0",
         "title": "Почему принят текст от предыдущего запроса?",
@@ -2986,7 +5609,7 @@
               "status": "unknown",
               "diagnosticVerdict": "unknown",
               "sufficiency": "insufficient",
-              "invariantViolationCount": 0,
+              "invariantViolationCount": 1,
               "limitations": [],
               "primaryDiagnosis": null,
               "explanationRole": "not_applicable",
@@ -3097,8 +5720,8 @@
         },
         "diagnosisArbitrationRef": "diagnosisArbitration.byIncident",
         "reportMode": "embedded-in-all-presets",
-        "dependencyRegistryVersion": "6.6.0",
-        "dependencyRegistryHash": "sha256:2ef88d1afcc7b02340b395c1d23bd7e15fcaf796ae6e3f96c5a6874021caa076",
+        "dependencyRegistryVersion": "6.7.0",
+        "dependencyRegistryHash": "sha256:0342c392c68cbd1d1b393c3a5b495758d62b0267af382c353e8873bbf6e34dfc",
         "limitations": []
       },
       "diagnosticSummary": {
@@ -3108,6 +5731,32 @@
             "diagnosticVerdict": "unknown",
             "sufficiency": "insufficient",
             "invariantViolations": [
+              {
+                "invariantId": "TYPED_CANONICAL_CONFLICT",
+                "eventId": "event-269d0103-a314b14b",
+                "affectedReportTypes": [
+                  "cutted",
+                  "false-success",
+                  "old-answer",
+                  "no-delivery",
+                  "prompt-not-inserted",
+                  "prompt-not-sent",
+                  "late-end"
+                ],
+                "affectedSlotIds": [],
+                "affectedFields": [],
+                "conflict": {
+                  "typed": {
+                    "kind": "submission",
+                    "state": "confirmed"
+                  },
+                  "canonical": {
+                    "kind": "submission",
+                    "state": "evidence_partial"
+                  }
+                },
+                "message": "typed fact contradicts canonical event payload"
+              },
               {
                 "invariantId": "TEMPORAL_PROMPT_SUBMIT_ORDER",
                 "eventId": "event-c8829cbb-018c5743",
@@ -3315,7 +5964,7 @@
     },
     "no-delivery": {
       "reportDescriptor": {
-        "reportId": "rpt-no-delivery-ae87e51e",
+        "reportId": "rpt-no-delivery-9fd07a9a",
         "reportType": "no-delivery",
         "reportVersion": "3.6.0",
         "title": "Почему материализованный ответ текущего запроса не оказался в правильной карточке?",
@@ -3341,7 +5990,7 @@
               "status": "unknown",
               "diagnosticVerdict": "unknown",
               "sufficiency": "insufficient",
-              "invariantViolationCount": 0,
+              "invariantViolationCount": 1,
               "limitations": [],
               "primaryDiagnosis": null,
               "explanationRole": "not_applicable",
@@ -3553,8 +6202,8 @@
         },
         "diagnosisArbitrationRef": "diagnosisArbitration.byIncident",
         "reportMode": "embedded-in-all-presets",
-        "dependencyRegistryVersion": "6.6.0",
-        "dependencyRegistryHash": "sha256:2ef88d1afcc7b02340b395c1d23bd7e15fcaf796ae6e3f96c5a6874021caa076",
+        "dependencyRegistryVersion": "6.7.0",
+        "dependencyRegistryHash": "sha256:0342c392c68cbd1d1b393c3a5b495758d62b0267af382c353e8873bbf6e34dfc",
         "limitations": []
       },
       "diagnosticSummary": {
@@ -3606,6 +6255,32 @@
             "diagnosticVerdict": "unknown",
             "sufficiency": "insufficient",
             "invariantViolations": [
+              {
+                "invariantId": "TYPED_CANONICAL_CONFLICT",
+                "eventId": "event-269d0103-a314b14b",
+                "affectedReportTypes": [
+                  "cutted",
+                  "false-success",
+                  "old-answer",
+                  "no-delivery",
+                  "prompt-not-inserted",
+                  "prompt-not-sent",
+                  "late-end"
+                ],
+                "affectedSlotIds": [],
+                "affectedFields": [],
+                "conflict": {
+                  "typed": {
+                    "kind": "submission",
+                    "state": "confirmed"
+                  },
+                  "canonical": {
+                    "kind": "submission",
+                    "state": "evidence_partial"
+                  }
+                },
+                "message": "typed fact contradicts canonical event payload"
+              },
               {
                 "invariantId": "TEMPORAL_PROMPT_SUBMIT_ORDER",
                 "eventId": "event-c8829cbb-018c5743",
@@ -3803,7 +6478,7 @@
     },
     "prompt-not-inserted": {
       "reportDescriptor": {
-        "reportId": "rpt-prompt-not-inserted-ae87e51e",
+        "reportId": "rpt-prompt-not-inserted-9fd07a9a",
         "reportType": "prompt-not-inserted",
         "reportVersion": "3.6.0",
         "title": "Почему prompt не вставился в поле ввода?",
@@ -3827,7 +6502,7 @@
               "status": "not_confirmed",
               "diagnosticVerdict": "not_confirmed",
               "sufficiency": "complete",
-              "invariantViolationCount": 1,
+              "invariantViolationCount": 2,
               "limitations": [],
               "primaryDiagnosis": null,
               "explanationRole": "not_applicable",
@@ -3863,8 +6538,8 @@
         },
         "diagnosisArbitrationRef": "diagnosisArbitration.byIncident",
         "reportMode": "embedded-in-all-presets",
-        "dependencyRegistryVersion": "6.6.0",
-        "dependencyRegistryHash": "sha256:2ef88d1afcc7b02340b395c1d23bd7e15fcaf796ae6e3f96c5a6874021caa076",
+        "dependencyRegistryVersion": "6.7.0",
+        "dependencyRegistryHash": "sha256:0342c392c68cbd1d1b393c3a5b495758d62b0267af382c353e8873bbf6e34dfc",
         "limitations": []
       },
       "diagnosticSummary": {
@@ -3874,6 +6549,32 @@
             "diagnosticVerdict": "not_confirmed",
             "sufficiency": "complete",
             "invariantViolations": [
+              {
+                "invariantId": "TYPED_CANONICAL_CONFLICT",
+                "eventId": "event-269d0103-a314b14b",
+                "affectedReportTypes": [
+                  "cutted",
+                  "false-success",
+                  "old-answer",
+                  "no-delivery",
+                  "prompt-not-inserted",
+                  "prompt-not-sent",
+                  "late-end"
+                ],
+                "affectedSlotIds": [],
+                "affectedFields": [],
+                "conflict": {
+                  "typed": {
+                    "kind": "submission",
+                    "state": "confirmed"
+                  },
+                  "canonical": {
+                    "kind": "submission",
+                    "state": "evidence_partial"
+                  }
+                },
+                "message": "typed fact contradicts canonical event payload"
+              },
               {
                 "invariantId": "TEMPORAL_PROMPT_SUBMIT_ORDER",
                 "eventId": "event-c8829cbb-018c5743",
@@ -4009,7 +6710,7 @@
     },
     "prompt-not-sent": {
       "reportDescriptor": {
-        "reportId": "rpt-prompt-not-sent-ae87e51e",
+        "reportId": "rpt-prompt-not-sent-9fd07a9a",
         "reportType": "prompt-not-sent",
         "reportVersion": "3.6.0",
         "title": "Почему модель не получила запрос?",
@@ -4033,7 +6734,7 @@
               "status": "not_confirmed",
               "diagnosticVerdict": "not_confirmed",
               "sufficiency": "complete",
-              "invariantViolationCount": 1,
+              "invariantViolationCount": 2,
               "limitations": [],
               "primaryDiagnosis": null,
               "explanationRole": "not_applicable",
@@ -4069,8 +6770,8 @@
         },
         "diagnosisArbitrationRef": "diagnosisArbitration.byIncident",
         "reportMode": "embedded-in-all-presets",
-        "dependencyRegistryVersion": "6.6.0",
-        "dependencyRegistryHash": "sha256:2ef88d1afcc7b02340b395c1d23bd7e15fcaf796ae6e3f96c5a6874021caa076",
+        "dependencyRegistryVersion": "6.7.0",
+        "dependencyRegistryHash": "sha256:0342c392c68cbd1d1b393c3a5b495758d62b0267af382c353e8873bbf6e34dfc",
         "limitations": []
       },
       "diagnosticSummary": {
@@ -4080,6 +6781,32 @@
             "diagnosticVerdict": "not_confirmed",
             "sufficiency": "complete",
             "invariantViolations": [
+              {
+                "invariantId": "TYPED_CANONICAL_CONFLICT",
+                "eventId": "event-269d0103-a314b14b",
+                "affectedReportTypes": [
+                  "cutted",
+                  "false-success",
+                  "old-answer",
+                  "no-delivery",
+                  "prompt-not-inserted",
+                  "prompt-not-sent",
+                  "late-end"
+                ],
+                "affectedSlotIds": [],
+                "affectedFields": [],
+                "conflict": {
+                  "typed": {
+                    "kind": "submission",
+                    "state": "confirmed"
+                  },
+                  "canonical": {
+                    "kind": "submission",
+                    "state": "evidence_partial"
+                  }
+                },
+                "message": "typed fact contradicts canonical event payload"
+              },
               {
                 "invariantId": "TEMPORAL_PROMPT_SUBMIT_ORDER",
                 "eventId": "event-c8829cbb-018c5743",
@@ -4215,7 +6942,7 @@
     },
     "late-end": {
       "reportDescriptor": {
-        "reportId": "rpt-late-end-ae87e51e",
+        "reportId": "rpt-late-end-9fd07a9a",
         "reportType": "late-end",
         "reportVersion": "3.6.0",
         "title": "Текст давно стабилен — почему система ждала ещё N секунд?",
@@ -4241,7 +6968,7 @@
               "status": "unknown",
               "diagnosticVerdict": "unknown",
               "sufficiency": "insufficient",
-              "invariantViolationCount": 0,
+              "invariantViolationCount": 1,
               "limitations": [],
               "primaryDiagnosis": null,
               "explanationRole": "not_applicable",
@@ -4371,8 +7098,8 @@
         },
         "diagnosisArbitrationRef": "diagnosisArbitration.byIncident",
         "reportMode": "embedded-in-all-presets",
-        "dependencyRegistryVersion": "6.6.0",
-        "dependencyRegistryHash": "sha256:2ef88d1afcc7b02340b395c1d23bd7e15fcaf796ae6e3f96c5a6874021caa076",
+        "dependencyRegistryVersion": "6.7.0",
+        "dependencyRegistryHash": "sha256:0342c392c68cbd1d1b393c3a5b495758d62b0267af382c353e8873bbf6e34dfc",
         "limitations": []
       },
       "diagnosticSummary": {
@@ -4382,6 +7109,32 @@
             "diagnosticVerdict": "unknown",
             "sufficiency": "insufficient",
             "invariantViolations": [
+              {
+                "invariantId": "TYPED_CANONICAL_CONFLICT",
+                "eventId": "event-269d0103-a314b14b",
+                "affectedReportTypes": [
+                  "cutted",
+                  "false-success",
+                  "old-answer",
+                  "no-delivery",
+                  "prompt-not-inserted",
+                  "prompt-not-sent",
+                  "late-end"
+                ],
+                "affectedSlotIds": [],
+                "affectedFields": [],
+                "conflict": {
+                  "typed": {
+                    "kind": "submission",
+                    "state": "confirmed"
+                  },
+                  "canonical": {
+                    "kind": "submission",
+                    "state": "evidence_partial"
+                  }
+                },
+                "message": "typed fact contradicts canonical event payload"
+              },
               {
                 "invariantId": "TEMPORAL_PROMPT_SUBMIT_ORDER",
                 "eventId": "event-c8829cbb-018c5743",
@@ -4609,12 +7362,12 @@
       "frozenAt": 12000
     },
     "hashes": {
-      "ledger": "sha256:aa800dc566a8fe5ad5c71866623d421c147b569b8f43080da9e778e11a9ae9f9",
-      "sharedConfig": "sha256:3416a9c5aebd83e095fc35bf9a3d2e5ecf4ec118748d6e8973786345637314bf",
-      "derivedViews": "sha256:eae9f1150a509c7eb8a74b85f1c33706f53384fec9f9e225fba2a75149631c33",
-      "reports": "sha256:2832709efa007d8c3098f0868b9b857afddeb489cba356aa7b86f304c7a1c37b",
+      "ledger": "sha256:43d2b098f65b44c76b86f851af6784aecc4c77ed5a8a4173cb72dd6e77e6e518",
+      "sharedConfig": "sha256:177c6ed26e301935440c63b440ca0110f8a2d639e38d2d240869dea21daf92f0",
+      "derivedViews": "sha256:bc3ee182a330d7a3fe4d0fdb7e076b75045825f7d32b3efffafbe8fd034aa043",
+      "reports": "sha256:da7c5878f218fb79f549fec7768c97ee7a3f25b98e836d54d52b37c93f68e5f5",
       "attachments": "sha256:b1968c832915f5cdc3320b65fc5ad56f2c9f3a9d20eaa0919b749ad664b9c18a",
-      "container": "sha256:45f4e4a3042d976eaed36be20bfab488a6df36044e3b5e7dacc8245254239e97"
+      "container": "sha256:16fcd9af45b86880832f64f5eb11aba4a7f67e226e7559eff95516334fe01fb0"
     },
     "schemaValidation": {
       "valid": true,
@@ -4628,7 +7381,7 @@
     },
     "budget": {
       "limitBytes": 1000000,
-      "measuredBytes": 85169,
+      "measuredBytes": 128810,
       "withinBudget": true,
       "status": "within_budget"
     },
@@ -4636,6 +7389,18 @@
       "mode": "native-runtime-ledger",
       "canonicalRuntimeEmissionPending": false,
       "limitations": []
+    },
+    "diagnosticUsability": {
+      "status": "complete",
+      "usableForDiagnosis": true,
+      "limitations": []
+    },
+    "configuration": {
+      "runtimePolicyId": null,
+      "exportedPolicyId": "proof-default-v2",
+      "policyExactMatch": true,
+      "runtimeEventSchemaVersion": null,
+      "containerSchemaVersion": "5.0"
     }
   }
 }

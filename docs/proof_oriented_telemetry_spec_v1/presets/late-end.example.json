@@ -70,8 +70,8 @@
       "blockedConclusions": []
     },
     "reportMode": "standalone",
-    "dependencyRegistryVersion": "6.6.0",
-    "dependencyRegistryHash": "sha256:2ef88d1afcc7b02340b395c1d23bd7e15fcaf796ae6e3f96c5a6874021caa076",
+    "dependencyRegistryVersion": "6.7.0",
+    "dependencyRegistryHash": "sha256:0342c392c68cbd1d1b393c3a5b495758d62b0267af382c353e8873bbf6e34dfc",
     "limitations": []
   },
   "correlation": {
@@ -1475,7 +1475,7 @@
       "reason": null
     },
     "hashes": {
-      "artifact": "sha256:7ab2a1a1a657715f23743682c3684848f0f5852f4dff7365c97b8c8254d2cebf",
+      "artifact": "sha256:ae248fd8e6ed231b3136ad246144e220a5d3339340a72d1cfa15b71781bc4fb0",
       "semantic": "sha256:f977ac490f94b993730ec9c5f78e10a862dba02e2d67393c2257e7a918779149"
     },
     "size": {

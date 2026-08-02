@@ -2,7 +2,7 @@
   "schemaVersion": "5.0",
   "fileKind": "diagnostic-report",
   "reportDescriptor": {
-    "reportId": "rpt-cutted-GPT-eed870ec",
+    "reportId": "rpt-cutted-GPT-a4e96657",
     "reportType": "cutted",
     "reportVersion": "3.6.0",
     "title": "Почему зафиксирован SUCCESS, а текст явно неполный?",
@@ -79,8 +79,8 @@
       "blockedConclusions": []
     },
     "reportMode": "standalone",
-    "dependencyRegistryVersion": "6.6.0",
-    "dependencyRegistryHash": "sha256:2ef88d1afcc7b02340b395c1d23bd7e15fcaf796ae6e3f96c5a6874021caa076",
+    "dependencyRegistryVersion": "6.7.0",
+    "dependencyRegistryHash": "sha256:0342c392c68cbd1d1b393c3a5b495758d62b0267af382c353e8873bbf6e34dfc",
     "limitations": []
   },
   "correlation": {
@@ -645,8 +645,8 @@
         },
         "payload": {
           "typed": {
-            "kind": "unknown",
-            "state": "unknown"
+            "kind": "decision",
+            "state": "rejected"
           },
           "sourceEventType": "FINALIZATION_POLICY_EVALUATED",
           "sourceLevel": "info",
@@ -817,7 +817,7 @@
   "derivedViews": {
     "recordedDerivedView": {
       "source": "full-frozen-incident",
-      "fullIncidentSemanticHash": "sha256:055a6a4c5fa5d6e379138f9954804868de4c22dc3a80f699e696bf0b27652882",
+      "fullIncidentSemanticHash": "sha256:3ec73b773ba51f25da888887f5a3fcd97d57c15eaeba8492e27cb7535b591d74",
       "taskProjectionHash": "sha256:40c18493227079d8d044d84b214c0fcb2e6a331dc9d604f70bfa734a629e03c8",
       "data": {
         "modelId": "GPT",
@@ -979,7 +979,7 @@
     "modelTimeline": {
       "viewType": "cutted",
       "generatorVersion": "proof-export@2.6.0",
-      "ledgerHash": "sha256:8f2e805dd5864220cbdef7cf52ac93f6d278a33f70dff74dd5c3971fa267dcc8",
+      "ledgerHash": "sha256:9e7074dfe9738a6f6944873db31f993412857f69d951672dd1e9fbeeaa8e11b0",
       "data": {
         "modelId": "GPT",
         "stateAxes": {
@@ -1394,18 +1394,18 @@
       "modelId": "GPT",
       "dispatchId": "synthetic-dispatch",
       "generationEpoch": 1,
-      "sourceLedgerHash": "sha256:37316074520423c99104bfd2c0e492f9c62ec2e2f8af3f772f355461fbc4f244",
-      "materializedEventHash": "sha256:8f2e805dd5864220cbdef7cf52ac93f6d278a33f70dff74dd5c3971fa267dcc8"
+      "sourceLedgerHash": "sha256:64f4ceea971ac61601aa89ea596d8afb9c8f4c9cc2d017ceb7f23cb326ceaac9",
+      "materializedEventHash": "sha256:9e7074dfe9738a6f6944873db31f993412857f69d951672dd1e9fbeeaa8e11b0"
     }
   },
   "attachments": [],
   "exportIntegrity": {
     "generatorVersion": "proof-export@2.6.0",
     "sampleData": true,
-    "sourceLedgerHash": "sha256:37316074520423c99104bfd2c0e492f9c62ec2e2f8af3f772f355461fbc4f244",
-    "materializedEventHash": "sha256:8f2e805dd5864220cbdef7cf52ac93f6d278a33f70dff74dd5c3971fa267dcc8",
-    "semanticHash": "sha256:da7a6fe83d8f8acc5cb4eaec6cd735dd868109aaf696daeb0415502ef42cc82a",
-    "fullIncidentSemanticHash": "sha256:055a6a4c5fa5d6e379138f9954804868de4c22dc3a80f699e696bf0b27652882",
+    "sourceLedgerHash": "sha256:64f4ceea971ac61601aa89ea596d8afb9c8f4c9cc2d017ceb7f23cb326ceaac9",
+    "materializedEventHash": "sha256:9e7074dfe9738a6f6944873db31f993412857f69d951672dd1e9fbeeaa8e11b0",
+    "semanticHash": "sha256:259bdcae6fdf84027b31bd20d869bedfec30a444c1964601844d77e9d72ff7a0",
+    "fullIncidentSemanticHash": "sha256:3ec73b773ba51f25da888887f5a3fcd97d57c15eaeba8492e27cb7535b591d74",
     "fullIncidentEventCount": 8,
     "applicabilitySource": "full-frozen-incident",
     "verdictPreservation": {
@@ -1435,11 +1435,11 @@
       "reason": null
     },
     "hashes": {
-      "artifact": "sha256:f7dd0a81ddadd37b5f034dc031227e4f0cb2f46fa9399b6f9db03cb4188af9d0",
-      "semantic": "sha256:da7a6fe83d8f8acc5cb4eaec6cd735dd868109aaf696daeb0415502ef42cc82a"
+      "artifact": "sha256:26d0f03a61eec90226043e2c3cd41ef1a7a0f62471020cb2303dec0bc2a458ae",
+      "semantic": "sha256:259bdcae6fdf84027b31bd20d869bedfec30a444c1964601844d77e9d72ff7a0"
     },
     "size": {
-      "measuredBytes": 30900,
+      "measuredBytes": 30902,
       "category": "medium",
       "measurementOnly": true
     },
