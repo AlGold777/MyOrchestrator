@@ -5702,3 +5702,8 @@ Backlog `what-to-do.md`, батч 1 (UI + Финализация).
 
 - В обеих страницах результатов добавлен явный выбор `Digest` / `Canonical evidence` / `Full forensic`; default остаётся `Digest`, прежняя настройка toggle мигрируется.
 - Canonical evidence и full forensic строятся/сериализуются в worker, а timeout по-прежнему гарантирует recovery JSON со всеми canonical events.
+
+# 2.81.233
+
+- Добавлены read-only proof-ledger проекции Timeline и Markdown с eventId, scope, layer и typed fact без сырых prompt/answer данных.
+- Timeline сравнивается с legacy потоком в shadow-режиме; MD сохраняет прежние разделы и добавляет canonical proof appendix из той же snapshot boundary.

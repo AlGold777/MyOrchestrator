@@ -843,6 +843,33 @@
         telemetryPlatformSelect.value = optionValues.includes(current) ? current : 'all';
     };
 
+    let proofTimelineShadowTimer = null;
+    let proofTimelineShadowRevision = 0;
+    const scheduleProofTimelineShadow = (legacyEvents = []) => {
+        if (!window.ProofTelemetryPresentations?.buildShadowBundle || !chrome?.runtime?.sendMessage) return;
+        const revision = ++proofTimelineShadowRevision;
+        clearTimeout(proofTimelineShadowTimer);
+        proofTimelineShadowTimer = setTimeout(() => {
+            try {
+                chrome.runtime.sendMessage({ type: 'GET_PROOF_TELEMETRY_SNAPSHOT', runSessionId: null }, (snapshot) => {
+                    if (chrome.runtime.lastError || revision !== proofTimelineShadowRevision || !snapshot?.events) return;
+                    const shadow = window.ProofTelemetryPresentations.buildShadowBundle(legacyEvents, snapshot.events, {
+                        generatedAt: Date.now(),
+                        snapshotBoundary: {
+                            runSessionId: snapshot.runSessionId,
+                            ledgerCompleteThroughSeq: snapshot.lastSeq || snapshot.events[snapshot.events.length - 1]?.seq || 0
+                        }
+                    });
+                    window.__PROOF_TELEMETRY_TIMELINE_SHADOW__ = shadow;
+                    if (telemetryTimeline) {
+                        telemetryTimeline.dataset.proofShadowStatus = shadow.comparison.status;
+                        telemetryTimeline.dataset.proofShadowVersion = shadow.version;
+                    }
+                });
+            } catch (_) {}
+        }, 50);
+    };
+
     const renderTelemetry = (events = []) => {
         if (!telemetryTimeline) return;
         const scoped = filterEventsToCurrentRun(events);
@@ -851,6 +878,7 @@
         const { filtered, hasSelection } = getTelemetryFilteredEvents(scopedEvents);
         const visibleEvents = filtered;
         telemetryFilteredCache = visibleEvents;
+        scheduleProofTimelineShadow(visibleEvents);
         refreshTelemetryBridge();
         renderTelemetryRounds(scopedEvents);
         renderTelemetrySummary(visibleEvents);

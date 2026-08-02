@@ -707,6 +707,17 @@ incident молча, затем вызывает штатный shared builder �
 сериализуются вне UI-потока в export worker. При timeout остаётся recovery-файл,
 содержащий все canonical events.
 
+С v2.81.233 `ProofTelemetryPresentations` строит Timeline и Markdown напрямую
+из canonical proof ledger. Текущий Timeline пока не заменяется: рядом в памяти
+создаётся shadow-проекция и фиксируются legacy-only/proof-only event types,
+расхождения model/dispatch identity, terminal count и временных границ. Результат
+доступен как `window.__PROOF_TELEMETRY_TIMELINE_SHADOW__`, а статус/version — в
+dataset Timeline. Экспорт All Logs MD сохраняет прежние секции и добавляет
+canonical proof appendix с `seq`, `eventId`, scope, layer и typed fact из
+зафиксированной proof snapshot. Его shadow-сравнение доступно как
+`window.__PROOF_TELEMETRY_MARKDOWN_SHADOW__`. Оба пути read-only и ничего не
+записывают в журнал, который наблюдают.
+
 - Platform/Tasks фильтруют canonical envelopes по `modelId` и безопасному
   event payload. Исходные `seq` не перенумеровываются; filtered ledger остаётся
   immutable, а export boundary равен фактическому последнему включённому `seq`.
