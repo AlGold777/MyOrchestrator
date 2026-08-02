@@ -13,6 +13,14 @@ const {
 } = require('./validate-proof-telemetry.js');
 
 const NON_BLOCKING_DIAGNOSTIC_CODES = new Set(['S06', 'S15']);
+const REQUESTABLE_REPRODUCTION_MODES = Object.freeze([
+  'exact-reproduction',
+  'legacy-reproduction',
+  'reinterpretation'
+]);
+// A legacy mode is truthful only when its historical generator is still
+// executable. Register adapters here; never route it through current policy.
+const LEGACY_REPRODUCTION_ADAPTERS = Object.freeze([]);
 
 function parseArgs(argv) {
   const options = {};
@@ -73,7 +81,38 @@ async function reproductionCompatibility(descriptor) {
   if (descriptor.reportVersions.length !== 1 || descriptor.reportVersions[0] !== ProofTelemetry.REPORT_VERSION) {
     reasons.push(`report versions ${descriptor.reportVersions.join(',') || 'missing'} != ${ProofTelemetry.REPORT_VERSION}`);
   }
-  return { exactSupported: reasons.length === 0, reasons, currentRegistryHash };
+  const legacyAdapter = LEGACY_REPRODUCTION_ADAPTERS.find((adapter) => adapter.matches(descriptor)) || null;
+  return {
+    exactSupported: reasons.length === 0,
+    legacySupported: Boolean(legacyAdapter),
+    legacyAdapter,
+    reasons,
+    currentRegistryHash
+  };
+}
+
+function reproductionError(message) {
+  const error = new Error(`REPRODUCTION_UNSUPPORTED: ${message}`);
+  error.code = 'REPRODUCTION_UNSUPPORTED';
+  error.reproductionMode = 'unsupported';
+  return error;
+}
+
+function resolveReproductionMode(requestedMode, compatibility, validationErrors = []) {
+  if (!REQUESTABLE_REPRODUCTION_MODES.includes(requestedMode)) {
+    throw reproductionError(`unknown requested mode ${requestedMode}`);
+  }
+  if (requestedMode === 'reinterpretation') return { mode: 'reinterpretation', adapter: null };
+  if (requestedMode === 'legacy-reproduction') {
+    if (compatibility.legacySupported) return { mode: 'legacy-reproduction', adapter: compatibility.legacyAdapter };
+    throw reproductionError('no registered legacy adapter matches the source generator, report version and registry');
+  }
+  const compatibilityErrors = validationErrors.filter((error) => error.code === 'REPRODUCTION_UNSUPPORTED');
+  if (!compatibility.exactSupported || compatibilityErrors.length) {
+    const reasons = [...compatibility.reasons, ...compatibilityErrors.map((error) => error.message)].filter(Boolean);
+    throw reproductionError(reasons.join('; ') || 'source toolchain identity does not match');
+  }
+  return { mode: 'exact-reproduction', adapter: null };
 }
 
 function incidentList(events) {
@@ -171,20 +210,15 @@ async function run(argv = process.argv.slice(2)) {
   const validation = await validateArtifact(artifact);
   const compatibility = await reproductionCompatibility(descriptor);
   const requestedMode = String(options.reproduction || 'exact-reproduction');
-  if (!['exact-reproduction', 'reinterpretation'].includes(requestedMode)) throw new Error(`unsupported reproduction mode: ${requestedMode}`);
-  const compatibilityErrors = validation.errors.filter((error) => error.code === 'REPRODUCTION_UNSUPPORTED');
-  if (!compatibility.exactSupported) compatibilityErrors.push({
-    code: 'REPRODUCTION_UNSUPPORTED',
-    message: compatibility.reasons.join('; ')
-  });
   const blockingErrors = validation.errors.filter((error) => error.code !== 'REPRODUCTION_UNSUPPORTED');
-  if (blockingErrors.length || (compatibilityErrors.length && requestedMode !== 'reinterpretation')) {
-    const reportedErrors = [...blockingErrors, ...compatibilityErrors];
-    const error = new Error(`SOURCE_VALIDATION_FAILED: ${reportedErrors.map((item) => `${item.code}:${item.message}`).join('; ')}`);
+  if (blockingErrors.length) {
+    const error = new Error(`SOURCE_VALIDATION_FAILED: ${blockingErrors.map((item) => `${item.code}:${item.message}`).join('; ')}`);
     error.validation = validation;
     throw error;
   }
-  const reproductionMode = requestedMode === 'reinterpretation' ? 'reinterpretation' : 'exact-reproduction';
+  const resolution = resolveReproductionMode(requestedMode, compatibility, validation.errors);
+  if (resolution.adapter) return resolution.adapter.run({ artifact, descriptor, options });
+  const reproductionMode = resolution.mode;
   const incidents = incidentList(descriptor.events);
   if (options['list-incidents']) {
     return { kind: descriptor.kind, reproductionMode, incidentCount: incidents.length, incidents };
@@ -233,7 +267,7 @@ async function main() {
   writeOutput(options.out === true ? null : options.out, output, options.filename);
 }
 
-module.exports = { parseArgs, inputDescriptor, reproductionCompatibility, incidentList, selectIncident, sourceProvenance, assertOutputValidation, diagnosticLimitations, writeDiagnosticLimitations, run, writeOutput };
+module.exports = { REQUESTABLE_REPRODUCTION_MODES, LEGACY_REPRODUCTION_ADAPTERS, parseArgs, inputDescriptor, reproductionCompatibility, resolveReproductionMode, incidentList, selectIncident, sourceProvenance, assertOutputValidation, diagnosticLimitations, writeDiagnosticLimitations, run, writeOutput };
 if (require.main === module) main().catch((error) => {
   console.error(error?.message || error);
   process.exitCode = 1;

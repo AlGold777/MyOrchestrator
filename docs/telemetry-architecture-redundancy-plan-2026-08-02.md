@@ -479,6 +479,6 @@ Performance-набор: 500, 2 000, 5 000 и 10 000 событий; нескол
 1. Сохранять S06/S15 в артефакте и stderr вместо молчаливого подавления. - Done.
 2. Запретить inference без basis и исправить пять осей отсутствующих сигналов. - Done.
 3. Закрепить тестом неизменность очереди, ожидаемой экспортом. - Done.
-4. Уточнить исполняемый контракт legacy/unsupported reproduction.
+4. Уточнить исполняемый контракт legacy/unsupported reproduction. - Done.
 
 Ни один этап этого документа сам по себе не разрешает удалять legacy buffer, `stageTimeline`, `decisionLedger`, `legacyDebugRing`, старые exporter/replay модули, embedded reports или full forensic режим.

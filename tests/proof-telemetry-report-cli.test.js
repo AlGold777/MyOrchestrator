@@ -121,4 +121,29 @@ describe('offline proof telemetry report CLI', () => {
     const listed = await Cli.run([filename, '--list-incidents', '--reproduction=reinterpretation']);
     expect(listed.reproductionMode).toBe('reinterpretation');
   });
+
+  test('represents unavailable legacy reproduction as an explicit unsupported outcome', async () => {
+    const { filename } = await fixture();
+    expect(Cli.REQUESTABLE_REPRODUCTION_MODES).toEqual([
+      'exact-reproduction',
+      'legacy-reproduction',
+      'reinterpretation'
+    ]);
+    expect(Cli.LEGACY_REPRODUCTION_ADAPTERS).toHaveLength(0);
+    await expect(Cli.run([filename, '--list-incidents', '--reproduction=legacy-reproduction']))
+      .rejects.toEqual(expect.objectContaining({
+        code: 'REPRODUCTION_UNSUPPORTED',
+        reproductionMode: 'unsupported',
+        message: expect.stringContaining('no registered legacy adapter')
+      }));
+  });
+
+  test('rejects unknown reproduction labels as unsupported instead of silently reinterpreting', async () => {
+    const { filename } = await fixture();
+    await expect(Cli.run([filename, '--list-incidents', '--reproduction=unsupported']))
+      .rejects.toEqual(expect.objectContaining({
+        code: 'REPRODUCTION_UNSUPPORTED',
+        reproductionMode: 'unsupported'
+      }));
+  });
 });

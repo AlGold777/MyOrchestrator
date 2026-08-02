@@ -5758,3 +5758,8 @@ Backlog `what-to-do.md`, батч 1 (UI + Финализация).
 # 2.81.243
 
 - Исполняемый ledger-тест фиксирует инвариант экспортной границы: export builder не добавляет событий, persistence writes или queued mutations после ожидаемого snapshot.
+
+# 2.81.244
+
+- Контракт CLI различает exact, conditional legacy, explicit reinterpretation и unsupported outcome.
+- `legacy-reproduction` больше не является нераспознанной строкой: без зарегистрированного исторического адаптера он fail-closed завершается кодом `REPRODUCTION_UNSUPPORTED`; текущая policy не выдаётся за legacy.

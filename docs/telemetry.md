@@ -783,6 +783,11 @@ canonical recovery и отложенный `URL.revokeObjectURL`.
 после ожидания queued record построение артефакта не меняет ledger, число
 persistence writes и `queuedMutationCount`.
 
+С v2.81.244 CLI формально различает `exact-reproduction`, условный
+`legacy-reproduction`, явную `reinterpretation` и итог `unsupported`.
+Исторических адаптеров пока нет: запрос legacy завершается fail-closed с
+`REPRODUCTION_UNSUPPORTED`, а не пересчитывается текущей policy.
+
 - Platform/Tasks фильтруют canonical envelopes по `modelId` и безопасному
   event payload. Исходные `seq` не перенумеровываются; filtered ledger остаётся
   immutable, а export boundary равен фактическому последнему включённому `seq`.
