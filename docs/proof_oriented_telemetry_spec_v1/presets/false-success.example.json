@@ -427,6 +427,109 @@
     "terminalMode": "forced",
     "terminationCause": "policy_forced"
   },
+  "stateAxesProvenance": {
+    "submission": {
+      "layer": "audit",
+      "basisEventIds": [],
+      "ruleId": "no-submission-evidence",
+      "derivationVersion": "state-axes-provenance@1.0.0"
+    },
+    "generationStart": {
+      "layer": "audit",
+      "basisEventIds": [],
+      "ruleId": "generation-start-not-evaluable",
+      "derivationVersion": "state-axes-provenance@1.0.0"
+    },
+    "answerIdentity": {
+      "layer": "inference",
+      "basisEventIds": [],
+      "ruleId": "no-candidate-evidence",
+      "derivationVersion": "state-axes-provenance@1.0.0"
+    },
+    "observedGeneration": {
+      "layer": "decision",
+      "basisEventIds": [
+        "event-23a4e34a-d1884fd6"
+      ],
+      "ruleId": "terminal-action-closes-generation",
+      "derivationVersion": "state-axes-provenance@1.0.0"
+    },
+    "textEvolution": {
+      "layer": "audit",
+      "basisEventIds": [],
+      "ruleId": "no-text-evolution-evidence",
+      "derivationVersion": "state-axes-provenance@1.0.0"
+    },
+    "answerCompleteness": {
+      "layer": "decision",
+      "basisEventIds": [
+        "event-23a4e34a-d1884fd6",
+        "event-0fdd4ea6-042a4e12"
+      ],
+      "ruleId": "terminal-without-completion-proof",
+      "derivationVersion": "state-axes-provenance@1.0.0"
+    },
+    "extraction": {
+      "layer": "inference",
+      "basisEventIds": [],
+      "ruleId": "no-extraction-evidence",
+      "derivationVersion": "state-axes-provenance@1.0.0"
+    },
+    "verification": {
+      "layer": "inference",
+      "basisEventIds": [],
+      "ruleId": "no-verification-evidence",
+      "derivationVersion": "state-axes-provenance@1.0.0"
+    },
+    "completionDetection": {
+      "layer": "inference",
+      "basisEventIds": [
+        "event-0fdd4ea6-042a4e12"
+      ],
+      "ruleId": "completion-hypothesis",
+      "derivationVersion": "state-axes-provenance@1.0.0"
+    },
+    "completionEvidenceTier": {
+      "layer": "inference",
+      "basisEventIds": [
+        "event-0fdd4ea6-042a4e12"
+      ],
+      "ruleId": "weak-completion-evidence",
+      "derivationVersion": "state-axes-provenance@1.0.0"
+    },
+    "observationReliability": {
+      "layer": "audit",
+      "basisEventIds": [],
+      "ruleId": "no-observation-frame",
+      "derivationVersion": "state-axes-provenance@1.0.0"
+    },
+    "finalization": {
+      "layer": "decision",
+      "basisEventIds": [
+        "event-23a4e34a-d1884fd6"
+      ],
+      "ruleId": "terminal-action-accepted",
+      "derivationVersion": "state-axes-provenance@1.0.0"
+    },
+    "terminalMode": {
+      "layer": "decision",
+      "basisEventIds": [
+        "event-23a4e34a-d1884fd6",
+        "event-484f7778-03da40e8"
+      ],
+      "ruleId": "deadline-forced-terminal",
+      "derivationVersion": "state-axes-provenance@1.0.0"
+    },
+    "terminationCause": {
+      "layer": "decision",
+      "basisEventIds": [
+        "event-23a4e34a-d1884fd6",
+        "event-484f7778-03da40e8"
+      ],
+      "ruleId": "deadline-forced-termination",
+      "derivationVersion": "state-axes-provenance@1.0.0"
+    }
+  },
   "eventSelection": {
     "includedEventTypes": [
       "GENERATION_SIGNAL_CHANGED",
@@ -547,7 +650,8 @@
         "generationEpoch": 1,
         "candidateId": "synthetic-candidate",
         "includedFor": [
-          "slot:completion_proof"
+          "slot:completion_proof",
+          "state-axis-provenance"
         ]
       },
       {
@@ -594,7 +698,8 @@
         "generationEpoch": 1,
         "candidateId": "synthetic-candidate",
         "includedFor": [
-          "slot:finalization_policy"
+          "slot:finalization_policy",
+          "state-axis-provenance"
         ]
       },
       {
@@ -695,7 +800,8 @@
         "includedFor": [
           "counterevidence:false-success",
           "evidence-ref:event-f87dbed2-1694942a",
-          "slot:success_terminal"
+          "slot:success_terminal",
+          "state-axis-provenance"
         ]
       },
       {
@@ -858,7 +964,7 @@
   "derivedViews": {
     "recordedDerivedView": {
       "source": "full-frozen-incident",
-      "fullIncidentSemanticHash": "sha256:6957a5ac84c11da27a083cbcd60cf2d992a8fc04c1c6d8a621ea3ac61c6f1d7e",
+      "fullIncidentSemanticHash": "sha256:f8aeb1d1ac6c859db6965c08b37efa4f813bf87834cc4a67b905eaaa64294ce8",
       "taskProjectionHash": "sha256:d2d284083b9e298f0a145a76f0eb2615857c66701b3e2aa0552ce431607675ca",
       "data": {
         "modelId": "GPT",
@@ -877,6 +983,109 @@
           "finalization": "accepted",
           "terminalMode": "forced",
           "terminationCause": "policy_forced"
+        },
+        "stateAxesProvenance": {
+          "submission": {
+            "layer": "audit",
+            "basisEventIds": [],
+            "ruleId": "no-submission-evidence",
+            "derivationVersion": "state-axes-provenance@1.0.0"
+          },
+          "generationStart": {
+            "layer": "audit",
+            "basisEventIds": [],
+            "ruleId": "generation-start-not-evaluable",
+            "derivationVersion": "state-axes-provenance@1.0.0"
+          },
+          "answerIdentity": {
+            "layer": "inference",
+            "basisEventIds": [],
+            "ruleId": "no-candidate-evidence",
+            "derivationVersion": "state-axes-provenance@1.0.0"
+          },
+          "observedGeneration": {
+            "layer": "decision",
+            "basisEventIds": [
+              "event-23a4e34a-d1884fd6"
+            ],
+            "ruleId": "terminal-action-closes-generation",
+            "derivationVersion": "state-axes-provenance@1.0.0"
+          },
+          "textEvolution": {
+            "layer": "audit",
+            "basisEventIds": [],
+            "ruleId": "no-text-evolution-evidence",
+            "derivationVersion": "state-axes-provenance@1.0.0"
+          },
+          "answerCompleteness": {
+            "layer": "decision",
+            "basisEventIds": [
+              "event-23a4e34a-d1884fd6",
+              "event-0fdd4ea6-042a4e12"
+            ],
+            "ruleId": "terminal-without-completion-proof",
+            "derivationVersion": "state-axes-provenance@1.0.0"
+          },
+          "extraction": {
+            "layer": "inference",
+            "basisEventIds": [],
+            "ruleId": "no-extraction-evidence",
+            "derivationVersion": "state-axes-provenance@1.0.0"
+          },
+          "verification": {
+            "layer": "inference",
+            "basisEventIds": [],
+            "ruleId": "no-verification-evidence",
+            "derivationVersion": "state-axes-provenance@1.0.0"
+          },
+          "completionDetection": {
+            "layer": "inference",
+            "basisEventIds": [
+              "event-0fdd4ea6-042a4e12"
+            ],
+            "ruleId": "completion-hypothesis",
+            "derivationVersion": "state-axes-provenance@1.0.0"
+          },
+          "completionEvidenceTier": {
+            "layer": "inference",
+            "basisEventIds": [
+              "event-0fdd4ea6-042a4e12"
+            ],
+            "ruleId": "weak-completion-evidence",
+            "derivationVersion": "state-axes-provenance@1.0.0"
+          },
+          "observationReliability": {
+            "layer": "audit",
+            "basisEventIds": [],
+            "ruleId": "no-observation-frame",
+            "derivationVersion": "state-axes-provenance@1.0.0"
+          },
+          "finalization": {
+            "layer": "decision",
+            "basisEventIds": [
+              "event-23a4e34a-d1884fd6"
+            ],
+            "ruleId": "terminal-action-accepted",
+            "derivationVersion": "state-axes-provenance@1.0.0"
+          },
+          "terminalMode": {
+            "layer": "decision",
+            "basisEventIds": [
+              "event-23a4e34a-d1884fd6",
+              "event-484f7778-03da40e8"
+            ],
+            "ruleId": "deadline-forced-terminal",
+            "derivationVersion": "state-axes-provenance@1.0.0"
+          },
+          "terminationCause": {
+            "layer": "decision",
+            "basisEventIds": [
+              "event-23a4e34a-d1884fd6",
+              "event-484f7778-03da40e8"
+            ],
+            "ruleId": "deadline-forced-termination",
+            "derivationVersion": "state-axes-provenance@1.0.0"
+          }
         },
         "eventSeqs": [
           1,
@@ -1022,7 +1231,7 @@
     "modelTimeline": {
       "viewType": "false-success",
       "generatorVersion": "proof-export@2.6.0",
-      "ledgerHash": "sha256:214a65cbf9a594e9c647d366842077f24eb74651b6813e942650696098b25fab",
+      "ledgerHash": "sha256:5ecbce0fd487820f0292e7927958c7992f39591dcd5b50c3a099e5b7f2797aac",
       "data": {
         "modelId": "GPT",
         "stateAxes": {
@@ -1040,6 +1249,109 @@
           "finalization": "accepted",
           "terminalMode": "forced",
           "terminationCause": "policy_forced"
+        },
+        "stateAxesProvenance": {
+          "submission": {
+            "layer": "audit",
+            "basisEventIds": [],
+            "ruleId": "no-submission-evidence",
+            "derivationVersion": "state-axes-provenance@1.0.0"
+          },
+          "generationStart": {
+            "layer": "audit",
+            "basisEventIds": [],
+            "ruleId": "generation-start-not-evaluable",
+            "derivationVersion": "state-axes-provenance@1.0.0"
+          },
+          "answerIdentity": {
+            "layer": "inference",
+            "basisEventIds": [],
+            "ruleId": "no-candidate-evidence",
+            "derivationVersion": "state-axes-provenance@1.0.0"
+          },
+          "observedGeneration": {
+            "layer": "decision",
+            "basisEventIds": [
+              "event-23a4e34a-d1884fd6"
+            ],
+            "ruleId": "terminal-action-closes-generation",
+            "derivationVersion": "state-axes-provenance@1.0.0"
+          },
+          "textEvolution": {
+            "layer": "audit",
+            "basisEventIds": [],
+            "ruleId": "no-text-evolution-evidence",
+            "derivationVersion": "state-axes-provenance@1.0.0"
+          },
+          "answerCompleteness": {
+            "layer": "decision",
+            "basisEventIds": [
+              "event-23a4e34a-d1884fd6",
+              "event-0fdd4ea6-042a4e12"
+            ],
+            "ruleId": "terminal-without-completion-proof",
+            "derivationVersion": "state-axes-provenance@1.0.0"
+          },
+          "extraction": {
+            "layer": "inference",
+            "basisEventIds": [],
+            "ruleId": "no-extraction-evidence",
+            "derivationVersion": "state-axes-provenance@1.0.0"
+          },
+          "verification": {
+            "layer": "inference",
+            "basisEventIds": [],
+            "ruleId": "no-verification-evidence",
+            "derivationVersion": "state-axes-provenance@1.0.0"
+          },
+          "completionDetection": {
+            "layer": "inference",
+            "basisEventIds": [
+              "event-0fdd4ea6-042a4e12"
+            ],
+            "ruleId": "completion-hypothesis",
+            "derivationVersion": "state-axes-provenance@1.0.0"
+          },
+          "completionEvidenceTier": {
+            "layer": "inference",
+            "basisEventIds": [
+              "event-0fdd4ea6-042a4e12"
+            ],
+            "ruleId": "weak-completion-evidence",
+            "derivationVersion": "state-axes-provenance@1.0.0"
+          },
+          "observationReliability": {
+            "layer": "audit",
+            "basisEventIds": [],
+            "ruleId": "no-observation-frame",
+            "derivationVersion": "state-axes-provenance@1.0.0"
+          },
+          "finalization": {
+            "layer": "decision",
+            "basisEventIds": [
+              "event-23a4e34a-d1884fd6"
+            ],
+            "ruleId": "terminal-action-accepted",
+            "derivationVersion": "state-axes-provenance@1.0.0"
+          },
+          "terminalMode": {
+            "layer": "decision",
+            "basisEventIds": [
+              "event-23a4e34a-d1884fd6",
+              "event-484f7778-03da40e8"
+            ],
+            "ruleId": "deadline-forced-terminal",
+            "derivationVersion": "state-axes-provenance@1.0.0"
+          },
+          "terminationCause": {
+            "layer": "decision",
+            "basisEventIds": [
+              "event-23a4e34a-d1884fd6",
+              "event-484f7778-03da40e8"
+            ],
+            "ruleId": "deadline-forced-termination",
+            "derivationVersion": "state-axes-provenance@1.0.0"
+          }
         },
         "eventSeqs": [
           1,
@@ -1438,7 +1750,7 @@
       "dispatchId": "synthetic-dispatch",
       "generationEpoch": 1,
       "sourceLedgerHash": "sha256:f822eef23920f75cf0b697c0895249e8ef0490e101387c95729b6435b6f981b2",
-      "materializedEventHash": "sha256:214a65cbf9a594e9c647d366842077f24eb74651b6813e942650696098b25fab"
+      "materializedEventHash": "sha256:5ecbce0fd487820f0292e7927958c7992f39591dcd5b50c3a099e5b7f2797aac"
     }
   },
   "attachments": [],
@@ -1446,9 +1758,9 @@
     "generatorVersion": "proof-export@2.6.0",
     "sampleData": true,
     "sourceLedgerHash": "sha256:f822eef23920f75cf0b697c0895249e8ef0490e101387c95729b6435b6f981b2",
-    "materializedEventHash": "sha256:214a65cbf9a594e9c647d366842077f24eb74651b6813e942650696098b25fab",
-    "semanticHash": "sha256:1c15926144c90d5537804118679320e9bdde4d38b2bffd3c301129d2cbb7a640",
-    "fullIncidentSemanticHash": "sha256:6957a5ac84c11da27a083cbcd60cf2d992a8fc04c1c6d8a621ea3ac61c6f1d7e",
+    "materializedEventHash": "sha256:5ecbce0fd487820f0292e7927958c7992f39591dcd5b50c3a099e5b7f2797aac",
+    "semanticHash": "sha256:f90c8373b23908da5efe2e6a48aee56d437fe675ac97d1d27d2ba2a056f021b8",
+    "fullIncidentSemanticHash": "sha256:f8aeb1d1ac6c859db6965c08b37efa4f813bf87834cc4a67b905eaaa64294ce8",
     "fullIncidentEventCount": 8,
     "applicabilitySource": "full-frozen-incident",
     "verdictPreservation": {
@@ -1478,11 +1790,11 @@
       "reason": null
     },
     "hashes": {
-      "artifact": "sha256:6d1b06d15a2443d622c8cd8338fbace2654ffafeb74c4a59418929bf412e0b5f",
-      "semantic": "sha256:1c15926144c90d5537804118679320e9bdde4d38b2bffd3c301129d2cbb7a640"
+      "artifact": "sha256:1929c46093f0cf4f5791104e9819fb04299d3aeff4b73216c557252a67545f24",
+      "semantic": "sha256:f90c8373b23908da5efe2e6a48aee56d437fe675ac97d1d27d2ba2a056f021b8"
     },
     "size": {
-      "measuredBytes": 31826,
+      "measuredBytes": 38810,
       "category": "medium",
       "measurementOnly": true
     },

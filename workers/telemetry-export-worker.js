@@ -6,8 +6,8 @@ importScripts(
   '../shared/proof-telemetry-inventory.js',
   '../shared/proof-telemetry-clock.js',
   '../shared/proof-telemetry-incidents.js',
-  '../shared/proof-oriented-telemetry.js',
   '../shared/proof-telemetry-policy.js',
+  '../shared/proof-oriented-telemetry.js',
   '../shared/proof-telemetry-audit.js',
   '../shared/secret-redaction.js'
 );

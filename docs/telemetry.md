@@ -663,6 +663,13 @@ Comparator приводит ссылки `seq` к `eventId` и сравнива�
 семантику, а не форму JSON. Отдельные мутационные проверки подтверждают, что
 gate обнаруживает изменение verdict, evidence slot, limitation и causal relation.
 
+С v2.81.228 рядом с плоским `stateAxes` публикуется `stateAxesProvenance` для
+всех четырнадцати осей. Значение и его происхождение вычисляются одной ветвью
+правила; provenance содержит `layer`, точные `basisEventIds`, `ruleId` и
+`derivationVersion`. Валидатор отклоняет отсутствующие basis-события и ссылки
+на другой incident. Basis-события входят в самостоятельный отчёт, а axes вместе
+с provenance участвуют в semantic и artifact hashes.
+
 - Platform/Tasks фильтруют canonical envelopes по `modelId` и безопасному
   event payload. Исходные `seq` не перенумеровываются; filtered ledger остаётся
   immutable, а export boundary равен фактическому последнему включённому `seq`.

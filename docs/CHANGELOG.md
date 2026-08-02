@@ -5677,3 +5677,8 @@ Backlog `what-to-do.md`, батч 1 (UI + Финализация).
 - Добавлен семантический comparator embedded и standalone отчётов для каждой задачи, модели и инцидента.
 - Embedded `seq` нормализуется обратно в канонический `eventId`; сравниваются verdict, sufficiency, slots, evidence, ограничения, нарушения, arbitration и sibling relations.
 - Мутационные отрицательные тесты доказывают, что изменение verdict, slot, evidence, limitation или causal relation ломает parity gate.
+
+# 2.81.228
+
+- Все четырнадцать `stateAxes` теперь вычисляются вместе с точным `stateAxesProvenance`: слоем, фактическими basis-событиями, правилом и версией.
+- Basis-ссылки входят в semantic/artifact hashes, материализуются в standalone отчёте и проверяются на существование и принадлежность тому же инциденту.

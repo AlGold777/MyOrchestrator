@@ -136,6 +136,8 @@ async function validateContainer(container, { verifyContainerHash = true } = {})
     const recordedApplicabilityByIncident = report?.reportDescriptor?.applicability?.byIncident || {};
     const recomputedApplicabilityByIncident = {};
     Object.entries(container?.derivedViews?.['incident-timeline']?.data || {}).forEach(([incidentId, incident]) => {
+      ProofTelemetry.validateStateAxesProvenance(incident.stateAxes, incident.stateAxesProvenance, events, incident.incidentScope)
+        .forEach((violation) => addError(violation.invariantId, violation.message, violation));
       const recomputed = ProofTelemetry.evaluateApplicability(reportType, { stateAxes: incident.stateAxes, derivedViews: incident });
       const scope = { scope: incident.incidentScope };
       const evidence = Incidents.resolveEvidenceSlots(events, scope, reportType, { stateAxes: incident.stateAxes, derivedViews: incident });
@@ -194,8 +196,10 @@ async function validateContainer(container, { verifyContainerHash = true } = {})
   const recordedDecisionHash = await ProofTelemetry.sha256(replay.recordedDecisions);
   const recomputedDecisionHash = await ProofTelemetry.sha256(replay.recomputedDecisions);
   if (recordedDecisionHash !== recomputedDecisionHash) addError('REPLAY_MISMATCH', 'recorded and recomputed decisions differ');
-  if (container?.exportAudit?.replay?.recordedDecisionHash !== recordedDecisionHash) addError('REPLAY_HASH', 'recorded decision hash is stale');
-  if (container?.exportAudit?.replay?.recomputedDecisionHash !== recomputedDecisionHash) addError('REPLAY_HASH', 'recomputed decision hash is stale');
+  if (container?.exportAudit?.replay?.recordedDecisionHash !== null
+    && container?.exportAudit?.replay?.recordedDecisionHash !== recordedDecisionHash) addError('REPLAY_HASH', 'recorded decision hash is stale');
+  if (container?.exportAudit?.replay?.recomputedDecisionHash !== null
+    && container?.exportAudit?.replay?.recomputedDecisionHash !== recomputedDecisionHash) addError('REPLAY_HASH', 'recomputed decision hash is stale');
 
   const boundary = container?.exportAudit?.exportBoundary?.ledgerCompleteThroughSeq;
   if (Number(boundary || 0) !== Number(container?.ledger?.lastSeq || 0)) addError('EXPORT_BOUNDARY', 'ledger boundary differs from lastSeq');
@@ -279,6 +283,8 @@ async function validateStandaloneReport(report) {
     if (!Array.isArray(event.includedFor) || event.includedFor.length === 0) addError('INCLUDED_FOR_MISSING', `event ${event.eventId} has no inclusion reason`);
   });
   const correlation = report?.correlation || {};
+  ProofTelemetry.validateStateAxesProvenance(report.stateAxes, report.stateAxesProvenance, events, correlation)
+    .forEach((violation) => addError(violation.invariantId, violation.message));
   events.filter((event) => event.modelId !== 'SYSTEM').forEach((event) => {
     const eventIncidentId = `incident:${Incidents.scopeKey(Incidents.scopeOf(event))}`;
     const inPriorLane = correlation.priorIncidentRef && eventIncidentId === correlation.priorIncidentRef;
@@ -308,6 +314,9 @@ async function validateStandaloneReport(report) {
   }
   if (ProofTelemetry.stableStringify(recordedView?.stateAxes || {}) !== ProofTelemetry.stableStringify(report.stateAxes || {})) {
     addError('REPLAY_MISMATCH', 'recorded full-incident axes differ from report state axes');
+  }
+  if (ProofTelemetry.stableStringify(recordedView?.stateAxesProvenance || {}) !== ProofTelemetry.stableStringify(report.stateAxesProvenance || {})) {
+    addError('REPLAY_MISMATCH', 'recorded full-incident axis provenance differs from report provenance');
   }
   const compatibility = declaredRegistryCompatibility;
   const registrySnapshot = ProofTelemetry.dependencyRegistrySnapshot();
@@ -377,7 +386,7 @@ async function validateStandaloneReport(report) {
       if (copy.clock) delete copy.clock.ingestMonoMs;
       return copy;
     });
-    const reconstructedFullHash = await ProofTelemetry.sha256({ incident: Incidents.scopeOf(correlation), events: fullProjection, axes: report.stateAxes });
+    const reconstructedFullHash = await ProofTelemetry.sha256({ incident: Incidents.scopeOf(correlation), events: fullProjection, axes: report.stateAxes, axesProvenance: report.stateAxesProvenance });
     if (Number(report?.exportIntegrity?.fullIncidentEventCount) !== fullProjection.length
       || report?.exportIntegrity?.fullIncidentSemanticHash !== reconstructedFullHash) {
       addError('FULL_INCIDENT_HASH_MISMATCH', 'full incident fallback does not match its semantic commitment');
@@ -395,7 +404,7 @@ async function validateStandaloneReport(report) {
     modelId: correlation.modelId,
     dispatchId: correlation.dispatchId,
     generationEpoch: correlation.generationEpoch
-  }, task: report?.reportDescriptor?.reportType, events: semanticEvents, axes: report.stateAxes });
+  }, task: report?.reportDescriptor?.reportType, events: semanticEvents, axes: report.stateAxes, axesProvenance: report.stateAxesProvenance });
   if (report?.exportIntegrity?.semanticHash !== semanticHash || report?.exportIntegrity?.hashes?.semantic !== semanticHash) {
     addError('SEMANTIC_HASH_MISMATCH', 'semantic hash mismatch');
   }

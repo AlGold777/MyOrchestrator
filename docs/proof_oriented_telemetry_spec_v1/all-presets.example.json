@@ -4704,6 +4704,116 @@
             "terminalMode": "none",
             "terminationCause": "unknown"
           },
+          "stateAxesProvenance": {
+            "submission": {
+              "layer": "fact",
+              "basisEventIds": [
+                "event-269d0103-a314b14b"
+              ],
+              "ruleId": "latest-submission-evidence",
+              "derivationVersion": "state-axes-provenance@1.0.0"
+            },
+            "generationStart": {
+              "layer": "inference",
+              "basisEventIds": [
+                "event-269d0103-a314b14b"
+              ],
+              "ruleId": "submission-confirmed-without-generation-start",
+              "derivationVersion": "state-axes-provenance@1.0.0"
+            },
+            "answerIdentity": {
+              "layer": "inference",
+              "basisEventIds": [
+                "event-b8955dfd-c9aef8a1"
+              ],
+              "ruleId": "latest-candidate-identity",
+              "derivationVersion": "state-axes-provenance@1.0.0"
+            },
+            "observedGeneration": {
+              "layer": "fact",
+              "basisEventIds": [
+                "event-45d8f2fc-80de1caa"
+              ],
+              "ruleId": "latest-generation-stable",
+              "derivationVersion": "state-axes-provenance@1.0.0"
+            },
+            "textEvolution": {
+              "layer": "fact",
+              "basisEventIds": [
+                "event-45d8f2fc-80de1caa"
+              ],
+              "ruleId": "stable-text-observed",
+              "derivationVersion": "state-axes-provenance@1.0.0"
+            },
+            "answerCompleteness": {
+              "layer": "audit",
+              "basisEventIds": [
+                "event-45d8f2fc-80de1caa"
+              ],
+              "ruleId": "completion-not-evaluable",
+              "derivationVersion": "state-axes-provenance@1.0.0"
+            },
+            "extraction": {
+              "layer": "fact",
+              "basisEventIds": [
+                "event-4c9c42ef-ece252c7"
+              ],
+              "ruleId": "latest-extraction-result",
+              "derivationVersion": "state-axes-provenance@1.0.0"
+            },
+            "verification": {
+              "layer": "inference",
+              "basisEventIds": [
+                "event-962e3600-5703478a"
+              ],
+              "ruleId": "latest-verification-result",
+              "derivationVersion": "state-axes-provenance@1.0.0"
+            },
+            "completionDetection": {
+              "layer": "inference",
+              "basisEventIds": [
+                "event-01ea4803-b033991b"
+              ],
+              "ruleId": "completion-hypothesis",
+              "derivationVersion": "state-axes-provenance@1.0.0"
+            },
+            "completionEvidenceTier": {
+              "layer": "inference",
+              "basisEventIds": [
+                "event-45d8f2fc-80de1caa"
+              ],
+              "ruleId": "weak-completion-evidence",
+              "derivationVersion": "state-axes-provenance@1.0.0"
+            },
+            "observationReliability": {
+              "layer": "audit",
+              "basisEventIds": [
+                "event-c61206cc-1403e1aa"
+              ],
+              "ruleId": "all-observation-frames-within-policy",
+              "derivationVersion": "state-axes-provenance@1.0.0"
+            },
+            "finalization": {
+              "layer": "decision",
+              "basisEventIds": [
+                "event-8fafb444-8e857be6"
+              ],
+              "ruleId": "terminal-deadline-reached",
+              "derivationVersion": "state-axes-provenance@1.0.0"
+            },
+            "terminalMode": {
+              "layer": "audit",
+              "basisEventIds": [],
+              "ruleId": "no-terminal-action",
+              "derivationVersion": "state-axes-provenance@1.0.0"
+            },
+            "terminationCause": {
+              "layer": "audit",
+              "basisEventIds": [],
+              "ruleId": "no-terminal-action",
+              "derivationVersion": "state-axes-provenance@1.0.0"
+            }
+          },
           "eventSeqs": [
             1,
             2,
@@ -7377,10 +7487,10 @@
     "hashes": {
       "ledger": "sha256:43d2b098f65b44c76b86f851af6784aecc4c77ed5a8a4173cb72dd6e77e6e518",
       "sharedConfig": "sha256:177c6ed26e301935440c63b440ca0110f8a2d639e38d2d240869dea21daf92f0",
-      "derivedViews": "sha256:bc3ee182a330d7a3fe4d0fdb7e076b75045825f7d32b3efffafbe8fd034aa043",
+      "derivedViews": "sha256:543a324ec5fd13f03e3872bb1066fd63ac0cec8b2a0ad1fbc0874422cb9d35c2",
       "reports": "sha256:0f8f0329de8bc79cf792d9ba046e2d60d78d4245b672f58ebb4663539fb5a2a4",
       "attachments": "sha256:b1968c832915f5cdc3320b65fc5ad56f2c9f3a9d20eaa0919b749ad664b9c18a",
-      "container": "sha256:b88d37c08ad2c7a8925ce529de555f1d2aa4e844922d346e5e05092a1afe7d3c"
+      "container": "sha256:f52eb8ead95a1eec92872427bbca33a2a1baddc14905b915146313ec4cc039ff"
     },
     "schemaValidation": {
       "valid": true,
@@ -7394,7 +7504,7 @@
     },
     "budget": {
       "limitBytes": 1000000,
-      "measuredBytes": 129514,
+      "measuredBytes": 131854,
       "withinBudget": true,
       "status": "within_budget"
     },

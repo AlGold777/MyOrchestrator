@@ -13,6 +13,8 @@
   const Inventory = root.ProofTelemetryInventory || (typeof require === 'function' ? require('./proof-telemetry-inventory.js') : null);
   const Incidents = root.ProofTelemetryIncidents || (typeof require === 'function' ? require('./proof-telemetry-incidents.js') : null);
   const Clock = root.ProofTelemetryClock || (typeof require === 'function' ? require('./proof-telemetry-clock.js') : null);
+  const ReplayPolicy = root.ProofTelemetryPolicy || null;
+  const Policy = root.ProofTelemetryPolicy || (typeof require === 'function' ? require('./proof-telemetry-policy.js') : null);
   const SCHEMA_VERSION = '5.0';
   const EVENT_SCHEMA_VERSION = Contracts?.EVENT_SCHEMA_VERSION || 6;
   const GENERATOR_VERSION = 'proof-export@2.6.0';
@@ -25,6 +27,12 @@
     'prompt-not-inserted',
     'prompt-not-sent',
     'late-end'
+  ]);
+  const STATE_AXIS_NAMES = Object.freeze([
+    'submission', 'generationStart', 'answerIdentity', 'observedGeneration', 'textEvolution',
+    'answerCompleteness', 'extraction', 'verification', 'completionDetection',
+    'completionEvidenceTier', 'observationReliability', 'finalization', 'terminalMode',
+    'terminationCause'
   ]);
 
   const REPORT_EVENT_TYPES = Object.freeze(Object.fromEntries(
@@ -681,10 +689,30 @@
     };
   }
 
+  function deriveAxisState(events, fallbackAxes = null) {
+    if (Policy?.deriveAxesWithProvenance && events.length) return Policy.deriveAxesWithProvenance(events, events[events.length - 1]);
+    const stateAxes = fallbackAxes || deriveAxes(events);
+    return {
+      stateAxes,
+      stateAxesProvenance: Object.fromEntries(Object.keys(stateAxes).map((axis) => [axis, {
+        layer: 'audit',
+        basisEventIds: [],
+        ruleId: `legacy-fallback-${axis}`,
+        derivationVersion: 'state-axes-provenance@legacy-fallback'
+      }]))
+    };
+  }
+
+  function assignAxisState(view, events) {
+    const derived = deriveAxisState(events, view.stateAxes);
+    view.stateAxes = derived.stateAxes;
+    view.stateAxesProvenance = derived.stateAxesProvenance;
+    return view;
+  }
+
   function deriveModelView(modelId, events) {
-    const axes = root.ProofTelemetryPolicy?.deriveAxes && events.length
-      ? root.ProofTelemetryPolicy.deriveAxes(events, events[events.length - 1])
-      : deriveAxes(events);
+    const axisState = deriveAxisState(events);
+    const axes = axisState.stateAxes;
     const terminalEvent = [...events].reverse().find((event) => event.eventType === 'MODEL_TERMINAL_RECORDED');
     const terminalSeq = Number(terminalEvent?.seq ?? Infinity);
     const observedTextTypes = new Set(['GENERATION_START_EVALUATED', 'GENERATION_SIGNAL_CHANGED', 'OBSERVATION_FRAME_CAPTURED', 'TEXT_STATE_CHANGED', 'STABILITY_INTERVAL_CLOSED']);
@@ -937,6 +965,7 @@
     return {
       modelId,
       stateAxes: axes,
+      stateAxesProvenance: axisState.stateAxesProvenance,
       eventSeqs: events.map((event) => event.seq),
       firstSeq: events[0]?.seq || null,
       lastSeq: events[events.length - 1]?.seq || null,
@@ -1517,6 +1546,40 @@
     return violations;
   }
 
+  function validateStateAxesProvenance(stateAxes, stateAxesProvenance, events, target = null) {
+    const violations = [];
+    const byId = new Map((events || []).map((event) => [event.eventId, event]));
+    const axisKeys = Object.keys(stateAxes || {}).sort();
+    const provenanceKeys = Object.keys(stateAxesProvenance || {}).sort();
+    if (stableStringify(axisKeys) !== stableStringify(STATE_AXIS_NAMES.slice().sort())) {
+      violations.push({ invariantId: 'S22', eventId: null, message: 'stateAxes does not contain exactly the fourteen contracted axes' });
+    }
+    if (stableStringify(provenanceKeys) !== stableStringify(STATE_AXIS_NAMES.slice().sort())) {
+      violations.push({ invariantId: 'S22', eventId: null, message: 'stateAxesProvenance does not match the fourteen contracted axes' });
+    }
+    STATE_AXIS_NAMES.forEach((axis) => {
+      const item = stateAxesProvenance?.[axis];
+      if (!item || !['fact', 'inference', 'decision', 'audit'].includes(item.layer)
+        || typeof item.ruleId !== 'string' || !item.ruleId
+        || typeof item.derivationVersion !== 'string' || !item.derivationVersion
+        || !Array.isArray(item.basisEventIds)) {
+        violations.push({ invariantId: 'S22', eventId: null, message: `invalid provenance contract for state axis ${axis}` });
+        return;
+      }
+      if (new Set(item.basisEventIds).size !== item.basisEventIds.length) {
+        violations.push({ invariantId: 'S23', eventId: null, message: `duplicate basisEventIds for state axis ${axis}` });
+      }
+      item.basisEventIds.forEach((eventId) => {
+        const basis = byId.get(eventId);
+        if (!basis) violations.push({ invariantId: 'S23', eventId, message: `missing basis event for state axis ${axis}` });
+        else if (target && !Incidents?.exactScope?.(basis, target)) {
+          violations.push({ invariantId: 'S24', eventId, message: `basis event for state axis ${axis} crosses incident scope` });
+        }
+      });
+    });
+    return violations;
+  }
+
   function sourceCompatibility(canonicalLedger) {
     if (canonicalLedger) return {
       mode: 'native-runtime-ledger',
@@ -1588,9 +1651,7 @@
       incidents.forEach((incident) => {
         const scoped = ledgerEvents.filter((event) => Incidents.exactScope(event, incident.scope));
         const view = deriveModelView(incident.scope.modelId, scoped);
-        view.stateAxes = root.ProofTelemetryPolicy?.deriveAxes
-          ? root.ProofTelemetryPolicy.deriveAxes(scoped, scoped[scoped.length - 1])
-          : view.stateAxes;
+        assignAxisState(view, scoped);
         if (!latestByModel[incident.scope.modelId]
           || Number(view.lastSeq || 0) > Number(latestByModel[incident.scope.modelId].lastSeq || 0)) latestByModel[incident.scope.modelId] = view;
       });
@@ -1649,17 +1710,15 @@
       automaticMinimumEvidenceTier: Number(runtimeConfig.automaticMinimumEvidenceTier || 3),
       maximumSignalSkewMs: Number(runtimeConfig.maximumSignalSkewMs || Contracts?.THRESHOLDS?.maximumSignalSkewMs || 250)
     };
-    const replayResult = root.ProofTelemetryPolicy?.replay
-      ? root.ProofTelemetryPolicy.replay(ledgerEvents)
+    const replayResult = ReplayPolicy?.replay
+      ? ReplayPolicy.replay(ledgerEvents)
       : null;
     const indexedIncidents = Incidents?.indexIncidents?.(ledgerEvents) || [];
     const incidentViews = Object.fromEntries(indexedIncidents.map((incident) => {
       const scopedEvents = ledgerEvents.filter((event) => Incidents.exactScope(event, incident.scope));
       const view = deriveModelView(incident.scope.modelId, scopedEvents);
       enrichPriorIncidentComparison(view, ledgerEvents, incident);
-      if (root.ProofTelemetryPolicy?.deriveAxes) {
-        view.stateAxes = root.ProofTelemetryPolicy.deriveAxes(scopedEvents, scopedEvents[scopedEvents.length - 1]);
-      }
+      assignAxisState(view, scopedEvents);
       view.incidentId = incident.incidentId;
       view.incidentScope = incident.scope;
       return [incident.incidentId, view];
@@ -1736,7 +1795,13 @@
     const reportsHash = await sha256(reports);
     const invariantViolations = [
       ...validateLedger(ledgerEvents),
-      ...(Array.isArray(replayResult?.invariantViolations) ? replayResult.invariantViolations : [])
+      ...(Array.isArray(replayResult?.invariantViolations) ? replayResult.invariantViolations : []),
+      ...Object.values(incidentViews).flatMap((view) => validateStateAxesProvenance(
+        view.stateAxes,
+        view.stateAxesProvenance,
+        ledgerEvents,
+        view.incidentScope
+      ))
     ];
     if (runtimeConfig.policyId && String(runtimeConfig.policyId) !== policyConfig.policyId) {
       invariantViolations.push({
@@ -1889,9 +1954,7 @@
         const scoped = sourceEvents.filter((event) => Incidents.exactScope(event, incident.scope));
         const view = deriveModelView(modelId, scoped);
         enrichPriorIncidentComparison(view, sourceEvents, incident);
-        view.stateAxes = root.ProofTelemetryPolicy?.deriveAxes
-          ? root.ProofTelemetryPolicy.deriveAxes(scoped, scoped[scoped.length - 1])
-          : view.stateAxes;
+        assignAxisState(view, scoped);
         const context = { stateAxes: view.stateAxes, derivedViews: view };
         const evidence = Incidents.resolveEvidenceSlots(sourceEvents, incident, reportType, context);
         const integrity = Incidents.temporalIntegrity?.(sourceEvents, incident, { legacyMode: compatibility.mode === 'legacy-runtime-adapter' })
@@ -1908,9 +1971,7 @@
     const preliminaryEvents = sourceEvents.filter((event) => Incidents.exactScope(event, selection.selected.scope));
     const preliminaryView = deriveModelView(modelId, preliminaryEvents);
     enrichPriorIncidentComparison(preliminaryView, sourceEvents, selection.selected);
-    preliminaryView.stateAxes = root.ProofTelemetryPolicy?.deriveAxes
-      ? root.ProofTelemetryPolicy.deriveAxes(preliminaryEvents, preliminaryEvents[preliminaryEvents.length - 1])
-      : preliminaryView.stateAxes;
+    assignAxisState(preliminaryView, preliminaryEvents);
     const fullContext = { stateAxes: preliminaryView.stateAxes, derivedViews: preliminaryView };
     const fullApplicability = Object.fromEntries(REPORT_TYPES.map((type) => [type, evaluateApplicability(type, fullContext)]));
     const closure = Incidents.buildEvidenceClosure(sourceEvents, selection.selected, reportType, {
@@ -1981,6 +2042,24 @@
       materializedEvents = [...existing.values()].sort((left, right) => Number(left.ingestSeq || left.seq) - Number(right.ingestSeq || right.seq));
       materializedVerdictProjection = fullVerdictProjection;
     }
+    const axisBasisIds = new Set(Object.values(preliminaryView.stateAxesProvenance || {})
+      .flatMap((item) => item.basisEventIds || []));
+    if (axisBasisIds.size) {
+      const existing = new Map(materializedEvents.map((event) => [event.eventId, event]));
+      preliminaryEvents.forEach((event) => {
+        if (!axisBasisIds.has(event.eventId)) return;
+        const current = existing.get(event.eventId);
+        if (current) current.includedFor = Array.from(new Set([...(current.includedFor || []), 'state-axis-provenance']));
+        else existing.set(event.eventId, { ...event, includedFor: ['state-axis-provenance'] });
+      });
+      materializedEvents = [...existing.values()].sort((left, right) => Number(left.ingestSeq || left.seq) - Number(right.ingestSeq || right.seq));
+    }
+    const axisProvenanceViolations = validateStateAxesProvenance(
+      preliminaryView.stateAxes,
+      preliminaryView.stateAxesProvenance,
+      materializedEvents,
+      selection.selected.scope
+    );
     const materializedHash = await sha256(materializedEvents);
     const sourceLedgerHash = await sha256(sourceEvents);
     const modelView = preliminaryView;
@@ -2030,8 +2109,8 @@
       if (copy.clock) delete copy.clock.ingestMonoMs;
       return copy;
     });
-    const semanticHash = await sha256({ incident: selection.selected.scope, task: reportType, events: semanticEvents, axes });
-    const fullIncidentSemanticHash = await sha256({ incident: selection.selected.scope, events: fullSemanticEvents, axes: preliminaryView.stateAxes });
+    const semanticHash = await sha256({ incident: selection.selected.scope, task: reportType, events: semanticEvents, axes, axesProvenance: preliminaryView.stateAxesProvenance });
+    const fullIncidentSemanticHash = await sha256({ incident: selection.selected.scope, events: fullSemanticEvents, axes: preliminaryView.stateAxes, axesProvenance: preliminaryView.stateAxesProvenance });
     const fullVerdictHash = await sha256(fullVerdictProjection);
     const materializedVerdictHash = await sha256(materializedVerdictProjection);
     const effectiveSlots = closure.slots.filter((slot) => slot.effectiveCriticality !== 'conditional');
@@ -2110,6 +2189,7 @@
         ...(noDeliveryProjection || {})
       },
       stateAxes: axes,
+      stateAxesProvenance: preliminaryView.stateAxesProvenance,
       eventSelection: {
         includedEventTypes: Array.from(new Set(materializedEvents.map((event) => event.eventType))),
         eventRefs: materializedEvents.map((event) => event.eventId),
@@ -2131,7 +2211,7 @@
         },
         fieldProvenance
       },
-      contradictions: closure.violations,
+      contradictions: [...closure.violations, ...axisProvenanceViolations],
       missingEvidence: closure.missingEvidence,
       siblings,
       analysisInstructions: {
@@ -2177,10 +2257,10 @@
           duplicateEventIds: materializedEvents.length - new Set(materializedEvents.map((event) => event.eventId)).size
         },
         schemaValidation: {
-          valid: closure.violations.length === 0 && materializedEvents.every((event) => Array.isArray(event.includedFor) && event.includedFor.length > 0),
+          valid: closure.violations.length === 0 && axisProvenanceViolations.length === 0 && materializedEvents.every((event) => Array.isArray(event.includedFor) && event.includedFor.length > 0),
           scope: 'materialized-events',
           status: 'validated',
-          reason: closure.violations.length ? 'incident closure violations' : null
+          reason: closure.violations.length ? 'incident closure violations' : (axisProvenanceViolations.length ? 'state axes provenance violations' : null)
         },
         replay: {
           valid: replayValid,
@@ -2216,6 +2296,7 @@
     GENERATOR_VERSION,
     REPORT_TYPES,
     REPORT_EVENT_TYPES,
+    STATE_AXIS_NAMES,
     CANONICAL_EVENT_TYPES: Object.freeze(Array.from(CANONICAL_EVENT_TYPES).sort()),
     SIBLING_RULES,
     DIAGNOSIS_PRIORITY,
@@ -2232,7 +2313,9 @@
     buildLedger,
     deriveExportCompleteness,
     deriveAxes,
+    deriveAxisState,
     deriveModelView,
+    validateStateAxesProvenance,
     evaluatePredicate,
     evaluateApplicability,
     diagnosticVerdict,

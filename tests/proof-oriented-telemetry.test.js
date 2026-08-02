@@ -379,6 +379,32 @@ describe('Proof-oriented telemetry schema 6 event export', () => {
     expect(container.reports['false-success'].eventSeqs.length).toBeGreaterThan(0);
   });
 
+  test('rejects missing and cross-incident state axis basis references', async () => {
+    const ledger = ProofTelemetry.buildLedger([
+      evt('GPT', 'PROMPT_SUBMITTED_ACCEPTED', 1000, { dispatchId: 'GPT:42:1' }),
+      evt('GPT', 'ANSWER_START_DETECTED', 1100, { dispatchId: 'GPT:42:1' }),
+      evt('GPT', 'PROMPT_SUBMITTED_ACCEPTED', 2000, { dispatchId: 'GPT:42:2' }),
+      evt('GPT', 'ANSWER_START_DETECTED', 2100, { dispatchId: 'GPT:42:2' })
+    ], { runSessionId: 42 });
+    const report = await ProofTelemetry.buildStandaloneReport(ledger, {
+      canonicalLedger: true,
+      modelId: 'GPT',
+      reportType: 'false-success',
+      incidentId: (require('../shared/proof-telemetry-incidents.js').indexIncidents(ledger)[0]).incidentId
+    });
+    expect(report.exportIntegrity.schemaValidation.valid).toBe(true);
+    const scope = report.correlation;
+    const missing = JSON.parse(JSON.stringify(report.stateAxesProvenance));
+    missing.submission.basisEventIds = ['event-does-not-exist'];
+    expect(ProofTelemetry.validateStateAxesProvenance(report.stateAxes, missing, ledger, scope))
+      .toEqual(expect.arrayContaining([expect.objectContaining({ invariantId: 'S23' })]));
+    const foreign = ledger.find((event) => event.dispatchId === 'GPT:42:2');
+    const crossed = JSON.parse(JSON.stringify(report.stateAxesProvenance));
+    crossed.submission.basisEventIds = [foreign.eventId];
+    expect(ProofTelemetry.validateStateAxesProvenance(report.stateAxes, crossed, ledger, scope))
+      .toEqual(expect.arrayContaining([expect.objectContaining({ invariantId: 'S24' })]));
+  });
+
   test('does not serialize prompt, answer, token or arbitrary details', () => {
     const ledger = ProofTelemetry.buildLedger([
       evt('Claude', 'DISPATCH_SEND', 1000, {
@@ -590,7 +616,8 @@ describe('Proof-oriented telemetry schema 6 event export', () => {
     expect(report.eventSelection.materializedEvents).toHaveLength(1);
     expect(report.eventSelection.materializedEvents[0].includedFor).toEqual([
       'counterevidence:prompt-not-sent',
-      'scope:incident-anchor'
+      'scope:incident-anchor',
+      'state-axis-provenance'
     ]);
   });
 

@@ -60,4 +60,29 @@ describe('proof telemetry evidence and policy replay', () => {
       expect.objectContaining({ invariantId: 'S06' })
     ]));
   });
+
+  test('derives all fourteen axes together with exact versioned provenance', () => {
+    const ledger = ProofTelemetry.buildLedger([
+      evt('PROMPT_SUBMITTED_ACCEPTED', 1000),
+      evt('ANSWER_START_DETECTED', 1100),
+      evt('TURN_RESOLUTION_ACCEPTED', 1200, { answerIdentity: 'current_dispatch' }),
+      evt('STREAMING_TRUE_TO_FALSE', 1300),
+      evt('LIFECYCLE_SNAPSHOT_ACCEPTED', 1400, { maximumSignalSkewMs: 10, contentScriptAvailable: true }),
+      evt('PROVIDER_FINISH_REASON', 1500, { finishReason: 'stop' })
+    ], { runSessionId: 42 });
+    const result = Policy.deriveAxesWithProvenance(ledger, ledger[ledger.length - 1]);
+    expect(Object.keys(result.stateAxes).sort()).toEqual(ProofTelemetry.STATE_AXIS_NAMES.slice().sort());
+    expect(Object.keys(result.stateAxesProvenance).sort()).toEqual(ProofTelemetry.STATE_AXIS_NAMES.slice().sort());
+    Object.values(result.stateAxesProvenance).forEach((item) => {
+      expect(item).toEqual(expect.objectContaining({
+        layer: expect.stringMatching(/^(fact|inference|decision|audit)$/),
+        basisEventIds: expect.any(Array),
+        ruleId: expect.any(String),
+        derivationVersion: Policy.AXIS_PROVENANCE_VERSION
+      }));
+      item.basisEventIds.forEach((eventId) => expect(ledger.some((event) => event.eventId === eventId)).toBe(true));
+    });
+    expect(result.stateAxesProvenance.completionEvidenceTier.basisEventIds)
+      .toContain(ledger[ledger.length - 1].eventId);
+  });
 });
