@@ -461,7 +461,7 @@ Performance-набор: 500, 2 000, 5 000 и 10 000 событий; нескол
 
 1. Этот план и baseline. - Done.
 2. Event registry и capability matrix. - Done.
-3. Fixtures и measurement script.
+3. Fixtures и measurement script. - Done.
 4. Schema detection/fail-closed для replay harness.
 5. Active-run completeness schema.
 6. Embedded/standalone semantic comparator.

@@ -14,3 +14,9 @@
 Матрица возможностей отдельно фиксирует состояние legacy export, schema 6, JSON, Markdown, Timeline и digest для десяти диагностически важных сценариев. Значения имеют только четыре допустимых состояния: `supported`, `partial`, `unsupported`, `unknown`.
 
 Тест `tests/proof-telemetry-inventory.test.js` запрещает незарегистрированные канонические типы событий и зависимости отчётов. Добавление нового события требует сначала описать его контракт в реестре.
+
+Общие сценарии находятся в `tests/fixtures/proof-telemetry-scenario-matrix.js`. Размер и повторяющиеся структуры измеряются без изменения артефакта:
+
+```bash
+npm run measure:telemetry -- telemetry-all-presets.json
+```
