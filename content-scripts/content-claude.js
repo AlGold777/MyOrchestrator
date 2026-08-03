@@ -2162,26 +2162,27 @@ function isLikelyClaudeModelLabel(text = '') {
         if (!sentConfirmed) {
           emitDiagnostic({
             type: 'SEND',
-            label: 'Send not confirmed',
-            details: 'No confirmation after retries',
-            level: 'error'
+            label: 'Send confirmation deferred',
+            details: 'No direct confirmation after retries; waiting for fresh answer evidence',
+            level: 'warning'
           });
-          throw { type: 'send_failed', message: 'Claude send not confirmed' };
+          activity.heartbeat(0.55, { phase: 'send-confirmation-deferred' });
+        } else {
+          telemetry.sendConfirmed = Date.now();
+          emitTiming('Send confirmed', {
+            confirmMs: telemetry.sendConfirmed - (telemetry.sendStart || telemetry.start)
+          });
+          try { chrome.runtime.sendMessage({ type: 'PROMPT_SUBMITTED', llmName: MODEL, ts: Date.now(), meta: dispatchMeta }); } catch (_) {}
         }
 
-        telemetry.sendConfirmed = Date.now();
-        emitTiming('Send confirmed', {
-          confirmMs: telemetry.sendConfirmed - (telemetry.sendStart || telemetry.start)
-        });
-        try { chrome.runtime.sendMessage({ type: 'PROMPT_SUBMITTED', llmName: MODEL, ts: Date.now(), meta: dispatchMeta }); } catch (_) {}
-
-        console.log('[content-claude] Message sent, waiting for response...');
+        console.log('[content-claude] Send attempted, waiting for response evidence...');
         emitTiming('Waiting for response');
         activity.heartbeat(0.6, { phase: 'waiting-response' });
 
         let response = '';
         let pipelineAnswer = null;
         let responseMeta = null;
+        let sendConfirmationRecovered = false;
         emitTiming('Pipeline start');
         await tryClaudePipeline(prompt, {
           heartbeat: (meta = {}) => activity.heartbeat(0.8, Object.assign({ phase: 'pipeline' }, meta)),
@@ -2260,9 +2261,48 @@ function isLikelyClaudeModelLabel(text = '') {
           throw new Error('Pipeline did not return answer');
         }
         
-        const cleanedResponse = contentCleaner.clean(response, { maxLength: 50000 });
+        let cleanedResponse = contentCleaner.clean(response, { maxLength: 50000 });
         if (!String(cleanedResponse || '').trim()) {
           throw new Error('Empty answer after cleaning');
+        }
+
+        // A fresh non-echo answer after the pre-send assistant anchor is stronger
+        // evidence than a transient Send-button/UI transition. If direct submit
+        // confirmation was missed, publish it now before LLM_RESPONSE so the
+        // background does not lock the real answer behind NO_SEND stale guards.
+        if (!sentConfirmed) {
+          const anchoredFreshAnswer = extractClaudeResponseFromDOM(prompt, baselineElement);
+          const anchoredCleanedAnswer = contentCleaner.clean(anchoredFreshAnswer || '', { maxLength: 50000 }).trim();
+          if (!anchoredCleanedAnswer || isStaleClaudeResponse(anchoredCleanedAnswer, baselineText)) {
+            throw { type: 'send_failed', message: 'Claude send not confirmed and no fresh anchored answer was found' };
+          }
+          response = anchoredFreshAnswer;
+          cleanedResponse = anchoredCleanedAnswer;
+          sentConfirmed = true;
+          sendConfirmationRecovered = true;
+          telemetry.sendConfirmed = Date.now();
+          const inferredSubmitMeta = Object.assign({}, dispatchMeta || {}, {
+            submitEvidence: 'fresh_answer_after_pre_send_anchor',
+            freshTurnEvidence: true
+          });
+          emitTiming('Send confirmed by fresh answer', {
+            confirmMs: telemetry.sendConfirmed - (telemetry.sendStart || telemetry.start),
+            answerLength: String(cleanedResponse).length
+          });
+          emitDiagnostic({
+            type: 'SEND',
+            label: 'Send confirmed by fresh answer',
+            details: `answerLength=${String(cleanedResponse).length}`,
+            level: 'success'
+          });
+          try {
+            await Promise.resolve(chrome.runtime.sendMessage({
+              type: 'PROMPT_SUBMITTED',
+              llmName: MODEL,
+              ts: telemetry.sendConfirmed,
+              meta: inferredSubmitMeta
+            }));
+          } catch (_) {}
         }
         
         metricsCollector.recordTiming('total_response_time', Date.now() - startTime);
@@ -2275,6 +2315,12 @@ function isLikelyClaudeModelLabel(text = '') {
         console.log(`[content-claude] Process completed. Response length: ${cleanedResponse.length}`);
         if (!pipelineAnswer || response !== String(pipelineAnswer || '').trim()) {
           responseMeta = window.ContentUtils?.buildResponseMeta?.(null, { source: 'dom_fallback' }) || null;
+        }
+        if (sendConfirmationRecovered) {
+          responseMeta = Object.assign({}, responseMeta || {}, {
+            freshTurnEvidence: true,
+            sendConfirmationRecovered: true
+          });
         }
         return { text: cleanedResponse, html: lastResponseHtml, meta: responseMeta };
       } catch (error) {

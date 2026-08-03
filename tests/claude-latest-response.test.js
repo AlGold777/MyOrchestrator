@@ -78,4 +78,19 @@ describe('Claude latest response selection', () => {
     expect(catchBlock).toContain("answer: ''");
     expect(catchBlock).not.toContain('answer: `Error: ${errorMessage}`');
   });
+
+  test('missing direct send confirmation does not abort answer extraction', () => {
+    const source = read('content-scripts', 'content-claude.js');
+    const deferredAt = source.indexOf("label: 'Send confirmation deferred'");
+    const pipelineAt = source.indexOf('await tryClaudePipeline(prompt', deferredAt);
+    const recoveredAt = source.indexOf("submitEvidence: 'fresh_answer_after_pre_send_anchor'", pipelineAt);
+    expect(deferredAt).toBeGreaterThan(-1);
+    expect(pipelineAt).toBeGreaterThan(deferredAt);
+    expect(recoveredAt).toBeGreaterThan(pipelineAt);
+    expect(source.slice(deferredAt, pipelineAt)).not.toContain("throw { type: 'send_failed'");
+    expect(source.slice(recoveredAt, recoveredAt + 1400)).toContain("type: 'PROMPT_SUBMITTED'");
+    expect(source.slice(recoveredAt, recoveredAt + 1400)).toContain('freshTurnEvidence: true');
+    expect(source.slice(pipelineAt, recoveredAt)).toContain('extractClaudeResponseFromDOM(prompt, baselineElement)');
+    expect(source.slice(recoveredAt, recoveredAt + 1400)).toContain('await Promise.resolve(chrome.runtime.sendMessage({');
+  });
 });
