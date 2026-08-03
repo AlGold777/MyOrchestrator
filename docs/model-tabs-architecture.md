@@ -58,6 +58,13 @@ assistant-кандидатов.
 5. A new run with the same model may reuse a tab only after the tab-manager
    readiness/reuse guard confirms URL, loading state, draft state and ownership.
 
+An MV3 service-worker restart clears the in-memory Ready/ACK registry without
+reloading provider pages. Before waiting on a missing handshake, background
+sends `REQUEST_SCRIPT_READY`; the existing content bootstrap replays
+`SCRIPT_READY` with the same document-scoped `tabSessionId`, and the normal ACK
+correlation gate remains mandatory. A complete correlated pair already cached
+in the current worker epoch is reused without this recovery message.
+
 Debate uses its own protocol selection and session state. Main-page model
 selection remains independent even when the same `results.js` composition root
 is loaded by both entry points.

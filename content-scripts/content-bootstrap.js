@@ -288,7 +288,27 @@
       return state.tabSessionId;
     };
 
+    root.LLMExtension.replayScriptReady = (input, meta = {}) => {
+      const options = typeof input === 'string' ? { llmName: input } : (input || {});
+      const llmName = options.llmName;
+      if (!llmName) return null;
+      const state = ensureState(llmName);
+      const payload = { ...options.meta, ...meta };
+      clearRetryTimer(state);
+      state.acked = false;
+      state.attempts = 0;
+      sendReady(state, payload, 'background_recovery_request');
+      state.retryTimer = setInterval(() => sendReady(state, payload, 'retry'), READY_RETRY_MS);
+      return state.tabSessionId;
+    };
+
     chrome.runtime?.onMessage?.addListener?.((message) => {
+      if (message?.type === 'REQUEST_SCRIPT_READY') {
+        root.LLMExtension.replayScriptReady(message.llmName, {
+          reason: message.reason || 'background_request'
+        });
+        return;
+      }
       if (message?.type !== 'ACK_READY') return;
       const llmName = message.llmName;
       if (!llmName) return;

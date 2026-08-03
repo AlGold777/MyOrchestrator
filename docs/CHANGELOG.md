@@ -1,5 +1,14 @@
 # CHANGELOG — Project
 
+### 2026-08-03 — Immediate repeat dispatch on old pages, version 2.81.261
+
+- Already-open provider pages can replay their document-scoped `SCRIPT_READY`
+  handshake when an MV3 service-worker restart has cleared background memory.
+- Repeat requests no longer consume the six-second ACK timeout and subsequent
+  recovery work before dispatch begins.
+- The replay preserves `tabSessionId`; cached correlated handshakes are reused
+  without an extra message.
+
 ### 2026-08-02 — Full telemetry export moved off the UI thread, version 2.81.222
 
 - All-presets construction, hashing, redaction, and JSON serialization now run

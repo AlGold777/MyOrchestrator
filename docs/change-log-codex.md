@@ -1,5 +1,17 @@
 # Codex phase change log
 
+## 2.81.261 — Old pages replay readiness without the ACK timeout
+
+- Dispatch detects when the current service-worker epoch has no correlated
+  Ready/ACK pair for an already open provider tab and requests a fresh signal.
+- The content bootstrap replays `SCRIPT_READY` with the existing tab-session
+  identity, so background validates the same document instead of reloading it.
+- A valid cached handshake remains the zero-message fast path; the recovery
+  request is used only when worker memory is missing or uncorrelated.
+- Field evidence from 2.81.260 showed 7.4–10.6 seconds from `DISPATCH_START` to
+  `DISPATCH_SEND` for ACK-gated providers, versus 2.6 seconds for Perplexity,
+  which bypasses that gate.
+
 ## 2.81.260 — Round 1 yields after composer insertion
 
 - Round 1 foreground ownership now ends on correlated submit or insertion
