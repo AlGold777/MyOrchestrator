@@ -15,8 +15,12 @@ const FOCUS_GUARD_SRC = ROUTER.slice(
   ROUTER.indexOf('const bringToFrontUnlessUserIsElsewhere'),
   ROUTER.indexOf('const callChromeDownloads')
 );
+const DEBUGGER_MANAGER_SRC = `const debuggerSessionQueuesByTab = new Map();\n${ROUTER.slice(
+  ROUTER.indexOf('function withManagedDebuggerSession'),
+  ROUTER.indexOf('const DEBUGGER_RPC_TYPES')
+)}`;
 
-const sliceRuntime = (startMarker, endMarker) => `${FOCUS_GUARD_SRC}\n${ROUTER.slice(
+const sliceRuntime = (startMarker, endMarker) => `${DEBUGGER_MANAGER_SRC}\n${FOCUS_GUARD_SRC}\n${ROUTER.slice(
   ROUTER.indexOf(startMarker),
   ROUTER.indexOf(endMarker, ROUTER.indexOf(startMarker))
 )}`;
@@ -29,6 +33,39 @@ const focusedChromeStub = () => ({
 });
 
 describe('trusted provider dispatch runtime', () => {
+  test('all debugger attach and detach calls are owned by the manager', () => {
+    expect(ROUTER.match(/callChromeDebugger\('attach'/g)).toHaveLength(1);
+    expect(ROUTER.match(/callChromeDebugger\('detach'/g)).toHaveLength(1);
+    expect(ROUTER).toContain('const debuggerSessionQueuesByTab = new Map()');
+  });
+
+  test('debugger sessions for the same tab execute serially', async () => {
+    const calls = [];
+    let active = 0;
+    let maximumActive = 0;
+    const sandbox = {
+      Map,
+      Promise,
+      setTimeout,
+      emitTelemetry: () => {},
+      callChromeDebugger: async (method) => calls.push(method)
+    };
+    vm.createContext(sandbox);
+    vm.runInContext(`${DEBUGGER_MANAGER_SRC}\n;globalThis.withSession = withManagedDebuggerSession;`, sandbox);
+    const operation = async () => {
+      active += 1;
+      maximumActive = Math.max(maximumActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      active -= 1;
+    };
+    await Promise.all([
+      sandbox.withSession(17, 'first', operation),
+      sandbox.withSession(17, 'second', operation)
+    ]);
+    expect(maximumActive).toBe(1);
+    expect(calls).toEqual(['attach', 'detach', 'attach', 'detach']);
+  });
+
   test('Perplexity trusted Enter focuses the matching composer and emits native Enter', async () => {
     const runtime = sliceRuntime(
       'const buildProviderComposerFocusExpression',

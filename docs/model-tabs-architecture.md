@@ -296,6 +296,12 @@ not through answer generation. An adapter publishes
 is alive; retry supervisor and Round 2 repair must defer rather than overwrite
 that owner. A bounded ownership TTL prevents a lost MV3 release message from
 blocking recovery forever.
+
+Trusted browser input has a single debugger owner per `tabId`. Native input,
+Enter, Send and attachment RPCs enqueue through the same manager; only that
+manager may attach or detach Chrome Debugger. Provider helpers operate inside
+the granted session and release their remote objects before the manager hands
+the tab to the next operation. Operations on different tabs remain concurrent.
 When New pages is disabled, Round 0 acquires independent existing pages in
 parallel so the bootstrap fits inside the MV3 service-worker lifetime. The
 results-page start request remains open until this acquisition and Round 1

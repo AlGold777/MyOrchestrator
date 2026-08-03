@@ -17,6 +17,45 @@ const trustedInputFlightsByTab = new Map();
 const geminiAttachmentFlightsByTab = new Map();
 const qwenAttachmentFlightsByTab = new Map();
 const providerAttachmentFlightsByTab = new Map();
+const debuggerSessionQueuesByTab = new Map();
+
+function withManagedDebuggerSession(tabId, label, operation) {
+    if (!Number.isInteger(tabId) || tabId <= 0) return Promise.reject(new Error('invalid_tab'));
+    if (typeof operation !== 'function') return Promise.reject(new Error('missing_debugger_operation'));
+    const queuedAt = Date.now();
+    const previous = debuggerSessionQueuesByTab.get(tabId) || Promise.resolve();
+    const run = previous.catch(() => undefined).then(async () => {
+        const target = { tabId };
+        let attached = false;
+        try {
+            await callChromeDebugger('attach', target, '1.3');
+            attached = true;
+            emitTelemetry('SYSTEM', 'DEBUGGER_SESSION_ACQUIRED', {
+                details: String(label || 'debugger_operation'),
+                meta: { tabId, label: label || null, queuedAt, acquiredAt: Date.now(), queueWaitMs: Date.now() - queuedAt },
+                force: true
+            });
+            return await operation(target);
+        } finally {
+            if (attached) {
+                try { await callChromeDebugger('detach', target); } catch (_) {}
+            }
+            emitTelemetry('SYSTEM', 'DEBUGGER_SESSION_RELEASED', {
+                details: String(label || 'debugger_operation'),
+                meta: { tabId, label: label || null, releasedAt: Date.now() },
+                force: true
+            });
+        }
+    });
+    const tail = run.catch(() => undefined);
+    debuggerSessionQueuesByTab.set(tabId, tail);
+    tail.finally(() => {
+        if (debuggerSessionQueuesByTab.get(tabId) === tail) {
+            debuggerSessionQueuesByTab.delete(tabId);
+        }
+    });
+    return run;
+}
 const DEBUGGER_RPC_TYPES = new Set([
     'GROK_TRUSTED_INPUT_REQUEST',
     'LECHAT_TRUSTED_SEND_REQUEST',
@@ -371,12 +410,10 @@ async function dispatchGeminiCdpAttachments(tabId, attachments = []) {
             force: true,
             meta: { tabId, fileCount: materialized.length, elapsedMs: Date.now() - startedAt }
         });
-        const target = { tabId };
-        let attached = false;
-        let chooserObserver = null;
         try {
-            await callChromeDebugger('attach', target, '1.3');
-            attached = true;
+            return await withManagedDebuggerSession(tabId, 'gemini_cdp_attachments', async (target) => {
+            let chooserObserver = null;
+            try {
             emitTelemetry('Gemini', 'GEMINI_CDP_DEBUGGER_ATTACHED', {
                 force: true,
                 meta: { tabId, elapsedMs: Date.now() - startedAt }
@@ -433,14 +470,14 @@ async function dispatchGeminiCdpAttachments(tabId, attachments = []) {
                 meta: { tabId, fileCount: materialized.length, elapsedMs: Date.now() - startedAt }
             });
             return { ok: true, method: 'cdp_set_file_input', uploadedCount: materialized.length };
-        } finally {
-            chooserObserver?.dispose?.();
-            if (attached) {
+            } finally {
+                chooserObserver?.dispose?.();
                 try {
                     await callChromeDebugger('sendCommand', target, 'Page.setInterceptFileChooserDialog', { enabled: false });
                 } catch (_) {}
-                try { await callChromeDebugger('detach', target); } catch (_) {}
             }
+            });
+        } finally {
             // Gemini may read large files asynchronously after the input change.
             // Keep the materialized source alive longer than the 90s UI confirmation
             // budget so cleanup cannot truncate an otherwise valid upload.
@@ -470,12 +507,10 @@ async function dispatchQwenCdpAttachments(tabId, attachments = []) {
     const flight = (async () => {
         const startedAt = Date.now();
         const materialized = await materializeGeminiAttachments(attachments);
-        const target = { tabId };
-        let attached = false;
-        let objectId = null;
         try {
-            await callChromeDebugger('attach', target, '1.3');
-            attached = true;
+            return await withManagedDebuggerSession(tabId, 'qwen_cdp_attachments', async (target) => {
+            let objectId = null;
+            try {
             await callChromeDebugger('sendCommand', target, 'Runtime.enable');
             await callChromeDebugger('sendCommand', target, 'DOM.enable');
             await callChromeDebugger('sendCommand', target, 'Page.enable');
@@ -497,13 +532,13 @@ async function dispatchQwenCdpAttachments(tabId, attachments = []) {
                 meta: { tabId, fileCount: materialized.length, elapsedMs: Date.now() - startedAt }
             });
             return { ok: true, method: 'qwen_cdp_set_file_input', uploadedCount: materialized.length };
+            } finally {
+                if (objectId) {
+                    try { await callChromeDebugger('sendCommand', target, 'Runtime.releaseObject', { objectId }); } catch (_) {}
+                }
+            }
+            });
         } finally {
-            if (objectId && attached) {
-                try { await callChromeDebugger('sendCommand', target, 'Runtime.releaseObject', { objectId }); } catch (_) {}
-            }
-            if (attached) {
-                try { await callChromeDebugger('detach', target); } catch (_) {}
-            }
             materialized.forEach(({ id }) => scheduleMaterializedDownloadCleanup(id, 120000));
         }
     })().finally(() => qwenAttachmentFlightsByTab.delete(tabId));
@@ -550,13 +585,11 @@ async function dispatchProviderCdpAttachments(tabId, model, attachments = []) {
     if (providerAttachmentFlightsByTab.has(tabId)) return providerAttachmentFlightsByTab.get(tabId);
     const flight = (async () => {
         const materialized = await materializeGeminiAttachments(attachments);
-        const target = { tabId };
-        let attached = false;
-        let objectId = null;
-        let chooserObserver = null;
         try {
-            await callChromeDebugger('attach', target, '1.3');
-            attached = true;
+            return await withManagedDebuggerSession(tabId, `provider_cdp_attachments:${model}`, async (target) => {
+            let objectId = null;
+            let chooserObserver = null;
+            try {
             await callChromeDebugger('sendCommand', target, 'Runtime.enable');
             await callChromeDebugger('sendCommand', target, 'DOM.enable');
             await callChromeDebugger('sendCommand', target, 'Page.enable');
@@ -613,17 +646,15 @@ async function dispatchProviderCdpAttachments(tabId, model, attachments = []) {
                 meta: { tabId, fileCount: materialized.length, source: backendNodeId ? 'file_chooser' : 'dom_input' }
             });
             return { ok: true, method: 'provider_cdp_set_file_input', uploadedCount: materialized.length };
-        } finally {
-            chooserObserver?.dispose?.();
-            if (attached) {
+            } finally {
+                chooserObserver?.dispose?.();
                 try { await callChromeDebugger('sendCommand', target, 'Page.setInterceptFileChooserDialog', { enabled: false }); } catch (_) {}
+                if (objectId) {
+                    try { await callChromeDebugger('sendCommand', target, 'Runtime.releaseObject', { objectId }); } catch (_) {}
+                }
             }
-            if (objectId && attached) {
-                try { await callChromeDebugger('sendCommand', target, 'Runtime.releaseObject', { objectId }); } catch (_) {}
-            }
-            if (attached) {
-                try { await callChromeDebugger('detach', target); } catch (_) {}
-            }
+            });
+        } finally {
             materialized.forEach(({ id }) => scheduleMaterializedDownloadCleanup(id, 120000));
         }
     })().finally(() => providerAttachmentFlightsByTab.delete(tabId));
@@ -636,12 +667,8 @@ async function dispatchTrustedGrokInput(tabId, mode, text = '', isMac = false) {
     if (!['paste', 'insertText'].includes(mode)) throw new Error('invalid_mode');
     if (mode === 'insertText' && (!text || text.length > 250000)) throw new Error('invalid_text');
     if (trustedInputFlightsByTab.has(tabId)) return trustedInputFlightsByTab.get(tabId);
-    const target = { tabId };
     const flight = (async () => {
-        let attached = false;
-        try {
-            await callChromeDebugger('attach', target, '1.3');
-            attached = true;
+        return withManagedDebuggerSession(tabId, 'trusted_grok_input', async (target) => {
             if (mode === 'insertText') {
                 await callChromeDebugger('sendCommand', target, 'Input.insertText', { text });
                 return { ok: true, method: 'cdp_insert_text' };
@@ -665,11 +692,7 @@ async function dispatchTrustedGrokInput(tabId, mode, text = '', isMac = false) {
                 modifiers
             });
             return { ok: true, method: isMac ? 'cdp_cmd_v' : 'cdp_ctrl_v' };
-        } finally {
-            if (attached) {
-                try { await callChromeDebugger('detach', target); } catch (_) {}
-            }
-        }
+        });
     })().finally(() => trustedInputFlightsByTab.delete(tabId));
     trustedInputFlightsByTab.set(tabId, flight);
     return flight;
@@ -677,11 +700,7 @@ async function dispatchTrustedGrokInput(tabId, mode, text = '', isMac = false) {
 
 async function dispatchTrustedCtrlEnter(tabId) {
     if (!Number.isInteger(tabId) || tabId <= 0) throw new Error('invalid_tab');
-    const target = { tabId };
-    let attached = false;
-    try {
-        await callChromeDebugger('attach', target, '1.3');
-        attached = true;
+    return withManagedDebuggerSession(tabId, 'trusted_ctrl_enter', async (target) => {
         await bringToFrontUnlessUserIsElsewhere(target);
         await callChromeDebugger('sendCommand', target, 'Input.dispatchKeyEvent', {
             type: 'rawKeyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13,
@@ -692,9 +711,7 @@ async function dispatchTrustedCtrlEnter(tabId) {
             nativeVirtualKeyCode: 13, modifiers: 2
         });
         return { ok: true, method: 'cdp_ctrl_enter' };
-    } finally {
-        if (attached) try { await callChromeDebugger('detach', target); } catch (_) {}
-    }
+    });
 }
 
 const buildProviderComposerFocusExpression = (expectedText = '') => `(() => {
@@ -728,11 +745,7 @@ const buildProviderComposerFocusExpression = (expectedText = '') => `(() => {
 
 async function dispatchProviderTrustedEnter(tabId, model, expectedText) {
     if (!Number.isInteger(tabId) || tabId <= 0) throw new Error('invalid_tab');
-    const target = { tabId };
-    let attached = false;
-    try {
-        await callChromeDebugger('attach', target, '1.3');
-        attached = true;
+    return withManagedDebuggerSession(tabId, `provider_trusted_enter:${model}`, async (target) => {
         await callChromeDebugger('sendCommand', target, 'Runtime.enable');
         await bringToFrontUnlessUserIsElsewhere(target);
         const focused = await callChromeDebugger('sendCommand', target, 'Runtime.evaluate', {
@@ -753,19 +766,13 @@ async function dispatchProviderTrustedEnter(tabId, model, expectedText) {
             details: 'filled composer + native Enter', force: true, meta: { tabId }
         });
         return { ok: true, method: 'cdp_focused_composer_enter' };
-    } finally {
-        if (attached) try { await callChromeDebugger('detach', target); } catch (_) {}
-    }
+    });
 }
 
 async function dispatchProviderTrustedInput(tabId, model, text, isMac = false) {
     if (!Number.isInteger(tabId) || tabId <= 0) throw new Error('invalid_tab');
     if (!String(text || '') || String(text).length > 250000) throw new Error('invalid_text');
-    const target = { tabId };
-    let attached = false;
-    try {
-        await callChromeDebugger('attach', target, '1.3');
-        attached = true;
+    return withManagedDebuggerSession(tabId, `provider_trusted_input:${model}`, async (target) => {
         await callChromeDebugger('sendCommand', target, 'Runtime.enable');
         await bringToFrontUnlessUserIsElsewhere(target);
         const focused = await callChromeDebugger('sendCommand', target, 'Runtime.evaluate', {
@@ -810,9 +817,7 @@ async function dispatchProviderTrustedInput(tabId, model, text, isMac = false) {
             details: 'focused composer + native text', force: true, meta: { tabId, textLength: String(text).length }
         });
         return { ok: true, method: 'cdp_focused_composer_input' };
-    } finally {
-        if (attached) try { await callChromeDebugger('detach', target); } catch (_) {}
-    }
+    });
 }
 
 const buildProviderSendControlExpression = (expectedText = '') => `(() => {
@@ -864,12 +869,9 @@ const buildProviderSendControlExpression = (expectedText = '') => `(() => {
 })()`;
 
 async function dispatchProviderTrustedSend(tabId, model, expectedText = '') {
-    const target = { tabId };
-    let attached = false;
-    let objectId = null;
-    try {
-        await callChromeDebugger('attach', target, '1.3');
-        attached = true;
+    return withManagedDebuggerSession(tabId, `provider_trusted_send:${model}`, async (target) => {
+        let objectId = null;
+        try {
         await callChromeDebugger('sendCommand', target, 'Runtime.enable');
         await callChromeDebugger('sendCommand', target, 'DOM.enable');
         await bringToFrontUnlessUserIsElsewhere(target);
@@ -885,10 +887,10 @@ async function dispatchProviderTrustedSend(tabId, model, expectedText = '') {
             meta: { tabId, control: clicked.descriptor || null }
         });
         return { ok: true, method: 'cdp_send_control_click', control: clicked.descriptor || null };
-    } finally {
-        if (objectId && attached) try { await callChromeDebugger('sendCommand', target, 'Runtime.releaseObject', { objectId }); } catch (_) {}
-        if (attached) try { await callChromeDebugger('detach', target); } catch (_) {}
-    }
+        } finally {
+            if (objectId) try { await callChromeDebugger('sendCommand', target, 'Runtime.releaseObject', { objectId }); } catch (_) {}
+        }
+    });
 }
 
 const isTerminalRouterEntry = (entry = null) => {

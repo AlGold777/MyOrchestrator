@@ -1,5 +1,15 @@
 # Codex phase change log
 
+## 2.81.256 — Debugger ownership is serialized per tab
+
+- Every trusted input, Send, Enter and CDP attachment operation now passes
+  through one tab-scoped debugger-session queue.
+- The manager performs the only `chrome.debugger.attach`/`detach` pair in the
+  router; cleanup and object release finish before ownership moves to the next
+  queued operation on that tab.
+- Different tabs remain independent, while queue wait and session lifetime are
+  visible in telemetry.
+
 ## 2.81.255 — Focus follows the provider submit transaction
 
 - Round 1 keeps each focused provider foregrounded until correlated

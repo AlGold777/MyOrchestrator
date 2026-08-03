@@ -150,7 +150,11 @@ describe('attachment bridge authentication', () => {
   test('Perplexity assigns a lazy native input after one menu-opening click', async () => {
     // The attachment path raises the window through the shared focus guard, so
     // the real helper is compiled in rather than stubbed.
-    const providerRuntime = ROUTER_SRC.slice(
+    const debuggerManagerRuntime = `const debuggerSessionQueuesByTab = new Map();\n${ROUTER_SRC.slice(
+      ROUTER_SRC.indexOf('function withManagedDebuggerSession'),
+      ROUTER_SRC.indexOf('const DEBUGGER_RPC_TYPES')
+    )}`;
+    const providerRuntime = debuggerManagerRuntime + ROUTER_SRC.slice(
       ROUTER_SRC.indexOf('const bringToFrontUnlessUserIsElsewhere'),
       ROUTER_SRC.indexOf('const callChromeDownloads')
     ) + ROUTER_SRC.slice(
