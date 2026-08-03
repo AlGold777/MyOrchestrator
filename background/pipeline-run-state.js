@@ -2,7 +2,7 @@
 (function initPipelineRunState(root) {
   'use strict';
 
-  function create({ prompt = '', selectedModels = [], useApiFallback = true, attachments = [], sourceView = null, pipelineContext = null, telemetrySampled = false, telemetrySampleRate = null, startedAt = Date.now(), promptsByModel = null } = {}) {
+  function create({ prompt = '', selectedModels = [], useApiFallback = true, forceNewTabs = true, attachments = [], sourceView = null, pipelineContext = null, telemetrySampled = false, telemetrySampleRate = null, startedAt = Date.now(), promptsByModel = null } = {}) {
     return {
       prompt,
       llms: {},
@@ -19,6 +19,9 @@
         boundTabIds: [],
         telemetrySampled,
         telemetrySampleRate,
+        forceNewTabs: forceNewTabs !== false,
+        roundsInProgress: false,
+        roundPhase: null,
         sourceView,
         pipelineRunId: pipelineContext?.pipelineRunId || null,
         pipelineState: 'STARTING',

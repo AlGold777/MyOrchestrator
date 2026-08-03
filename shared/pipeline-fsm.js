@@ -139,7 +139,8 @@
         'pipelineRunId', 'pipelineState', 'pipelineStage', 'pipelineRoundId', 'pipelineBatchId',
         'pipelineControl', 'roundDurations', 'roundStarts', 'runMetrics', 'boundTabIds',
         'acceptedFinals', 'roundSnapshots', 'roundSummaries', 'roundHistory', 'lastExportAt',
-        'exportedAt'
+        'exportedAt', 'forceNewTabs', 'roundsInProgress', 'roundPhase',
+        'mv3RehydratedAt', 'mv3RehydrationCount', 'roundsRecoveredFromStuckAt'
       ].forEach((key) => {
         if (typeof session[key] !== 'undefined') {
           const value = clonePlain(session[key]);

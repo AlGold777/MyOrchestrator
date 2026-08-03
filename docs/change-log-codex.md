@@ -1,5 +1,16 @@
 # Codex phase change log
 
+## 2.81.251 — Existing model pages start without multi-minute dispatch stalls
+
+- A new run clears per-model startup promises, submit waiters and dispatch
+  locks left by the preceding run, so new work cannot queue behind stale work.
+- With New pages disabled, independent existing-tab acquisition runs in
+  parallel and the results-page request keeps the MV3 worker alive through the
+  initial send phase.
+- The active round and New pages mode are persisted. If MV3 still interrupts
+  Round 0 or Round 1, rehydration resumes the bootstrap and does not resend a
+  dispatch command that was already attempted.
+
 ## 2.81.222 — Telemetry export is an isolated, bounded pipeline
 
 - Full schema construction and safe serialization moved to a dedicated worker,

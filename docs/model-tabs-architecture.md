@@ -248,10 +248,11 @@ The round orchestrator preserves the order of the run snapshot
 snapshot do not reorder the active run.
 
 ```text
-Round 0: for each selected model
-  attach/reuse or create tab
+Round 0: acquire selected model tabs
+  with New pages on: create and bind tabs sequentially
+  with New pages off: validate and bind independent existing tabs concurrently
   wait for model → tab binding
-  stagger before the next model
+  stagger only between newly created tabs
 
 Round 1: for each selected model
   resolve and validate the bound tab
@@ -281,10 +282,16 @@ After rounds:
   start recurring human-presence only if eligible models remain
 ```
 
-Round 0 and Round 1 are sequential. Round 2 and Round 3 also iterate in the
-original model order. Timed recovery tasks created by earlier rounds can later
-overlap the round timeline, but they remain subject to lease, overlap, quota,
-session, terminal and focus-window guards.
+New-tab creation in Round 0 and all prompt dispatch in Round 1 are sequential.
+When New pages is disabled, Round 0 acquires independent existing pages in
+parallel so the bootstrap fits inside the MV3 service-worker lifetime. The
+results-page start request remains open until this acquisition and Round 1
+finish (bounded to 45 seconds). The page mode and current round are persisted;
+an interrupted Round 0/1 is resumed after rehydration, while an already
+attempted dispatch is left to the supervisor instead of being duplicated.
+Round 2 and Round 3 iterate in the original model order. Timed recovery tasks
+created by earlier rounds can later overlap the round timeline, but they remain
+subject to lease, overlap, quota, session, terminal and focus-window guards.
 
 ### Visit producers
 

@@ -4539,6 +4539,7 @@ function rehydrateActiveJobRuntime(source = 'load_job_state') {
     jobState.session.mv3RehydratedAt = Date.now();
     jobState.session.mv3RehydrationCount = Number(jobState.session.mv3RehydrationCount || 0) + 1;
     const clearedRoundsInProgress = jobState.session.roundsInProgress === true;
+    const interruptedRoundPhase = jobState.session.roundPhase || null;
     if (clearedRoundsInProgress) {
       jobState.session.roundsInProgress = false;
       jobState.session.roundsRecoveredFromStuckAt = jobState.session.mv3RehydratedAt;
@@ -4550,6 +4551,7 @@ function rehydrateActiveJobRuntime(source = 'load_job_state') {
         sessionId: jobState.session.startTime || null,
         count: jobState.session.mv3RehydrationCount,
         clearedRoundsInProgress,
+        interruptedRoundPhase,
         openModels: Object.entries(jobState.llms || {})
           .filter(([, entry]) => entry && !isFinalizedEntry(entry))
           .map(([name]) => name)
@@ -4607,7 +4609,35 @@ function rehydrateActiveJobRuntime(source = 'load_job_state') {
         }, 250));
       }
     });
-    if (typeof schedulePromptDispatchSupervisor === 'function') {
+    const shouldResumeBootstrap = clearedRoundsInProgress
+      && jobState.session.forceNewTabs === false
+      && ['round0', 'round1'].includes(interruptedRoundPhase);
+    if (shouldResumeBootstrap) {
+      const selectedModels = Array.isArray(jobState.session.selectedModels)
+        ? jobState.session.selectedModels.slice()
+        : Object.keys(jobState.llms || {});
+      selectedModels.forEach((llmName) => {
+        delete llmStartChains[llmName];
+        dispatchMutexManager.clear(llmName);
+      });
+      emitTelemetry('SYSTEM', 'MV3_DISPATCH_BOOTSTRAP_RESUME', {
+        level: 'warning',
+        details: interruptedRoundPhase,
+        meta: {
+          sessionId: jobState.session.startTime || null,
+          interruptedRoundPhase,
+          selectedModels
+        },
+        force: true
+      });
+      void runDispatchRounds(
+        selectedModels,
+        jobState.prompt || '',
+        false,
+        Array.isArray(jobState.attachments) ? jobState.attachments : [],
+        { resume: true }
+      );
+    } else if (typeof schedulePromptDispatchSupervisor === 'function') {
       schedulePromptDispatchSupervisor();
     }
     updateMv3SurvivalAlarm(jobState);
@@ -4885,6 +4915,7 @@ async function startProcess(prompt, selectedLLMs, resultsTab, options = {}) {
     prompt,
     selectedModels: Array.isArray(selectedLLMs) ? selectedLLMs : [],
     useApiFallback,
+    forceNewTabs,
     attachments,
     sourceView,
     pipelineContext,
@@ -4892,6 +4923,13 @@ async function startProcess(prompt, selectedLLMs, resultsTab, options = {}) {
     telemetrySampleRate: TELEMETRY_SAMPLE_RATE,
     startedAt: sessionStartTime,
     promptsByModel
+  });
+  // A per-model start chain belongs to exactly one run. A promise left by an
+  // interrupted MV3 worker/run must never hold the next run behind old work.
+  selectedLLMs.forEach((llmName) => {
+    delete llmStartChains[llmName];
+    promptSubmitWaiters.delete(llmName);
+    dispatchMutexManager.clear(llmName);
   });
   // Authoritatively admit the new run before any model telemetry can arrive.
   // A mismatched late event is quarantined by the proof ledger and can no
@@ -4946,7 +4984,20 @@ async function startProcess(prompt, selectedLLMs, resultsTab, options = {}) {
   });
   broadcastHumanVisitStatus();
 
-  void runDispatchRounds(selectedLLMs, prompt, forceNewTabs, attachments);
+  let resolveBootstrap;
+  const bootstrapReady = new Promise((resolve) => { resolveBootstrap = resolve; });
+  void runDispatchRounds(selectedLLMs, prompt, forceNewTabs, attachments, {
+    onBootstrapComplete: resolveBootstrap
+  });
+  // Keeping the START_FULLPAGE_PROCESS reply open keeps the MV3 worker alive
+  // through reusable-tab acquisition and the initial send commands. This is
+  // only needed for the existing-pages path that previously stalled midway.
+  if (!forceNewTabs) {
+    await Promise.race([
+      bootstrapReady,
+      orchestratorSleepMs(45000)
+    ]);
+  }
 }
 
 function resolvePromptForDispatch(llmName, fallbackPrompt = '') {
@@ -5288,6 +5339,33 @@ async function runModelThroughTabs(llmName, prompt, forceNewTabs, attachments = 
 //-- 3.1. Round 0: НЕ прерываем открытие вкладок при изменении sessionId --//
 async function openTabsSequentially(selectedLLMs, prompt, forceNewTabs, attachments = [], sessionId) {
   const capturedSessionId = sessionId; // Захватываем начальный sessionId
+
+  // Existing pages are independent resources. Acquiring them concurrently
+  // avoids a 9 x 15s sequential window in which MV3 can suspend the worker.
+  // New-tab creation remains sequential so it cannot produce a focus storm.
+  if (!forceNewTabs) {
+    const acquisitions = selectedLLMs.map(async (llmName, index) => {
+      if (capturedSessionId && jobState?.session?.startTime !== capturedSessionId) return false;
+      await startModelForLLM(llmName, prompt, false, attachments, { deferDispatch: true, sessionId });
+      await waitForRound0Binding(llmName, sessionId, ROUND0_BIND_WAIT_TIMEOUT_MS);
+      emitTelemetry(llmName, 'ROUND0_TAB_OPENED', {
+        details: `${index + 1}/${selectedLLMs.length}`,
+        meta: { index, total: selectedLLMs.length, tabId: jobState?.llms?.[llmName]?.tabId || null, acquisitionMode: 'parallel_reuse' }
+      });
+      return true;
+    });
+    await Promise.allSettled(acquisitions);
+    if (capturedSessionId && jobState?.session?.startTime !== capturedSessionId) return false;
+    if (selectedLLMs.length) {
+      emitTelemetry('orchestrator', 'ROUND0_COMPLETE', {
+        details: `${selectedLLMs.length} existing tabs acquired`,
+        level: 'info',
+        meta: { count: selectedLLMs.length, acquisitionMode: 'parallel_reuse' },
+        force: true
+      });
+    }
+    return true;
+  }
   
   for (let i = 0; i < selectedLLMs.length; i += 1) {
     // ✅ Проверяем только НАЧАЛЬНЫЙ sessionId, игнорируем промежуточные изменения
@@ -5377,7 +5455,7 @@ const orderRound1Models = (selectedLLMs = []) => {
     .map(({ name }) => name);
 };
 
-async function dispatchRound1Sequentially(selectedLLMs, prompt, attachments = [], sessionId) {
+async function dispatchRound1Sequentially(selectedLLMs, prompt, attachments = [], sessionId, options = {}) {
   for (const llmName of orderRound1Models(selectedLLMs)) {
     if (sessionId && !isSessionActive(sessionId)) return false;
     let entry = jobState?.llms?.[llmName];
@@ -5386,6 +5464,20 @@ async function dispatchRound1Sequentially(selectedLLMs, prompt, attachments = []
       entry = jobState?.llms?.[llmName];
     }
     if (!entry) continue;
+    if (options.resume === true && (
+      entry.promptSubmittedAt
+      || entry.lastDispatchMeta?.dispatchId
+      || (self.getDispatchFlags?.(llmName, entry)?.isSent === true)
+    )) {
+      emitModelRoundTelemetry(llmName, 1, 'END', 'resume skipped previous dispatch attempt', {
+        meta: {
+          tabId: resolveBoundTabIdForOrchestrator(llmName, entry) || null,
+          reason: 'resume_previous_attempt',
+          dispatchId: entry.lastDispatchMeta?.dispatchId || entry.confirmedDispatchId || null
+        }
+      });
+      continue;
+    }
     const roundStart = Date.now();
     const endMeta = { tabId: null, reason: 'unknown' };
     let endLevel = 'info';
@@ -6318,7 +6410,18 @@ async function dispatchRound3CollectAnswers(selectedLLMs, sessionId) {
 
 //-- 3.1. Исправленное расписание: Round 0-1-2-3-4 с правильным порядком --//
 //-- 6.1. Флаг активности Rounds для защиты от supervisor --//
-async function runDispatchRounds(selectedLLMs, prompt, forceNewTabs, attachments = []) {
+async function runDispatchRounds(selectedLLMs, prompt, forceNewTabs, attachments = [], options = {}) {
+  let bootstrapSignalled = false;
+  const signalBootstrap = (result = true) => {
+    if (bootstrapSignalled) return;
+    bootstrapSignalled = true;
+    try { options.onBootstrapComplete?.(result); } catch (_) {}
+  };
+  const markRoundPhase = async (phase) => {
+    if (!jobState?.session) return;
+    jobState.session.roundPhase = phase;
+    await saveJobState(jobState);
+  };
   try {
     const sessionId = getActiveSessionId();
     
@@ -6326,6 +6429,7 @@ async function runDispatchRounds(selectedLLMs, prompt, forceNewTabs, attachments
     if (jobState?.session) {
       jobState.session.roundsInProgress = true;
     }
+    await markRoundPhase('round0');
     const roundMetaBase = {
       sessionId,
       totalModels: selectedLLMs.length
@@ -6345,13 +6449,16 @@ async function runDispatchRounds(selectedLLMs, prompt, forceNewTabs, attachments
       emitRoundEvent(0, 'END', 'tabs opened');
       
       ensureRoundEntries(selectedLLMs, 'pre_round1');
+      await markRoundPhase('round1');
       emitRoundEvent(1, 'START', 'dispatching prompts sequentially');
       // Round 1: Отправка промптов (3с вставка + 10с ожидание на каждой вкладке)
-      await dispatchRound1Sequentially(selectedLLMs, prompt, attachments, sessionId);
+      await dispatchRound1Sequentially(selectedLLMs, prompt, attachments, sessionId, options);
     if (sessionId && !isSessionActive(sessionId)) return;
     emitRoundEvent(1, 'END', 'dispatch round complete');
+    signalBootstrap(true);
 
     ensureRoundEntries(selectedLLMs, 'pre_round2');
+    await markRoundPhase('round2');
     
     emitRoundEvent(2, 'START', 'verifying prompts');
     // Round 2: Верификация отправки (10с на каждой вкладке)
@@ -6360,6 +6467,7 @@ async function runDispatchRounds(selectedLLMs, prompt, forceNewTabs, attachments
     emitRoundEvent(2, 'END', 'verification complete');
     
     emitRoundEvent(3, 'START', 'collect delay');
+    await markRoundPhase('round3');
     // Round 3: Сбор ответов (только незавершённые вкладки)
     await orchestratorSleepMs(ROUND3_COLLECT_DELAY_MS);
     emitRoundEvent(3, 'COLLECT_DELAY_END', 'collect delay elapsed');
@@ -6372,6 +6480,7 @@ async function runDispatchRounds(selectedLLMs, prompt, forceNewTabs, attachments
     if (sessionId && !isSessionActive(sessionId)) return;
 
     const trackedModels = resolveRoundModelNames(selectedLLMs);
+    await markRoundPhase('round4');
     const pendingBeforeGate = getPendingRoundModels(trackedModels);
     emitRoundEvent(4, 'GATE_START', 'waiting pending models', {
       pendingModels: pendingBeforeGate
@@ -6483,9 +6592,12 @@ async function runDispatchRounds(selectedLLMs, prompt, forceNewTabs, attachments
     console.error('[BACKGROUND] Round sequencing failed:', err);
     schedulePromptDispatchSupervisor();
   } finally {
+    signalBootstrap(false);
     //-- 6.2. Снимаем флаг активности Rounds --//
     if (jobState?.session) {
       jobState.session.roundsInProgress = false;
+      jobState.session.roundPhase = null;
+      saveJobState(jobState);
     }
   }
 }
