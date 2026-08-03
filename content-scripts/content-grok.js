@@ -417,7 +417,7 @@
     chrome.runtime.sendMessage({
       type: 'LLM_RESPONSE',
       llmName: MODEL,
-      answer: 'Error: Rate limit detected. Please wait.',
+      answer: '',
       error: { 
         type: 'rate_limit', 
         message: `HTTP 429 detected. Suggested wait time: ${waitTime}ms`,
@@ -1864,8 +1864,9 @@
     chrome.runtime.sendMessage({
       type: 'LLM_RESPONSE',
       llmName: MODEL,
-      answer: ok ? text : `Error: ${text}`,
+      answer: ok ? text : '',
       answerHtml: ok ? html : '',
+      error: ok ? null : { type: 'generic_error', message: text },
       meta: meta || null
     });
   }
@@ -2701,7 +2702,7 @@
             chrome.runtime.sendMessage({
               type: responseType,
               llmName: MODEL,
-              answer: `Error: ${errorMessage}`,
+              answer: '',
               error: { type: err?.type || 'generic_error', message: errorMessage },
               meta: msg.meta || null
             });

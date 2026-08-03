@@ -500,8 +500,11 @@ describe('Perplexity transient blocker router handshake', () => {
     expect(context.dispatchPromptToTab).toHaveBeenCalledTimes(1);
     expect(context.handleLLMResponse).toHaveBeenCalledWith(
       'Perplexity',
-      expect.stringContaining('repeated'),
-      expect.objectContaining({ type: 'attachment_unavailable' }),
+      '',
+      expect.objectContaining({
+        type: 'attachment_unavailable',
+        message: expect.stringContaining('repeated')
+      }),
       expect.anything(),
       ''
     );

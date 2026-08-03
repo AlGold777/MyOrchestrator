@@ -231,7 +231,7 @@
     chrome.runtime.sendMessage({
       type: 'LLM_RESPONSE',
       llmName: MODEL,
-      answer: 'Error: Rate limit detected. Please wait.',
+      answer: '',
       error: { 
         type: 'rate_limit', 
         message: `HTTP 429 detected. Suggested wait time: ${waitTime}ms`,
@@ -283,7 +283,7 @@
     chrome.runtime.sendMessage({
       type: 'LLM_RESPONSE',
       llmName: MODEL,
-      answer: 'Error: Rate limit detected. Please wait.',
+      answer: '',
       error: { 
         type: 'rate_limit', 
         message: `HTTP 429 detected. Suggested wait time: ${waitTime}ms`,
@@ -1735,7 +1735,7 @@ const hydrateAttachments = (raw = []) =>
                chrome.runtime.sendMessage({
                   type: responseType,
                   llmName: MODEL,
-                  answer: `Error: ${errorMessage}`,
+                  answer: '',
                   error: { type: err?.type || 'generic_error', message: errorMessage },
                   meta: msg.meta || null
                });
@@ -1826,7 +1826,7 @@ const hydrateAttachments = (raw = []) =>
       chrome.runtime.sendMessage({
           type: 'LLM_RESPONSE',
           llmName: MODEL,
-          answer: `Structural Error: ${e?.message || String(e)}`,
+          answer: '',
           error: { type: 'structural_listener_error', message: e?.message || String(e) }
       });
     }

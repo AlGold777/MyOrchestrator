@@ -687,7 +687,7 @@ function createNewLlmTab(llmName, prompt, attachments = [], options = {}) {
         force: true
       });
       if (typeof self.handleLLMResponse === 'function') {
-        self.handleLLMResponse(llmName, `Error: tab create failed (${failReason})`, {
+        self.handleLLMResponse(llmName, '', {
           type: 'tab_create_failed',
           message: failReason
         });

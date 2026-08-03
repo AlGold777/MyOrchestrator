@@ -38,8 +38,15 @@
   // Internal adapter/runtime diagnostics. These strings describe delivery of a
   // prompt, not the provider's answer, and must never be committed as answer text.
   const TECHNICAL_MESSAGE_PATTERNS = [
-    /^error:\s*.{0,64}\b(?:send|submission|prompt submission)\s+(?:was\s+)?not confirmed\b/i
+    /^error:\s*.{0,64}\b(?:send|submission|prompt submission)\s+(?:was\s+)?not confirmed\b/i,
+    /^error:\s*(?:empty answer received|extracted text is prompt\/ui scaffolding, not an answer|extracted answer matches original prompt)$/i,
+    /^error:\s*(?:hard_timeout|automation_deadline|prompt_not_confirmed_before_round4)$/i,
+    /^error:\s*(?:tab closed during generation|tab create failed\b|rate limit detected\b)/i,
+    /^error:\s*perplexity file(?:-| )upload paywall\b/i,
+    /^error:\s*(?:script_runtime_hard_stop(?:_|$)|.+_round4_gate_timeout(?:_|$))/i
   ];
+
+  const INTERNAL_ERROR_PREFIX = /^(?:error|structural error):\s*/i;
 
   // Provider/runtime error surfaces that can be longer than the min length but are
   // not answers. Kept conservative to avoid misclassifying real answers that merely
@@ -92,6 +99,9 @@
     }
     if (isPromptEcho(norm, prompt)) {
       return decide(CLASSES.PROMPT_ECHO, norm, { reason: 'prompt_echo' });
+    }
+    if (options.internalError === true && INTERNAL_ERROR_PREFIX.test(norm)) {
+      return decide(CLASSES.TECHNICAL_MESSAGE, norm, { reason: 'explicit_internal_error' });
     }
     if (TECHNICAL_MESSAGE_PATTERNS.some((re) => re.test(norm))) {
       return decide(CLASSES.TECHNICAL_MESSAGE, norm, { reason: 'adapter_transport_diagnostic' });

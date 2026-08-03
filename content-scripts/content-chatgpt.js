@@ -670,7 +670,7 @@ const chatgptScrollCoordinator = window.ScrollCoordinator
     chrome.runtime.sendMessage({
       type: 'LLM_RESPONSE',
       llmName: MODEL,
-      answer: 'Error: Rate limit detected. Please wait.',
+      answer: '',
       error: {
         type: 'rate_limit',
         message: `HTTP 429 detected. Suggested wait time: ${waitTime}ms`,
@@ -977,7 +977,8 @@ const chatgptScrollCoordinator = window.ScrollCoordinator
     
     const message = {
       type: messageType,
-      answer: ok ? text : `Error: ${text}`
+      answer: ok ? text : '',
+      error: ok ? null : { type: 'generic_error', message: text }
     };
     
     if (!isEvaluatorMode) {
@@ -1639,7 +1640,7 @@ const chatgptScrollCoordinator = window.ScrollCoordinator
               chrome.runtime.sendMessage({
                   type: responseType, 
                   llmName: MODEL, 
-                  answer: `Error: ${errorMessage}`,
+                  answer: '',
                   error: { type: err.type || 'generic_error', message: errorMessage },
                   meta: dispatchMeta
               });

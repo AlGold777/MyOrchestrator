@@ -1125,7 +1125,7 @@ try {
         });
         handleLLMResponse(
             'Perplexity',
-            'Error: Perplexity file-upload paywall handoff expired',
+            '',
             { type: 'attachment_unavailable', message: 'Perplexity file-upload paywall handoff expired before resume acceptance' },
             entry.lastDispatchMeta || null,
             ''
@@ -1455,7 +1455,7 @@ chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
         llmTabClosed = true;
         if (jobState?.llms?.[closedLlmName]) {
             if (!alreadyFinished) {
-                handleLLMResponse(closedLlmName, 'Error: Tab closed during generation', {
+                handleLLMResponse(closedLlmName, '', {
                     type: 'tab_closed_prematurely'
                 });
             }
@@ -2502,7 +2502,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                         cancelPerplexityTransientBlockerExpiry(identity.token);
                         handleLLMResponse(
                             llmName,
-                            'Error: Perplexity file upload paywall repeated after an accepted resume',
+                            '',
                             { type: 'attachment_unavailable', message: 'Perplexity file upload paywall repeated after an accepted resume' },
                             liveEntry.lastDispatchMeta || null,
                             ''

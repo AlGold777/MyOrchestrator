@@ -245,7 +245,7 @@ function scheduleScriptRuntimeHardStop(llmName, tabId, message, attempt = 1, opt
 
       handleLLMResponse(
         llmName,
-        `Error: script_runtime_hard_stop_${getScriptRuntimeHardStopMs()}ms`,
+        '',
         { type: 'script_runtime_hard_stop', message: `Timed out after ${getScriptRuntimeHardStopMs()}ms` },
         {
           dispatchId: dispatchId || liveDispatchId || null,
@@ -1290,7 +1290,7 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
         } else if (typeof handleLLMResponse === 'function') {
           handleLLMResponse(
             llmName,
-            `Error: ${pageReadyState.reason || 'user_action_required'}`,
+            '',
             {
               type: 'user_action_required',
               message: pageReadyState.reason || 'User action required before dispatch'

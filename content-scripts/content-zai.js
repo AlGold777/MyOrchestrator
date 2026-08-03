@@ -289,6 +289,7 @@
       llmName: MODEL,
       answer: payload.text,
       answerHtml: payload.html || '',
+      error: payload.error || null,
       meta: payload.meta
         ? Object.assign({}, meta || {}, { responseMeta: payload.meta })
         : (meta || null)
@@ -336,7 +337,11 @@
         })
         .catch((err) => {
           const errorMessage = err?.message || String(err);
-          emitAnswer(responseType, { text: `Error: ${errorMessage}`, html: '' }, message.meta);
+          emitAnswer(responseType, {
+            text: '',
+            html: '',
+            error: { type: err?.type || 'generic_error', message: errorMessage }
+          }, message.meta);
           sendResponse?.({ status: 'error', message: errorMessage });
         });
       return true;

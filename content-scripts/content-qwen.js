@@ -293,7 +293,7 @@
     chrome.runtime.sendMessage({
       type: 'LLM_RESPONSE',
       llmName: MODEL,
-      answer: 'Error: Rate limit detected. Please wait.',
+      answer: '',
       error: { 
         type: 'rate_limit', 
         message: `HTTP 429 detected. Suggested wait time: ${waitTime}ms`,
@@ -2456,7 +2456,11 @@ const keepAliveMutex = (() => {
     
     const message = {
       type: context.isEvaluator ? 'EVALUATOR_RESPONSE' : 'LLM_RESPONSE',
-      answer: ok ? text : `Error: ${text}`
+      answer: ok ? text : '',
+      error: ok ? null : {
+        type: error?.type || 'generic_error',
+        message: text
+      }
     };
     if (context?.meta && typeof context.meta === 'object') {
       message.meta = context.meta;
@@ -2469,12 +2473,6 @@ const keepAliveMutex = (() => {
       message.llmName = MODEL;
       if (ok && html) {
         message.answerHtml = html;
-      }
-      if (!ok) {
-        message.error = {
-          type: error?.type || 'generic_error',
-          message: text
-        };
       }
     }
 

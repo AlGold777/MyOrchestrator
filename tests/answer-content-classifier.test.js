@@ -31,11 +31,26 @@ describe('AnswerContentClassifier', () => {
     for (const t of [
       'Error: Claude send not confirmed',
       'Error: ChatGPT prompt submission was not confirmed',
-      'Error: FutureProvider send was not confirmed'
+      'Error: FutureProvider send was not confirmed',
+      'Error: Empty answer received',
+      'Error: Extracted text is prompt/UI scaffolding, not an answer',
+      'Error: Extracted answer matches original prompt',
+      'Error: Tab closed during generation',
+      'Error: Rate limit detected. Please wait.',
+      'Error: script_runtime_hard_stop_180000ms'
     ]) {
       expect(Classifier.classify(t, { prompt }).contentClass).toBe(CLASSES.TECHNICAL_MESSAGE);
       expect(Classifier.isTerminalEligible(t, { prompt })).toBe(false);
     }
+  });
+
+  test('an explicitly marked internal error is technical even when its text is dynamic', () => {
+    const result = Classifier.classify('Error: completely new adapter diagnostic', {
+      prompt,
+      internalError: true
+    });
+    expect(result.contentClass).toBe(CLASSES.TECHNICAL_MESSAGE);
+    expect(result.terminalEligible).toBe(false);
   });
 
   test('UI noise (short labels / model names / buttons)', () => {

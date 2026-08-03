@@ -16027,8 +16027,11 @@ document.addEventListener('click', (event) => {
                 case 'PROCESS_COMPLETE':
                     if (comparisonSpinner) comparisonSpinner.style.display = 'none';
                     const cleanedAnswer = sanitizeFinalAnswer(message.finalAnswer || '');
+                    const evaluationError = String(message.error?.message || '').trim();
                     pendingJudgeAnswer = cleanedAnswer;
-                    pendingJudgeHTML = cleanedAnswer
+                    pendingJudgeHTML = evaluationError
+                        ? `<p class="comparison-placeholder comparison-error">${escapeHtml(evaluationError)}</p>`
+                        : cleanedAnswer
                         ? convertMarkdownToHTML(cleanedAnswer)
                         : '<p class="comparison-placeholder">No evaluation response received.</p>';
                     if (comparisonOutput) {

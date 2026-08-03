@@ -10,6 +10,7 @@ const ANSWER_EVIDENCE_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'share
 const ANSWER_LENGTH_POLICY_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'shared', 'answer-length-policy.js'), 'utf8');
 const FINALIZATION_CONTROLLER_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'shared', 'finalization-controller.js'), 'utf8');
 const RECOVERY_INTENT_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'shared', 'recovery-intent.js'), 'utf8');
+const ANSWER_CONTENT_CLASSIFIER = require('../shared/answer-content-classifier');
 
 function createSandbox() {
   const logs = [];
@@ -32,6 +33,7 @@ function createSandbox() {
     JSON,
     URL,
     AbortController,
+    AnswerContentClassifier: ANSWER_CONTENT_CLASSIFIER,
     setTimeout,
     clearTimeout,
     SUCCESS_STATUSES: ['COPY_SUCCESS', 'SUCCESS', 'DONE', 'COMPLETE', 'PARTIAL', 'STREAM_TIMEOUT_HIDDEN'],
@@ -602,6 +604,7 @@ describe('early terminal success guard', () => {
     expect(entry.finalStatusRecorded).toBe(true);
     expect(entry.finalStatus).toBe('NO_SEND');
     expect(entry.promptSubmittedAt).toBeFalsy();
+    expect(entry.answer || '').toBe('');
 
     const answer = 'late recovered qwen answer '.repeat(120);
     const accepted = context.acceptLateCollectResult('Qwen', {
@@ -645,6 +648,27 @@ describe('early terminal success guard', () => {
         })
       ])
     );
+  });
+
+  test('stores a UI-scaffolding extraction failure with an empty answer field', () => {
+    const { context } = createSandbox();
+    const entry = context.jobState.llms['Z.ai'];
+
+    context.handleLLMResponse(
+      'Z.ai',
+      'Refer to the following content:',
+      null,
+      {
+        dispatchId: 'dispatch-zai-ui-noise',
+        preTerminalMaterializeFinal: true,
+        responseMeta: { source: 'pipeline' }
+      }
+    );
+
+    expect(entry.finalStatusRecorded).toBe(true);
+    expect(entry.finalStatus).toBe('EXTRACT_FAILED');
+    expect(entry.answer || '').toBe('');
+    expect(entry.pendingFinalAnswer || '').toBe('');
   });
 
   test('does not upgrade GPT NO_SEND from an unconfirmed dispatch via manual late collect', async () => {

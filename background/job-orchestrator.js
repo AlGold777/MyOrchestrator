@@ -2455,7 +2455,8 @@ function maybeDeferTerminalFailureForMaterialization(llmName, entry, finalStatus
     force: true
   });
   const sessionId = metaObj?.runSessionId || metaObj?.sessionId || getActiveSessionId();
-  const finalAnswer = normalizedAnswer || `Error: ${error?.message || finalReason || finalStatus}`;
+  // Failure details travel through finalError/finalReason. They are not model text.
+  const finalAnswer = normalizedAnswer || '';
   const finalHtml = normalizedHtml || '';
   const finalError = error ? { ...error } : { type: String(finalReason || finalStatus || 'terminal').toLowerCase() };
   registerSessionTimer(setTimeout(async () => {
@@ -3898,7 +3899,7 @@ const scheduleClaudeHardTimeoutRetry = (llmName, entry, metaObj, sessionId) => {
     liveEntry.hardTimeoutRetryInFlight = false;
     handleLLMResponse(
       llmName,
-      'Error: hard_timeout',
+      '',
       { type: 'hard_timeout_retry_exhausted', message: 'Claude retry expired' },
       metaObj || null,
       ''
@@ -4003,7 +4004,7 @@ const finalizeAutomationDeadline = (llmName, phase, budgetMs, meta = {}) => {
   } else {
     handleLLMResponse(
       llmName,
-      'Error: automation_deadline',
+      '',
       { type: 'automation_deadline', message: `Automation deadline reached after ${resolvedBudgetMs}ms` },
       terminalMeta,
       ''
@@ -4229,7 +4230,7 @@ const finalizeNoSendModelIfStalled = (llmName, sessionId, reason = 'round4_gate'
   });
   handleLLMResponse(
     llmName,
-    'Error: prompt_not_confirmed_before_round4',
+    '',
     { type: 'no_send', message: `Prompt submission not confirmed for ${elapsedMs}ms` },
     {
       dispatchId: entry?.lastDispatchMeta?.dispatchId || null,
@@ -4317,7 +4318,7 @@ async function waitForRound4Gate(modelNames, sessionId) {
         });
         handleLLMResponse(
           llmName,
-          `Error: ${errorType}_round4_gate_timeout`,
+          '',
           { type: errorType, message: errorMessage },
           {
             dispatchId: entry?.lastDispatchMeta?.dispatchId || null,
@@ -7755,7 +7756,7 @@ function handleLLMResponse(llmName, answer, error = null, meta = null, answerHtm
           recordApiTransportFeatureDisabled(llmName, [], 'error_fallback');
           handleLLMResponse(
             llmName,
-            answer || `Error: ${error?.message || 'API fallback unavailable'}`,
+            answer || '',
             { type: 'fallback_unavailable' },
             meta
           );
@@ -7796,13 +7797,14 @@ function handleLLMResponse(llmName, answer, error = null, meta = null, answerHtm
   let trimmedAnswer = String(normalizedAnswer || '').trim();
   if (!error && !trimmedAnswer) {
     error = { type: 'empty_answer', message: 'Empty answer received from content script' };
-    normalizedAnswer = 'Error: Empty answer received';
-    trimmedAnswer = String(normalizedAnswer || '').trim();
+    normalizedAnswer = '';
+    trimmedAnswer = '';
   }
   const answerContentClassification = trimmedAnswer
     ? self.AnswerContentClassifier?.classify?.(trimmedAnswer, {
       prompt: jobState?.prompt || '',
-      minValid: 20
+      minValid: 20,
+      internalError: !!error
     })
     : null;
   if (answerContentClassification?.contentClass === 'technical_message') {
@@ -7844,9 +7846,9 @@ function handleLLMResponse(llmName, answer, error = null, meta = null, answerHtm
       ? 'Provider returned an overload/error surface instead of an answer'
       : 'Extracted text is prompt/UI scaffolding, not an answer';
     error = { type: `answer_${rejectedClass}`, message };
-    normalizedAnswer = `Error: ${message}`;
+    normalizedAnswer = '';
     normalizedHtml = '';
-    trimmedAnswer = String(normalizedAnswer).trim();
+    trimmedAnswer = '';
   }
   if (!error && trimmedAnswer && isPromptEchoAnswerCandidate(trimmedAnswer, jobState?.prompt || '')) {
     emitTelemetry(llmName, 'ANSWER_SANITY_REJECTED', {
@@ -7863,9 +7865,9 @@ function handleLLMResponse(llmName, answer, error = null, meta = null, answerHtm
       force: true
     });
     error = { type: 'answer_prompt_echo', message: 'Extracted answer matches original prompt' };
-    normalizedAnswer = 'Error: Extracted answer matches original prompt';
+    normalizedAnswer = '';
     normalizedHtml = '';
-    trimmedAnswer = String(normalizedAnswer || '').trim();
+    trimmedAnswer = '';
   }
   //- 1.1. Fix Claude: Если текст ответа получен (>50 символов), считаем это частичным успехом, а не фатальной ошибкой -//
   const hasAnswerContent = trimmedAnswer.length > 50;
@@ -7941,9 +7943,9 @@ function handleLLMResponse(llmName, answer, error = null, meta = null, answerHtm
       force: true
     });
     error = { type: 'send_failed', message: 'Grok submission was not confirmed; extracted page text was rejected' };
-    normalizedAnswer = 'Error: Grok submission was not confirmed';
+    normalizedAnswer = '';
     normalizedHtml = '';
-    trimmedAnswer = String(normalizedAnswer).trim();
+    trimmedAnswer = '';
   }
   isSuccess = !error && !!String(normalizedAnswer || '').trim();
   const lockedStatusBeforeCandidate = String(entry?.finalStatus || entry?.status || '').toUpperCase();
@@ -8178,7 +8180,7 @@ function handleLLMResponse(llmName, answer, error = null, meta = null, answerHtm
         if (String(afterSnapshotRecovery.hardStopDeferredDispatchId || '') !== String(incomingDispatchId || '')) return;
         handleLLMResponse(
           llmName,
-          `Error: script_runtime_hard_stop_deferred_${hardStopDeferWindowMs}ms`,
+          '',
           { type: 'script_runtime_hard_stop', message: `Timed out after deferred window ${hardStopDeferWindowMs}ms` },
           {
             ...(metaObj || {}),
