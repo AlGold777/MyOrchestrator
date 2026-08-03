@@ -1,5 +1,14 @@
 # Codex phase change log
 
+## 2.81.252 — Field validation understands canonical evidence identity
+
+- The field validator reads the dependency registry and incident index from
+  their canonical-evidence locations instead of reporting them as absent.
+- Canonical `sharedConfig.reportVersion` now participates in exact reproduction
+  identity, preventing valid current-generator evidence from being mislabeled
+  as a historical reinterpretation.
+- Regression coverage builds and audits a real canonical-evidence container.
+
 ## 2.81.251 — Existing model pages start without multi-minute dispatch stalls
 
 - A new run clears per-model startup promises, submit waiters and dispatch

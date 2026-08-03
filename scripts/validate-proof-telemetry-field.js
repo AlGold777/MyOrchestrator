@@ -14,6 +14,27 @@ const AXIS_NAMES = ProofTelemetry.STATE_AXIS_NAMES;
 const sha256File = (buffer) => crypto.createHash('sha256').update(buffer).digest('hex');
 const byteLength = (value) => Buffer.byteLength(JSON.stringify(value), 'utf8');
 
+function sourceDependencyRegistry(source = {}) {
+  if (source?.containerType === 'canonical-evidence') return source?.dependencyRegistry || null;
+  return source?.sharedConfig?.dependencyRegistry || null;
+}
+
+function sourceIncidentCount(source = {}) {
+  if (source?.containerType === 'canonical-evidence') {
+    return Object.keys(source?.incidentIndex?.incidents || {}).length;
+  }
+  return Object.keys(source?.derivedViews?.['incident-timeline']?.data || {}).length;
+}
+
+function sourceReportVersions(source = {}) {
+  if (source?.containerType === 'canonical-evidence') {
+    return source?.sharedConfig?.reportVersion ? [source.sharedConfig.reportVersion] : [];
+  }
+  return Array.from(new Set(ProofTelemetry.REPORT_TYPES
+    .map((reportType) => source?.reports?.[reportType]?.reportDescriptor?.reportVersion)
+    .filter(Boolean))).sort();
+}
+
 function versionParts(value) {
   return String(value || '').split('.').map((item) => Number(item) || 0);
 }
@@ -163,14 +184,14 @@ async function inspectJsonArtifact(source, metadata = {}) {
   const ledgerHashPreserved = sourceLedgerHash === canonical?.ledger?.ledgerHash
     && sourceLedgerHash === full?.ledger?.ledgerHash;
   const currentRegistryHash = await ProofTelemetry.sha256(ProofTelemetry.dependencyRegistrySnapshot());
-  const sourceRegistryHash = await ProofTelemetry.sha256(source?.sharedConfig?.dependencyRegistry || {});
-  const sourceReportVersions = Array.from(new Set(ProofTelemetry.REPORT_TYPES
-    .map((reportType) => source?.reports?.[reportType]?.reportDescriptor?.reportVersion)
-    .filter(Boolean))).sort();
+  const registry = sourceDependencyRegistry(source);
+  const sourceRegistryHash = await ProofTelemetry.sha256(registry || {});
+  const reportVersions = sourceReportVersions(source);
   const exactIdentityMatch = source?.sharedConfig?.generatorVersion === ProofTelemetry.GENERATOR_VERSION
+    && Boolean(registry)
     && sourceRegistryHash === currentRegistryHash
-    && sourceReportVersions.length === 1
-    && sourceReportVersions[0] === ProofTelemetry.REPORT_VERSION;
+    && reportVersions.length === 1
+    && reportVersions[0] === ProofTelemetry.REPORT_VERSION;
   const gatePassed = unexplainedSourceErrorCodes.length === 0
     && canonicalValidation.valid
     && fullValidation.valid
@@ -186,9 +207,9 @@ async function inspectJsonArtifact(source, metadata = {}) {
       schemaVersion: source?.schemaVersion || null,
       extensionVersion,
       generatorVersion: source?.sharedConfig?.generatorVersion || null,
-      registryVersion: source?.sharedConfig?.dependencyRegistry?.registryVersion || null,
+      registryVersion: registry?.registryVersion || null,
       eventCount: ledger.length,
-      incidentCount: Object.keys(source?.derivedViews?.['incident-timeline']?.data || {}).length,
+      incidentCount: sourceIncidentCount(source),
       validationValid: sourceValidation.valid,
       validationMs: Number(sourceValidationMs.toFixed(1)),
       errors: sourceFindings.findings,
@@ -249,7 +270,7 @@ async function runFieldValidation(filenames) {
   for (const filename of filenames) results.push(await inspectFile(filename));
   const jsonResults = results.filter((item) => item.kind === 'json');
   return {
-    validatorVersion: 'field-validation@1.1.0',
+    validatorVersion: 'field-validation@1.2.0',
     projectVersion: PROJECT_VERSION,
     currentGeneratorVersion: ProofTelemetry.GENERATOR_VERSION,
     fileCount: results.length,
@@ -270,6 +291,9 @@ module.exports = {
   explainSourceError,
   summarizeFindings,
   analyzeDigestText,
+  sourceDependencyRegistry,
+  sourceIncidentCount,
+  sourceReportVersions,
   inspectJsonArtifact,
   inspectFile,
   runFieldValidation

@@ -744,6 +744,13 @@ triage-only и не выдаётся за материал для integrity vali
 Фактический прогон восьми выгрузок описан в
 `docs/telemetry-field-validation-2026-08-02.md`.
 
+С v2.81.252 полевой валидатор учитывает различие формы контейнеров: у
+`canonical-evidence` реестр расположен в верхнем `dependencyRegistry`,
+инциденты — в `incidentIndex.incidents`, а версия отчёта — в
+`sharedConfig.reportVersion`. Эти поля участвуют в сводке и проверке режима
+`exact-current-generator`; валидный canonical-файл больше не отображается как
+нулевой набор инцидентов или историческая reinterpretation.
+
 С v2.81.236 defense-in-depth redaction выполняется в export worker до вызова
 builder. Поэтому ledger, section/artifact hashes и `measuredBytes` вычисляются
 уже по безопасному представлению и не становятся недействительными, когда в

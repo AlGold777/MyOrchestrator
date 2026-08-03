@@ -2,8 +2,10 @@ const {
   versionBefore,
   explainSourceError,
   summarizeFindings,
-  analyzeDigestText
+  analyzeDigestText,
+  inspectJsonArtifact
 } = require('../scripts/validate-proof-telemetry-field.js');
+const ProofTelemetry = require('../shared/proof-oriented-telemetry.js');
 
 describe('proof telemetry field validation', () => {
   test('classifies historical contract drift without hiding unknown errors', () => {
@@ -84,5 +86,35 @@ describe('proof telemetry field validation', () => {
       supportsOfflineReplay: false,
       missingSignalRulePresent: true
     }));
+  });
+
+  test('reads canonical evidence registry, incidents and report identity from their canonical locations', async () => {
+    const ledger = ProofTelemetry.buildLedger([
+      {
+        platform: 'GPT',
+        label: 'RUN_CONFIG_RECORDED',
+        ts: 1000,
+        meta: { llmName: 'GPT', runSessionId: 42, expectedModels: ['GPT'] }
+      },
+      {
+        platform: 'GPT',
+        label: 'PROMPT_SUBMITTED_ACCEPTED',
+        ts: 1100,
+        meta: { llmName: 'GPT', runSessionId: 42, dispatchId: 'GPT:42:1', generationEpoch: 1 }
+      }
+    ], { runSessionId: 42, exportedAt: 1200 });
+    const canonical = await ProofTelemetry.buildCanonicalEvidence(ledger, {
+      canonicalLedger: true,
+      exportedAt: 1200,
+      extensionVersion: '2.81.252'
+    });
+
+    const result = await inspectJsonArtifact(canonical, { currentExtensionVersion: '2.81.252' });
+
+    expect(result.source.registryVersion).toBe(canonical.dependencyRegistry.registryVersion);
+    expect(result.source.incidentCount).toBe(canonical.incidentIndex.incidentCount);
+    expect(result.source.incidentCount).toBeGreaterThan(0);
+    expect(result.reinterpretation.mode).toBe('exact-current-generator');
+    expect(result.gatePassed).toBe(true);
   });
 });
