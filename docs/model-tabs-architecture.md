@@ -252,6 +252,7 @@ Round 0: acquire selected model tabs
   with New pages on: create and bind tabs sequentially
   with New pages off: validate and bind independent existing tabs concurrently
   wait for model → tab binding
+  validate and prewarm current-document Ready/ACK signals concurrently
   stagger only between newly created tabs
 
 Round 1: for each selected model
@@ -283,6 +284,10 @@ After rounds:
 ```
 
 New-tab creation in Round 0 and all prompt dispatch in Round 1 are sequential.
+Once all bindings exist, readiness prewarm is concurrent across model tabs.
+Round 1 still applies its ordinary Ready/ACK gate, so a navigation or a changed
+`tabSessionId` cannot reuse stale readiness; an unchanged prewarmed document
+resolves that gate from `ReadySignalManager` without another serial wait.
 When New pages is disabled, Round 0 acquires independent existing pages in
 parallel so the bootstrap fits inside the MV3 service-worker lifetime. The
 results-page start request remains open until this acquisition and Round 1

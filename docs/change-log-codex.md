@@ -1,5 +1,14 @@
 # Codex phase change log
 
+## 2.81.254 — Round 1 readiness is prewarmed in parallel
+
+- After tab acquisition, Round 0 validates every bound tab and awaits its
+  document-scoped Ready/ACK signal concurrently.
+- Sequential Round 1 keeps its normal readiness gate as a fallback, but a
+  successfully prewarmed tab now resolves it from the current-session cache
+  instead of consuming another per-model timeout budget.
+- Prewarm outcomes and elapsed time are recorded per model and for the batch.
+
 ## 2.81.253 — Completion survives temporary observation loss
 
 - A recovered snapshot explicitly classified as unconfirmed completion remains
