@@ -92,13 +92,24 @@ const HARD_STOP_ACTIVITY_GRACE_MS = 15000;
 const HARD_STOP_DEFER_RECOVERY_MODELS = new Set(['GPT', 'Gemini', 'Claude', 'Le Chat', 'Perplexity', 'Grok', 'Z.ai']);
 const HARD_STOP_DEFER_RECOVERY_VISIT_MIN_MS = 2000;
 const HARD_STOP_DEFER_RECOVERY_VISIT_MAX_MS = 3200;
-const PRE_TERMINAL_MATERIALIZE_MODELS = new Set(['GPT', 'Gemini', 'Claude', 'Le Chat', 'Perplexity', 'Grok', 'Qwen', 'DeepSeek', 'Z.ai']);
 const PRE_TERMINAL_MATERIALIZE_STATUSES = new Set(['NO_SEND', 'EXTRACT_FAILED', 'ERROR']);
 const PRE_TERMINAL_MATERIALIZE_VISIT_MIN_MS = 5200;
 const PRE_TERMINAL_MATERIALIZE_VISIT_MAX_MS = 7600;
 const PRE_TERMINAL_MATERIALIZE_SCROLL_MAX_MS = 5600;
 const PRE_TERMINAL_MATERIALIZE_SETTLE_MS = 1100;
 const PRE_TERMINAL_MATERIALIZE_COOLDOWN_MS = 45000;
+// Provider-independent recovery window for the race "the page accepted Send but
+// the adapter missed the confirmation signal". Absolute offsets keep the window
+// bounded even when an individual DOM probe is slow. No model allowlist: a future
+// adapter gets the same protection as soon as it uses the common response path.
+const UNCONFIRMED_SEND_OBSERVATION_OFFSETS_MS = Object.freeze([0, 10000, 30000, 65000, 110000, 165000]);
+const UNCONFIRMED_SEND_RECOVERY_BUDGET = Object.freeze({
+  snapshotAttempts: 2,
+  inlineDomAttempts: 12,
+  manualPingAttempts: 1,
+  controlledVisitAttempts: 1,
+  maxTotalMs: 210000
+});
 const TERMINAL_EXTRACTION_RECOVERY_DELAYS_MS = Object.freeze([12000, 35000, 75000]);
 const TERMINAL_EXTRACTION_RECOVERY_REASONS = new Set([
   'empty_answer',
@@ -496,9 +507,12 @@ function extractLatestAssistantSnapshotInPage(modelName, minChars = 80, options 
   // were already on the page before this dispatch are previous conversation
   // turns. Best-effort: the scan's candidate space differs from the pipeline's,
   // so the filter applies only when it leaves at least one candidate.
-  const anchorAnswerCount = Number(manualOptions.anchorAnswerCount || 0) || 0;
+  const hasCapturedAnchor = manualOptions.anchorAnswerCount !== null
+    && manualOptions.anchorAnswerCount !== undefined
+    && Number.isFinite(Number(manualOptions.anchorAnswerCount));
+  const anchorAnswerCount = hasCapturedAnchor ? Math.max(0, Number(manualOptions.anchorAnswerCount)) : 0;
   let anchorApplied = false;
-  if (anchorAnswerCount > 0 && baseCandidates.length > anchorAnswerCount) {
+  if (hasCapturedAnchor && baseCandidates.length > anchorAnswerCount) {
     const byPosition = baseCandidates.slice().sort((a, b) => (a.rectTop - b.rectTop) || (a.index - b.index));
     const allowed = new Set(byPosition.slice(anchorAnswerCount));
     const positionallyNew = baseCandidates.filter((candidate) => allowed.has(candidate));
@@ -930,11 +944,17 @@ async function lateCollectAnswer({ llmName, tabId, reason = 'late_collect', meta
       }
       // F6.2: forward the positional turn anchor captured at dispatch so the
       // inline scan can skip previous conversation turns.
-      const anchorCount = Number(entry?.preDispatchAnswerNodeCount || 0) || 0;
+      const hasCapturedAnchor = entry?.preDispatchAnswerNodeCount !== null
+        && entry?.preDispatchAnswerNodeCount !== undefined
+        && Number.isFinite(Number(entry.preDispatchAnswerNodeCount));
+      const anchorCount = hasCapturedAnchor ? Math.max(0, Number(entry.preDispatchAnswerNodeCount)) : 0;
       const anchorDispatchOk = !entry?.preDispatchAnswerNodeCountDispatchId
         || !dispatchId
         || String(entry.preDispatchAnswerNodeCountDispatchId) === String(dispatchId);
-      if (anchorCount > 0 && anchorDispatchOk && !Number.isFinite(Number(base.anchorAnswerCount))) {
+      const baseHasAnchor = base.anchorAnswerCount !== null
+        && base.anchorAnswerCount !== undefined
+        && Number.isFinite(Number(base.anchorAnswerCount));
+      if (hasCapturedAnchor && anchorDispatchOk && !baseHasAnchor) {
         base.anchorAnswerCount = anchorCount;
       }
       return Object.keys(base).length ? base : null;
@@ -954,7 +974,8 @@ async function lateCollectAnswer({ llmName, tabId, reason = 'late_collect', meta
           dispatchId,
           manualRecovery: manualRecovery || meta?.manualRecovery || null,
           strategyId: inline.strategyId || null,
-          selectorUsed: inline.selectorUsed || null
+          selectorUsed: inline.selectorUsed || null,
+          anchorApplied: inline.anchorApplied === true
         }
       }, { tab: { id: tabId } });
       return emitDecisionTrace({
@@ -971,6 +992,8 @@ async function lateCollectAnswer({ llmName, tabId, reason = 'late_collect', meta
         strategyIndex: Number.isFinite(Number(inline.strategyIndex)) ? Number(inline.strategyIndex) : null,
         selectorUsed: inline.selectorUsed || null,
         selectorDescriptor: inline.selectorDescriptor || inline.selectorUsed || null,
+        anchorApplied: inline.anchorApplied === true,
+        freshTurnEvidence: inline.anchorApplied === true,
         textHash: inline.textHash || simpleLateAnswerHash(inline.text)
       }, { state: state.state, stateReason: state.reason, cachedLength: cached?.length || 0 });
     }
@@ -1691,6 +1714,7 @@ async function materializeLatestAnswerEvidence(llmName, entry, context = {}) {
       minChars: DOM_SNAPSHOT_RECOVERY_MIN_CHARS
     });
     const firstBudget = consumeRecoveryBudget(llmName, entry, recoveryBudgetKey, 'inlineDom', {
+      limits: context.recoveryBudgetLimits,
       telemetry: { reason, tabId, dispatchId, collectReason: `materialize_latest:${reason}` }
     });
     if (!firstBudget.ok) {
@@ -1707,6 +1731,7 @@ async function materializeLatestAnswerEvidence(llmName, entry, context = {}) {
     let result = await collectOnce(`materialize_latest:${reason}`);
     if ((!result?.ok || !result.text) && MATERIALIZE_LATEST_RETRY_MODELS.has(llmName)) {
       const retryBudget = consumeRecoveryBudget(llmName, entry, recoveryBudgetKey, 'inlineDom', {
+        limits: context.recoveryBudgetLimits,
         telemetry: { reason, tabId, dispatchId, collectReason: `materialize_latest_retry:${reason}` }
       });
       if (!retryBudget.ok) {
@@ -2137,16 +2162,29 @@ function preserveUnprovenMaterializeArtifact(llmName, entry, result = {}, eviden
   return true;
 }
 
+function isUnconfirmedSendFailure(finalStatus, finalReason, error) {
+  const status = String(finalStatus || '').toUpperCase();
+  const errorType = String(error?.type || '').toLowerCase();
+  const reason = String(finalReason || error?.message || '').toLowerCase();
+  if (errorType === 'attachment_unavailable' || errorType.includes('attachment') || reason.includes('attachment') || reason.includes('file upload')) return false;
+  if (status !== 'NO_SEND' && errorType !== 'send_failed' && errorType !== 'no_send') return false;
+  return errorType === 'send_failed'
+    || errorType === 'no_send'
+    || /\b(send|submit|submission|prompt)\b.*\b(not confirmed|unconfirmed|failed|failure)\b/.test(reason)
+    || /\b(not confirmed|unconfirmed)\b.*\b(send|submit|submission|prompt)\b/.test(reason);
+}
+
 function shouldMaterializeBeforeTerminal(llmName, finalStatus, finalReason, error, metaObj = {}) {
-  if (!PRE_TERMINAL_MATERIALIZE_MODELS.has(llmName)) return false;
+  if (!llmName) return false;
   if (metaObj?.preTerminalMaterializeFinal || metaObj?.manualRecovery || metaObj?.responseMeta?.manualRecovery) return false;
   const errorType = String(error?.type || '').toLowerCase();
   const reason = String(finalReason || error?.message || '').toLowerCase();
-  if (errorType === 'attachment_unavailable' || reason.includes('file upload requires a different plan')) return false;
+  if (errorType === 'attachment_unavailable' || errorType.includes('attachment') || reason.includes('attachment') || reason.includes('file upload')) return false;
   const status = String(finalStatus || '').toUpperCase();
+  if (isUnconfirmedSendFailure(status, reason, error)) return true;
   if (Array.isArray(FAILURE_STATUSES) && FAILURE_STATUSES.includes(status)) return true;
   if (!PRE_TERMINAL_MATERIALIZE_STATUSES.has(status)) return false;
-  if (status === 'NO_SEND') return errorType === 'send_failed' || errorType === 'no_send' || reason.includes('send');
+  if (status === 'NO_SEND') return false;
   if (status === 'EXTRACT_FAILED') return errorType === 'extract_failed' || reason.includes('extract') || reason.includes('round4');
   if (status === 'ERROR') return errorType === 'script_runtime_hard_stop' || reason.includes('hard_stop');
   return false;
@@ -2180,6 +2218,7 @@ async function runPreTerminalMaterializeRecovery(llmName, tabId, sessionId, reas
       scope: 'pre_terminal_materialize'
     });
     const visitBudget = consumeRecoveryBudget(llmName, beforeVisit, recoveryBudgetKey, 'controlledVisit', {
+      limits: meta?.recoveryBudgetLimits,
       telemetry: { reason, tabId, dispatchId }
     });
     let didVisit = false;
@@ -2259,7 +2298,8 @@ async function runPreTerminalMaterializeRecovery(llmName, tabId, sessionId, reas
       meta: {
         ...(meta || {}),
         recoveryBudgetKey
-      }
+      },
+      recoveryBudgetLimits: meta?.recoveryBudgetLimits
     });
     const result = evidence?.result || null;
     if (evidence?.ok && result?.text) {
@@ -2361,6 +2401,8 @@ function maybeDeferTerminalFailureForMaterialization(llmName, entry, finalStatus
   const dispatchId = metaObj?.dispatchId || entry?.lastDispatchMeta?.dispatchId || null;
   const reason = String(finalReason || error?.type || finalStatus || 'terminal').toLowerCase();
   const key = `${dispatchId || 'no_dispatch'}:${finalStatus}:${reason}`;
+  const unconfirmedSendObservation = isUnconfirmedSendFailure(finalStatus, finalReason, error)
+    && metaObj?.skipExtendedSendObservation !== true;
   const existing = entry.preTerminalMaterializeRecovery || null;
   if (existing?.inFlight && existing.key === key) return true;
   if (existing?.key === key && Number(existing.attemptedAt || 0) && (now - Number(existing.attemptedAt || 0)) < PRE_TERMINAL_MATERIALIZE_COOLDOWN_MS) {
@@ -2372,7 +2414,12 @@ function maybeDeferTerminalFailureForMaterialization(llmName, entry, finalStatus
     attemptedAt: now,
     status: finalStatus,
     reason,
-    dispatchId
+    dispatchId,
+    mode: unconfirmedSendObservation ? 'unconfirmed_send_observation' : 'single_probe',
+    probeCount: 0,
+    observationDeadlineAt: unconfirmedSendObservation
+      ? now + UNCONFIRMED_SEND_OBSERVATION_OFFSETS_MS[UNCONFIRMED_SEND_OBSERVATION_OFFSETS_MS.length - 1]
+      : now
   };
   updateModelState(llmName, 'RECOVERABLE_ERROR', {
     message: `pre_terminal_materialize_${reason}`,
@@ -2396,7 +2443,8 @@ function maybeDeferTerminalFailureForMaterialization(llmName, entry, finalStatus
       snapshotLengthBefore: Number(entry?.lastAnswerSnapshotLength || entry?.answerSnapshotLength || 0),
       pingTransportErrorCount: Number(entry?.pingTransportErrorCount || 0),
       statusBefore: entry?.status || null,
-      finalStatusBefore: entry?.finalStatus || null
+      finalStatusBefore: entry?.finalStatus || null,
+      recoveryMode: unconfirmedSendObservation ? 'unconfirmed_send_observation' : 'single_probe'
     },
     force: true
   });
@@ -2411,25 +2459,77 @@ function maybeDeferTerminalFailureForMaterialization(llmName, entry, finalStatus
   const finalHtml = normalizedHtml || '';
   const finalError = error ? { ...error } : { type: String(finalReason || finalStatus || 'terminal').toLowerCase() };
   registerSessionTimer(setTimeout(async () => {
-    const liveEntry = jobState?.llms?.[llmName];
-    if (!liveEntry || liveEntry.finalStatusRecorded) return;
-    if (String(liveEntry.preTerminalMaterializeRecovery?.key || '') !== key) return;
-    const result = await runPreTerminalMaterializeRecovery(llmName, tabId, sessionId, reason, {
-      ...(metaObj || {}),
+    const observationStartedAt = Date.now();
+    const probeOffsets = unconfirmedSendObservation ? UNCONFIRMED_SEND_OBSERVATION_OFFSETS_MS : [0];
+    const recoveryBudgetKey = buildRecoveryBudgetKey({
       dispatchId,
-      runSessionId: sessionId || undefined,
-      sessionId: sessionId || undefined
+      reason,
+      scope: unconfirmedSendObservation ? 'unconfirmed_send_observation' : 'pre_terminal_materialize'
     });
+    let result = { ok: false, reason: 'not_started' };
+    for (let probeIndex = 0; probeIndex < probeOffsets.length; probeIndex += 1) {
+      const targetOffsetMs = Number(probeOffsets[probeIndex] || 0);
+      const waitMs = Math.max(0, observationStartedAt + targetOffsetMs - Date.now());
+      if (waitMs > 0) await orchestratorSleepMs(waitMs);
+      const liveEntry = jobState?.llms?.[llmName];
+      if (!liveEntry || liveEntry.finalStatusRecorded) return;
+      if (String(liveEntry.preTerminalMaterializeRecovery?.key || '') !== key) return;
+      if (sessionId && !isSessionActive(sessionId)) return;
+      liveEntry.preTerminalMaterializeRecovery.probeCount = probeIndex + 1;
+      liveEntry.preTerminalMaterializeRecovery.lastProbeAt = Date.now();
+      emitTelemetry(llmName, 'MATERIALIZE_RECOVERY_PROBE', {
+        level: 'warning',
+        details: `${probeIndex + 1}/${probeOffsets.length}:${reason}`,
+        meta: {
+          tabId,
+          dispatchId,
+          probeIndex,
+          probeCount: probeOffsets.length,
+          targetOffsetMs,
+          recoveryMode: unconfirmedSendObservation ? 'unconfirmed_send_observation' : 'single_probe'
+        },
+        force: true
+      });
+      result = await runPreTerminalMaterializeRecovery(llmName, tabId, sessionId, reason, {
+        ...(metaObj || {}),
+        dispatchId,
+        runSessionId: sessionId || undefined,
+        sessionId: sessionId || undefined,
+        recoveryBudgetKey,
+        recoveryBudgetLimits: unconfirmedSendObservation ? UNCONFIRMED_SEND_RECOVERY_BUDGET : undefined
+      });
+      const afterProbe = jobState?.llms?.[llmName];
+      // A transient provider navigation can invalidate this terminal candidate
+      // while asynchronous DOM recovery is running. Re-check ownership after
+      // every await; otherwise a stale failure can finalize a resumed dispatch.
+      if (!afterProbe || afterProbe.finalStatusRecorded
+        || afterProbe.preTerminalMaterializeRecovery?.key !== key) return;
+      afterProbe.preTerminalMaterializeRecovery.result = result?.reason || null;
+      afterProbe.preTerminalMaterializeRecovery.lastProbeResult = result?.reason || null;
+      if (result?.ok) {
+        afterProbe.preTerminalMaterializeRecovery.inFlight = false;
+        return;
+      }
+    }
     const afterRecovery = jobState?.llms?.[llmName];
-    // A transient provider navigation can invalidate this terminal candidate
-    // while the asynchronous DOM recovery is running. Re-check ownership after
-    // the await; otherwise the stale connection failure can finalize a newly
-    // resumed dispatch.
     if (!afterRecovery || afterRecovery.finalStatusRecorded
       || afterRecovery.preTerminalMaterializeRecovery?.key !== key) return;
     afterRecovery.preTerminalMaterializeRecovery.inFlight = false;
     afterRecovery.preTerminalMaterializeRecovery.result = result?.reason || null;
-    if (result?.ok) return;
+    if (unconfirmedSendObservation) {
+      emitTelemetry(llmName, 'UNCONFIRMED_SEND_OBSERVATION_EXHAUSTED', {
+        level: 'error',
+        details: `${probeOffsets.length} probes without fresh answer`,
+        meta: {
+          tabId,
+          dispatchId,
+          probeCount: probeOffsets.length,
+          elapsedMs: Math.max(0, Date.now() - observationStartedAt),
+          recoveryReason: result?.reason || null
+        },
+        force: true
+      });
+    }
     const afterMiss = jobState?.llms?.[llmName];
     if (!afterMiss || afterMiss.finalStatusRecorded
       || afterMiss.preTerminalMaterializeRecovery?.key !== key) return;
@@ -4134,7 +4234,10 @@ const finalizeNoSendModelIfStalled = (llmName, sessionId, reason = 'round4_gate'
     {
       dispatchId: entry?.lastDispatchMeta?.dispatchId || null,
       sessionId: sessionId || getActiveSessionId(),
-      runSessionId: sessionId || getActiveSessionId()
+      runSessionId: sessionId || getActiveSessionId(),
+      // The round gate already supplied the long observation window. Keep the
+      // ordinary one-shot materialize probe, but do not start another 165s cycle.
+      skipExtendedSendObservation: true
     },
     ''
   );
@@ -4219,7 +4322,8 @@ async function waitForRound4Gate(modelNames, sessionId) {
           {
             dispatchId: entry?.lastDispatchMeta?.dispatchId || null,
             sessionId: sessionId || getActiveSessionId(),
-            runSessionId: sessionId || getActiveSessionId()
+            runSessionId: sessionId || getActiveSessionId(),
+            skipExtendedSendObservation: true
           },
           ''
         );
@@ -9448,6 +9552,8 @@ function sendCleanupCommand(llmName) {
   self.finalizeNoSendModelIfStalled = finalizeNoSendModelIfStalled;
   self.waitForRound4Gate = waitForRound4Gate;
   self.classifyMaterializeRecoveryFinality = classifyMaterializeRecoveryFinality;
+  self.isUnconfirmedSendFailure = isUnconfirmedSendFailure;
+  self.shouldMaterializeBeforeTerminal = shouldMaterializeBeforeTerminal;
   self.shouldAcceptMaterializeRecoveryResult = shouldAcceptMaterializeRecoveryResult;
   self.getCompleteMaterializeVerification = getCompleteMaterializeVerification;
   self.preserveUnprovenMaterializeArtifact = preserveUnprovenMaterializeArtifact;

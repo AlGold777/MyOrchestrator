@@ -38,7 +38,7 @@
   // Internal adapter/runtime diagnostics. These strings describe delivery of a
   // prompt, not the provider's answer, and must never be committed as answer text.
   const TECHNICAL_MESSAGE_PATTERNS = [
-    /^error:\s*(?:claude|chatgpt|gpt|gemini|grok|qwen|deepseek|perplexity|le ?chat|mistral|z\.?ai)?\s*(?:send|submission|prompt submission)\s+(?:was\s+)?not confirmed\b/i
+    /^error:\s*.{0,64}\b(?:send|submission|prompt submission)\s+(?:was\s+)?not confirmed\b/i
   ];
 
   // Provider/runtime error surfaces that can be longer than the min length but are

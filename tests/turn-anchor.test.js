@@ -130,7 +130,8 @@ describe('turn anchor wiring (source contracts)', () => {
 
   test('inline scan applies the anchor best-effort and reports anchorApplied', () => {
     const orch = fs.readFileSync(path.join(__dirname, '..', 'background', 'job-orchestrator.js'), 'utf8');
-    expect(orch).toContain('const anchorAnswerCount = Number(manualOptions.anchorAnswerCount || 0) || 0;');
+    expect(orch).toContain('const hasCapturedAnchor = manualOptions.anchorAnswerCount !== null');
+    expect(orch).toContain('hasCapturedAnchor && baseCandidates.length > anchorAnswerCount');
     expect(orch).toContain('base.anchorAnswerCount = anchorCount;');
     expect(orch).toContain('anchorApplied');
   });
