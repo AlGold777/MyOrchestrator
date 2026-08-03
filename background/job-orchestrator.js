@@ -7695,12 +7695,33 @@ function handleLLMResponse(llmName, answer, error = null, meta = null, answerHtm
     normalizedAnswer = 'Error: Empty answer received';
     trimmedAnswer = String(normalizedAnswer || '').trim();
   }
-  const answerContentClassification = !error && trimmedAnswer
+  const answerContentClassification = trimmedAnswer
     ? self.AnswerContentClassifier?.classify?.(trimmedAnswer, {
       prompt: jobState?.prompt || '',
       minValid: 20
     })
     : null;
+  if (answerContentClassification?.contentClass === 'technical_message') {
+    emitTelemetry(llmName, 'ANSWER_SANITY_REJECTED', {
+      level: 'warning',
+      details: 'technical_message_candidate',
+      meta: {
+        reason: answerContentClassification.reason || 'technical_message_candidate',
+        answerLength: trimmedAnswer.length,
+        answerHash: hashEvidenceText(trimmedAnswer),
+        dispatchId: metaObj?.dispatchId || entry?.lastDispatchMeta?.dispatchId || null,
+        source: responseSource || null
+      },
+      force: true
+    });
+    error = error || {
+      type: 'answer_technical_message',
+      message: 'Adapter transport diagnostic received instead of an answer'
+    };
+    normalizedAnswer = '';
+    normalizedHtml = '';
+    trimmedAnswer = '';
+  }
   if (!error && ['ui_noise', 'provider_error'].includes(answerContentClassification?.contentClass)) {
     const rejectedClass = answerContentClassification.contentClass;
     emitTelemetry(llmName, 'ANSWER_SANITY_REJECTED', {
@@ -8273,7 +8294,7 @@ function handleLLMResponse(llmName, answer, error = null, meta = null, answerHtm
     dispatchId: incomingDispatchId,
     attemptId: answerAttemptId
   }) || null;
-  if (entry && trimmedAnswer && incomingDispatchId && acceptedPayloadProof) {
+  if (entry && isSuccess && trimmedAnswer && incomingDispatchId && acceptedPayloadProof) {
     const materializationKey = [
       incomingDispatchId,
       answerAttemptId || 'attempt-none',

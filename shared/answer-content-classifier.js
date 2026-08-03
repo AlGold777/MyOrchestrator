@@ -11,12 +11,14 @@
     EMPTY: 'empty',
     PROMPT_ECHO: 'prompt_echo',
     UI_NOISE: 'ui_noise',
+    TECHNICAL_MESSAGE: 'technical_message',
     PROVIDER_ERROR: 'provider_error',
     SHORT_VALID: 'short_valid',
     VALID: 'valid'
   });
 
-  // Eligible-for-terminal classes. prompt_echo / ui_noise / provider_error / empty
+  // Eligible-for-terminal classes. prompt_echo / ui_noise / technical_message /
+  // provider_error / empty
   // are NOT eligible — they must not be finalized as a SUCCESS answer.
   const TERMINAL_ELIGIBLE = new Set([CLASSES.VALID, CLASSES.SHORT_VALID]);
 
@@ -31,6 +33,12 @@
     // Prompt scaffolding can be rendered in/near a provider composer and must never
     // become a short "answer" when broad DOM fallbacks scan the page.
     /^(?:ссылайся на следующее содержимое|(?:please\s+)?(?:refer|base (?:the )?answer) (?:to|on) the following (?:content|context))\s*[:：]?$/i
+  ];
+
+  // Internal adapter/runtime diagnostics. These strings describe delivery of a
+  // prompt, not the provider's answer, and must never be committed as answer text.
+  const TECHNICAL_MESSAGE_PATTERNS = [
+    /^error:\s*(?:claude|chatgpt|gpt|gemini|grok|qwen|deepseek|perplexity|le ?chat|mistral|z\.?ai)?\s*(?:send|submission|prompt submission)\s+(?:was\s+)?not confirmed\b/i
   ];
 
   // Provider/runtime error surfaces that can be longer than the min length but are
@@ -84,6 +92,9 @@
     }
     if (isPromptEcho(norm, prompt)) {
       return decide(CLASSES.PROMPT_ECHO, norm, { reason: 'prompt_echo' });
+    }
+    if (TECHNICAL_MESSAGE_PATTERNS.some((re) => re.test(norm))) {
+      return decide(CLASSES.TECHNICAL_MESSAGE, norm, { reason: 'adapter_transport_diagnostic' });
     }
     if (isProviderErrorSurface(norm)) {
       return decide(CLASSES.PROVIDER_ERROR, norm, { reason: 'provider_error' });

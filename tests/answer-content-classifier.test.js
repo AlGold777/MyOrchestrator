@@ -27,6 +27,16 @@ describe('AnswerContentClassifier', () => {
     }
   });
 
+  test('adapter transport diagnostics are not answers', () => {
+    for (const t of [
+      'Error: Claude send not confirmed',
+      'Error: ChatGPT prompt submission was not confirmed'
+    ]) {
+      expect(Classifier.classify(t, { prompt }).contentClass).toBe(CLASSES.TECHNICAL_MESSAGE);
+      expect(Classifier.isTerminalEligible(t, { prompt })).toBe(false);
+    }
+  });
+
   test('UI noise (short labels / model names / buttons)', () => {
     for (const t of [
       'Copy',

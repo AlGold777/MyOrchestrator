@@ -2027,20 +2027,28 @@ function isLikelyClaudeModelLabel(text = '') {
           '[data-testid="user-message"], [data-message-author-role="user"], [data-role="user"]'
         ).length;
 
-        const confirmClaudeSend = async (sendButtonCandidate, composerEl, promptText = '') => {
-          const baseline = claudeSubmitConfirmation?.capture?.({
+        const captureClaudeSendBaseline = (composerEl) => {
+          const snapshot = {
             userTurnCount: countClaudeUserTurns(),
             responseCount: countClaudeTurns(),
             composerTextLength: normalizeComposerText(readComposerValue(composerEl)).length,
             generationElements: collectClaudeGenerationElements()
-          }) || null;
-          const beforeTurns = countClaudeTurns();
-          const beforeUserTurns = countClaudeUserTurns();
-          const beforeGeneration = new Set(collectClaudeGenerationElements());
+          };
+          return {
+            oracle: claudeSubmitConfirmation?.capture?.(snapshot) || null,
+            fallback: {
+              userTurnCount: snapshot.userTurnCount,
+              responseCount: snapshot.responseCount,
+              generationElements: new Set(snapshot.generationElements)
+            }
+          };
+        };
+
+        const confirmClaudeSend = async (baseline, composerEl) => {
           const deadline = Date.now() + 4500;
           let provenLogged = false;
           while (Date.now() < deadline) {
-            const proof = claudeSubmitConfirmation?.evaluate?.(baseline, {
+            const proof = claudeSubmitConfirmation?.evaluate?.(baseline?.oracle, {
               userTurnCount: countClaudeUserTurns(),
               responseCount: countClaudeTurns(),
               composerTextLength: normalizeComposerText(readComposerValue(composerEl)).length,
@@ -2055,9 +2063,9 @@ function isLikelyClaudeModelLabel(text = '') {
             }
             // Fail closed when the shared oracle is unavailable.
             if (!claudeSubmitConfirmation && (
-              countClaudeTurns() > beforeTurns
-              || countClaudeUserTurns() > beforeUserTurns
-              || collectClaudeGenerationElements().some((el) => !beforeGeneration.has(el))
+              countClaudeTurns() > Number(baseline?.fallback?.responseCount || 0)
+              || countClaudeUserTurns() > Number(baseline?.fallback?.userTurnCount || 0)
+              || collectClaudeGenerationElements().some((el) => !baseline?.fallback?.generationElements?.has(el))
             )) {
               return true;
             }
@@ -2110,9 +2118,13 @@ function isLikelyClaudeModelLabel(text = '') {
         telemetry.sendStart = Date.now();
         emitTiming('Send attempt (ctrl+enter)', { composerLength: readComposerValue(inputArea).length });
         activity.heartbeat(0.4, { phase: 'send-dispatched' });
+        // Capture once, before the first send action. Reusing this baseline across
+        // retries prevents a fast Claude UI transition from becoming the new
+        // baseline and being mistaken for "send not confirmed".
+        const sendBaseline = captureClaudeSendBaseline(inputArea);
         await tryEnterSend({ ctrlKey: true });
         let sendButton = null;
-        let sentConfirmed = await confirmClaudeSend(null, inputArea, prompt);
+        let sentConfirmed = await confirmClaudeSend(sendBaseline, inputArea);
 
         if (!sentConfirmed) {
           console.log('[content-claude] Ctrl+Enter not confirmed, searching send button (fast)');
@@ -2122,7 +2134,7 @@ function isLikelyClaudeModelLabel(text = '') {
             emitTiming('Send button found (fast)', { button: describeNode(sendButton) });
             await waitForSendEnabled(sendButton, 1500);
             await clickSendButton(sendButton);
-            sentConfirmed = await confirmClaudeSend(sendButton, inputArea, prompt);
+            sentConfirmed = await confirmClaudeSend(sendBaseline, inputArea);
           }
         }
 
@@ -2133,7 +2145,7 @@ function isLikelyClaudeModelLabel(text = '') {
             emitTiming('Send button found (extended)', { button: describeNode(sendButton) });
             await waitForSendEnabled(sendButton, 2000);
             await clickSendButton(sendButton);
-            sentConfirmed = await confirmClaudeSend(sendButton, inputArea, prompt);
+            sentConfirmed = await confirmClaudeSend(sendBaseline, inputArea);
           }
         }
 
@@ -2143,7 +2155,7 @@ function isLikelyClaudeModelLabel(text = '') {
             console.log('[content-claude] Send not confirmed, retrying Enter');
             emitTiming('Send retry (enter)', { composerLength: stillText.length });
             await tryEnterSend();
-            sentConfirmed = await confirmClaudeSend(sendButton, inputArea, prompt);
+            sentConfirmed = await confirmClaudeSend(sendBaseline, inputArea);
           }
         }
 
@@ -2408,13 +2420,14 @@ function isLikelyClaudeModelLabel(text = '') {
             if (isEvaluatorMode) {
               chrome.runtime.sendMessage({
                 type: 'EVALUATOR_RESPONSE',
-                answer: `Error: ${errorMessage}`
+                answer: '',
+                error: { type: err?.type || 'generic_error', message: errorMessage }
               });
             } else {
               chrome.runtime.sendMessage({
                 type: responseType,
                 llmName: MODEL,
-                answer: `Error: ${errorMessage}`,
+                answer: '',
                 error: { 
                   type: err?.type || 'generic_error', 
                   message: errorMessage

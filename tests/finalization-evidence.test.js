@@ -103,6 +103,7 @@ describe('finalization evidence contract', () => {
     expect(JOB_ORCHESTRATOR_SOURCE).toContain("emitTelemetry(llmName, 'ANSWER_EXTRACTION_COMPLETED'");
     expect(JOB_ORCHESTRATOR_SOURCE).toContain('entry.lastAnswerMaterializationTelemetryKey !== materializationKey');
     expect(JOB_ORCHESTRATOR_SOURCE).toContain('payloadEvidenceId: acceptedPayloadProof.payloadEvidenceId || null');
+    expect(JOB_ORCHESTRATOR_SOURCE).toContain('if (entry && isSuccess && trimmedAnswer && incomingDispatchId && acceptedPayloadProof)');
   });
 
   test('canonical source alone cannot create automatic verified evidence', () => {
