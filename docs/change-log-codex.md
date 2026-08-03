@@ -1,5 +1,11 @@
 # Codex phase change log
 
+## 2.81.258 — User-focus telemetry is registered
+
+- The canonical `USER_FOCUS_OBSERVED` event now has explicit inventory,
+  retention and consumer metadata and is classified as contextual observation.
+- The inventory regression guard covers all 45 canonical event types.
+
 ## 2.81.257 — User focus is not an automation lease
 
 - An unmarked user tab activation is recorded as a separate focus observation;
