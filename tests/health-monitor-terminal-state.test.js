@@ -5,6 +5,7 @@ const vm = require('vm');
 const HEALTH_MONITOR_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'background', 'health-monitor.js'), 'utf8');
 
 function createSandbox() {
+  const telemetry = [];
   const context = {
     console,
     Promise,
@@ -22,6 +23,8 @@ function createSandbox() {
     setTimeout,
     clearTimeout,
     TERMINAL_STATUSES: ['SUCCESS', 'ERROR', 'NO_SEND', 'EXTRACT_FAILED'],
+    // Provided by the worker scope in production.
+    emitTelemetry: (llmName, event, payload) => telemetry.push({ llmName, event, payload }),
     TimingConfig: {
       getTiming(_key, fallback) {
         return fallback;
@@ -51,6 +54,7 @@ function createSandbox() {
   context.self = context;
   vm.createContext(context);
   vm.runInContext(HEALTH_MONITOR_SOURCE, context, { filename: 'background/health-monitor.js' });
+  context.__telemetry = telemetry;
   return context;
 }
 
@@ -85,5 +89,9 @@ describe('health-monitor terminal state', () => {
     }, expect.any(Function));
     expect(context.ReadySignalManager.waitForReady).toHaveBeenCalledWith(42, 6000);
     expect(context.ReadySignalManager.waitForAck).toHaveBeenCalledWith(42, 'tab-session-old-page', 6000);
+    expect(context.__telemetry).toContainEqual(expect.objectContaining({
+      llmName: 'GPT',
+      event: 'READY_REANNOUNCE_REQUESTED'
+    }));
   });
 });

@@ -18,7 +18,7 @@
   const SCHEMA_VERSION = '5.0';
   const CANONICAL_EVIDENCE_SCHEMA_VERSION = '1.0';
   const EVENT_SCHEMA_VERSION = Contracts?.EVENT_SCHEMA_VERSION || 6;
-  const GENERATOR_VERSION = 'proof-export@2.8.0';
+  const GENERATOR_VERSION = 'proof-export@2.9.0';
   const REPORT_VERSION = '3.6.0';
   const READER_GUIDANCE_VERSION = 'canonical-reader-guidance@1.0.0';
   const TRUSTED_READER_GUIDANCE = Object.freeze([
@@ -95,6 +95,10 @@
     TAB_CLOSED: 'PAGE_CONTEXT_OBSERVED',
     SPA_NAVIGATION: 'PAGE_CONTEXT_OBSERVED',
     PAGE_READY_STATE: 'PAGE_HEALTH_OBSERVED',
+    TAB_DISCARDED_RELOAD: 'PAGE_HEALTH_OBSERVED',
+    TAB_READY_WAIT_END: 'PAGE_HEALTH_OBSERVED',
+    READY_REANNOUNCE_REQUESTED: 'PAGE_HEALTH_OBSERVED',
+    HANDSHAKE_TIMEOUT: 'OBSERVER_HEALTH_OBSERVED',
     SCRIPT_HEALTH_FAIL: 'OBSERVER_HEALTH_OBSERVED',
     SELECTOR_RESOLVE_FAIL: 'OBSERVER_HEALTH_OBSERVED',
     FOCUS_STUCK: 'OBSERVER_HEALTH_OBSERVED',
@@ -145,6 +149,8 @@
     STALE_BASELINE_ANSWER_IGNORED: { kind: 'candidate_identity', state: 'stale' },
     TURN_RESOLUTION_ACCEPTED: { kind: 'candidate_identity', state: 'current_dispatch' },
     COMPOSER_NOT_FOUND: { kind: 'observation', state: 'degraded' },
+    TAB_DISCARDED_RELOAD: { kind: 'observation', state: 'degraded' },
+    HANDSHAKE_TIMEOUT: { kind: 'observation', state: 'degraded' },
     SELECTOR_RESOLVE_FAIL: { kind: 'observation', state: 'degraded' },
     ANSWER_SOURCE_MATERIALIZED: { kind: 'source_answer', state: 'materialized' },
     ANSWER_DELIVERY_ACKNOWLEDGED: { kind: 'delivery', state: 'accepted', outcome: 'accepted' },

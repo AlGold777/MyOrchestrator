@@ -1,5 +1,16 @@
 # CHANGELOG — Project
 
+### 2026-08-03 — Attribute the pre-send wait, version 2.81.262
+
+- `DISPATCH_SEND` now reports the phase split of the pre-send wait
+  (`tabReadyMs`, `ackWaitMs`, `noFocusProbeMs`) next to the total `readyWaitMs`.
+- The handshake-recovery request emits `READY_REANNOUNCE_REQUESTED`, so the
+  replay path is visible in evidence instead of being silent.
+- Tab and handshake diagnostics reach canonical exports: `TAB_DISCARDED_RELOAD`,
+  `TAB_READY_WAIT_END`, `READY_REANNOUNCE_REQUESTED` and `HANDSHAKE_TIMEOUT`
+  were previously dropped as debug events, which made a discarded-tab reload
+  indistinguishable from a lost handshake.
+
 ### 2026-08-03 — Immediate repeat dispatch on old pages, version 2.81.261
 
 - Already-open provider pages can replay their document-scoped `SCRIPT_READY`

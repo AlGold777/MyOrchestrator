@@ -1635,7 +1635,8 @@ Purpose: complete trace from tab open to prompt confirmation.
 - `ATTACH_CANDIDATE` / `TAB_ATTACHED` / `ATTACH_REJECTED` - attach flow and rejection.
 - `TAB_READY_CHECK` / `TAB_READY_WAIT_END` / `TAB_READY_FAIL` - tab readiness (load/reload).
 - `TAB_DISCARDED_RELOAD` - discarded tab recovery.
-- `DISPATCH_LOCK_ACQUIRE` / `DISPATCH_START` / `DISPATCH_SEND` - queue and send phase.
+- `DISPATCH_LOCK_ACQUIRE` / `DISPATCH_START` / `DISPATCH_SEND` - queue and send phase. `DISPATCH_SEND` carries the pre-send split: `readyWaitMs` total, of which `tabReadyMs` (tab load/reload), `ackWaitMs` (ready/ACK handshake) and `noFocusProbeMs` (no-focus probe).
+- `READY_REANNOUNCE_REQUESTED` - background asked an open page to replay `SCRIPT_READY` because worker memory held no correlated handshake.
 - `PROMPT_SUBMITTED_ACCEPTED` / `PROMPT_SUBMITTED_REJECTED` / `PROMPT_SUBMITTED_STALE` - submit confirmation handling.
 - `PROMPT_SUBMITTED_TIMEOUT` - submit confirmation timeout (no signal received).
 - `PIPELINE_START` / `PREPARATION_*` / `STREAMING_*` / `FINALIZATION_*` / `PIPELINE_COMPLETE` / `PIPELINE_ERROR` - content pipeline phases.

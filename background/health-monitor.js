@@ -249,7 +249,12 @@ async function waitForScriptReady(tabId, llmName, { timeoutMs = READY_WAIT_TIMEO
     // ACK timeout before reloading it.
     const handshakeCurrent = self.ReadySignalManager.hasCorrelatedHandshake?.(tabId) === true;
     if (!handshakeCurrent) {
-      requestFreshScriptReady(tabId, llmName);
+      const requested = requestFreshScriptReady(tabId, llmName);
+      emitTelemetry(llmName, 'READY_REANNOUNCE_REQUESTED', {
+        details: requested ? 'requested' : 'send_failed',
+        level: requested ? 'info' : 'warning',
+        meta: { tabId, requested, reason: 'handshake_not_correlated' }
+      });
     }
     let info = null;
     try {

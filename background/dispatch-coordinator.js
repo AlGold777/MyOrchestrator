@@ -1164,7 +1164,11 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
       if (machine) {
         machine.activate({ tabId });
       }
+      const tabReadyStartedAt = Date.now();
       const readiness = await ensureTabReadyForDispatch(tabId, llmName, { reason });
+      const tabReadyMs = Date.now() - tabReadyStartedAt;
+      let ackWaitMs = 0;
+      let noFocusProbeMs = 0;
       if (!readiness.ok) {
         broadcastDiagnostic(llmName, {
           type: 'DISPATCH',
@@ -1191,6 +1195,7 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
         ? !self.ModelPolicy.modelRequiresAckReady(llmName)
         : llmName === 'Perplexity';
       let readyOk = true;
+      const ackWaitStartedAt = Date.now();
       if (shouldBypassAck) {
         emitTelemetry(llmName, 'PERPLEXITY_ACK_BYPASS', {
           details: 'skip ACK_READY wait',
@@ -1280,6 +1285,8 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
         }
       }
 
+      ackWaitMs = Date.now() - ackWaitStartedAt;
+
       const readyInfo = self.ReadySignalManager?.getReadyInfo
         ? self.ReadySignalManager.getReadyInfo(tabId)
         : null;
@@ -1302,6 +1309,7 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
       if (options.skipNoFocusProbe) {
         needsFocus = true;
       } else {
+        const noFocusStartedAt = Date.now();
         noFocusResponse = await sendMessageWithTimeout(tabId, llmName, {
           type: 'GET_ANSWER_NO_FOCUS',
           prompt,
@@ -1314,6 +1322,7 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
             tabSessionId: readyInfo?.tabSessionId || null
           }
         }, NO_FOCUS_TIMEOUT_MS);
+        noFocusProbeMs = Date.now() - noFocusStartedAt;
         needsFocus = !noFocusResponse || noFocusResponse.requiresFocus === true || noFocusResponse.timeout;
       }
       if (options.forceFocus) {
@@ -1428,6 +1437,9 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
       dispatchReason: reason,
       attempt: entry.dispatchAttempts,
       readyWaitMs,
+      tabReadyMs,
+      ackWaitMs,
+      noFocusProbeMs,
       requiresFocus: needsFocus,
       visibilityState,
       hasFocus

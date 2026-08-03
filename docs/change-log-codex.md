@@ -1,5 +1,15 @@
 # Codex phase change log
 
+## 2.81.262 — The pre-send wait is attributable
+
+- A residual slow dispatch can now be attributed from the export alone: the
+  phase split in `DISPATCH_SEND` separates tab readiness from the ACK wait and
+  from the no-focus probe.
+- `READY_REANNOUNCE_REQUESTED`, `TAB_DISCARDED_RELOAD`, `TAB_READY_WAIT_END`
+  and `HANDSHAKE_TIMEOUT` are mapped into the canonical ledger, so a Chrome tab
+  discard and a lost worker handshake are no longer the same blank gap between
+  `DISPATCH_START` and `DISPATCH_SEND`.
+
 ## 2.81.261 — Old pages replay readiness without the ACK timeout
 
 - Dispatch detects when the current service-worker epoch has no correlated
