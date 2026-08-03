@@ -450,6 +450,46 @@ describe('early terminal success guard', () => {
     ]));
   });
 
+  test('does not publish recovered PARTIAL explicitly classified as unconfirmed complete', () => {
+    const { context, stateUpdates, partialMessages } = createSandbox();
+    const entry = context.jobState.llms.GPT;
+    entry.promptSubmittedAt = Date.now() - 20000;
+    entry.confirmedDispatchId = 'dispatch-gpt';
+    entry.submitSource = 'content';
+    entry.lastDispatchAt = Date.now() - 21000;
+
+    context.handleLLMResponse('GPT', 'Answer is still being generated. '.repeat(80), null, {
+      dispatchId: 'dispatch-gpt',
+      preTerminalMaterialize: true,
+      responseMeta: {
+        source: 'preserved_pending',
+        completionReason: 'materialize_recovered_unconfirmed_complete',
+        partial: true,
+        preTerminalMaterialize: true
+      }
+    });
+
+    expect(entry.finalStatusRecorded).not.toBe(true);
+    expect(entry.finalStatus).toBeFalsy();
+    expect(entry.pendingFinalAnswer).toContain('Answer is still being generated.');
+    expect(stateUpdates).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        llmName: 'GPT',
+        status: 'RECEIVING',
+        meta: expect.objectContaining({ message: 'awaiting_stronger_answer_evidence' })
+      })
+    ]));
+    expect(stateUpdates).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ llmName: 'GPT', status: 'PARTIAL' })
+    ]));
+    expect(partialMessages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'LLM_PARTIAL_RESPONSE',
+        metadata: expect.objectContaining({ terminal: false })
+      })
+    ]));
+  });
+
   test('infers Qwen submit confirmation from a growing post-dispatch answer', () => {
     const { context, logs } = createSandbox();
     const entry = context.jobState.llms.Qwen;

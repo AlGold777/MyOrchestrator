@@ -924,6 +924,19 @@ rejects a baseline-equivalent candidate before finalization. Without completion
 evidence, a fresh salvaged candidate is at most `PARTIAL`; without freshness it
 remains `NO_SEND`/recoverable and can never become `SUCCESS`.
 
+`materialize_recovered_unconfirmed_complete` describes a visible answer
+candidate, not a terminal state. If the finalization policy rejects that
+candidate, it remains non-terminal even when its provisional status is
+`PARTIAL`. Explicit automation deadlines and exhausted streaming limits retain
+their separate hard-stop contract and may deliberately finish as `PARTIAL`.
+
+Late collection distinguishes a dead page from a temporarily unavailable
+observer. If the tab still exists, matches the provider and is not discarded,
+a failed content-script ping plus a timed-out scripting probe produces
+`UNAVAILABLE`, never `DEAD`. Read-only probes are serialized across providers
+and retried with bounded backoff. This recovery does not reload the page, resend
+the prompt or apply provider-specific completion exceptions.
+
 Provider-specific selector details belong in `selectors/*.config.js` and the
 selector tooling guides. If a selector breaks, first use the health/override
 path; only then change the canonical selector config.

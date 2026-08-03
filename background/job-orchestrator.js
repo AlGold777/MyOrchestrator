@@ -167,6 +167,17 @@ const LATE_COLLECT_SLOW_PING_TIMEOUT_MS = 1500;
 const LATE_COLLECT_EXECUTE_TIMEOUT_MS = 3500;
 const LATE_COLLECT_POST_LIVE_WAIT_MS = 700;
 const LATE_COLLECT_SINGLE_FLIGHT_COOLDOWN_MS = 2500;
+const UNAVAILABLE_OBSERVATION_RETRY_DELAYS_MS = Object.freeze([2000, 7000, 20000, 45000, 90000]);
+var lateCollectExecutionMutex = Promise.resolve();
+
+function withLateCollectExecutionLock(operation) {
+  const run = lateCollectExecutionMutex.then(
+    () => Promise.resolve(operation()),
+    () => Promise.resolve(operation())
+  );
+  lateCollectExecutionMutex = run.catch(() => undefined);
+  return run;
+}
 const LATE_COLLECT_SNAPSHOT_TTL_MS = 60 * 60 * 1000;
 const LATE_COLLECT_SLOW_MODELS = new Set(['Gemini', 'Claude', 'Qwen', 'DeepSeek', 'Le Chat', 'Perplexity', 'Z.ai']);
 const RECOVERY_BUDGET_DEFAULT = Object.freeze({
@@ -764,7 +775,7 @@ async function classifyLateCollectState(tabId, llmName) {
   if (ping?.ok) {
     return { state: 'ALIVE', reason: 'content_script_ping_ok', tab: buildTabSnapshot(tab), ping: ping.response || null };
   }
-  const probe = await withLateCollectTimeout(chrome.scripting.executeScript({
+  const probe = await withLateCollectExecutionLock(() => withLateCollectTimeout(chrome.scripting.executeScript({
     target: { tabId },
     func: () => ({
       ok: true,
@@ -772,14 +783,17 @@ async function classifyLateCollectState(tabId, llmName) {
       readyState: document.readyState,
       hasBody: !!document.body
     })
-  }), LATE_COLLECT_EXECUTE_TIMEOUT_MS, (err) => ({ ok: false, error: err?.message || 'execute_timeout' }));
+  }), LATE_COLLECT_EXECUTE_TIMEOUT_MS, (err) => ({ ok: false, error: err?.message || 'execute_timeout' })));
   const probeOk = Array.isArray(probe) && probe.some((item) => item?.result?.ok);
   if (probeOk) {
     return { state: 'REINJECTABLE', reason: 'execute_script_probe_ok', tab: buildTabSnapshot(tab), pingError: ping?.error || null };
   }
   return {
-    state: 'DEAD',
-    reason: 'execute_script_unavailable',
+    // The tab still exists, is eligible and is not discarded. A timed-out or
+    // rejected scripting call is therefore a temporary observation failure,
+    // not proof that the page is dead or that generation has ended.
+    state: 'UNAVAILABLE',
+    reason: 'execute_script_temporarily_unavailable',
     tab: buildTabSnapshot(tab),
     error: probe?.error || ping?.error || null
   };
@@ -788,11 +802,11 @@ async function classifyLateCollectState(tabId, llmName) {
 async function runInlineLateExtract({ tabId, llmName, minChars = DOM_SNAPSHOT_RECOVERY_MIN_CHARS, manualRecovery = null } = {}) {
   // Read-only fallback: execute a pure extractor only, without content-script reinjection,
   // listeners, observers, reloads, prompt resend, or DOM mutation.
-  const result = await withLateCollectTimeout(chrome.scripting.executeScript({
+  const result = await withLateCollectExecutionLock(() => withLateCollectTimeout(chrome.scripting.executeScript({
     target: { tabId },
     func: extractLatestAssistantSnapshotInPage,
     args: [llmName, minChars, manualRecovery || {}]
-  }), LATE_COLLECT_EXECUTE_TIMEOUT_MS, (err) => ({ ok: false, error: err?.message || 'execute_timeout' }));
+  }), LATE_COLLECT_EXECUTE_TIMEOUT_MS, (err) => ({ ok: false, error: err?.message || 'execute_timeout' })));
   const snapshot = Array.isArray(result) ? result.find((item) => item?.result)?.result : null;
   if (snapshot?.ok && snapshot.text) {
     return snapshot;
@@ -831,6 +845,7 @@ async function lateCollectAnswer({ llmName, tabId, reason = 'late_collect', meta
           status: result?.status || null,
           state: extra.state || null,
           stateReason: extra.stateReason || result?.reason || null,
+          stateError: extra.stateError || null,
           source: result?.source || 'none',
           textLength,
           candidateCount: Number(result?.candidateCount || result?.candidates || 0),
@@ -872,6 +887,11 @@ async function lateCollectAnswer({ llmName, tabId, reason = 'late_collect', meta
     }
     const usableCached = cachedIsStaleForDispatch ? null : cached;
     const state = await classifyLateCollectState(tabId, llmName);
+    if (state.state === 'ALIVE' || state.state === 'REINJECTABLE') {
+      clearUnavailableObservationRecovery(entry, dispatchId);
+    } else if (state.state === 'UNAVAILABLE') {
+      scheduleUnavailableObservationRetry(llmName, tabId, runSessionId, dispatchId, reason);
+    }
     if (state.state === 'DEAD') {
       broadcastDiagnostic(llmName, {
         type: 'RECOVERY',
@@ -885,6 +905,7 @@ async function lateCollectAnswer({ llmName, tabId, reason = 'late_collect', meta
         : { ok: false, status: 'dead_tab_no_snapshot', text: '', source: 'none', reason: state.reason }, {
           state: state.state,
           stateReason: state.reason,
+          stateError: state.error || null,
           cachedLength: usableCached?.length || 0
         });
     }
@@ -1011,13 +1032,13 @@ async function lateCollectAnswer({ llmName, tabId, reason = 'late_collect', meta
 
     return emitDecisionTrace({
       ok: false,
-      status: 'late_collect_failed',
+      status: state.state === 'UNAVAILABLE' ? 'observation_temporarily_unavailable' : 'late_collect_failed',
       text: '',
       source: 'none',
       reason: inline?.error || 'no_answer_extracted',
       candidates: inline?.candidates || 0,
       candidateCount: inline?.candidateCount || inline?.candidates || 0
-    }, { state: state.state, stateReason: state.reason, cachedLength: cached?.length || 0 });
+    }, { state: state.state, stateReason: state.reason, stateError: state.error || null, cachedLength: cached?.length || 0 });
   })().finally(() => {
     const current = lateAnswerCollectInFlight.get(flightKey);
     if (current?.promise === promise) {
@@ -3752,6 +3773,64 @@ const triggerResponseCollectionPing = (llmName, tabId, source = 'auto_collect', 
   });
 };
 
+function clearUnavailableObservationRecovery(entry, dispatchId = null) {
+  if (!entry) return;
+  if (dispatchId && entry.unavailableObservationRecoveryDispatchId
+    && String(entry.unavailableObservationRecoveryDispatchId) !== String(dispatchId)) return;
+  entry.unavailableObservationRecoveryAttempts = 0;
+  entry.unavailableObservationRecoveryScheduled = false;
+  entry.unavailableObservationRecoveryDueAt = null;
+  entry.unavailableObservationRecoveryDispatchId = dispatchId || null;
+}
+
+function scheduleUnavailableObservationRetry(llmName, tabId, sessionId, dispatchId, source = 'late_collect') {
+  const entry = jobState?.llms?.[llmName];
+  if (!entry || isFinalizedEntry(entry) || !isValidTabId(tabId)) return false;
+  if (entry.unavailableObservationRecoveryDispatchId
+    && String(entry.unavailableObservationRecoveryDispatchId) !== String(dispatchId || '')) {
+    clearUnavailableObservationRecovery(entry, dispatchId);
+  }
+  if (entry.unavailableObservationRecoveryScheduled === true) return true;
+  const attempt = Math.max(0, Number(entry.unavailableObservationRecoveryAttempts || 0));
+  if (attempt >= UNAVAILABLE_OBSERVATION_RETRY_DELAYS_MS.length) {
+    emitTelemetry(llmName, 'OBSERVATION_RECOVERY_EXHAUSTED', {
+      level: 'warning',
+      details: `attempts=${attempt}`,
+      meta: { tabId, dispatchId, source, attempts: attempt },
+      force: true
+    });
+    return false;
+  }
+  const delayMs = UNAVAILABLE_OBSERVATION_RETRY_DELAYS_MS[attempt];
+  entry.unavailableObservationRecoveryAttempts = attempt + 1;
+  entry.unavailableObservationRecoveryScheduled = true;
+  entry.unavailableObservationRecoveryDueAt = Date.now() + delayMs;
+  entry.unavailableObservationRecoveryDispatchId = dispatchId || null;
+  emitTelemetry(llmName, 'OBSERVATION_RECOVERY_SCHEDULED', {
+    level: 'warning',
+    details: `${attempt + 1}/${UNAVAILABLE_OBSERVATION_RETRY_DELAYS_MS.length}:${delayMs}ms`,
+    meta: { tabId, dispatchId, source, attempt: attempt + 1, delayMs },
+    force: true
+  });
+  let retryTimer = null;
+  retryTimer = registerSessionTimer(setTimeout(() => {
+    deregisterSessionTimer(retryTimer);
+    const liveEntry = jobState?.llms?.[llmName];
+    if (!liveEntry || isFinalizedEntry(liveEntry)) return;
+    liveEntry.unavailableObservationRecoveryScheduled = false;
+    liveEntry.unavailableObservationRecoveryDueAt = null;
+    if (sessionId && !isSessionActive(sessionId)) return;
+    if (dispatchId && liveEntry?.lastDispatchMeta?.dispatchId
+      && String(liveEntry.lastDispatchMeta.dispatchId) !== String(dispatchId)) return;
+    triggerResponseCollectionPing(llmName, tabId, 'observation_unavailable_retry', {
+      allowRecovery: false,
+      maxAttempts: 1,
+      baseDelay: 500
+    });
+  }, delayMs));
+  return true;
+}
+
 const clearAdaptiveCollectTimer = (llmName) => {
   const timer = adaptiveCollectTimers.get(llmName);
   if (timer) {
@@ -4563,6 +4642,10 @@ function rehydrateActiveJobRuntime(source = 'load_job_state') {
       entry.rehydratedAt = Date.now();
       entry.dispatchInFlight = false;
       entry.domSnapshotRecoveryInFlight = false;
+      // Session timers do not survive MV3 suspension. Let an observation miss
+      // schedule its bounded retry again instead of retaining a stale lock.
+      entry.unavailableObservationRecoveryScheduled = false;
+      entry.unavailableObservationRecoveryDueAt = null;
       entry.preTerminalMaterializeRecovery = entry.preTerminalMaterializeRecovery && typeof entry.preTerminalMaterializeRecovery === 'object'
         ? { ...entry.preTerminalMaterializeRecovery, inFlight: false, rehydrated: true }
         : entry.preTerminalMaterializeRecovery;
@@ -8591,7 +8674,16 @@ function handleLLMResponse(llmName, answer, error = null, meta = null, answerHtm
     });
   }
 
-  if (finalStatus === 'SUCCESS' && finalizationEvidence.success && !finalizationEvidence.accepted) {
+  // A materialized recovery explicitly classified as "unconfirmed complete"
+  // is only an answer candidate. Do not turn it into a terminal PARTIAL when
+  // the completion policy rejected it. Explicit hard-stop/deadline PARTIAL
+  // outcomes keep their separate terminal contract.
+  const unconfirmedRecoveredCompletion = isSuccess
+    && finalizationEvidence.success
+    && !finalizationEvidence.accepted
+    && completionReason === 'materialize_recovered_unconfirmed_complete';
+  if ((finalStatus === 'SUCCESS' && finalizationEvidence.success && !finalizationEvidence.accepted)
+    || unconfirmedRecoveredCompletion) {
     entry.pendingFinalAnswer = normalizedAnswer;
     entry.pendingFinalAnswerHtml = normalizedHtml;
     emitTelemetry(llmName, 'TERMINAL_SUCCESS_BLOCKED_BY_ANSWER_EVIDENCE', {

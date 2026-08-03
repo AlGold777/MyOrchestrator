@@ -1,5 +1,15 @@
 # Codex phase change log
 
+## 2.81.253 — Completion survives temporary observation loss
+
+- A recovered snapshot explicitly classified as unconfirmed completion remains
+  a visible non-terminal candidate when finalization policy rejects it; it can
+  no longer close a still-generating model as `PARTIAL`.
+- An existing eligible tab whose content script and scripting probe are
+  temporarily unavailable is classified as `UNAVAILABLE`, not `DEAD`.
+- Read-only late collection is serialized across providers and schedules a
+  bounded provider-neutral retry sequence without reloading model pages.
+
 ## 2.81.252 — Field validation understands canonical evidence identity
 
 - The field validator reads the dependency registry and incident index from
