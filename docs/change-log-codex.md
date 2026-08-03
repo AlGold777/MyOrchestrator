@@ -1,5 +1,12 @@
 # Codex phase change log
 
+## 2.81.259 — Proof examples follow the executable registry
+
+- The checked-in dependency-registry snapshot and every generated proof
+  telemetry example were rebuilt from the current executable contracts.
+- Full regression can now verify the new user-focus event against both the
+  live registry and its documented snapshot.
+
 ## 2.81.258 — User-focus telemetry is registered
 
 - The canonical `USER_FOCUS_OBSERVED` event now has explicit inventory,

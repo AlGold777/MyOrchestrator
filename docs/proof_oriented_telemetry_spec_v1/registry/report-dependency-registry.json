@@ -2399,6 +2399,59 @@
         "report:late-end",
         "report:old-answer"
       ]
+    },
+    "USER_FOCUS_OBSERVED": {
+      "eventType": "USER_FOCUS_OBSERVED",
+      "contractVersion": "1.0.0",
+      "layer": "fact",
+      "producers": [
+        "runtime-observer",
+        "legacy-telemetry-adapter"
+      ],
+      "requiredEnvelopeFields": [
+        "schemaVersion",
+        "eventId",
+        "eventType",
+        "layer",
+        "seq",
+        "wallTs",
+        "runSessionId",
+        "producer",
+        "payload"
+      ],
+      "identity": {
+        "modelScoped": true,
+        "requiredFields": [
+          "runSessionId",
+          "modelId"
+        ],
+        "incidentDiscriminatorFields": [
+          "dispatchId",
+          "generationEpoch",
+          "documentInstanceId",
+          "navigationEpoch"
+        ]
+      },
+      "recipients": [
+        "proof-ledger",
+        "all-presets-json",
+        "standalone-report",
+        "canonical-evidence"
+      ],
+      "sampling": {
+        "mode": "none",
+        "lossPolicy": "lossless"
+      },
+      "retention": {
+        "criticality": "context",
+        "canonical": "bounded-with-explicit-omission",
+        "legacyParallelStream": "runtime-dependent"
+      },
+      "consumers": [
+        "incident-timeline",
+        "model-timeline",
+        "telemetry-validator"
+      ]
     }
   },
   "capabilityMatrixVersion": "1.0.0",
