@@ -63,6 +63,13 @@ const SCRIPT_RUNTIME_HARD_STOP_ACTIVITY_WINDOW_MS = 15000;
 const SCRIPT_RUNTIME_HARD_STOP_GRACE_MS = 12000;
 const SCRIPT_RUNTIME_HARD_STOP_MAX_GRACE_EXTENSIONS = 2;
 const TRANSPORT_RECOVER_BACKOFF_MS = 12000;
+const PROVIDER_PIPELINE_OWNERSHIP_TTL_MS = 180000;
+
+function isProviderPipelineOwnershipActive(entry, now = Date.now()) {
+  if (!entry || entry.providerPipelineActive !== true) return false;
+  const activeAt = Number(entry.providerPipelineActiveAt || 0);
+  return activeAt > 0 && Math.max(0, Number(now) - activeAt) < PROVIDER_PIPELINE_OWNERSHIP_TTL_MS;
+}
 
 const dispatchSessionTimerManager = (() => {
   const register = (typeof self?.registerSessionTimer === 'function')
@@ -834,6 +841,21 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
   if (!llmName || !isValidTabId(tabId) || !prompt) return;
   const entry = jobState?.llms?.[llmName];
   if (!entry) return;
+  const recoveryDispatch = ['retry_supervisor', 'round2_repair', 'round2_repair_pre_visit'].includes(reason);
+  if (recoveryDispatch && isProviderPipelineOwnershipActive(entry)) {
+    emitTelemetry(llmName, 'DISPATCH_DEFERRED_PROVIDER_PIPELINE_ACTIVE', {
+      level: 'info',
+      details: reason,
+      meta: {
+        tabId,
+        dispatchReason: reason,
+        providerPipelineDispatchId: entry.providerPipelineDispatchId || null,
+        providerPipelineActiveAt: entry.providerPipelineActiveAt || null
+      },
+      force: true
+    });
+    return { ok: false, deferred: true, reason: 'provider_pipeline_active' };
+  }
   if (reason !== 'perplexity_paywall_resume'
     && isTransientBlockerDispatchSuspended(llmName, entry)) {
     return { ok: false, deferred: true, reason: 'transient_blocker_active' };
@@ -2151,5 +2173,6 @@ self.DISPATCH_MAX_ATTEMPTS = DISPATCH_MAX_ATTEMPTS;
 self.clearScriptRuntimeHardStop = clearScriptRuntimeHardStop;
 self.clearAllScriptRuntimeHardStops = clearAllScriptRuntimeHardStops;
 self.armScriptRuntimeHardStopForConfirmedPrompt = armScriptRuntimeHardStopForConfirmedPrompt;
+self.isProviderPipelineOwnershipActive = isProviderPipelineOwnershipActive;
 
 globalThis.LLMLog?.debug?.('[DispatchCoordinator] Module loaded');

@@ -1,5 +1,15 @@
 # Codex phase change log
 
+## 2.81.255 — Focus follows the provider submit transaction
+
+- Round 1 keeps each focused provider foregrounded until correlated
+  `PROMPT_SUBMITTED` evidence arrives or that provider's bounded submit window
+  expires; the next model no longer hides a composer transaction immediately.
+- Grok acknowledges command ownership immediately and reports explicit provider
+  pipeline ownership while its asynchronous insert/send work continues.
+- Retry supervisor and both Round 2 repair paths defer while the original
+  provider transaction owns the dispatch, with a three-minute fail-safe TTL.
+
 ## 2.81.254 — Round 1 readiness is prewarmed in parallel
 
 - After tab acquisition, Round 0 validates every bound tab and awaits its

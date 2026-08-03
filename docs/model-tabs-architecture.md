@@ -259,6 +259,7 @@ Round 1: for each selected model
   resolve and validate the bound tab
   focus when dispatch requires it
   deliver GET_ANSWER
+  keep focus until correlated submit evidence or the bounded submit deadline
   continue without waiting for the full answer
 
 Round 2: for each selected model
@@ -288,6 +289,13 @@ Once all bindings exist, readiness prewarm is concurrent across model tabs.
 Round 1 still applies its ordinary Ready/ACK gate, so a navigation or a changed
 `tabSessionId` cannot reuse stale readiness; an unchanged prewarmed document
 resolves that gate from `ReadySignalManager` without another serial wait.
+Command acceptance and answer generation are separate lifetimes. Once the page
+owns `GET_ANSWER`, Round 1 holds only through the provider's submit transaction,
+not through answer generation. An adapter publishes
+`PROVIDER_DISPATCH_PIPELINE_STATE` while its asynchronous composer transaction
+is alive; retry supervisor and Round 2 repair must defer rather than overwrite
+that owner. A bounded ownership TTL prevents a lost MV3 release message from
+blocking recovery forever.
 When New pages is disabled, Round 0 acquires independent existing pages in
 parallel so the bootstrap fits inside the MV3 service-worker lifetime. The
 results-page start request remains open until this acquisition and Round 1

@@ -2661,13 +2661,43 @@
       }
 
       if (msg?.type === 'GET_ANSWER' || msg?.type === 'GET_FINAL_ANSWER') {
+        const acceptedMeta = window.ContentUtils?.ensureDispatchMeta
+          ? window.ContentUtils.ensureDispatchMeta(msg.meta || null, MODEL)
+          : (msg.meta || null);
+        if (!String(msg.prompt || '').trim()) {
+          sendResponse?.({
+            ok: false,
+            accepted: false,
+            status: 'rejected',
+            reason: 'empty_prompt',
+            dispatchId: acceptedMeta?.dispatchId || null
+          });
+          return false;
+        }
+        // Acknowledge command ownership immediately. The background keeps this
+        // tab focused separately until PROMPT_SUBMITTED or its bounded submit
+        // timeout; the message port must not remain open through generation.
+        sendResponse?.({
+          ok: true,
+          accepted: true,
+          status: 'accepted',
+          dispatchId: acceptedMeta?.dispatchId || null,
+          tabSessionId: acceptedMeta?.tabSessionId || null
+        });
         const releaseActive = () => window.ContentUtils?.stopActiveRequest?.();
         window.ContentUtils?.startActiveRequest?.();
+        try {
+          chrome.runtime.sendMessage({
+            type: 'PROVIDER_DISPATCH_PIPELINE_STATE',
+            llmName: MODEL,
+            active: true,
+            meta: acceptedMeta || msg.meta || null
+          });
+        } catch (_) {}
         injectAndGetResponse(msg.prompt, msg.attachments, msg.meta || null)
           .then((resp) => {
             if (msg.isFireAndForget) {
               console.log('[content-grok] Fire-and-forget request processed. Not sending response back.');
-              sendResponse?.({ status: 'success_fire_and_forget' });
               return;
             }
             const responseType = msg.type === 'GET_ANSWER' ? 'LLM_RESPONSE' : 'FINAL_LLM_RESPONSE';
@@ -2690,11 +2720,9 @@
                 ? Object.assign({}, msg.meta || {}, { responseMeta: payload.meta })
                 : (msg.meta || null)
             });
-            sendResponse?.({ status: 'success' });
           })
           .catch((err) => {
             if (err?.code === 'background-force-stop') {
-              sendResponse?.({ status: 'force_stopped' });
               return;
             }
             const errorMessage = err?.message || String(err) || 'Unknown error in content-grok';
@@ -2706,10 +2734,19 @@
               error: { type: err?.type || 'generic_error', message: errorMessage },
               meta: msg.meta || null
             });
-            sendResponse?.({ status: 'error', message: errorMessage });
           })
-          .finally(releaseActive);
-        return true;
+          .finally(() => {
+            try {
+              chrome.runtime.sendMessage({
+                type: 'PROVIDER_DISPATCH_PIPELINE_STATE',
+                llmName: MODEL,
+                active: false,
+                meta: acceptedMeta || msg.meta || null
+              });
+            } catch (_) {}
+            releaseActive();
+          });
+        return false;
       }
 
       if (msg.action === 'injectPrompt' || msg.action === 'sendPrompt' || msg.action === 'REQUEST_LLM_RESPONSE') {

@@ -18,6 +18,7 @@ const ROUND1_PRIORITY_MODELS = Object.freeze(['Qwen']);
 const ROUND1_POST_COMMAND_FOCUS_HOLD_MS = Object.freeze({
   Qwen: 6000
 });
+const ROUND_PROVIDER_PIPELINE_OWNERSHIP_TTL_MS = 180000;
 const ROUND2_VISIT_COUNT = 2;
 const ROUND2_VISIT_MIN_MS = 5000;
 const ROUND2_VISIT_MAX_MS = 8000;
@@ -5611,6 +5612,11 @@ const orderRound1Models = (selectedLLMs = []) => {
     .map(({ name }) => name);
 };
 
+const resolveRound1PostCommandFocusHoldMs = (llmName) => Math.max(
+  Number(ROUND1_POST_COMMAND_FOCUS_HOLD_MS[llmName] || 0),
+  Number(self.getPromptSubmitTimeoutMs?.(llmName) || 0)
+);
+
 async function dispatchRound1Sequentially(selectedLLMs, prompt, attachments = [], sessionId, options = {}) {
   for (const llmName of orderRound1Models(selectedLLMs)) {
     if (sessionId && !isSessionActive(sessionId)) return false;
@@ -5666,7 +5672,10 @@ async function dispatchRound1Sequentially(selectedLLMs, prompt, attachments = []
       skipFocusRestore: true,
       skipSubmitWait: true,
       deferSendMs: ROUND1_BEFORE_SEND_MS,
-      postCommandFocusHoldMs: Number(ROUND1_POST_COMMAND_FOCUS_HOLD_MS[llmName] || 0),
+      // Keep the provider foregrounded until PROMPT_SUBMITTED resolves or the
+      // provider's bounded submit contract expires. The command itself is
+      // asynchronous; switching immediately throttles its composer timers.
+      postCommandFocusHoldMs: resolveRound1PostCommandFocusHoldMs(llmName),
       skipTypingGuard: true,
       resetStateAfterSend: false
     });
@@ -6118,8 +6127,10 @@ async function dispatchRound2Verification(selectedLLMs, sessionId) {
       }
       let confirmedByContent = !!entry?.promptSubmittedAt && entry?.submitSource === 'content';
       let repairAttemptedBeforeVisit = false;
-      const providerPipelineActive = entry?.providerPipelineActive === true
-        && Date.now() - Number(entry?.providerPipelineActiveAt || 0) < 60000;
+      const providerPipelineActive = self.isProviderPipelineOwnershipActive
+        ? self.isProviderPipelineOwnershipActive(entry)
+        : (entry?.providerPipelineActive === true
+          && Date.now() - Number(entry?.providerPipelineActiveAt || 0) < ROUND_PROVIDER_PIPELINE_OWNERSHIP_TTL_MS);
       if (!confirmedByContent && providerPipelineActive) {
         emitTelemetry(llmName, 'ROUND2_REPAIR_DISPATCH_SKIPPED', {
           level: 'info',
