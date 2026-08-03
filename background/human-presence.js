@@ -82,6 +82,7 @@ const FOCUS_STUCK_THRESHOLD_MS = 30000;
 let focusStuckTimer = null;
 let focusStuckMeta = null;
 let visitHardCapTimer = null;
+let userFocusObservation = null;
 const automationVisitLocks = new Map();
 const deferredAnswerTimers = {};
 const postSuccessScrollTimers = new Map();
@@ -315,6 +316,7 @@ function handleBrowserFocusChange(hasFocus) {
   if (browserHasFocus === hasFocus) return;
   browserHasFocus = hasFocus;
   if (!hasFocus) {
+    finalizeUserFocusObservation('window_blur');
     finalizeTabVisit('window_blur');
     clearFocusStuckTimer('window_blur');
     if (currentHumanVisit?.cancel) {
@@ -340,6 +342,9 @@ function handleTabActivation(tabId, _windowId) {
   const llmName = TabMapManager.getNameByTabId(tabId);
   const programmaticFocus = consumeProgrammaticTabFocus(tabId);
   if (programmaticFocus) {
+    if (userFocusObservation?.tabId !== tabId) {
+      finalizeUserFocusObservation('programmatic_tab_switch');
+    }
     emitTelemetry(llmName || programmaticFocus.llmName || 'ROUNDS', 'TAB_ACTIVATION_IGNORED_PROGRAMMATIC', {
       details: programmaticFocus.source || 'programmatic_focus',
       meta: {
@@ -354,11 +359,59 @@ function handleTabActivation(tabId, _windowId) {
     return;
   }
   if (!llmName) {
+    finalizeUserFocusObservation('non_llm_focus');
     finalizeTabVisit('tab_switch');
     clearFocusStuckTimer('non_llm_focus');
     return;
   }
-  startTabVisit(tabId, llmName, 'user_focus');
+  recordUserFocusObservation(tabId, llmName);
+}
+
+function finalizeUserFocusObservation(reason = 'tab_switch') {
+  if (!userFocusObservation) return null;
+  const endedAt = Date.now();
+  const summary = {
+    ...userFocusObservation,
+    endedAt,
+    durationMs: Math.max(0, endedAt - Number(userFocusObservation.startedAt || endedAt)),
+    reason
+  };
+  emitTelemetry(summary.llmName || 'ROUNDS', 'USER_FOCUS_OBSERVATION_ENDED', {
+    meta: summary,
+    force: true
+  });
+  userFocusObservation = null;
+  return summary;
+}
+
+function recordUserFocusObservation(tabId, llmName) {
+  if (!isValidTabId(tabId) || !llmName) return false;
+  if (userFocusObservation?.tabId === tabId && userFocusObservation?.llmName === llmName) {
+    return true;
+  }
+  finalizeUserFocusObservation('tab_switch');
+  if (currentHumanVisit?.cancel) {
+    try { currentHumanVisit.cancel(); } catch (_) { /* noop */ }
+  } else if (tabVisitTracker.tabId || tabVisitTracker.llmName) {
+    finalizeTabVisit('user_focus_preempt');
+  }
+  clearFocusStuckTimer('user_focus_observation');
+  clearVisitHardCapTimer('user_focus_observation');
+  userFocusObservation = {
+    tabId,
+    llmName,
+    startedAt: Date.now(),
+    source: 'user_focus'
+  };
+  emitTelemetry(llmName, 'USER_FOCUS_CHANGE', {
+    meta: { tabId, source: 'user_focus' },
+    force: true
+  });
+  emitTelemetry(llmName, 'USER_FOCUS_OBSERVATION_STARTED', {
+    meta: { ...userFocusObservation },
+    force: true
+  });
+  return true;
 }
 
 function clearExpiredProgrammaticFocus(now = Date.now()) {
@@ -552,6 +605,11 @@ async function emitFocusStuckIfStillActive() {
 
 function startTabVisit(tabId, llmName, source = 'tab_focus') {
   if (!isValidTabId(tabId) || !llmName) return false;
+  // A real user viewing a tab is an observation, not a lease owned by the
+  // automation scheduler. It has no TTL, hard cap or FOCUS_STUCK timer.
+  if (source === 'user_focus') {
+    return recordUserFocusObservation(tabId, llmName);
+  }
   const entry = jobState?.llms?.[llmName];
   if (isTerminalEntry(entry)) {
     if (tabVisitTracker.tabId === tabId || tabVisitTracker.llmName === llmName) {
@@ -1780,6 +1838,8 @@ self.handleHumanVisitControl = handleHumanVisitControl;
 self.handleHumanVisitModelToggle = handleHumanVisitModelToggle;
 self.handleBrowserFocusChange = handleBrowserFocusChange;
 self.handleTabActivation = handleTabActivation;
+self.recordUserFocusObservation = recordUserFocusObservation;
+self.finalizeUserFocusObservation = finalizeUserFocusObservation;
 self.clearExpiredProgrammaticFocus = clearExpiredProgrammaticFocus;
 self.markProgrammaticTabFocus = markProgrammaticTabFocus;
 self.consumeProgrammaticTabFocus = consumeProgrammaticTabFocus;

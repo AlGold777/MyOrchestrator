@@ -1,5 +1,15 @@
 # Codex phase change log
 
+## 2.81.257 — User focus is not an automation lease
+
+- An unmarked user tab activation is recorded as a separate focus observation;
+  it no longer creates `LEASE_GRANTED`, a fictitious 12-second TTL or a
+  30-second `FOCUS_STUCK` warning.
+- User activation still preempts and closes a live automated visit, while
+  programmatic visits retain their bounded lease and hard-cap contract.
+- Canonical proof telemetry preserves user-focus start/end events as
+  `USER_FOCUS_OBSERVED`, distinct from observation-slot allocation.
+
 ## 2.81.256 — Debugger ownership is serialized per tab
 
 - Every trusted input, Send, Enter and CDP attachment operation now passes

@@ -236,10 +236,10 @@ proposal `materialize > round3 > round2 verification` in
 `docs/timing-review-2026-07-02.md` is not an implemented priority policy and
 must not be treated as one.
 
-The user has the highest effective focus authority: an explicit
-`user_focus` may preempt an unexpired automated lease. Automated requests may
-reuse the same lease or preempt an expired lease, but otherwise receive
-`LEASE_DENIED`.
+The user has the highest effective focus authority. An unmarked user activation
+preempts an automated visit but is recorded as a separate observation, not as
+a new lease. Automated requests may reuse the same automated lease or preempt
+an expired lease, but otherwise receive `LEASE_DENIED`.
 
 ### Canonical run order
 
@@ -325,7 +325,7 @@ subject to lease, overlap, quota, session, terminal and focus-window guards.
 | Pre-terminal materialization | A supported model is about to end as `NO_SEND`, `EXTRACT_FAILED` or qualifying `ERROR` | One controlled visit; may use a bounded direct-focus fallback, then read-only recovery |
 | Deferred hard-stop recovery | Recent runtime/transport evidence justifies one last bounded recovery | One short visit, then follow-up/final pings and snapshot fallback |
 | Recurring human-presence | Rounds have finished and pending eligible models remain | Visits pending models cyclically in `session.selectedModels` order |
-| Explicit user focus | User activates a bound provider tab | Tracked as `user_focus`; may preempt the automated lease |
+| Explicit user focus | User activates a bound provider tab | Recorded as a start/end observation; preempts automation but creates no lease or hard cap |
 
 Adaptive collection itself is normally a background `getResponses` ping and
 does not activate the tab. It can indirectly schedule early gesture recovery
@@ -437,13 +437,17 @@ deadline. The complete timing ladder is maintained in
 `background/human-presence.js` owns the foreground visit lease:
 
 - key: `model:tabId`;
-- owner/source: for example `user_focus`, `human_visit`,
-  `automation_focus` or `verification_focus`;
+- owner/source: for example `human_visit`, `automation_focus` or
+  `verification_focus`;
 - expiry: the current `TAB_LEASE_TTL_MS`;
 - same tab/model: renew the lease;
 - expired lease: finalize the previous visit, then grant the new one;
-- user focus: may preempt an unexpired lease;
 - other competing source: deny with `LEASE_DENIED`.
+
+User focus is outside this lease. It may terminate a current automated visit,
+but it is represented by `USER_FOCUS_OBSERVATION_STARTED` and
+`USER_FOCUS_OBSERVATION_ENDED`, without TTL, quota, hard cap or stuck-focus
+timer.
 
 This is an in-memory runtime lease. It coordinates the current service-worker
 runtime; it is not a durable cross-runtime queue. Separately,
@@ -478,7 +482,8 @@ Before programmatically activating a provider or previous tab, the background
 records a short-lived programmatic-focus marker. `tabs.onActivated` consumes
 that marker and emits `TAB_ACTIVATION_IGNORED_PROGRAMMATIC` instead of treating
 the system's own action as a user visit. A real unmarked activation of a bound
-model tab is recorded as `USER_FOCUS_CHANGE` and `user_focus`.
+model tab is recorded as `USER_FOCUS_CHANGE` plus a bounded-by-reality
+user-focus observation. It is never emitted as `OBSERVATION_SLOT_GRANTED`.
 
 Automated visits snapshot the previously active tab. On completion, dispatch
 and visit code restore it, when restoration is enabled for that path, only if:

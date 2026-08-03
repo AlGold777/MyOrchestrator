@@ -304,6 +304,8 @@
     if (/ANSWER_VERIFICATION_(RECORDED|RESULT)|STRUCTURAL_VERIFICATION/.test(source)) return { kind: 'verification', state: meta.verified === false ? 'rejected' : 'verified' };
     if (/TIMEOUT|DEADLINE/.test(source)) return { kind: 'deadline', state: 'reached' };
     if (/MODEL_FINAL/.test(source)) return { kind: 'terminal_action', state: String(meta.finalStatus || meta.terminalStatus || 'unknown').toUpperCase() };
+    if (/USER_FOCUS_OBSERVATION_STARTED/.test(source)) return { kind: 'user_focus', state: 'started' };
+    if (/USER_FOCUS_OBSERVATION_ENDED/.test(source)) return { kind: 'user_focus', state: 'ended' };
     if (/SCRIPT_HEALTH_FAIL|OBSERVER.*(FAIL|UNAVAILABLE)|BACKGROUND_THROTTL|SELECTOR.*(FAIL|MISS)|FOCUS_STUCK/.test(source)) return { kind: 'observation', state: 'degraded' };
     if (/^EXTRACTION_.*FAIL/.test(source)) return { kind: 'extraction', state: 'failed', outcome: 'failed' };
     if (/^DOM_FALLBACK_(?:START|JOINED)$/.test(source)) return { kind: 'extraction_attempt', state: source.endsWith('START') ? 'started' : 'joined', mode: 'fallback' };
