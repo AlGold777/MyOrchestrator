@@ -57,14 +57,15 @@ describe('TransportPolicy promptsByModel', () => {
     expect(source).toContain("resolvePromptForDispatch(llmName, jobState.prompt), jobState.attachments || [], 'round2_repair'");
   });
 
-  test('round1 prioritizes Qwen and holds every provider until its bounded submit settles', () => {
+  test('round1 prioritizes Qwen and releases focus on insertion within a fixed cap', () => {
     const orchestrator = fs.readFileSync(path.join(__dirname, '..', 'background', 'job-orchestrator.js'), 'utf8');
     const coordinator = fs.readFileSync(path.join(__dirname, '..', 'background', 'dispatch-coordinator.js'), 'utf8');
     expect(orchestrator).toContain("const ROUND1_PRIORITY_MODELS = Object.freeze(['Qwen']);");
     expect(orchestrator).toContain('postCommandFocusHoldMs: resolveRound1PostCommandFocusHoldMs(llmName)');
-    expect(orchestrator).toContain('self.getPromptSubmitTimeoutMs?.(llmName)');
+    expect(orchestrator).toContain('const ROUND1_PROMPT_INSERTION_FOCUS_HOLD_MS = 8000');
     expect(coordinator).toContain("emitTelemetry(llmName, 'DISPATCH_POST_COMMAND_FOCUS_HOLD'");
-    expect(coordinator).toContain('Promise.resolve(waiter)');
+    expect(coordinator).toContain('waitForPromptFocusBoundary(');
+    expect(coordinator).toContain('insertionWaiter');
   });
 
   test('global-state answer recovery also settles the active Debate batch', () => {

@@ -6,6 +6,7 @@
 var dispatchMutexManager = new MutexManager();
 var promptDispatchFocusMutex = Promise.resolve();
 var promptSubmitWaiters = new Map();
+var promptInsertionWaiters = new Map();
 var promptDispatchSupervisorTimer = null;
 //- 2.1. Лимит ожидания сигнала из контента -//
 const PROMPT_SUBMIT_TIMEOUT_MS = TimingConfig.getTiming('promptSubmitTimeoutMs', 15000);
@@ -569,6 +570,74 @@ function waitForPromptSubmitted(llmName, dispatchId, timeoutMs = PROMPT_SUBMIT_T
   });
 }
 
+function resolvePromptInsertion(llmName, payload = {}) {
+  const dispatchId = payload?.dispatchId || payload?.meta?.dispatchId || null;
+  if (!llmName || !dispatchId) return false;
+  const modelWaiters = promptInsertionWaiters.get(llmName);
+  const waiters = modelWaiters?.get?.(String(dispatchId));
+  if (!waiters?.size) return false;
+  waiters.forEach((cb) => {
+    try { cb(payload); } catch (_) {}
+  });
+  waiters.clear();
+  modelWaiters.delete(String(dispatchId));
+  if (!modelWaiters.size) promptInsertionWaiters.delete(llmName);
+  return true;
+}
+
+function waitForPromptInsertion(llmName, dispatchId, timeoutMs) {
+  return new Promise((resolve) => {
+    if (!llmName || !dispatchId) {
+      resolve(false);
+      return;
+    }
+    const modelWaiters = promptInsertionWaiters.get(llmName) || new Map();
+    const waiterKey = String(dispatchId);
+    const waiters = modelWaiters.get(waiterKey) || new Set();
+    modelWaiters.set(waiterKey, waiters);
+    promptInsertionWaiters.set(llmName, modelWaiters);
+    let settled = false;
+    const done = (payload) => {
+      if (settled) return;
+      settled = true;
+      if (timer) {
+        clearTimeout(timer);
+        dispatchDeregisterSessionTimer(timer);
+        timer = null;
+      }
+      waiters.delete(handler);
+      if (!waiters.size) modelWaiters.delete(waiterKey);
+      if (!modelWaiters.size) promptInsertionWaiters.delete(llmName);
+      resolve(payload || false);
+    };
+    const handler = (payload) => done(payload);
+    waiters.add(handler);
+    let timer = null;
+    timer = dispatchRegisterSessionTimer(setTimeout(
+      () => done(false),
+      Math.max(0, Number(timeoutMs) || 0)
+    ));
+  });
+}
+
+async function waitForPromptFocusBoundary(submitWaiter, insertionWaiter, holdMs) {
+  const never = () => new Promise(() => {});
+  return Promise.race([
+    Promise.resolve(submitWaiter).then((payload) => (
+      payload ? { reason: 'submit_confirmed', payload } : never()
+    )),
+    Promise.resolve(insertionWaiter).then((payload) => (
+      payload
+        ? {
+            reason: payload.insertionState === 'inserted' ? 'prompt_inserted' : 'insertion_failed',
+            payload
+          }
+        : never()
+    )),
+    dispatchSleepMs(Math.max(0, Number(holdMs) || 0)).then(() => ({ reason: 'hold_elapsed', payload: null }))
+  ]);
+}
+
 function getPromptSubmitTimeoutMs(llmName) {
   if (!llmName) return PROMPT_SUBMIT_TIMEOUT_MS;
   if (self.ModelPolicy?.getPromptSubmitTimeoutMs) {
@@ -1117,6 +1186,7 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
         meta: { snapshot: readiness.snapshot || null, dispatchId, dispatchReason: reason }
       });
       let waiter = null;
+      let insertionWaiter = null;
       const shouldBypassAck = self.ModelPolicy?.modelRequiresAckReady
         ? !self.ModelPolicy.modelRequiresAckReady(llmName)
         : llmName === 'Perplexity';
@@ -1342,6 +1412,14 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
       }
 
       waiter = waitForPromptSubmitted(llmName, dispatchId, submitTimeoutMs);
+      const postCommandFocusHoldMs = Math.max(0, Number(options.postCommandFocusHoldMs || 0));
+      if (postCommandFocusHoldMs > 0) {
+        insertionWaiter = waitForPromptInsertion(
+          llmName,
+          dispatchId,
+          postCommandFocusHoldMs + 1000
+        );
+      }
       const readyWaitMs = Math.max(0, Date.now() - lockAcquiredAt);
   emitTelemetry(llmName, 'DISPATCH_SEND', {
     details: `readyWaitMs=${readyWaitMs}`,
@@ -1408,24 +1486,24 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
             await dispatchSleepMs(options.deferSendMs);
           }
           commandDeliveryResult = await deliverAnswerCommand();
-          const postCommandFocusHoldMs = Math.max(0, Number(options.postCommandFocusHoldMs || 0));
           if (postCommandFocusHoldMs > 0) {
             const holdStartedAt = Date.now();
-            const confirmedDuringHold = await Promise.race([
-              Promise.resolve(waiter)
-                .then((payload) => payload === true || payload?.ok === true)
-                .catch(() => false),
-              dispatchSleepMs(postCommandFocusHoldMs).then(() => false)
-            ]);
+            const boundary = await waitForPromptFocusBoundary(
+              waiter,
+              insertionWaiter,
+              postCommandFocusHoldMs
+            );
             emitTelemetry(llmName, 'DISPATCH_POST_COMMAND_FOCUS_HOLD', {
-              details: confirmedDuringHold ? 'submit_confirmed' : 'hold_elapsed',
+              details: boundary.reason,
               meta: {
                 tabId,
                 dispatchId,
                 dispatchReason: reason,
                 configuredHoldMs: postCommandFocusHoldMs,
                 heldMs: Math.max(0, Date.now() - holdStartedAt),
-                confirmedDuringHold
+                boundaryReason: boundary.reason,
+                insertionState: boundary.payload?.insertionState || null,
+                submitConfirmed: boundary.reason === 'submit_confirmed'
               }
             });
           }
@@ -2151,12 +2229,16 @@ function sendPassiveMessageWithRetries(tabId, llmName, message, {
 
 self.dispatchMutexManager = dispatchMutexManager;
 self.promptSubmitWaiters = promptSubmitWaiters;
+self.promptInsertionWaiters = promptInsertionWaiters;
 self.getRetryBackoffForModel = getRetryBackoffForModel;
 self.getConnectionRetryDelaysForModel = getConnectionRetryDelaysForModel;
 self.withPromptDispatchLock = withPromptDispatchLock;
 self.withPromptDispatchFocusLock = withPromptDispatchFocusLock;
 self.resolvePromptSubmitted = resolvePromptSubmitted;
 self.waitForPromptSubmitted = waitForPromptSubmitted;
+self.resolvePromptInsertion = resolvePromptInsertion;
+self.waitForPromptInsertion = waitForPromptInsertion;
+self.waitForPromptFocusBoundary = waitForPromptFocusBoundary;
 self.getPromptSubmitTimeoutMs = getPromptSubmitTimeoutMs;
 self.sendMessageWithTimeout = sendMessageWithTimeout;
 self.normalizePageReadyState = normalizePageReadyState;

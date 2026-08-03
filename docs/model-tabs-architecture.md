@@ -290,8 +290,11 @@ Round 1 still applies its ordinary Ready/ACK gate, so a navigation or a changed
 `tabSessionId` cannot reuse stale readiness; an unchanged prewarmed document
 resolves that gate from `ReadySignalManager` without another serial wait.
 Command acceptance and answer generation are separate lifetimes. Once the page
-owns `GET_ANSWER`, Round 1 holds only through the provider's submit transaction,
-not through answer generation. An adapter publishes
+owns `GET_ANSWER`, Round 1 holds until the current dispatch reports either
+composer insertion or submission, capped at eight seconds; the longer
+submission watchdog stays asynchronous and does not block the remaining model
+queue. Insertion evidence is accepted only from the bound tab with the exact
+run and dispatch identity. An adapter publishes
 `PROVIDER_DISPATCH_PIPELINE_STATE` while its asynchronous composer transaction
 is alive; retry supervisor and Round 2 repair must defer rather than overwrite
 that owner. A bounded ownership TTL prevents a lost MV3 release message from

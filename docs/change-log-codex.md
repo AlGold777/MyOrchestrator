@@ -1,5 +1,15 @@
 # Codex phase change log
 
+## 2.81.260 — Round 1 yields after composer insertion
+
+- Round 1 foreground ownership now ends on correlated submit or insertion
+  evidence, with an eight-second cap; it no longer consumes the model's full
+  12–22 second submit timeout when submission is broken or unobservable.
+- Prompt insertion outcomes have dispatch-scoped waiters and pass the same
+  bound-tab and run/dispatch correlation gates as other lifecycle evidence.
+- The longer submission timeout remains asynchronous and repair continues to
+  defer while a provider explicitly owns its live transaction.
+
 ## 2.81.259 — Proof examples follow the executable registry
 
 - The checked-in dependency-registry snapshot and every generated proof

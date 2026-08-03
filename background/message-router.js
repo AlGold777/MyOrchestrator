@@ -1857,14 +1857,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 // "was the prompt inserted?" was unanswerable from the ledger.
                 const llmName = message.llmName;
                 const entry = llmName && jobState?.llms?.[llmName];
+                const incomingMeta = message?.meta && typeof message.meta === 'object' ? message.meta : {};
+                const senderGate = validateLifecycleSender(llmName, sender, 'PROMPT_INSERTION_OBSERVED', incomingMeta);
+                const correlationGate = validateLifecycleCorrelation(llmName, message, 'PROMPT_INSERTION_OBSERVED');
+                if (!entry || !senderGate.ok || !correlationGate.ok) {
+                    if (typeof sendResponse === 'function') {
+                        sendResponse({
+                            status: 'prompt_insertion_rejected',
+                            reason: !entry
+                                ? 'missing_model_entry'
+                                : (!senderGate.ok ? senderGate.reason : correlationGate.reason)
+                        });
+                    }
+                    break;
+                }
                 if (entry) {
-                    const incomingMeta = message?.meta && typeof message.meta === 'object' ? message.meta : {};
                     const inserted = message.insertionState === 'inserted';
+                    const dispatchId = incomingMeta.dispatchId;
                     emitTelemetry(llmName, inserted ? 'PROMPT_INSERTION_CONFIRMED' : 'PROMPT_INSERTION_FAILED', {
                         level: inserted ? 'info' : 'error',
                         details: inserted ? (message.method || 'inserted') : (message.reason || 'not_inserted'),
                         meta: {
-                            dispatchId: incomingMeta.dispatchId || entry?.lastDispatchMeta?.dispatchId || null,
+                            dispatchId,
                             generationEpoch: incomingMeta.generationEpoch
                                 ?? entry?.lastDispatchMeta?.generationEpoch
                                 ?? entry?.generationEpoch
@@ -1878,6 +1892,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                             attempt: Number.isFinite(Number(message.attempt)) ? Number(message.attempt) : null
                         },
                         force: true
+                    });
+                    resolvePromptInsertion(llmName, {
+                        ok: inserted,
+                        insertionState: inserted ? 'inserted' : 'failed',
+                        method: message.method || null,
+                        reason: message.reason || null,
+                        dispatchId,
+                        meta: incomingMeta
                     });
                 }
                 if (typeof sendResponse === 'function') sendResponse({ status: 'prompt_insertion_ack' });

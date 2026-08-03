@@ -10,6 +10,7 @@ describe('dispatch correlation contract', () => {
     expect(src).toContain('modelWaiters?.get?.(String(dispatchId))');
     expect(src).toContain('waitForPromptSubmitted(llmName, dispatchId, submitTimeoutMs)');
     expect(src).not.toContain('waitForPromptSubmitted(llmName, submitTimeoutMs)');
+    expect(src).toContain('waitForPromptInsertion(\n          llmName,\n          dispatchId,');
   });
 
   test('lifecycle events require exact current dispatch and run session', () => {
@@ -18,6 +19,9 @@ describe('dispatch correlation contract', () => {
     expect(src).toContain("reason: incomingDispatchId ? 'dispatch_mismatch' : 'missing_dispatch_id'");
     expect(src).toContain("reason: incomingRunSessionId ? 'run_session_mismatch' : 'missing_run_session_id'");
     expect(src).toContain("return { ok: false, reason: 'no_bound_tab'");
+    expect(src).toContain("validateLifecycleSender(llmName, sender, 'PROMPT_INSERTION_OBSERVED'");
+    expect(src).toContain("validateLifecycleCorrelation(llmName, message, 'PROMPT_INSERTION_OBSERVED')");
+    expect(src).toContain('resolvePromptInsertion(llmName, {');
   });
 
   test('mapping changes quarantine the command instead of rerouting stale metadata', () => {
