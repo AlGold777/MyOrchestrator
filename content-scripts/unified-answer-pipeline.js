@@ -1166,6 +1166,13 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
     resolveCurrentTurn() {
       const circuit = (typeof window !== 'undefined' && window.SelectorCircuit) || null;
       const deepQuery = window.TurnResolver?.createDeepQuery?.(document);
+      const classifier = window.AnswerContentClassifier;
+      const rejectedCandidateClasses = classifier?.CLASSES ? new Set([
+        classifier.CLASSES.EMPTY,
+        classifier.CLASSES.PROMPT_ECHO,
+        classifier.CLASSES.UI_NOISE,
+        classifier.CLASSES.TECHNICAL_MESSAGE
+      ]) : null;
       const turn = window.TurnResolver?.resolveTurn?.({
         platform: this.platform,
         selectors: this.selectors,
@@ -1173,6 +1180,14 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
         selectorAllowed: (selector) => !circuit || circuit.shouldUse(selector, this.platform, 'answer') !== false,
         anchorAnswerCount: this.anchorAnswerCount,
         minimumTextLength: 5,
+        candidateEligible: ({ node, text }) => {
+          const role = String(node?.getAttribute?.('data-role') || node?.getAttribute?.('data-message-author-role') || '').toLowerCase();
+          const identity = `${node?.id || ''} ${node?.className || ''}`.toLowerCase();
+          if (role === 'user' || /(^|[\s_-])user([\s_-]|$)/.test(identity)) return false;
+          if (!classifier?.classify) return true;
+          const classification = classifier.classify(text, { minValid: 20 });
+          return !rejectedCandidateClasses.has(classification.contentClass);
+        },
         queryAll: (selector) => deepQuery?.all?.(selector) || this.querySelectorAllSafe(selector),
         queryOne: (selector) => deepQuery?.one?.(selector) || this.querySelectorSafe(selector)
       }) || {

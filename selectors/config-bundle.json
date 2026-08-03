@@ -656,6 +656,7 @@
         "button[aria-label*=\"send\" i]"
       ],
       "response": [
+        "[id^=\"message-\"][id$=\"-start\"]:not(.chat-user):not([data-role=\"user\"]):not([data-message-author-role=\"user\"])",
         ".chat-assistant.markdown-prose",
         "[id^=\"message-\"] .chat-assistant.markdown-prose",
         "[data-message-author-role=\"assistant\"]",

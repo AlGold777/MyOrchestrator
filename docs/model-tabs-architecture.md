@@ -31,6 +31,13 @@ record/override находятся в selector guides; не копировать
 second tab registry. Background owns tab identity and delivery; content scripts
 own provider DOM operations.
 
+При выборе ответа позиция DOM-узла сама по себе не является доказательством.
+Общий resolver просматривает кандидатов текущего хода от новых к старым и
+пропускает prompt echo, служебные подписи и технические сообщения. Provider
+adapter может расширять набор структурных селекторов, но не отменять эту
+общую проверку содержимого; пользовательские сообщения не входят в набор
+assistant-кандидатов.
+
 ## Model selection contract
 
 1. The active view owns its selected model set. Main-page selection must not be

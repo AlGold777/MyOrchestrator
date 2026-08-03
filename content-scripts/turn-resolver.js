@@ -123,9 +123,22 @@
       ? options.readText
       : (node) => root.AnswerStructure?.linearizeText?.(node)
         ?? String(node?.innerText || node?.textContent || '').trim();
+    const candidateEligible = typeof options.candidateEligible === 'function'
+      ? options.candidateEligible
+      : null;
+    const rejectedCandidates = [];
     for (let index = pool.length - 1; index >= 0; index -= 1) {
       const node = pool[index];
       const text = String(readNodeText(node) || '').trim();
+      if (text.length < minimumTextLength) continue;
+      if (candidateEligible) {
+        let eligible = false;
+        try { eligible = candidateEligible({ node, text, index, pool }) !== false; } catch (_) { eligible = false; }
+        if (!eligible) {
+          rejectedCandidates.push(node);
+          continue;
+        }
+      }
       if (text.length >= minimumTextLength) {
         answerNode = node;
         break;
@@ -169,6 +182,7 @@
       answerNode,
       candidates: sorted,
       candidatePool: pool,
+      rejectedCandidates,
       selectorUsed: answerMeta?.selector || null,
       selectorIndex: answerMeta?.index ?? null,
       selectorSource: answerMeta?.sourceKind || null,
