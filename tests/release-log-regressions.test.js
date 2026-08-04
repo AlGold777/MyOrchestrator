@@ -721,8 +721,34 @@ describe('release log regression guards', () => {
     expect(source).toContain("conflictAction: 'uniquify',");
     expect(source).toContain('saveAs: false');
     // The anchor path stays as a fallback for when the downloads API refuses.
-    expect(source).toContain('downloadJsonViaAnchor(url, filename);');
+    expect(source).toContain('downloadViaAnchor(url, filename);');
     expect(source).toContain('const savedToFolder = await downloadJson(payload, filename);');
+  });
+
+  test('sidebar exports saved sessions as TXT grouped by session name', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'results.js'), 'utf8');
+    const resultHtml = fs.readFileSync(path.join(__dirname, '..', 'result_new.html'), 'utf8');
+    const pipelineHtml = fs.readFileSync(path.join(__dirname, '..', 'pipeline_panel.html'), 'utf8');
+
+    [resultHtml, pipelineHtml].forEach((html) => {
+      expect(html).toContain('id="notes-hint-sessions-export-txt"');
+      // The txt button sits to the right of the add-sessions "+".
+      expect(html.indexOf('id="notes-hint-sessions-add"'))
+        .toBeLessThan(html.indexOf('id="notes-hint-sessions-export-txt"'));
+      expect(html.indexOf('id="notes-hint-sessions-export-txt"'))
+        .toBeLessThan(html.indexOf('id="notes-hint-backup-export"'));
+    });
+
+    expect(source).toContain('attachBackupAction(notesHintSessionsExportTxtBtn, exportSavedSessionsTxt);');
+    expect(source).toContain('function buildSessionExportBlock(sessionName, snapshot = {}) {');
+    expect(source).toContain("const SESSION_EXPORT_INDENT = '    ';");
+    // Only saved sessions are exported; the open page has its own txt button.
+    expect(source).toContain('if (!session || session.id === CURRENT_SESSION_ID) continue;');
+    expect(source).toContain('const filename = `Saved sessions ${formatNamedExportStamp(now)}.txt`;');
+    expect(source).toContain('const savedToFolder = await downloadBlobToSavedSessions(blob, filename);');
+    // Session favourites come from the snapshot, not from the live panel.
+    expect(source).toContain('function buildFavoriteGroups(entries = favoriteState.entries) {');
+    expect(source).toContain('buildFavoriteExportText(snapshot?.favorites?.entries)');
   });
 
   test('both session imports open in the Saved sessions folder by default', () => {

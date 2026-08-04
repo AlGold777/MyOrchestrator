@@ -1,6 +1,29 @@
 # CHANGELOG — Project
 
-### 2026-08-04 — Sidebar sessions live in Downloads/Saved sessions, version 2.81.264
+### 2026-08-04 — TXT export of all saved sessions from the sidebar, version 2.81.270
+
+- В `.sidebar-hint` справа от `+` добавлена кнопка `txt`
+  (`#notes-hint-sessions-export-txt`): выгружает ответы всех сохранённых сессий
+  одним файлом `Saved sessions <stamp>.txt` в `Downloads/Saved sessions`.
+- Формат блока сессии: строка `Session Name.`, дальше всё содержимое с отступом
+  в 4 пробела — `=== Prompt ===`, `=== Favourite ===`, `=== LLM Responses ===` и
+  `=== Модель ===` с текстом. Пустые строки остаются пустыми, хвостовых пробелов
+  нет.
+- Данные берутся из снимков сессий (`pageSnapshot.responseCards`), а не из DOM:
+  у сохранённой сессии карточек на странице нет. `Current session` не входит в
+  файл — для открытой работы есть кнопка txt на главной. Строки метаданных
+  (время + URL) у сессионных ответов нет: они описывают текущий прогон и в
+  снимок не пишутся.
+- `buildFavoriteGroups`/`buildFavoriteExportText` принимают список записей
+  параметром, чтобы Favourite собирался из снимка сессии, а не из открытой
+  панели; поведение существующих вызовов не изменилось.
+- Экспорт использует общий `downloadBlobToSavedSessions`, тот же, что и json-
+  бэкап; при отказе downloads API остаётся anchor-скачивание.
+- Регрессии: формат блока и пропуск пустых/ошибочных сессий — в
+  `tests/results-debate-favorites.test.js`, разметка и привязка кнопки — в
+  `tests/release-log-regressions.test.js`.
+
+### 2026-08-04 — Sidebar sessions live in Downloads/Saved sessions, version 2.81.269
 
 - Экспорт сессий и заметок из левого sidebar теперь сохраняется в
   `Downloads/Saved sessions` через `chrome.downloads` (`saveAs: false`,
@@ -17,7 +40,7 @@
 - Регрессии: `tests/release-log-regressions.test.js` фиксирует путь загрузки в
   подпапку, единый picker для обоих импортов, fallback-ветки и подписи кнопок.
 
-### 2026-08-04 — Selection toolbar survives the favourite press, version 2.81.263
+### 2026-08-04 — Selection toolbar survives the favourite press, version 2.81.268
 
 - Нажатие звёздочки в тулбаре выделения больше не закрывает тулбар: и на главной
   странице (`response-sel-toolbar`), и на странице модели

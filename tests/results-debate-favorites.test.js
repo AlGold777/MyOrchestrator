@@ -560,6 +560,55 @@ describe('Pipeline debate favorites view', () => {
     output.textContent = '';
   });
 
+  test('saved session TXT block indents the whole session under its name', () => {
+    const { buildSessionExportBlock } = window.__resultsExportDebug;
+
+    const block = buildSessionExportBlock('Session Name 1', {
+      promptText: 'Compare the approaches',
+      responseCards: [
+        { outputId: 'output-gpt', llmName: 'GPT', text: 'First line\n\nThird line' },
+        { outputId: 'output-claude', llmName: 'Claude', text: 'Claude answer' }
+      ]
+    });
+
+    expect(block.split('\n')[0]).toBe('Session Name 1.');
+    expect(block).toContain('\n    === Prompt ===\n    Compare the approaches');
+    expect(block).toContain('\n    === LLM Responses ===\n    === GPT ===');
+    expect(block).toContain('\n    === Claude ===\n    Claude answer');
+    // Every line of a multi-line answer is shifted, and blank lines stay blank
+    // so the file carries no trailing whitespace.
+    expect(block).toContain('    First line\n\n    Third line');
+    expect(block).not.toMatch(/^ +$/m);
+    // Response metadata belongs to the live run, not to a stored session.
+    expect(block).not.toMatch(/https?:\/\//);
+  });
+
+  test('saved session TXT block carries the session favourites and skips empty sessions', () => {
+    const { buildSessionExportBlock } = window.__resultsExportDebug;
+
+    const withFavorites = buildSessionExportBlock('Session Name 2', {
+      responseCards: [{ outputId: 'output-gpt', llmName: 'GPT', text: 'Answer body' }],
+      favorites: {
+        entries: [{
+          id: 'fav-1',
+          kind: 'fragment',
+          sourceName: 'GPT',
+          modelKey: 'gpt',
+          text: 'Starred fragment'
+        }]
+      }
+    });
+    expect(withFavorites).toContain('    === Favourite ===');
+    expect(withFavorites).toContain('Starred fragment');
+    // The Favourite panel of the open page must not leak into a session block.
+    expect(withFavorites.indexOf('=== Favourite ===')).toBeLessThan(withFavorites.indexOf('=== LLM Responses ==='));
+
+    expect(buildSessionExportBlock('Empty', { responseCards: [] })).toBe('');
+    expect(buildSessionExportBlock('Errors only', {
+      responseCards: [{ outputId: 'output-gpt', llmName: 'GPT', text: 'Error: nothing arrived' }]
+    })).toBe('');
+  });
+
   test('collapsing the selection inside the same card dismisses the response toolbar', async () => {
     const output = document.getElementById('output-gemini');
     output.textContent = 'Collapse inside the very same output card.';

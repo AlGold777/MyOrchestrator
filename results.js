@@ -1999,6 +1999,7 @@ document.addEventListener('click', (event) => {
     const notesStatus = document.getElementById('notes-status');
     const notesPanel = document.querySelector('.notes-panel');
     const notesHintSessionsAddBtn = document.getElementById('notes-hint-sessions-add');
+    const notesHintSessionsExportTxtBtn = document.getElementById('notes-hint-sessions-export-txt');
     const notesHintBackupExportBtn = document.getElementById('notes-hint-backup-export');
     const notesHintBackupImportBtn = document.getElementById('notes-hint-backup-import');
     const sessionsSaveBtn = document.getElementById('sessions-save-btn');
@@ -7832,7 +7833,7 @@ document.addEventListener('click', (event) => {
             const SAVED_SESSIONS_FOLDER = 'Saved sessions';
             const savedSessionsDownloadPath = (filename) => `${SAVED_SESSIONS_FOLDER}/${filename}`;
 
-            const downloadJsonViaAnchor = (url, filename) => {
+            const downloadViaAnchor = (url, filename) => {
                 const anchor = document.createElement('a');
                 anchor.href = url;
                 anchor.download = filename;
@@ -7846,7 +7847,7 @@ document.addEventListener('click', (event) => {
 
             // chrome.downloads is the only way to choose a subfolder of Downloads;
             // a plain <a download> can only suggest a bare file name.
-            const downloadJsonViaDownloadsApi = (url, filename) => new Promise((resolve) => {
+            const downloadViaDownloadsApi = (url, filename) => new Promise((resolve) => {
                 if (!chrome?.downloads?.download) {
                     resolve(false);
                     return;
@@ -7872,14 +7873,13 @@ document.addEventListener('click', (event) => {
                 }
             });
 
-            const downloadJson = async (payload, filename) => {
-                const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+            const downloadBlobToSavedSessions = async (blob, filename) => {
                 const url = URL.createObjectURL(blob);
                 let savedToFolder = false;
                 try {
-                    savedToFolder = await downloadJsonViaDownloadsApi(url, filename);
+                    savedToFolder = await downloadViaDownloadsApi(url, filename);
                     if (!savedToFolder) {
-                        downloadJsonViaAnchor(url, filename);
+                        downloadViaAnchor(url, filename);
                     }
                 } finally {
                     // The download reads the blob asynchronously after the call
@@ -7888,6 +7888,11 @@ document.addEventListener('click', (event) => {
                 }
                 return savedToFolder;
             };
+
+            const downloadJson = (payload, filename) => downloadBlobToSavedSessions(
+                new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }),
+                filename
+            );
             const readFileAsText = (file) => new Promise((resolve, reject) => {
                 if (!file) {
                     reject(new Error('No file provided'));
@@ -8369,6 +8374,43 @@ document.addEventListener('click', (event) => {
                 } catch (error) {
                     console.warn('[results] add saved sessions failed', error);
                     setStatus(formatStatusError('Add sessions failed', error), 3600);
+                }
+            };
+
+            const buildSavedSessionsExportText = async () => {
+                const blocks = [];
+                for (const session of sessionsState.sessions) {
+                    if (!session || session.id === CURRENT_SESSION_ID) continue;
+                    const snapshot = await loadSessionSnapshotFromIdb(session.id);
+                    if (!snapshot) continue;
+                    const block = buildSessionExportBlock(session?.name, normalizeSessionPageSnapshot(snapshot));
+                    if (block) blocks.push(block);
+                }
+                return blocks.join('\n\n');
+            };
+
+            const exportSavedSessionsTxt = async () => {
+                setStatus('Preparing sessions export...');
+                try {
+                    const body = await buildSavedSessionsExportText();
+                    if (!body) {
+                        setStatus('No saved session answers to export', 3600);
+                        flashButtonFeedback(notesHintSessionsExportTxtBtn, 'warn');
+                        return;
+                    }
+                    const now = new Date();
+                    const content = `LLMs answers\n${formatSavedFileTimestamp(now)}\n\n${body}\n`;
+                    const filename = `Saved sessions ${formatNamedExportStamp(now)}.txt`;
+                    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+                    const savedToFolder = await downloadBlobToSavedSessions(blob, filename);
+                    setStatus(savedToFolder
+                        ? `Saved to Downloads/${SAVED_SESSIONS_FOLDER}`
+                        : 'Sessions export ready', 2600);
+                    flashButtonFeedback(notesHintSessionsExportTxtBtn, 'success');
+                } catch (error) {
+                    console.warn('[results] saved sessions txt export failed', error);
+                    setStatus(formatStatusError('Sessions export failed', error), 3600);
+                    flashButtonFeedback(notesHintSessionsExportTxtBtn, 'warn');
                 }
             };
 
@@ -9741,7 +9783,9 @@ document.addEventListener('click', (event) => {
                     normalizeSession,
                     collectSidebarSessionPageSnapshot,
                     applySidebarSessionPageSnapshot,
-                    getSessionSnapshotSummary
+                    getSessionSnapshotSummary,
+                    buildSavedSessionsExportText,
+                    sessionsState
                 };
             }
 
@@ -11371,6 +11415,7 @@ document.addEventListener('click', (event) => {
             };
             attachBackupAction(notesBackupExportBtn, exportBackup);
             attachBackupAction(notesHintSessionsAddBtn, addSavedSessions);
+            attachBackupAction(notesHintSessionsExportTxtBtn, exportSavedSessionsTxt);
             attachBackupAction(notesHintBackupExportBtn, exportBackup);
             attachBackupAction(notesBackupImportBtn, importBackup);
             attachBackupAction(notesHintBackupImportBtn, importBackup);
@@ -16669,10 +16714,12 @@ function favoriteGroupKeyForEntry(entry) {
     return '';
 }
 
-function buildFavoriteGroups() {
+// The entries default to the live Favourite panel; the sessions export passes
+// the entries stored inside a session snapshot instead.
+function buildFavoriteGroups(entries = favoriteState.entries) {
     const groups = [];
     const groupByKey = new Map();
-    favoriteState.entries.forEach((entry) => {
+    (Array.isArray(entries) ? entries : []).forEach((entry) => {
         const groupKey = favoriteGroupKeyForEntry(entry);
         if (!groupKey) return;
         let group = groupByKey.get(groupKey);
@@ -17724,8 +17771,8 @@ function formatModelCardExportStamp(date = new Date()) {
     return formatNamedExportStamp(date).replace(':', '-');
 }
 
-function buildFavoriteExportText() {
-    const groups = buildFavoriteGroups();
+function buildFavoriteExportText(entries) {
+    const groups = buildFavoriteGroups(entries);
     return groups.map((group) => {
         const items = group.items.map((entry) => {
             const text = entry.html ? plainTextFromHtml(sanitizeInlineHtml(entry.html)) : String(entry.text || '').trim();
@@ -17747,6 +17794,52 @@ function buildAllResponsesExportText() {
         favoriteText ? `=== Favourite ===\n${favoriteText}` : '',
         `=== LLM Responses ===\n${combinedText}`
     ].filter(Boolean).join('\n\n').trim();
+}
+
+const SESSION_EXPORT_INDENT = '    ';
+
+function indentSessionExportBlock(text = '') {
+    return String(text || '')
+        .split('\n')
+        // Empty lines stay empty so the file carries no trailing whitespace.
+        .map((line) => (line.trim() ? `${SESSION_EXPORT_INDENT}${line}` : ''))
+        .join('\n');
+}
+
+function buildSessionResponsesText(responseCards = []) {
+    return (Array.isArray(responseCards) ? responseCards : [])
+        .map((card) => {
+            const name = String(card?.llmName || card?.sourceName || 'Model').trim() || 'Model';
+            const html = String(card?.html || '').trim();
+            const text = String(card?.text || '').trim()
+                || (html ? plainTextFromHtml(sanitizeInlineHtml(html)) : '');
+            if (!text || isErrorOutput(text)) return '';
+            return `=== ${name} ===\n${text}`;
+        })
+        .filter(Boolean)
+        .join('\n\n')
+        .trim();
+}
+
+// The sidebar TXT export of saved sessions. Deliberately a separate builder from
+// buildAllResponsesExportText above rather than a shared parameterised one: the
+// layout is close but not the same — the whole session block is indented under
+// its name, the prompt comes from the stored snapshot without modifier
+// expansion, and there is no per-model metadata line, because response metadata
+// describes the live run and is not part of a saved session. When the main-page
+// format changes, decide explicitly whether this one follows.
+function buildSessionExportBlock(sessionName, snapshot = {}) {
+    const responsesText = buildSessionResponsesText(snapshot?.responseCards);
+    if (!responsesText) return '';
+    const promptText = String(snapshot?.promptText || '').trim();
+    const favoriteText = buildFavoriteExportText(snapshot?.favorites?.entries);
+    const body = [
+        promptText ? `=== Prompt ===\n${promptText}` : '',
+        favoriteText ? `=== Favourite ===\n${favoriteText}` : '',
+        `=== LLM Responses ===\n${responsesText}`
+    ].filter(Boolean).join('\n\n');
+    const name = String(sessionName || '').trim() || 'Session';
+    return `${name}.\n${indentSessionExportBlock(body)}`;
 }
 
 function buildAllResponsesExportHtml() {
@@ -17814,6 +17907,8 @@ if (
         buildFavoriteExportText,
         buildFavoriteExportHtml,
         buildFavoriteExportSectionsHtml,
+        buildSessionExportBlock,
+        buildSessionResponsesText,
         favoriteState
     };
 }
