@@ -4,7 +4,7 @@
 
   const EVENT_SCHEMA_VERSION = 6;
   const CLOCK_CONTRACT_VERSION = '1.0';
-  const REGISTRY_VERSION = '6.6.0';
+  const REGISTRY_VERSION = '6.7.0';
   const THRESHOLDS = Object.freeze({
     generationStartTimeoutMs: 15000,
     minimumExtractionCoveragePct: 98,
@@ -304,6 +304,8 @@
     if (/ANSWER_VERIFICATION_(RECORDED|RESULT)|STRUCTURAL_VERIFICATION/.test(source)) return { kind: 'verification', state: meta.verified === false ? 'rejected' : 'verified' };
     if (/TIMEOUT|DEADLINE/.test(source)) return { kind: 'deadline', state: 'reached' };
     if (/MODEL_FINAL/.test(source)) return { kind: 'terminal_action', state: String(meta.finalStatus || meta.terminalStatus || 'unknown').toUpperCase() };
+    if (/USER_FOCUS_OBSERVATION_STARTED/.test(source)) return { kind: 'user_focus', state: 'started' };
+    if (/USER_FOCUS_OBSERVATION_ENDED/.test(source)) return { kind: 'user_focus', state: 'ended' };
     if (/SCRIPT_HEALTH_FAIL|OBSERVER.*(FAIL|UNAVAILABLE)|BACKGROUND_THROTTL|SELECTOR.*(FAIL|MISS)|FOCUS_STUCK/.test(source)) return { kind: 'observation', state: 'degraded' };
     if (/^EXTRACTION_.*FAIL/.test(source)) return { kind: 'extraction', state: 'failed', outcome: 'failed' };
     if (/^DOM_FALLBACK_(?:START|JOINED)$/.test(source)) return { kind: 'extraction_attempt', state: source.endsWith('START') ? 'started' : 'joined', mode: 'fallback' };
@@ -328,13 +330,21 @@
     return ({
       SUBMISSION_INFERRED: { kind: 'submission', state: payload.submission || metadata.submission || 'unknown' },
       SUBMIT_ACTION_OBSERVED: { kind: 'submission', state: 'attempted' },
+      // SEND_DEGRADED_AFTER_SUBMIT is emitted only once the submit is already
+      // confirmed, and SEND_DEFERRED_TRANSIENT_BLOCKER states that no submit was
+      // performed yet. Both carry that fact in the runtime typed fact, so the
+      // canonical mapping must agree with them instead of flattening the label
+      // into `evidence_partial` and contradicting the producer.
       SUBMISSION_EVIDENCE_CHANGED: {
         kind: 'submission',
-        state: /ACCEPTED|CONFIRMED/.test(String(payload.sourceEventType || ''))
+        state: /ACCEPTED|CONFIRMED|DEGRADED_AFTER_SUBMIT/.test(String(payload.sourceEventType || ''))
           ? 'confirmed'
-          : (/REJECTED|FAILED|NO_SEND|COMMAND_SEND_ERROR/.test(String(payload.sourceEventType || '')) ? 'failed' : 'evidence_partial')
+          : (/REJECTED|FAILED|NO_SEND|COMMAND_SEND_ERROR/.test(String(payload.sourceEventType || ''))
+            ? 'failed'
+            : (/DEFERRED/.test(String(payload.sourceEventType || '')) ? 'deferred' : 'evidence_partial'))
       },
       DISPATCH_BASELINE_CAPTURED: { kind: 'dispatch_baseline', state: metadata.baselineState || 'captured' },
+      DISPATCH_STAGE_OBSERVED: { kind: 'dispatch_stage', state: metadata.stage || metadata.boundaryReason || payload.typed?.state || 'unknown' },
       PROMPT_INSERTION_EVALUATED: { kind: 'prompt_insertion', state: payload.insertionState || metadata.insertionState || 'unknown' },
       GENERATION_STATE_INFERRED: { kind: 'generation', state: payload.observedGeneration || metadata.observedGeneration || 'unknown' },
       GENERATION_START_EVALUATED: { kind: 'generation_start', state: payload.typed?.state || metadata.state || 'started' },

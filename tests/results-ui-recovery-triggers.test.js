@@ -52,6 +52,20 @@ describe('main-page UI recovery triggers', () => {
     expect(UI_BROADCAST_SRC).toContain('buildGlobalStateSnapshot({ includeAnswers: true })');
     expect(RESULTS_SRC).toContain("source: 'GLOBAL_STATE_ANSWER_RECOVERY'");
     expect(RESULTS_SRC).toContain('updateDebateModelCardOutput(llmName, answerText, answerHtml');
+    expect(RESULTS_SRC).toContain('const finalHtml = resolveCompleteAnswerHtml(answerText, answerHtml);');
+  });
+
+  test('rendering falls back to committed text when rich HTML loses its tail', () => {
+    expect(RESULTS_SRC).toContain('function resolveCompleteAnswerHtml(answerText = \'\', answerHtml = \'\')');
+    expect(RESULTS_SRC).toContain('const missingTailChars = textProjection.length - htmlProjection.length;');
+    expect(RESULTS_SRC).toContain('return htmlProjectionIsTruncated ? textHtml : sanitizedHtml;');
+    expect(RESULTS_SRC).toContain('const formattedHtml = resolveCompleteAnswerHtml(text, html);');
+  });
+
+  test('results-page reload reconciles persisted answers instead of discarding them', () => {
+    expect(RESULTS_SRC).toContain("const reconciliationState = response?.runtimeReset === true");
+    expect(RESULTS_SRC).toContain('syncStatusFromGlobalState(reconciliationState, { replace: true });');
+    expect(RESULTS_SRC).not.toContain('syncStatusFromGlobalState(pageWasReloaded ? {}');
   });
 
   test('manual ping success carries and applies the persisted answer as a backup channel', () => {

@@ -14,9 +14,9 @@ describe('telemetry Markdown export regression', () => {
 
   test('Run Summary alone is sufficient to create the MD export', () => {
     const handlerAt = RESULTS_SRC.indexOf("event.target.closest('#export-all-logs-md, #export-all-logs-md-telemetry')");
-    const handler = RESULTS_SRC.slice(handlerAt, handlerAt + 2200);
+    const handler = RESULTS_SRC.slice(handlerAt, handlerAt + 4200);
     expect(handler).toContain('const hasRunSummary = Boolean(');
-    expect(handler).toContain('!hasLogs && !hasTelemetry && !hasRunSummary');
+    expect(handler).toContain('!hasLogs && !hasTelemetry && !hasProofTelemetry && !hasRunSummary');
     expect(handler).toContain("downloadDiagnosticsMarkdown('All Logs'");
   });
 
@@ -28,13 +28,14 @@ describe('telemetry Markdown export regression', () => {
 
   test('MD click captures logs and telemetry at click time with a bounded wait', () => {
     const handlerAt = RESULTS_SRC.indexOf("event.target.closest('#export-all-logs-md, #export-all-logs-md-telemetry')");
-    const handler = RESULTS_SRC.slice(handlerAt, handlerAt + 2600);
+    const handler = RESULTS_SRC.slice(handlerAt, handlerAt + 4200);
     expect(RESULTS_SRC).toContain('const EXPORT_SNAPSHOT_DEADLINE_MS = 300;');
     expect(handler).toContain('const snapshotTs = Date.now();');
     expect(handler).toContain('const logsSnapshot = cloneLogsByModel(llmLogs);');
     expect(handler).toContain('getTelemetryEventsForExport(snapshotTs)');
     expect(handler).toContain('requestRunOutcomeSummary(EXPORT_SNAPSHOT_DEADLINE_MS)');
-    expect(handler).toContain('buildAllLogsMarkdown(telemetryEvents, sources, logsSnapshot, runOutcomeSummary)');
+    expect(handler).toContain('requestProofTelemetrySnapshotForMarkdown(EXPORT_SNAPSHOT_DEADLINE_MS)');
+    expect(handler).toContain('buildAllLogsMarkdown(telemetryEvents, sources, logsSnapshot, runOutcomeSummary, proofShadow)');
   });
 
   test('GET_DIAG_EVENTS reads committed storage without waiting for the telemetry write chain', () => {

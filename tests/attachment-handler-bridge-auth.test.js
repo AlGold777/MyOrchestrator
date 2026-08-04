@@ -148,7 +148,16 @@ describe('attachment bridge authentication', () => {
   });
 
   test('Perplexity assigns a lazy native input after one menu-opening click', async () => {
-    const providerRuntime = ROUTER_SRC.slice(
+    // The attachment path raises the window through the shared focus guard, so
+    // the real helper is compiled in rather than stubbed.
+    const debuggerManagerRuntime = `const debuggerSessionQueuesByTab = new Map();\n${ROUTER_SRC.slice(
+      ROUTER_SRC.indexOf('function withManagedDebuggerSession'),
+      ROUTER_SRC.indexOf('const DEBUGGER_RPC_TYPES')
+    )}`;
+    const providerRuntime = debuggerManagerRuntime + ROUTER_SRC.slice(
+      ROUTER_SRC.indexOf('const bringToFrontUnlessUserIsElsewhere'),
+      ROUTER_SRC.indexOf('const callChromeDownloads')
+    ) + ROUTER_SRC.slice(
       ROUTER_SRC.indexOf('const PROVIDER_FILE_INPUT_EXPRESSION'),
       ROUTER_SRC.indexOf('async function dispatchTrustedGrokInput')
     );
@@ -158,6 +167,10 @@ describe('attachment bridge authentication', () => {
     const sandbox = {
       Map,
       Promise,
+      chrome: {
+        runtime: { lastError: null },
+        windows: { getLastFocused: (_opts, cb) => cb({ id: 1, focused: true }) }
+      },
       materializeGeminiAttachments: async () => [{ id: 1, filename: '/tmp/lazy-input.txt' }],
       providerAttachmentFlightsByTab: new Map(),
       callChromeDebugger: async (method, target, command, params) => {
@@ -325,42 +338,50 @@ describe('attachment bridge authentication', () => {
 
   test('Perplexity GET_ANSWER acknowledges command ownership before asynchronous provider work', () => {
     const source = PROVIDER_SOURCES.Perplexity;
-    const handler = source.slice(
-      source.indexOf("if (message.type === 'GET_ANSWER'"),
-      source.indexOf('return false;', source.indexOf("if (message.type === 'GET_ANSWER'")) + 2000
-    );
-    expect(handler).toContain('accepted: true');
-    expect(handler.indexOf('sendResponse?.({')).toBeLessThan(handler.indexOf('injectAndGetResponse('));
-    expect(handler).not.toContain("sendResponse?.({ status: 'success' })");
+    const handlerAt = source.indexOf("if (message.type === 'GET_ANSWER'");
+    const acceptedAt = source.indexOf("status: 'accepted'", handlerAt);
+    const injectAt = source.indexOf('injectAndGetResponse(', acceptedAt);
+    expect(acceptedAt).toBeGreaterThan(handlerAt);
+    expect(injectAt).toBeGreaterThan(acceptedAt);
+    expect(source.slice(handlerAt, injectAt)).not.toContain("sendResponse?.({ status: 'success' })");
   });
 
   test('active provider transactions cannot be overwritten by Round 2 repair', () => {
     const orchestrator = fs.readFileSync(path.join(__dirname, '..', 'background', 'job-orchestrator.js'), 'utf8');
-    expect(PROVIDER_SOURCES['Le Chat']).toContain("type: 'PROVIDER_DISPATCH_PIPELINE_STATE'");
-    expect(PROVIDER_SOURCES.Perplexity).toContain("type: 'PROVIDER_DISPATCH_PIPELINE_STATE'");
+    expect(PROVIDER_SOURCES['Le Chat']).toContain('reportProviderPipelineState');
+    expect(PROVIDER_SOURCES.Perplexity).toContain('reportProviderPipelineState');
     expect(ROUTER_SRC).toContain("case 'PROVIDER_DISPATCH_PIPELINE_STATE'");
     expect(orchestrator).toContain("reason: 'provider_pipeline_active'");
     expect(orchestrator.indexOf('const providerPipelineActive')).toBeLessThan(orchestrator.indexOf("ROUND2_REPAIR_MODELS.has(llmName)"));
   });
 
-  test('Le Chat and Perplexity submission never attaches the Chrome debugger', () => {
-    for (const source of [PROVIDER_SOURCES['Le Chat'], PROVIDER_SOURCES.Perplexity]) {
-      expect(source).not.toContain("type: 'PROVIDER_TRUSTED_INPUT_REQUEST'");
-      expect(source).not.toContain("type: 'PROVIDER_TRUSTED_SEND_REQUEST'");
-      expect(source).not.toContain("type: 'PERPLEXITY_TRUSTED_INPUT_REQUEST'");
-      expect(source).not.toContain("type: 'PERPLEXITY_TRUSTED_ENTER_REQUEST'");
-      expect(source).not.toContain("type: 'LECHAT_TRUSTED_SEND_REQUEST'");
-    }
+  test('Le Chat and Perplexity use the only enabled sender-gated debugger routes', () => {
+    const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'manifest.json'), 'utf8'));
+    expect(manifest.permissions).toContain('debugger');
+    expect(PROVIDER_SOURCES['Le Chat']).toContain("type: 'PROVIDER_TRUSTED_SEND_REQUEST'");
+    expect(PROVIDER_SOURCES.Perplexity).toContain("type: 'PERPLEXITY_TRUSTED_ENTER_REQUEST'");
+    expect(PROVIDER_SOURCES.Perplexity).toContain("type: 'PROVIDER_TRUSTED_SEND_REQUEST'");
+    expect(ROUTER_SRC).toContain("model === 'Le Chat' && /^https:\\/\\/chat\\.mistral\\.ai\\//i.test(senderUrl)");
+    expect(ROUTER_SRC).toContain("model === 'Perplexity' && /^https:\\/\\/(?:www\\.)?perplexity\\.ai\\//i.test(senderUrl)");
+    expect(ROUTER_SRC).toContain("case 'PERPLEXITY_TRUSTED_ENTER_REQUEST'");
+    expect(ROUTER_SRC).toContain("'PROVIDER_TRUSTED_SEND_FAILED'");
+    expect(ROUTER_SRC).toContain("'PROVIDER_TRUSTED_ENTER_FAILED'");
+    expect(ROUTER_SRC).toContain("debuggerApiAvailable: typeof chrome.debugger?.attach === 'function'");
+    expect(ROUTER_SRC).toContain("const ENABLED_DEBUGGER_RPC_TYPES = new Set([\n    'PROVIDER_TRUSTED_SEND_REQUEST',\n    'PERPLEXITY_TRUSTED_ENTER_REQUEST'");
+    expect(ROUTER_SRC).toContain("reason: 'debugger_route_disabled'");
   });
 
-  test('Le Chat keeps page button, form and keyboard fallbacks reachable', () => {
+  test('Le Chat stops after the trusted donor transaction instead of entering slow fallbacks', () => {
     const source = PROVIDER_SOURCES['Le Chat'];
-    const buttonAt = source.indexOf('const sendButton = await waitForSendEnabled');
-    const formAt = source.indexOf('form.requestSubmit()', buttonAt);
-    const enterAt = source.indexOf('dispatchEnter();', formAt);
-    expect(buttonAt).toBeGreaterThan(-1);
-    expect(formAt).toBeGreaterThan(buttonAt);
-    expect(enterAt).toBeGreaterThan(formAt);
+    const trustedAt = source.indexOf("type: 'PROVIDER_TRUSTED_SEND_REQUEST'");
+    const throwAt = source.indexOf('Le Chat trusted Send was not confirmed', trustedAt);
+    const nextFunctionAt = source.indexOf('\n  async function injectAndGetResponse', trustedAt);
+    const transaction = source.slice(trustedAt, nextFunctionAt);
+    expect(trustedAt).toBeGreaterThan(-1);
+    expect(throwAt).toBeGreaterThan(trustedAt);
+    expect(transaction).not.toContain('form.requestSubmit()');
+    expect(transaction).not.toContain('dispatchEnter();');
+    expect(transaction).not.toContain('prompt\n');
   });
 
   test('Le Chat confirms a new submission signal rather than a pre-existing busy element', () => {
@@ -369,8 +390,9 @@ describe('attachment bridge authentication', () => {
     expect(source).toContain('hasFreshGenerationEvidence()');
     expect(source).toContain('countUserTurns() > baselineUserTurns');
     expect(source).not.toContain("if (typing || stopButton || ariaBusy) return true;");
-    expect(source).not.toContain('if (!composerText.length) return true;');
+    expect(source).not.toContain('if (beforeTextLength > 0 && !composerText.length) return true;');
     expect(source).not.toContain('composerText.length <= Math.max(1, Math.floor(beforeTextLength * 0.1))');
+    expect(source).toContain('trustedBrowserDispatch');
     expect(source).toContain('ProviderSubmitConfirmation');
   });
 

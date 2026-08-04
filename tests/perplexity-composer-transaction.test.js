@@ -43,6 +43,30 @@ describe('Perplexity composer transaction', () => {
     expect(tx.promptMatches(`${fragmented} ${fragmented}`, prompt)).toBe(false);
   });
 
+  test('suppresses a parallel duplicate until the active dispatch finishes', () => {
+    const gate = window.PerplexityComposerTransaction.createDispatchGate();
+    const first = gate.begin({ dispatchId: 'd1', prompt: 'One provider request' });
+    const duplicate = gate.begin({ dispatchId: 'd2', prompt: 'One provider request' });
+    expect(first.accepted).toBe(true);
+    expect(duplicate).toEqual(expect.objectContaining({
+      accepted: false,
+      duplicate: true,
+      activeDispatchId: 'd1'
+    }));
+    expect(gate.finish(first.token)).toBe(true);
+    expect(gate.begin({ dispatchId: 'd2', prompt: 'One provider request' }).accepted).toBe(true);
+  });
+
+  test('rejects a different prompt while another provider transaction is active', () => {
+    const gate = window.PerplexityComposerTransaction.createDispatchGate();
+    gate.begin({ dispatchId: 'd1', prompt: 'First prompt' });
+    expect(gate.begin({ dispatchId: 'd2', prompt: 'Different prompt' })).toEqual(expect.objectContaining({
+      accepted: false,
+      duplicate: false,
+      activeDispatchId: 'd1'
+    }));
+  });
+
   test('rejects a page-sized promotion ancestor even when it contains upgrade text and an icon button', () => {
     const page = document.createElement('main');
     page.textContent = 'Upgrade your plan. Search and navigation content. '.repeat(80);

@@ -59,6 +59,50 @@
     return count(head) === 1 && count(tail) === 1;
   };
 
+  const promptFingerprint = (prompt = '') => {
+    const value = normalize(prompt);
+    return `${value.length}:${value.slice(0, 48)}:${value.slice(-48)}`;
+  };
+
+  // Content commands are acknowledged before the asynchronous provider
+  // transaction finishes. The background retry supervisor can therefore send a
+  // second GET_ANSWER while the first request is still preparing the same
+  // composer. Keep one transaction per tab and suppress that duplicate before
+  // it can clear/insert the prompt again.
+  const createDispatchGate = () => {
+    let active = null;
+    const begin = ({ dispatchId = null, prompt = '' } = {}) => {
+      const fingerprint = promptFingerprint(prompt);
+      if (active) {
+        const sameDispatch = Boolean(dispatchId && active.dispatchId && dispatchId === active.dispatchId);
+        const samePrompt = Boolean(fingerprint && fingerprint === active.promptFingerprint);
+        return {
+          accepted: false,
+          duplicate: sameDispatch || samePrompt,
+          activeDispatchId: active.dispatchId,
+          activeStartedAt: active.startedAt
+        };
+      }
+      const token = Object.freeze({
+        dispatchId: dispatchId || null,
+        promptFingerprint: fingerprint,
+        startedAt: Date.now()
+      });
+      active = token;
+      return { accepted: true, duplicate: false, token };
+    };
+    const finish = (token) => {
+      if (!token || active !== token) return false;
+      active = null;
+      return true;
+    };
+    const snapshot = () => active ? {
+      dispatchId: active.dispatchId,
+      startedAt: active.startedAt
+    } : null;
+    return Object.freeze({ begin, finish, snapshot });
+  };
+
   const rectOf = (element) => {
     try { return element?.getBoundingClientRect?.() || null; } catch (_) { return null; }
   };
@@ -323,6 +367,7 @@
     normalize,
     read,
     promptMatches,
+    createDispatchGate,
     isVisible,
     resolveSendControl,
     describe,

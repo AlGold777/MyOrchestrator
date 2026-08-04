@@ -23,6 +23,55 @@ const DEFERRED_VISIT_DELAYS_MS = [15000, 45000, 90000];
 const TAB_LEASE_TTL_MS = HUMAN_VISIT_HARD_CAP_MS;
 const PROGRAMMATIC_FOCUS_GRACE_MS = 1500;
 
+// Reported 2026-07-31: the extension "stays active 10-15 minutes and steals
+// focus even from other programs". The human/automation visit loop runs while
+// any model is non-terminal, and each visit called
+// chrome.windows.update({ focused: true }), which raises the Chrome window over
+// whatever application the user is actually working in.
+//
+// A visit needs the tab foregrounded *inside Chrome*; it does not need Chrome
+// itself pulled in front of another app. If no Chrome window currently holds
+// focus the user is elsewhere, so the window raise is skipped and only the tab
+// activation proceeds. Returns whether the window was raised.
+async function raiseWindowUnlessUserIsElsewhere(windowId, context = '') {
+  const browserHasFocus = await new Promise((resolve) => {
+    try {
+      chrome.windows.getLastFocused({}, (win) => {
+        if (chrome.runtime.lastError || !win) {
+          // Unknown state: do not steal focus on a guess.
+          resolve(false);
+          return;
+        }
+        resolve(win.focused === true);
+      });
+    } catch (_) {
+      resolve(false);
+    }
+  });
+  if (!browserHasFocus) {
+    try {
+      emitTelemetry?.('SYSTEM', 'WINDOW_FOCUS_YIELDED_TO_USER', {
+        details: context,
+        meta: { windowId, context, reason: 'browser_not_frontmost' }
+      });
+    } catch (_) {}
+    return false;
+  }
+  await new Promise((resolve) => {
+    try {
+      chrome.windows.update(windowId, { focused: true }, () => {
+        if (chrome.runtime.lastError) {
+          console.warn(`[VISIT] Window focus failed (${context}):`, chrome.runtime.lastError.message);
+        }
+        resolve();
+      });
+    } catch (_) {
+      resolve();
+    }
+  });
+  return true;
+}
+
 var humanPresenceLoopTimeout = null;
 var humanPresenceActive = false;
 var humanPresencePaused = false;
@@ -33,6 +82,7 @@ const FOCUS_STUCK_THRESHOLD_MS = 30000;
 let focusStuckTimer = null;
 let focusStuckMeta = null;
 let visitHardCapTimer = null;
+let userFocusObservation = null;
 const automationVisitLocks = new Map();
 const deferredAnswerTimers = {};
 const postSuccessScrollTimers = new Map();
@@ -133,8 +183,20 @@ function stopHumanPresenceLoop() {
   broadcastHumanVisitStatus();
 }
 
+// Reported 2026-08-04: a run with an attachment on existing pages never
+// inserted the prompt — the ledger shows only human_visit leases cycling over
+// the model tabs while no dispatch was in flight. `promptDispatchInProgress`
+// covers a single in-flight dispatch, but Round 0 and the gaps between models
+// leave it at zero, so any restart trigger (window focus regained, job state
+// rehydrated after a worker restart) let the loop foreground another model's
+// tab while the rounds were still acquiring tabs and inserting the prompt.
+// Rounds own tab focus for their whole duration.
+function dispatchOwnsTabFocus() {
+  return promptDispatchInProgress > 0 || jobState?.session?.roundsInProgress === true;
+}
+
 function scheduleHumanPresenceLoop(immediate = false) {
-  if (promptDispatchInProgress > 0) return;
+  if (dispatchOwnsTabFocus()) return;
   if (humanPresencePaused || humanPresenceManuallyStopped) return;
   if (!hasPendingHumanVisits()) {
     stopHumanPresenceLoop();
@@ -266,6 +328,7 @@ function handleBrowserFocusChange(hasFocus) {
   if (browserHasFocus === hasFocus) return;
   browserHasFocus = hasFocus;
   if (!hasFocus) {
+    finalizeUserFocusObservation('window_blur');
     finalizeTabVisit('window_blur');
     clearFocusStuckTimer('window_blur');
     if (currentHumanVisit?.cancel) {
@@ -291,6 +354,9 @@ function handleTabActivation(tabId, _windowId) {
   const llmName = TabMapManager.getNameByTabId(tabId);
   const programmaticFocus = consumeProgrammaticTabFocus(tabId);
   if (programmaticFocus) {
+    if (userFocusObservation?.tabId !== tabId) {
+      finalizeUserFocusObservation('programmatic_tab_switch');
+    }
     emitTelemetry(llmName || programmaticFocus.llmName || 'ROUNDS', 'TAB_ACTIVATION_IGNORED_PROGRAMMATIC', {
       details: programmaticFocus.source || 'programmatic_focus',
       meta: {
@@ -305,11 +371,59 @@ function handleTabActivation(tabId, _windowId) {
     return;
   }
   if (!llmName) {
+    finalizeUserFocusObservation('non_llm_focus');
     finalizeTabVisit('tab_switch');
     clearFocusStuckTimer('non_llm_focus');
     return;
   }
-  startTabVisit(tabId, llmName, 'user_focus');
+  recordUserFocusObservation(tabId, llmName);
+}
+
+function finalizeUserFocusObservation(reason = 'tab_switch') {
+  if (!userFocusObservation) return null;
+  const endedAt = Date.now();
+  const summary = {
+    ...userFocusObservation,
+    endedAt,
+    durationMs: Math.max(0, endedAt - Number(userFocusObservation.startedAt || endedAt)),
+    reason
+  };
+  emitTelemetry(summary.llmName || 'ROUNDS', 'USER_FOCUS_OBSERVATION_ENDED', {
+    meta: summary,
+    force: true
+  });
+  userFocusObservation = null;
+  return summary;
+}
+
+function recordUserFocusObservation(tabId, llmName) {
+  if (!isValidTabId(tabId) || !llmName) return false;
+  if (userFocusObservation?.tabId === tabId && userFocusObservation?.llmName === llmName) {
+    return true;
+  }
+  finalizeUserFocusObservation('tab_switch');
+  if (currentHumanVisit?.cancel) {
+    try { currentHumanVisit.cancel(); } catch (_) { /* noop */ }
+  } else if (tabVisitTracker.tabId || tabVisitTracker.llmName) {
+    finalizeTabVisit('user_focus_preempt');
+  }
+  clearFocusStuckTimer('user_focus_observation');
+  clearVisitHardCapTimer('user_focus_observation');
+  userFocusObservation = {
+    tabId,
+    llmName,
+    startedAt: Date.now(),
+    source: 'user_focus'
+  };
+  emitTelemetry(llmName, 'USER_FOCUS_CHANGE', {
+    meta: { tabId, source: 'user_focus' },
+    force: true
+  });
+  emitTelemetry(llmName, 'USER_FOCUS_OBSERVATION_STARTED', {
+    meta: { ...userFocusObservation },
+    force: true
+  });
+  return true;
 }
 
 function clearExpiredProgrammaticFocus(now = Date.now()) {
@@ -503,6 +617,11 @@ async function emitFocusStuckIfStillActive() {
 
 function startTabVisit(tabId, llmName, source = 'tab_focus') {
   if (!isValidTabId(tabId) || !llmName) return false;
+  // A real user viewing a tab is an observation, not a lease owned by the
+  // automation scheduler. It has no TTL, hard cap or FOCUS_STUCK timer.
+  if (source === 'user_focus') {
+    return recordUserFocusObservation(tabId, llmName);
+  }
   const entry = jobState?.llms?.[llmName];
   if (isTerminalEntry(entry)) {
     if (tabVisitTracker.tabId === tabId || tabVisitTracker.llmName === llmName) {
@@ -814,6 +933,19 @@ function endAutomationVisit(llmName, reason = 'automation_focus_end') {
 
 async function runHumanPresenceCycle() {
   if (!humanPresenceActive || !jobState?.llms) return;
+  // The cycle reschedules itself, so the guard in scheduleHumanPresenceLoop is
+  // only evaluated once. A loop that was already running has to yield as soon
+  // as a run starts instead of competing with it for tab focus.
+  if (dispatchOwnsTabFocus()) {
+    if (humanPresenceLoopTimeout) {
+      clearTimeout(humanPresenceLoopTimeout);
+    }
+    humanPresenceLoopTimeout = setTimeout(() => {
+      humanPresenceLoopTimeout = null;
+      runHumanPresenceCycle();
+    }, HUMAN_VISIT_INITIAL_DELAY_MS);
+    return;
+  }
   const modelNames = Array.isArray(jobState?.session?.selectedModels)
     ? jobState.session.selectedModels
     : Object.keys(jobState.llms);
@@ -933,14 +1065,7 @@ function visitTabWithHumanity(llmName, tabId) {
         }
         resolve();
       };
-      const focusWindow = () => new Promise((focusResolve) => {
-        chrome.windows.update(tab.windowId, { focused: true }, () => {
-          if (chrome.runtime.lastError) {
-            console.warn(`[HUMAN-VISIT] Window focus failed for ${llmName}:`, chrome.runtime.lastError.message);
-          }
-          focusResolve();
-        });
-      });
+      const focusWindow = () => raiseWindowUnlessUserIsElsewhere(tab.windowId, `human_visit:${llmName}`);
       focusWindow().then(() => {
         if (!sessionStillValid() || !modelStillPending()) {
           finalizeVisit();
@@ -1078,14 +1203,7 @@ function visitTabWithAutomation(llmName, tabId, options = {}) {
         }
         resolve(visitSummary);
       };
-      const focusWindow = () => new Promise((focusResolve) => {
-        chrome.windows.update(tab.windowId, { focused: true }, () => {
-          if (chrome.runtime.lastError) {
-            console.warn(`[AUTOMATION-VISIT] Window focus failed for ${llmName}:`, chrome.runtime.lastError.message);
-          }
-          focusResolve();
-        });
-      });
+      const focusWindow = () => raiseWindowUnlessUserIsElsewhere(tab.windowId, `automation_visit:${llmName}`);
       Promise.resolve(previousTabPromise).then((previousTab) => {
         focusWindow().then(() => {
           if (!sessionStillValid() || !modelStillPending()) {
@@ -1745,6 +1863,8 @@ self.handleHumanVisitControl = handleHumanVisitControl;
 self.handleHumanVisitModelToggle = handleHumanVisitModelToggle;
 self.handleBrowserFocusChange = handleBrowserFocusChange;
 self.handleTabActivation = handleTabActivation;
+self.recordUserFocusObservation = recordUserFocusObservation;
+self.finalizeUserFocusObservation = finalizeUserFocusObservation;
 self.clearExpiredProgrammaticFocus = clearExpiredProgrammaticFocus;
 self.markProgrammaticTabFocus = markProgrammaticTabFocus;
 self.consumeProgrammaticTabFocus = consumeProgrammaticTabFocus;

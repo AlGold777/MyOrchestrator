@@ -133,6 +133,59 @@ describe('classifyMaterializeRecoveryFinality', () => {
   });
 });
 
+describe('provider-independent unconfirmed-send recovery', () => {
+  test('a future model receives the common recovery policy without an allowlist entry', () => {
+    const { context } = createSandbox({
+      llms: {
+        FutureProvider: {
+          tabId: 404,
+          lastDispatchMeta: { dispatchId: 'FutureProvider:run:1' }
+        }
+      }
+    });
+
+    expect(context.isUnconfirmedSendFailure(
+      'NO_SEND',
+      'FutureProvider send was not confirmed',
+      { type: 'send_failed', message: 'FutureProvider send was not confirmed' }
+    )).toBe(true);
+    expect(context.shouldMaterializeBeforeTerminal(
+      'FutureProvider',
+      'NO_SEND',
+      'FutureProvider send was not confirmed',
+      { type: 'send_failed', message: 'FutureProvider send was not confirmed' },
+      {}
+    )).toBe(true);
+    expect(context.shouldMaterializeBeforeTerminal(
+      'FutureProvider',
+      'ERROR',
+      'FutureProvider submission failed',
+      { type: 'send_failed', message: 'FutureProvider submission failed' },
+      {}
+    )).toBe(true);
+    expect(JOB_ORCHESTRATOR_SOURCE).not.toContain('PRE_TERMINAL_MATERIALIZE_MODELS');
+    expect(JOB_ORCHESTRATOR_SOURCE).toContain('UNCONFIRMED_SEND_OBSERVATION_OFFSETS_MS');
+  });
+
+  test('attachment failures do not enter send recovery', () => {
+    const { context } = createSandbox({ llms: { FutureProvider: { tabId: 404 } } });
+    expect(context.shouldMaterializeBeforeTerminal(
+      'FutureProvider',
+      'NO_SEND',
+      'attachment upload not confirmed',
+      { type: 'attachment_failed', message: 'attachment upload not confirmed' },
+      {}
+    )).toBe(false);
+  });
+
+  test('inline recovery forwards positional freshness, including a captured zero anchor', () => {
+    expect(JOB_ORCHESTRATOR_SOURCE).toContain('hasCapturedAnchor && baseCandidates.length > anchorAnswerCount');
+    expect(JOB_ORCHESTRATOR_SOURCE).toContain('base.anchorAnswerCount = anchorCount');
+    expect(JOB_ORCHESTRATOR_SOURCE).toContain('anchorApplied: inline.anchorApplied === true');
+    expect(JOB_ORCHESTRATOR_SOURCE).toContain('freshTurnEvidence: inline.anchorApplied === true');
+  });
+});
+
 describe('materialize recovery freshness gate', () => {
   const dispatchId = 'Z.ai:1783967821737:1';
   const oldAnswer = 'старый ответ Z.ai '.repeat(160);

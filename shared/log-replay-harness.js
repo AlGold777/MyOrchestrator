@@ -16,6 +16,16 @@
     'UNCERTAIN'
   ]);
   const FAILURE_STATUS = new Set(['ERROR', 'FAILED', 'TIMEOUT', 'CANCELLED', 'EXTERNAL_LLM_FAILURE', 'USER_ACTION_REQUIRED', 'UNCERTAIN']);
+  const INPUT_SCHEMAS = Object.freeze({
+    EMPTY: 'empty',
+    LEGACY_EVENTS_V1: 'legacy-events-v1',
+    LEGACY_GROUPED_V1: 'legacy-grouped-v1',
+    PROOF_EVENTS_V6: 'proof-events-v6',
+    ALL_PRESETS_V5: 'all-presets-v5',
+    STANDALONE_REPORT_V5: 'standalone-report-v5',
+    MIXED: 'mixed',
+    UNSUPPORTED: 'unsupported'
+  });
 
   function normalizeText(value) {
     return String(value || '').trim();
@@ -29,13 +39,15 @@
     const meta = event.meta && typeof event.meta === 'object' ? event.meta : {};
     const metadata = event.metadata && typeof event.metadata === 'object' ? event.metadata : {};
     const payload = event.payload && typeof event.payload === 'object' ? event.payload : {};
-    return Object.assign({}, metadata, payload, meta);
+    const payloadMetadata = payload.metadata && typeof payload.metadata === 'object' ? payload.metadata : {};
+    return Object.assign({}, metadata, payloadMetadata, payload, meta);
   }
 
   function extractModelName(event = {}) {
     const meta = getMeta(event);
     return normalizeText(
       event.llmName
+      || event.modelId
       || event.modelName
       || event.model
       || meta.llmName
@@ -84,10 +96,10 @@
   }
 
   function extractLabel(event = {}) {
-    return normalizeText(event.label || event.type || event.event || event.name);
+    return normalizeText(event.eventType || event.label || event.type || event.event || event.name);
   }
 
-  function normalizeReplayEvent(event = {}) {
+  function normalizeLegacyReplayEvent(event = {}) {
     const meta = getMeta(event);
     const label = extractLabel(event);
     const decision = extractDecision(event);
@@ -108,6 +120,74 @@
       meta,
       telemetryTaxonomy
     };
+  }
+
+  function normalizeProofReplayEvent(event = {}) {
+    const normalized = normalizeLegacyReplayEvent(event);
+    return {
+      ...normalized,
+      ts: Number(event.wallTs) || normalized.ts,
+      llmName: normalizeText(event.modelId || normalized.llmName),
+      label: normalizeText(event.eventType),
+      labelKey: upper(event.eventType),
+      schemaVersion: Number(event.schemaVersion || 0),
+      eventId: normalizeText(event.eventId),
+      seq: Number(event.seq || 0) || null
+    };
+  }
+
+  const normalizeReplayEvent = normalizeLegacyReplayEvent;
+
+  function isProofEventV6(event) {
+    return Number(event?.schemaVersion) === 6
+      && typeof event?.eventId === 'string'
+      && typeof event?.eventType === 'string'
+      && typeof event?.modelId === 'string'
+      && Number.isFinite(Number(event?.wallTs));
+  }
+
+  function isLegacyEvent(event) {
+    if (!event || typeof event !== 'object' || Array.isArray(event)) return false;
+    if (isProofEventV6(event)) return false;
+    return Boolean(normalizeText(event.label || event.event || event.name)
+      || (normalizeText(event.type) && Number.isFinite(Number(event.ts || event.timestamp || event.time))));
+  }
+
+  function detectInputSchema(input) {
+    if (Array.isArray(input)) {
+      if (!input.length) return INPUT_SCHEMAS.EMPTY;
+      const proofCount = input.filter(isProofEventV6).length;
+      const legacyCount = input.filter(isLegacyEvent).length;
+      if (proofCount === input.length) return INPUT_SCHEMAS.PROOF_EVENTS_V6;
+      if (legacyCount === input.length) return INPUT_SCHEMAS.LEGACY_EVENTS_V1;
+      if (proofCount || legacyCount) return INPUT_SCHEMAS.MIXED;
+      return INPUT_SCHEMAS.UNSUPPORTED;
+    }
+    if (!input || typeof input !== 'object') return INPUT_SCHEMAS.UNSUPPORTED;
+    if (input.containerType === 'all-presets' && Array.isArray(input?.ledger?.events)) return INPUT_SCHEMAS.ALL_PRESETS_V5;
+    if (input.fileKind === 'diagnostic-report' && Array.isArray(input?.eventSelection?.materializedEvents)) return INPUT_SCHEMAS.STANDALONE_REPORT_V5;
+    const values = Object.values(input);
+    if (values.length && values.every(Array.isArray)) {
+      const flattened = values.flat();
+      return flattened.length && flattened.every(isLegacyEvent)
+        ? INPUT_SCHEMAS.LEGACY_GROUPED_V1
+        : INPUT_SCHEMAS.UNSUPPORTED;
+    }
+    return INPUT_SCHEMAS.UNSUPPORTED;
+  }
+
+  function resolveInput(input) {
+    const inputSchema = detectInputSchema(input);
+    if (inputSchema === INPUT_SCHEMAS.EMPTY) return { inputSchema, events: [], adapter: 'empty' };
+    if (inputSchema === INPUT_SCHEMAS.LEGACY_EVENTS_V1) return { inputSchema, events: input.slice(), adapter: 'legacy' };
+    if (inputSchema === INPUT_SCHEMAS.LEGACY_GROUPED_V1) return { inputSchema, events: Object.values(input).flat(), adapter: 'legacy' };
+    if (inputSchema === INPUT_SCHEMAS.PROOF_EVENTS_V6) return { inputSchema, events: input.slice(), adapter: 'proof-v6' };
+    if (inputSchema === INPUT_SCHEMAS.ALL_PRESETS_V5) return { inputSchema, events: input.ledger.events.slice(), adapter: 'proof-v6' };
+    if (inputSchema === INPUT_SCHEMAS.STANDALONE_REPORT_V5) return { inputSchema, events: input.eventSelection.materializedEvents.slice(), adapter: 'proof-v6' };
+    const error = new TypeError(`Unsupported replay input schema: ${inputSchema}`);
+    error.code = 'UNSUPPORTED_REPLAY_SCHEMA';
+    error.inputSchema = inputSchema;
+    throw error;
   }
 
   function ensureModel(result, llmName) {
@@ -163,7 +243,9 @@
     const acceptedTerminal = event.decisionKey === 'accept_success'
       || event.decisionKey === 'finalize_error'
       || event.decisionKey === 'upgrade_terminal';
-    const terminalLabel = event.labelKey.includes('MODEL_FINAL') || event.labelKey.includes('PIPELINE_ERROR');
+    const terminalLabel = event.labelKey.includes('MODEL_FINAL')
+      || event.labelKey.includes('MODEL_TERMINAL_RECORDED')
+      || event.labelKey.includes('PIPELINE_ERROR');
     if ((acceptedTerminal || terminalLabel) && FINAL_STATUSES.has(event.status)) {
       model.finalStatus = event.status;
       model.finalReason = event.reason || model.finalReason;
@@ -176,9 +258,12 @@
     }
   }
 
-  function replay(events = []) {
+  function replay(input = []) {
+    const resolved = resolveInput(input);
     const result = {
       schemaVersion: 1,
+      inputSchema: resolved.inputSchema,
+      adapter: resolved.adapter,
       models: {},
       totals: {
         events: 0,
@@ -189,7 +274,9 @@
         terminalEvents: 0
       }
     };
-    const normalized = Array.isArray(events) ? events.map(normalizeReplayEvent) : [];
+    const normalized = resolved.events.map(resolved.adapter === 'proof-v6'
+      ? normalizeProofReplayEvent
+      : normalizeLegacyReplayEvent);
     normalized.forEach((event) => {
       result.totals.events += 1;
       const model = ensureModel(result, event.llmName);
@@ -202,10 +289,38 @@
       result.totals.terminalEvents += model.terminalEvents;
     });
     result.totals.models = Object.keys(result.models).length;
+    if (resolved.adapter === 'proof-v6') {
+      const policy = root.ProofTelemetryPolicy
+        || (typeof require === 'function' ? require('./proof-telemetry-policy.js') : null);
+      if (!policy?.replay) {
+        const error = new Error('ProofTelemetryPolicy.replay is unavailable for schema 6 comparison');
+        error.code = 'PROOF_POLICY_REPLAY_UNAVAILABLE';
+        throw error;
+      }
+      const policyReplay = policy.replay(resolved.events);
+      const summaryModels = Object.keys(result.models).sort();
+      const policyModels = Object.keys(policyReplay.models || {}).sort();
+      result.proofPolicyComparison = {
+        compared: true,
+        modelSetEquivalent: JSON.stringify(summaryModels) === JSON.stringify(policyModels),
+        summaryModels,
+        policyModels,
+        invariantViolationCount: (policyReplay.invariantViolations || []).length,
+        throughSeqByModel: Object.fromEntries(Object.entries(policyReplay.models || {})
+          .map(([modelId, state]) => [modelId, state.throughSeq || null]))
+      };
+    } else {
+      result.proofPolicyComparison = { compared: false, reason: 'legacy-input-requires-canonicalization' };
+    }
     return result;
   }
 
   const api = Object.freeze({
+    INPUT_SCHEMAS,
+    detectInputSchema,
+    resolveInput,
+    normalizeLegacyReplayEvent,
+    normalizeProofReplayEvent,
     normalizeReplayEvent,
     replay
   });

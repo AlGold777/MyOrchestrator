@@ -5,14 +5,9 @@ const ROOT = path.join(__dirname, '..');
 const HANDLER_SRC = fs.readFileSync(path.join(ROOT, 'content-scripts', 'attachment-handler.js'), 'utf8');
 const MANIFEST = JSON.parse(fs.readFileSync(path.join(ROOT, 'manifest.json'), 'utf8'));
 
-// 2.81.116 field regression. The `debugger` permission was removed in 2.81.112,
-// but four providers (Gemini, Perplexity, Qwen, Z.ai) still declared a CDP-only
-// attachment strategy list. chrome.debugger was undefined, the CDP request failed
-// with "Cannot read properties of undefined (reading 'attach')", and because no
-// other strategy existed the whole dispatch ended as
-// USER_ACTION_REQUIRED:attachment_failed — the prompt itself was never inserted.
-// Six of nine providers were unusable. These assertions make the same shape of
-// regression impossible to reintroduce silently.
+// CDP attachment routes remain disabled even though the debugger permission is
+// required by the narrowly scoped Le Chat/Perplexity submission transactions.
+// Every attachment strategy must therefore retain a non-CDP fallback.
 describe('attachment strategy fallback contract', () => {
   const CDP_STRATEGIES = ['cdp-file-input', 'qwen-cdp-file-input', 'provider-cdp-file-input'];
 
@@ -68,11 +63,13 @@ describe('attachment strategy fallback contract', () => {
     expect(tryVia).toContain('dispatch_threw');
   });
 
-  test('CDP strategies are only declared while the debugger permission is absent-safe', () => {
-    // The manifest deliberately has no `debugger` permission since 2.81.112.
-    // Keeping the CDP entries is allowed, but only because they now degrade to a
-    // failed strategy rather than an aborted dispatch.
+  test('debugger permission does not enable CDP attachment routes', () => {
     const permissions = [...(MANIFEST.permissions || []), ...(MANIFEST.optional_permissions || [])];
-    expect(permissions).not.toContain('debugger');
+    const router = fs.readFileSync(path.join(ROOT, 'background', 'message-router.js'), 'utf8');
+    expect(permissions).toContain('debugger');
+    expect(router).toContain("'GEMINI_CDP_ATTACH_REQUEST',");
+    expect(router).toContain("'QWEN_CDP_ATTACH_REQUEST',");
+    expect(router).toContain("'PROVIDER_CDP_ATTACH_REQUEST'");
+    expect(router).toContain("reason: 'debugger_route_disabled'");
   });
 });

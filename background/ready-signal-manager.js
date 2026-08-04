@@ -104,6 +104,20 @@ const ReadySignalManager = {
     return this._readyTabs.get(tabId) || null;
   },
 
+  getAckInfo(tabId) {
+    if (!Number.isInteger(tabId) || tabId <= 0) return null;
+    return this._ackTabs.get(tabId) || null;
+  },
+
+  hasCorrelatedHandshake(tabId) {
+    const readyInfo = this.getReadyInfo(tabId);
+    const ackInfo = this.getAckInfo(tabId);
+    if (!readyInfo || !ackInfo) return false;
+    return !readyInfo.tabSessionId
+      || !ackInfo.tabSessionId
+      || readyInfo.tabSessionId === ackInfo.tabSessionId;
+  },
+
   handleTabClosed(tabId) {
     if (!Number.isInteger(tabId) || tabId <= 0) return;
     this._readyTabs.delete(tabId);

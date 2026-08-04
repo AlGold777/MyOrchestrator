@@ -1,5 +1,22 @@
 # Telemetry - tab/session diagnostics
 
+## Insertion verdict from every adapter v2.81.216 - 2026-08-01
+
+Each adapter now states the outcome of its composer transaction for the current
+dispatch, success as well as failure: `PROMPT_INSERTION_OBSERVED` from the
+content script, mapped in the background onto `PROMPT_INSERTION_CONFIRMED` or
+`PROMPT_INSERTION_FAILED` and canonically onto `PROMPT_INSERTION_EVALUATED`
+with `prompt_insertion/inserted` or `prompt_insertion/failed`. Both labels are
+pinned, and the report carries `promptLength`, `composerLength`, `method` and
+`reason` — never prompt text.
+
+Until now only failure was reported, and only by some adapters, so the critical
+`insertion_outcome` slot of the `prompt-not-inserted` report stayed
+`unavailable` on every run and the question "was the prompt inserted at all?"
+was unanswerable from the ledger. Absence of an insertion event was not, and is
+not, evidence of a failed insertion. ChatGPT additionally never verified its
+composer after typing; it now does, before Send is attempted.
+
 ## Pipeline generation proof routing v2.81.192 - 2026-07-30
 
 Concrete `PIPELINE_STEP` values are now canonical proof events:
@@ -628,6 +645,159 @@ export barrier начинал отсчёт только после потенц�
 до готовности lazy `results-devtools.js`, bootstrap сохраняет намерение,
 немедленно загружает exporter и автоматически продолжает тот же экспорт после
 события `load`. Кнопка и строка статуса сразу показывают busy-фазу.
+
+С v2.81.226 all-presets export независимо фиксирует два вида полноты:
+
+- `snapshotCompleteness` показывает, вошла ли очередь записи в экспортную границу;
+- `runCompleteness` показывает, завершили ли ожидаемые модели свой жизненный цикл.
+
+`RUN_CONFIG_RECORDED` сохраняет список ожидаемых моделей. `exportAudit.completeness`
+перечисляет expected, observed, terminal и pending models и отдельно отмечает
+`exportedDuringActiveRun`. Поэтому чистый `queue_drained` snapshot активного запуска
+больше не выглядит как завершённый run, а закрытый run с незавершённой моделью не
+выглядит как повреждённая persistence boundary.
+
+С v2.81.227 команда `npm run test:telemetry-parity` строит standalone-вариант
+каждого embedded report для каждой модели и каждого incident frozen ledger.
+Comparator приводит ссылки `seq` к `eventId` и сравнивает диагностическую
+семантику, а не форму JSON. Отдельные мутационные проверки подтверждают, что
+gate обнаруживает изменение verdict, evidence slot, limitation и causal relation.
+
+С v2.81.228 рядом с плоским `stateAxes` публикуется `stateAxesProvenance` для
+всех четырнадцати осей. Значение и его происхождение вычисляются одной ветвью
+правила; provenance содержит `layer`, точные `basisEventIds`, `ruleId` и
+`derivationVersion`. Валидатор отклоняет отсутствующие basis-события и ссылки
+на другой incident. Basis-события входят в самостоятельный отчёт, а axes вместе
+с provenance участвуют в semantic и artifact hashes.
+
+С v2.81.229 диагностическая семантика инцидента вычисляется одним чистым ядром
+`buildIncidentReportSemantics`. Embedded all-presets и standalone report только
+преобразуют его канонический результат в разные формы хранения. Parity gate для
+каждой задачи и каждого инцидента сравнивает embedded, standalone и core-проекции;
+отдельного второго диагностического движка больше нет.
+
+С v2.81.230 `buildCanonicalEvidence` создаёт отдельный формат
+`canonical-evidence`. Он сохраняет полный ledger, runtime-конфигурацию, полный
+dependency registry, состояние запуска, attachments/omissions и компактный
+incident index со всеми `stateAxes`/`stateAxesProvenance`, но не содержит семь
+предвычисленных `reports` и полный `derivedViews`. Версионированный
+`readerGuidance` считается доверенным только после проверки allowlist и хешей.
+Offline validator проверяет schema, границу snapshot, registry/generator,
+incident projection, basis refs, privacy, размеры и artifact hash.
+
+С v2.81.231 отчёты из сохранённого canonical evidence строятся офлайн:
+
+```bash
+npm run build:telemetry-report -- telemetry.json --list-incidents
+npm run build:telemetry-report -- telemetry.json --task=cutted --incident=<id> --out=report.json
+npm run build:telemetry-report -- telemetry.json --all --out=full-forensic.json
+```
+
+CLI сначала валидирует исходный файл и compatibility, не выбирает неоднозначный
+incident молча, затем вызывает штатный shared builder и валидирует результат.
+Исходный файл никогда не перезаписывается. Для неизвестной версии возможна
+только явная маркированная `--reproduction=reinterpretation`; exact reproduction
+по умолчанию завершается отказом. В выходе сохраняются source artifact hashes и
+полный ключ воспроизводимого кэша.
+
+С v2.81.232 в панели Telemetry обеих страниц результатов есть три явно
+названных формата: `Digest`, `Canonical evidence` и `Full forensic`. По умолчанию
+по-прежнему выбран Digest; сохранённое старое значение checkbox автоматически
+переводится в Digest либо Full forensic. Оба JSON-формата строятся и
+сериализуются вне UI-потока в export worker. При timeout остаётся recovery-файл,
+содержащий все canonical events.
+
+С v2.81.233 `ProofTelemetryPresentations` строит Timeline и Markdown напрямую
+из canonical proof ledger. Текущий Timeline пока не заменяется: рядом в памяти
+создаётся shadow-проекция и фиксируются legacy-only/proof-only event types,
+расхождения model/dispatch identity, terminal count и временных границ. Результат
+доступен как `window.__PROOF_TELEMETRY_TIMELINE_SHADOW__`, а статус/version — в
+dataset Timeline. Экспорт All Logs MD сохраняет прежние секции и добавляет
+canonical proof appendix с `seq`, `eventId`, scope, layer и typed fact из
+зафиксированной proof snapshot. Его shadow-сравнение доступно как
+`window.__PROOF_TELEMETRY_MARKDOWN_SHADOW__`. Оба пути read-only и ничего не
+записывают в журнал, который наблюдают.
+
+С v2.81.234 JSON worker сообщает стадии `incident-index`, `derived-views`, каждый
+тип отчёта, `hashes`, `attachments`, `finalizing`, `redacting` и `serializing`.
+На клиенте дополнительно измеряются snapshot/persistence boundary, structured
+clone, worker response и Blob/download. Последний завершённый замер доступен
+только в памяти страницы как `window.__PROOF_TELEMETRY_LAST_EXPORT_METRICS__` и
+никогда не добавляется в экспортируемый ledger. Новый запрос отменяет предыдущий;
+на каждой стадии и на всей операции действуют deadlines, worker завершается при
+любом исходе, object URL освобождается, а при ошибке выгружается полный canonical
+recovery ledger.
+
+Команда `npm run test:telemetry-stress` проверяет 500, 2 000, 5 000 и 10 000
+событий, параллельные сборки, повреждённое событие, отсутствующий registry и
+memory pressure. В эталонном прогоне 2026-08-02 сборка 10 000 событий заняла
+322,4 мс для canonical evidence и 495,2 мс для full forensic; до индексирования
+temporal slot matching тот же full forensic занимал около 32,4 с.
+
+С v2.81.235 сохранённые реальные выгрузки проверяются командой
+`npm run validate:telemetry-field -- <files...>`. Для JSON она выполняет текущую
+валидацию, объясняет только известный versioned contract drift, сохраняет ledger
+hash, перестраивает canonical/full и сравнивает embedded/standalone/core для всех
+задач и инцидентов. Любое необъяснённое расхождение закрывает gate с ошибкой.
+Для digest фиксируются только безопасные envelope-метаданные; он явно считается
+triage-only и не выдаётся за материал для integrity validation либо replay.
+Фактический прогон восьми выгрузок описан в
+`docs/telemetry-field-validation-2026-08-02.md`.
+
+С v2.81.252 полевой валидатор учитывает различие формы контейнеров: у
+`canonical-evidence` реестр расположен в верхнем `dependencyRegistry`,
+инциденты — в `incidentIndex.incidents`, а версия отчёта — в
+`sharedConfig.reportVersion`. Эти поля участвуют в сводке и проверке режима
+`exact-current-generator`; валидный canonical-файл больше не отображается как
+нулевой набор инцидентов или историческая reinterpretation.
+
+С v2.81.236 defense-in-depth redaction выполняется в export worker до вызова
+builder. Поэтому ledger, section/artifact hashes и `measuredBytes` вычисляются
+уже по безопасному представлению и не становятся недействительными, когда в
+исходном событии действительно обнаружен token-shaped секрет.
+
+С v2.81.237 offline CLI разрешает `exact-reproduction` только при одновременном
+совпадении generator version, единой report version и полного registry hash.
+Проверка выполняется одинаково для `canonical-evidence` и `all-presets`;
+исторический контейнер требует явного `--reproduction=reinterpretation`.
+
+С v2.81.238 policy загружается до proof export builder во всех browser/worker
+контекстах. Поэтому UI task reports, background и export worker вычисляют
+одинаковый точный `stateAxesProvenance`; fallback provenance больше не возникает
+из-за порядка загрузки скриптов.
+
+С v2.81.239 field validator больше не подавляет ошибки только по их коду и
+возрасту файла. Historical migration считается объяснённой лишь при точном
+совпадении message signature, отсутствующей старой структуры и ожидаемого
+количества findings. Project version читается из manifest; exact identity также
+проверяет report version и registry hash.
+
+С v2.81.240 production UI использует `TelemetryExportRuntime`: ту же исполняемую
+worker orchestration, которую запускают тесты. Gate создаёт fake workers и
+фактически проверяет completion, single-flight cancel, stage/overall timeout,
+crash, synchronous structured-clone failure, обязательный `terminate()`,
+canonical recovery и отложенный `URL.revokeObjectURL`.
+
+С v2.81.241 offline report CLI сохраняет неблокирующие S06/S15 как
+`diagnosticLimitations` в source provenance результирующего артефакта и выводит
+их в stderr. Эти ограничения больше не теряются при успешном коде завершения.
+
+С v2.81.242 отсутствие evidence представляется аудиторским результатом, а не
+инференсом без основания. Для слоёв `fact`, `inference` и `decision` валидатор
+требует хотя бы один разрешимый basis event внутри incident scope.
+
+С v2.81.243 инвариант export/persistence boundary закреплён исполняемым тестом:
+после ожидания queued record построение артефакта не меняет ledger, число
+persistence writes и `queuedMutationCount`.
+
+С v2.81.244 CLI формально различает `exact-reproduction`, условный
+`legacy-reproduction`, явную `reinterpretation` и итог `unsupported`.
+Исторических адаптеров пока нет: запрос legacy завершается fail-closed с
+`REPRODUCTION_UNSUPPORTED`, а не пересчитывается текущей policy.
+
+С v2.81.245 field validator знает точную миграционную сигнатуру старых
+zero-basis inference. Allowlist требует generator 2.6.0, derivation 1.0.0,
+ожидаемый ruleId, пустой basis и точное структурно вычисленное число S22.
 
 - Platform/Tasks фильтруют canonical envelopes по `modelId` и безопасному
   event payload. Исходные `seq` не перенумеровываются; filtered ledger остаётся
@@ -1465,7 +1635,8 @@ Purpose: complete trace from tab open to prompt confirmation.
 - `ATTACH_CANDIDATE` / `TAB_ATTACHED` / `ATTACH_REJECTED` - attach flow and rejection.
 - `TAB_READY_CHECK` / `TAB_READY_WAIT_END` / `TAB_READY_FAIL` - tab readiness (load/reload).
 - `TAB_DISCARDED_RELOAD` - discarded tab recovery.
-- `DISPATCH_LOCK_ACQUIRE` / `DISPATCH_START` / `DISPATCH_SEND` - queue and send phase.
+- `DISPATCH_LOCK_ACQUIRE` / `DISPATCH_START` / `DISPATCH_SEND` - queue and send phase. `DISPATCH_SEND` carries the pre-send split: `readyWaitMs` total, of which `tabReadyMs` (tab load/reload), `ackWaitMs` (ready/ACK handshake) and `noFocusProbeMs` (no-focus probe).
+- `READY_REANNOUNCE_REQUESTED` - background asked an open page to replay `SCRIPT_READY` because worker memory held no correlated handshake.
 - `PROMPT_SUBMITTED_ACCEPTED` / `PROMPT_SUBMITTED_REJECTED` / `PROMPT_SUBMITTED_STALE` - submit confirmation handling.
 - `PROMPT_SUBMITTED_TIMEOUT` - submit confirmation timeout (no signal received).
 - `PIPELINE_START` / `PREPARATION_*` / `STREAMING_*` / `FINALIZATION_*` / `PIPELINE_COMPLETE` / `PIPELINE_ERROR` - content pipeline phases.

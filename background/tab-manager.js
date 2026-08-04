@@ -687,7 +687,7 @@ function createNewLlmTab(llmName, prompt, attachments = [], options = {}) {
         force: true
       });
       if (typeof self.handleLLMResponse === 'function') {
-        self.handleLLMResponse(llmName, `Error: tab create failed (${failReason})`, {
+        self.handleLLMResponse(llmName, '', {
           type: 'tab_create_failed',
           message: failReason
         });
@@ -750,6 +750,12 @@ function createNewLlmTab(llmName, prompt, attachments = [], options = {}) {
 // generation means dispatching there would hijack the user's session — skip
 // that tab and let the caller fall back to another tab or a fresh one.
 // Probe failures never block reuse (scripting may be unavailable on the page).
+// Blockers that describe recoverable page residue rather than a tab that is
+// genuinely in use. With New pages disabled these may be overridden so a repeat
+// request can never open a duplicate tab. `generation_active` is deliberately
+// absent: hijacking a tab mid-generation would destroy a running answer.
+const SOFT_REUSE_BLOCKERS = new Set(['composer_has_draft', 'modal_visible', 'probe_unavailable', 'probe_failed']);
+
 async function probeReusableTabSurface(tabId, llmName = '') {
   try {
     const results = await chrome.scripting.executeScript({
@@ -846,7 +852,9 @@ function tryAttachExistingTab(llmName, prompt, attachments = [], options = {}) {
       }
       // Unsafe-global-reuse preflight: among the newest matching tabs pick the
       // first whose page surface is safe to take over.
+      const mandatoryReuse = options.mandatoryReuse === true;
       let candidate = null;
+      let firstSoftBlocked = null;
       for (const tabOption of eligibleTabs) {
         const isRunBound = !!(runBoundSet && runBoundSet.has(tabOption.id));
         if (!allowGlobalReuse || isRunBound) {
@@ -859,6 +867,14 @@ function tryAttachExistingTab(llmName, prompt, attachments = [], options = {}) {
           candidate = tabOption;
           break;
         }
+        // A leftover draft is the previous run's residue, not a reason to
+        // abandon the tab: every adapter clears the composer before it inserts.
+        // Treating it as fatal made a failed insertion guarantee a duplicate tab
+        // on the next request — the exact loop reported on 2026-07-31, where a
+        // repeat request opened a new GPT tab with New pages off.
+        if (!firstSoftBlocked && SOFT_REUSE_BLOCKERS.has(surface.reason)) {
+          firstSoftBlocked = { tab: tabOption, surface };
+        }
         emitTelemetry(llmName, 'UNSAFE_REUSE_SKIPPED', {
           level: 'warning',
           details: `${surface.reason} tab=${tabOption.id}`,
@@ -866,11 +882,25 @@ function tryAttachExistingTab(llmName, prompt, attachments = [], options = {}) {
           force: true
         });
       }
+      if (!candidate && mandatoryReuse && firstSoftBlocked) {
+        candidate = firstSoftBlocked.tab;
+        emitTelemetry(llmName, 'SOFT_REUSE_BLOCKER_OVERRIDDEN', {
+          level: 'warning',
+          details: `${firstSoftBlocked.surface.reason} tab=${candidate.id}`,
+          meta: {
+            tabId: candidate.id,
+            reason: firstSoftBlocked.surface.reason,
+            probe: firstSoftBlocked.surface.probe || null,
+            policy: 'new_pages_disabled_never_creates_a_duplicate'
+          },
+          force: true
+        });
+      }
       if (!candidate) {
         emitTelemetry(llmName, 'ATTACH_REJECTED', {
           details: 'unsafe_reuse_preflight',
           level: 'warning',
-          meta: { reason: 'unsafe_reuse_preflight', matchedCount: tabs.length },
+          meta: { reason: 'unsafe_reuse_preflight', matchedCount: tabs.length, mandatoryReuse },
           force: true
         });
         resolve(false);

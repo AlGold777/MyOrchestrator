@@ -31,6 +31,19 @@ record/override находятся в selector guides; не копировать
 second tab registry. Background owns tab identity and delivery; content scripts
 own provider DOM operations.
 
+При выборе ответа позиция DOM-узла сама по себе не является доказательством.
+Общий resolver просматривает кандидатов текущего хода от новых к старым и
+пропускает prompt echo, служебные подписи и технические сообщения. Provider
+adapter может расширять набор структурных селекторов, но не отменять эту
+общую проверку содержимого; пользовательские сообщения не входят в набор
+assistant-кандидатов.
+
+Внутренние сбои передаются отдельно от ответа: `answer` содержит только текст
+модели, а `error.type` и `error.message` — техническую причину. Адаптеры и
+оркестратор не помещают строки `Error: …` в `answer`; центральная финализация
+дополнительно очищает сообщения старого формата по реестру. Поэтому длина
+технической диагностики никогда не становится длиной ответа модели.
+
 ## Model selection contract
 
 1. The active view owns its selected model set. Main-page selection must not be
@@ -44,6 +57,13 @@ own provider DOM operations.
    dispatch. Later UI clicks cannot mutate the active run's participant list.
 5. A new run with the same model may reuse a tab only after the tab-manager
    readiness/reuse guard confirms URL, loading state, draft state and ownership.
+
+An MV3 service-worker restart clears the in-memory Ready/ACK registry without
+reloading provider pages. Before waiting on a missing handshake, background
+sends `REQUEST_SCRIPT_READY`; the existing content bootstrap replays
+`SCRIPT_READY` with the same document-scoped `tabSessionId`, and the normal ACK
+correlation gate remains mandatory. A complete correlated pair already cached
+in the current worker epoch is reused without this recovery message.
 
 Debate uses its own protocol selection and session state. Main-page model
 selection remains independent even when the same `results.js` composition root
@@ -223,10 +243,10 @@ proposal `materialize > round3 > round2 verification` in
 `docs/timing-review-2026-07-02.md` is not an implemented priority policy and
 must not be treated as one.
 
-The user has the highest effective focus authority: an explicit
-`user_focus` may preempt an unexpired automated lease. Automated requests may
-reuse the same lease or preempt an expired lease, but otherwise receive
-`LEASE_DENIED`.
+The user has the highest effective focus authority. An unmarked user activation
+preempts an automated visit but is recorded as a separate observation, not as
+a new lease. Automated requests may reuse the same automated lease or preempt
+an expired lease, but otherwise receive `LEASE_DENIED`.
 
 ### Canonical run order
 
@@ -235,15 +255,18 @@ The round orchestrator preserves the order of the run snapshot
 snapshot do not reorder the active run.
 
 ```text
-Round 0: for each selected model
-  attach/reuse or create tab
+Round 0: acquire selected model tabs
+  with New pages on: create and bind tabs sequentially
+  with New pages off: validate and bind independent existing tabs concurrently
   wait for model → tab binding
-  stagger before the next model
+  validate and prewarm current-document Ready/ACK signals concurrently
+  stagger only between newly created tabs
 
 Round 1: for each selected model
   resolve and validate the bound tab
   focus when dispatch requires it
   deliver GET_ANSWER
+  keep focus until correlated submit evidence or the bounded submit deadline
   continue without waiting for the full answer
 
 Round 2: for each selected model
@@ -268,10 +291,44 @@ After rounds:
   start recurring human-presence only if eligible models remain
 ```
 
-Round 0 and Round 1 are sequential. Round 2 and Round 3 also iterate in the
-original model order. Timed recovery tasks created by earlier rounds can later
-overlap the round timeline, but they remain subject to lease, overlap, quota,
-session, terminal and focus-window guards.
+New-tab creation in Round 0 and all prompt dispatch in Round 1 are sequential.
+Once all bindings exist, readiness prewarm is concurrent across model tabs.
+Round 1 still applies its ordinary Ready/ACK gate, so a navigation or a changed
+`tabSessionId` cannot reuse stale readiness; an unchanged prewarmed document
+resolves that gate from `ReadySignalManager` without another serial wait.
+Command acceptance and answer generation are separate lifetimes. Once the page
+owns `GET_ANSWER`, Round 1 holds until the current dispatch reports either
+composer insertion or submission, capped at eight seconds; the longer
+submission watchdog stays asynchronous and does not block the remaining model
+queue. Insertion evidence is accepted only from the bound tab with the exact
+run and dispatch identity. An adapter publishes
+`PROVIDER_DISPATCH_PIPELINE_STATE` while its asynchronous composer transaction
+is alive. On confirmed Send it closes `composer` ownership and opens the
+independent `answer_collection` phase. Retry supervisor and Round 2 repair defer
+only for the former, so a long or stuck answer wait cannot hide a failed Send.
+A bounded ownership TTL prevents a lost MV3 release message from blocking
+recovery forever.
+
+Every provider may publish the same dispatch-stage contract:
+`composer_transaction_started`, `composer_ready`, `prompt_insertion_started`,
+`prompt_inserted`, `send_action_requested`, and `send_action_completed` or a
+stage-specific failure. These facts and the Round 1 focus boundary are retained
+in canonical evidence with exact dispatch identity.
+
+Trusted browser input has a single debugger owner per `tabId`. Native input,
+Enter, Send and attachment RPCs enqueue through the same manager; only that
+manager may attach or detach Chrome Debugger. Provider helpers operate inside
+the granted session and release their remote objects before the manager hands
+the tab to the next operation. Operations on different tabs remain concurrent.
+When New pages is disabled, Round 0 acquires independent existing pages in
+parallel so the bootstrap fits inside the MV3 service-worker lifetime. The
+results-page start request remains open until this acquisition and Round 1
+finish (bounded to 45 seconds). The page mode and current round are persisted;
+an interrupted Round 0/1 is resumed after rehydration, while an already
+attempted dispatch is left to the supervisor instead of being duplicated.
+Round 2 and Round 3 iterate in the original model order. Timed recovery tasks
+created by earlier rounds can later overlap the round timeline, but they remain
+subject to lease, overlap, quota, session, terminal and focus-window guards.
 
 ### Visit producers
 
@@ -286,7 +343,7 @@ session, terminal and focus-window guards.
 | Pre-terminal materialization | A supported model is about to end as `NO_SEND`, `EXTRACT_FAILED` or qualifying `ERROR` | One controlled visit; may use a bounded direct-focus fallback, then read-only recovery |
 | Deferred hard-stop recovery | Recent runtime/transport evidence justifies one last bounded recovery | One short visit, then follow-up/final pings and snapshot fallback |
 | Recurring human-presence | Rounds have finished and pending eligible models remain | Visits pending models cyclically in `session.selectedModels` order |
-| Explicit user focus | User activates a bound provider tab | Tracked as `user_focus`; may preempt the automated lease |
+| Explicit user focus | User activates a bound provider tab | Recorded as a start/end observation; preempts automation but creates no lease or hard cap |
 
 Adaptive collection itself is normally a background `getResponses` ping and
 does not activate the tab. It can indirectly schedule early gesture recovery
@@ -398,13 +455,17 @@ deadline. The complete timing ladder is maintained in
 `background/human-presence.js` owns the foreground visit lease:
 
 - key: `model:tabId`;
-- owner/source: for example `user_focus`, `human_visit`,
-  `automation_focus` or `verification_focus`;
+- owner/source: for example `human_visit`, `automation_focus` or
+  `verification_focus`;
 - expiry: the current `TAB_LEASE_TTL_MS`;
 - same tab/model: renew the lease;
 - expired lease: finalize the previous visit, then grant the new one;
-- user focus: may preempt an unexpired lease;
 - other competing source: deny with `LEASE_DENIED`.
+
+User focus is outside this lease. It may terminate a current automated visit,
+but it is represented by `USER_FOCUS_OBSERVATION_STARTED` and
+`USER_FOCUS_OBSERVATION_ENDED`, without TTL, quota, hard cap or stuck-focus
+timer.
 
 This is an in-memory runtime lease. It coordinates the current service-worker
 runtime; it is not a durable cross-runtime queue. Separately,
@@ -439,7 +500,8 @@ Before programmatically activating a provider or previous tab, the background
 records a short-lived programmatic-focus marker. `tabs.onActivated` consumes
 that marker and emits `TAB_ACTIVATION_IGNORED_PROGRAMMATIC` instead of treating
 the system's own action as a user visit. A real unmarked activation of a bound
-model tab is recorded as `USER_FOCUS_CHANGE` and `user_focus`.
+model tab is recorded as `USER_FOCUS_CHANGE` plus a bounded-by-reality
+user-focus observation. It is never emitted as `OBSERVATION_SLOT_GRANTED`.
 
 Automated visits snapshot the previously active tab. On completion, dispatch
 and visit code restore it, when restoration is enabled for that path, only if:
@@ -903,6 +965,19 @@ Round 2 and cannot produce `PROMPT_SUBMITTED_INFERRED`. Materialize recovery
 rejects a baseline-equivalent candidate before finalization. Without completion
 evidence, a fresh salvaged candidate is at most `PARTIAL`; without freshness it
 remains `NO_SEND`/recoverable and can never become `SUCCESS`.
+
+`materialize_recovered_unconfirmed_complete` describes a visible answer
+candidate, not a terminal state. If the finalization policy rejects that
+candidate, it remains non-terminal even when its provisional status is
+`PARTIAL`. Explicit automation deadlines and exhausted streaming limits retain
+their separate hard-stop contract and may deliberately finish as `PARTIAL`.
+
+Late collection distinguishes a dead page from a temporarily unavailable
+observer. If the tab still exists, matches the provider and is not discarded,
+a failed content-script ping plus a timed-out scripting probe produces
+`UNAVAILABLE`, never `DEAD`. Read-only probes are serialized across providers
+and retried with bounded backoff. This recovery does not reload the page, resend
+the prompt or apply provider-specific completion exceptions.
 
 Provider-specific selector details belong in `selectors/*.config.js` and the
 selector tooling guides. If a selector breaks, first use the health/override

@@ -327,6 +327,7 @@
       answerContainer: '#chat-messages, [role="log"], body',
       lastMessage: [
         '[id^="message-"][id$="-start"].chat-assistant.markdown-prose',
+        '[id^="message-"][id$="-start"]:not(.chat-user):not([data-role="user"]):not([data-message-author-role="user"])',
         '[id^="message-"].chat-assistant.markdown-prose',
         '[id^="message-"] .chat-assistant.markdown-prose',
         '.chat-assistant.markdown-prose',

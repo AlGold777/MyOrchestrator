@@ -10,6 +10,7 @@
     "correlation",
     "diagnosticSummary",
     "stateAxes",
+    "stateAxesProvenance",
     "eventSelection",
     "derivedViews",
     "siblings",
@@ -141,6 +142,32 @@
     "stateAxes": {
       "type": "object"
     },
+    "stateAxesProvenance": {
+      "type": "object",
+      "required": [
+        "submission", "generationStart", "answerIdentity", "observedGeneration",
+        "textEvolution", "answerCompleteness", "extraction", "verification",
+        "completionDetection", "completionEvidenceTier", "observationReliability",
+        "finalization", "terminalMode", "terminationCause"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "submission": { "$ref": "#/$defs/axisProvenance" },
+        "generationStart": { "$ref": "#/$defs/axisProvenance" },
+        "answerIdentity": { "$ref": "#/$defs/axisProvenance" },
+        "observedGeneration": { "$ref": "#/$defs/axisProvenance" },
+        "textEvolution": { "$ref": "#/$defs/axisProvenance" },
+        "answerCompleteness": { "$ref": "#/$defs/axisProvenance" },
+        "extraction": { "$ref": "#/$defs/axisProvenance" },
+        "verification": { "$ref": "#/$defs/axisProvenance" },
+        "completionDetection": { "$ref": "#/$defs/axisProvenance" },
+        "completionEvidenceTier": { "$ref": "#/$defs/axisProvenance" },
+        "observationReliability": { "$ref": "#/$defs/axisProvenance" },
+        "finalization": { "$ref": "#/$defs/axisProvenance" },
+        "terminalMode": { "$ref": "#/$defs/axisProvenance" },
+        "terminationCause": { "$ref": "#/$defs/axisProvenance" }
+      }
+    },
     "eventSelection": {
       "type": "object"
     },
@@ -172,5 +199,18 @@
       "type": "object"
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "axisProvenance": {
+      "type": "object",
+      "required": ["layer", "basisEventIds", "ruleId", "derivationVersion"],
+      "properties": {
+        "layer": { "enum": ["fact", "inference", "decision", "audit"] },
+        "basisEventIds": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "ruleId": { "type": "string", "minLength": 1 },
+        "derivationVersion": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    }
+  }
 }

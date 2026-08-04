@@ -247,11 +247,44 @@
     .trim()
     .toLowerCase();
 
+  // Field evidence 2.81.201: a run where the prompt reached only one provider
+  // still reported SUCCESS for two others, because each returned the answer that
+  // was already on its reused page — DeepSeek baseline 5055 chars vs delivered
+  // 5005, Qwen 646 vs 648. Strict equality let both through as "new": a
+  // re-render, a trimmed trailing token or a re-streamed tail is enough to move
+  // a few characters. The guard now also rejects a candidate that is the
+  // baseline to within a small edge difference, measured as a shared prefix and
+  // suffix covering nearly all of the shorter text. A genuinely new answer
+  // diverges early, so it does not reach this threshold.
+  const BASELINE_NEAR_MATCH_RATIO = 0.97;
+  const BASELINE_NEAR_MATCH_MIN_CHARS = 120;
+
+  const sharedPrefixLength = (a, b) => {
+    const limit = Math.min(a.length, b.length);
+    let index = 0;
+    while (index < limit && a[index] === b[index]) index += 1;
+    return index;
+  };
+
+  const sharedSuffixLength = (a, b, skip) => {
+    const limit = Math.min(a.length, b.length) - skip;
+    let index = 0;
+    while (index < limit && a[a.length - 1 - index] === b[b.length - 1 - index]) index += 1;
+    return index;
+  };
+
   const isBaselineEquivalent = (candidateText = '', baselineText = '') => {
     const candidate = normalizeForPaste(candidateText);
     const baseline = normalizeForPaste(baselineText);
     if (!candidate || !baseline) return false;
-    return candidate === baseline;
+    if (candidate === baseline) return true;
+    // Only applied to substantial answers: short texts differ too easily by
+    // chance, and rejecting them on similarity would suppress real replies.
+    const shorter = Math.min(candidate.length, baseline.length);
+    if (shorter < BASELINE_NEAR_MATCH_MIN_CHARS) return false;
+    const prefix = sharedPrefixLength(candidate, baseline);
+    const suffix = sharedSuffixLength(candidate, baseline, prefix);
+    return (prefix + suffix) >= Math.floor(shorter * BASELINE_NEAR_MATCH_RATIO);
   };
 
   const PROVIDER_ERROR_SURFACE_PATTERNS = [
@@ -406,6 +439,58 @@
     const current = readInputValue(element);
     if (pasteMatchesPrompt(current, payload)) return true;
     return false;
+  };
+
+  // Report whether the prompt actually reached the composer, for both outcomes.
+  // Without a positive report the `insertion_outcome` slot of the
+  // prompt-not-inserted report stays `unavailable`, and the question "was the
+  // prompt inserted at all?" cannot be answered from the run's own telemetry —
+  // absence of an insertion event is not evidence of a failed insertion.
+  // Call it from the adapter's own verdict, after any recovery path has run —
+  // the composer gate below does not know whether the adapter still intends to
+  // repair a detached or replaced composer. Exactly one verdict per dispatch.
+  // Fire-and-forget: dispatch must never wait on a proof message.
+  const reportPromptInsertion = (llmName, meta, outcome = {}) => {
+    if (!llmName) return false;
+    const inserted = outcome.state === 'inserted' || outcome.ok === true;
+    return safeRuntimeSendMessage({
+      type: 'PROMPT_INSERTION_OBSERVED',
+      llmName,
+      insertionState: inserted ? 'inserted' : 'failed',
+      method: outcome.method ? String(outcome.method) : null,
+      reason: outcome.reason ? String(outcome.reason) : null,
+      promptLength: Number.isFinite(Number(outcome.promptLength)) ? Number(outcome.promptLength) : null,
+      composerLength: Number.isFinite(Number(outcome.composerLength)) ? Number(outcome.composerLength) : null,
+      attempt: Number.isFinite(Number(outcome.attempt)) ? Number(outcome.attempt) : null,
+      meta: ensureDispatchMeta(meta && typeof meta === 'object' ? meta : {}, llmName) || {}
+    });
+  };
+
+  const reportDispatchStage = (llmName, meta, stage, outcome = {}) => {
+    const normalizedStage = String(stage || '').trim().toLowerCase();
+    if (!llmName || !normalizedStage) return false;
+    return safeRuntimeSendMessage({
+      type: 'PROVIDER_DISPATCH_STAGE_OBSERVED',
+      llmName,
+      stage: normalizedStage,
+      outcome: outcome.outcome ? String(outcome.outcome) : null,
+      reason: outcome.reason ? String(outcome.reason) : null,
+      elapsedMs: Number.isFinite(Number(outcome.elapsedMs)) ? Number(outcome.elapsedMs) : null,
+      composerVisible: typeof outcome.composerVisible === 'boolean' ? outcome.composerVisible : null,
+      composerConnected: typeof outcome.composerConnected === 'boolean' ? outcome.composerConnected : null,
+      meta: ensureDispatchMeta(meta && typeof meta === 'object' ? meta : {}, llmName) || {}
+    });
+  };
+
+  const reportProviderPipelineState = (llmName, meta, phase, active) => {
+    if (!llmName || !['composer', 'answer_collection'].includes(String(phase || ''))) return false;
+    return safeRuntimeSendMessage({
+      type: 'PROVIDER_DISPATCH_PIPELINE_STATE',
+      llmName,
+      phase,
+      active: active === true,
+      meta: ensureDispatchMeta(meta && typeof meta === 'object' ? meta : {}, llmName) || {}
+    });
   };
 
   // Canonical composer transaction gate. Dispatch code may proceed to Send only
@@ -1079,6 +1164,9 @@
     promptMatchesComposer: pasteMatchesPrompt,
     countPromptOccurrences,
     ensurePromptPrepared,
+    reportPromptInsertion,
+    reportDispatchStage,
+    reportProviderPipelineState,
     reportDispatchBaseline,
     isBaselineEquivalent,
     detectProviderErrorSurface,

@@ -843,6 +843,33 @@
         telemetryPlatformSelect.value = optionValues.includes(current) ? current : 'all';
     };
 
+    let proofTimelineShadowTimer = null;
+    let proofTimelineShadowRevision = 0;
+    const scheduleProofTimelineShadow = (legacyEvents = []) => {
+        if (!window.ProofTelemetryPresentations?.buildShadowBundle || !chrome?.runtime?.sendMessage) return;
+        const revision = ++proofTimelineShadowRevision;
+        clearTimeout(proofTimelineShadowTimer);
+        proofTimelineShadowTimer = setTimeout(() => {
+            try {
+                chrome.runtime.sendMessage({ type: 'GET_PROOF_TELEMETRY_SNAPSHOT', runSessionId: null }, (snapshot) => {
+                    if (chrome.runtime.lastError || revision !== proofTimelineShadowRevision || !snapshot?.events) return;
+                    const shadow = window.ProofTelemetryPresentations.buildShadowBundle(legacyEvents, snapshot.events, {
+                        generatedAt: Date.now(),
+                        snapshotBoundary: {
+                            runSessionId: snapshot.runSessionId,
+                            ledgerCompleteThroughSeq: snapshot.lastSeq || snapshot.events[snapshot.events.length - 1]?.seq || 0
+                        }
+                    });
+                    window.__PROOF_TELEMETRY_TIMELINE_SHADOW__ = shadow;
+                    if (telemetryTimeline) {
+                        telemetryTimeline.dataset.proofShadowStatus = shadow.comparison.status;
+                        telemetryTimeline.dataset.proofShadowVersion = shadow.version;
+                    }
+                });
+            } catch (_) {}
+        }, 50);
+    };
+
     const renderTelemetry = (events = []) => {
         if (!telemetryTimeline) return;
         const scoped = filterEventsToCurrentRun(events);
@@ -851,6 +878,7 @@
         const { filtered, hasSelection } = getTelemetryFilteredEvents(scopedEvents);
         const visibleEvents = filtered;
         telemetryFilteredCache = visibleEvents;
+        scheduleProofTimelineShadow(visibleEvents);
         refreshTelemetryBridge();
         renderTelemetryRounds(scopedEvents);
         renderTelemetrySummary(visibleEvents);
@@ -1122,18 +1150,118 @@
             resolve(null);
         }
     });
+    const downloadSerializedProofArtifact = (json, filename) => {
+        return window.TelemetryExportRuntime.downloadSerializedArtifact(json, filename);
+    };
     const downloadProofArtifact = (payload, filename) => {
         const json = window.SecretRedaction?.stringifySafe
             ? window.SecretRedaction.stringifySafe(payload)
             : JSON.stringify(payload);
-        if (!json || json === '{}') return;
-        const blob = new Blob([json], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        a.click();
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        return downloadSerializedProofArtifact(json, filename);
+    };
+
+    const FULL_EXPORT_WORKER_TIMEOUT_MS = 20000;
+    const EXPORT_STAGE_DEADLINES_MS = Object.freeze({
+        cloning: 5000,
+        building: 15000,
+        'incident-index': 10000,
+        'derived-views': 10000,
+        attachments: 5000,
+        hashes: 10000,
+        finalizing: 5000,
+        redacting: 5000,
+        serializing: 5000
+    });
+    const telemetryExportWorkerClient = window.TelemetryExportRuntime.createWorkerClient({
+        workerFactory: () => new Worker(chrome.runtime.getURL('workers/telemetry-export-worker.js')),
+        overallTimeoutMs: FULL_EXPORT_WORKER_TIMEOUT_MS,
+        stageDeadlinesMs: EXPORT_STAGE_DEADLINES_MS,
+        reportStageTimeoutMs: 5000
+    });
+    const buildTelemetryJsonInWorker = (...args) => telemetryExportWorkerClient.build(...args);
+
+    const buildCanonicalTelemetryRecovery = (events, options, error) => ({
+        schemaVersion: '6.0',
+        containerType: 'canonical-ledger-recovery',
+        manifest: {
+            createdAt: new Date(options.exportedAt).toISOString(),
+            eventCount: events.length,
+            reason: 'all-presets worker did not complete'
+        },
+        sharedConfig: { extensionVersion: options.extensionVersion },
+        ledger: {
+            encoding: 'inline-json',
+            eventCount: events.length,
+            firstSeq: events[0]?.seq || 0,
+            lastSeq: events[events.length - 1]?.seq || 0,
+            events
+        },
+        exportAudit: {
+            recoveryExport: true,
+            allCanonicalEventsPreserved: true,
+            workerError: String(error?.message || error || 'unknown worker failure'),
+            sourceSnapshot: {
+                consistency: options.snapshotConsistency,
+                barrierTimedOut: options.snapshotBarrierTimedOut === true,
+                queuedMutationCount: options.queuedMutationCount,
+                pendingRecordCount: options.pendingRecordCount
+            }
+        }
+    });
+    // The full "all presets" export runs ~640KB, and roughly half of it is
+    // preset report definitions carrying no run data. Every diagnosis in
+    // practice comes from about a dozen fields inside ledger.events, so the
+    // Export button can write a small digest of exactly those.
+    // The JSON stays the archive; the digest is the part meant to be read.
+    // Same implementation as scripts/telemetry-digest.js, so a digest produced
+    // here and one produced from the file can never disagree.
+    // Digest remains the default. Canonical evidence is an explicit middle
+    // option; Full forensic remains available and unchanged.
+    const EXPORT_FORMAT_KEY = 'telemetryExportFormat';
+    const LEGACY_DIGEST_TOGGLE_KEY = 'telemetryExportDigestEnabled';
+    const exportFormatSelect = document.getElementById('telemetry-export-format-select');
+    if (exportFormatSelect) {
+        try {
+            chrome.storage?.local?.get?.([EXPORT_FORMAT_KEY, LEGACY_DIGEST_TOGGLE_KEY], (stored) => {
+                if (chrome.runtime?.lastError) return;
+                const saved = stored?.[EXPORT_FORMAT_KEY];
+                if (['digest', 'canonical-evidence', 'full-forensic'].includes(saved)) exportFormatSelect.value = saved;
+                else if (typeof stored?.[LEGACY_DIGEST_TOGGLE_KEY] === 'boolean') exportFormatSelect.value = stored[LEGACY_DIGEST_TOGGLE_KEY] ? 'digest' : 'full-forensic';
+            });
+        } catch (_) {}
+        exportFormatSelect.addEventListener('change', () => {
+            try {
+                chrome.storage?.local?.set?.({ [EXPORT_FORMAT_KEY]: exportFormatSelect.value });
+            } catch (_) {}
+        });
+    }
+    const telemetryExportFormat = () => exportFormatSelect?.value || 'digest';
+    const digestExportEnabled = () => telemetryExportFormat() === 'digest';
+
+    const buildTelemetryDigestSource = (events, options) => ({
+        manifest: { createdAt: new Date(options.exportedAt).toISOString() },
+        sharedConfig: { extensionVersion: options.extensionVersion },
+        ledger: { events }
+    });
+
+    const downloadTelemetryDigest = (payload, jsonFilename) => {
+        if (!window.TelemetryDigest?.buildDigest) return null;
+        try {
+            const text = window.TelemetryDigest.render(window.TelemetryDigest.buildDigest(payload));
+            if (!text || !text.trim()) return null;
+            const blob = new Blob([text], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = String(jsonFilename).replace(/\.json$/i, '') + '-digest.txt';
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+            return text;
+        } catch (err) {
+            // A digest failure must never cost the user the export itself.
+            console.warn('[devtools] telemetry digest failed', err);
+            return null;
+        }
     };
     const describeSelectedIncident = (selection) => {
         if (!selection?.selected) return 'No matching incident';
@@ -1151,6 +1279,7 @@
         if (telemetryStatus) telemetryStatus.textContent = describeSelectedIncident(selection);
     };
     const exportTelemetryJson = async () => {
+        const exportRequestedAt = performance.now();
         const exportButton = telemetryExportJsonBtn;
         if (exportButton) {
             exportButton.disabled = true;
@@ -1162,12 +1291,7 @@
             // also the persistence barrier: it waits for all earlier ledger
             // appends and returns one immutable boundary.
             const proofSnapshot = await requestProofTelemetrySnapshot(null);
-            if (proofSnapshot?.error === 'proof_telemetry_snapshot_incomplete') {
-                if (telemetryStatus) {
-                    telemetryStatus.textContent = `Telemetry is still saving (${proofSnapshot.queuedMutationCount || 0} queued). Please retry export.`;
-                }
-                return;
-            }
+            const snapshotResponseAt = performance.now();
             if (!proofSnapshot?.events?.length || !window.ProofOrientedTelemetry?.buildAllPresets) {
                 if (telemetryStatus) telemetryStatus.textContent = 'Native telemetry ledger is empty';
                 return;
@@ -1188,17 +1312,72 @@
                 generationWaitProfile: window.ResultsShared?.getGenerationWaitProfile?.(),
                 canonicalLedger: true,
                 snapshotConsistency: proofSnapshot.snapshotConsistency || 'unknown',
+                runLifecycleStatus: proofSnapshot.status || 'unknown',
                 snapshotBarrierTimedOut: proofSnapshot.barrierTimedOut === true,
                 snapshotWaitMs: Number(proofSnapshot.snapshotWaitMs || 0),
                 queuedMutationCount: Number(proofSnapshot.queuedMutationCount || 0),
                 pendingRecordCount: Number(proofSnapshot.pendingRecordCount || 0)
             };
             if (task === 'all') {
-                const payload = await window.ProofOrientedTelemetry.buildAllPresets(canonicalEvents, buildOptions);
-                downloadProofArtifact(payload, `telemetry-all-presets-${Date.now()}.json`);
-                if (telemetryStatus) telemetryStatus.textContent = proofSnapshot.barrierTimedOut
-                    ? 'JSON exported from the latest committed boundary'
-                    : 'JSON exported';
+                const exportFormat = telemetryExportFormat();
+                const filename = exportFormat === 'canonical-evidence'
+                    ? `telemetry-canonical-evidence-${Date.now()}.json`
+                    : `telemetry-all-presets-${Date.now()}.json`;
+                const boundary = proofSnapshot.barrierTimedOut ? ' from the latest committed boundary' : '';
+                if (digestExportEnabled()) {
+                    const digest = downloadTelemetryDigest(
+                        buildTelemetryDigestSource(canonicalEvents, buildOptions),
+                        filename
+                    );
+                    if (digest) {
+                        if (telemetryStatus) telemetryStatus.textContent = `Digest exported${boundary}`;
+                        return;
+                    }
+                }
+                const outcome = await window.TelemetryExportRuntime.executeWithRecovery({
+                    build: () => buildTelemetryJsonInWorker(canonicalEvents, buildOptions, exportFormat, (progress) => {
+                        if (!telemetryStatus) return;
+                        telemetryStatus.textContent = progress.stage === 'serializing'
+                            ? `Serializing ${exportFormat === 'canonical-evidence' ? 'canonical evidence' : 'full telemetry'} JSON (${canonicalEvents.length} events)…`
+                            : `Building ${exportFormat === 'canonical-evidence' ? 'canonical evidence' : 'full report'} for ${canonicalEvents.length} events…`;
+                    }),
+                    download: (built) => downloadSerializedProofArtifact(built.json, filename),
+                    recover: (error) => {
+                        console.error('[devtools] telemetry worker failed; exporting canonical recovery ledger', error);
+                        const recovery = buildCanonicalTelemetryRecovery(canonicalEvents, buildOptions, error);
+                        const recoveryFilename = filename.replace(/all-presets|canonical-evidence/, 'canonical-recovery');
+                        return { recoveryFilename, downloadMetrics: downloadProofArtifact(recovery, recoveryFilename) };
+                    }
+                });
+                if (outcome.status === 'cancelled') return;
+                if (outcome.status === 'recovered') {
+                    if (telemetryStatus) {
+                        const reason = /TIMEOUT/.test(String(outcome.error?.code || '')) ? 'timed out' : 'failed';
+                        telemetryStatus.textContent = `Telemetry build ${reason} — canonical recovery JSON exported (${canonicalEvents.length} events)`;
+                    }
+                    return;
+                }
+                const built = outcome.built;
+                const downloadMetrics = outcome.downloadResult;
+                window.__PROOF_TELEMETRY_LAST_EXPORT_METRICS__ = Object.freeze({
+                        measuredAt: new Date().toISOString(),
+                        eventCount: canonicalEvents.length,
+                        artifactType: exportFormat,
+                        snapshotRequestMs: Math.max(0, snapshotResponseAt - exportRequestedAt),
+                        persistenceBoundaryMs: Number(proofSnapshot.snapshotWaitMs || 0),
+                        workerElapsedMs: Number(built.elapsedMs || 0),
+                        workerClientMs: Number(built.totalClientMs || 0),
+                        stageTimingsMs: Object.freeze({ ...(built.stageTimings || {}) }),
+                        blobBytes: Number(downloadMetrics?.blobBytes || 0),
+                        blobDownloadMs: Number(downloadMetrics?.blobDownloadMs || 0),
+                        overallMs: Math.max(0, performance.now() - exportRequestedAt)
+                });
+                if (telemetryStatus) {
+                    const label = exportFormat === 'canonical-evidence'
+                        ? 'Canonical evidence exported'
+                        : (digestExportEnabled() ? 'Digest unavailable — full JSON exported' : 'Full forensic JSON exported');
+                    telemetryStatus.textContent = `${label} in ${built.elapsedMs} ms${boundary}`;
+                }
                 return;
             }
             const selectedModelId = platform === 'all'

@@ -12,7 +12,8 @@
     "clipboardRead",
     "clipboardWrite",
     "downloads",
-    "downloads.ui"
+    "downloads.ui",
+    "debugger"
   ],
   "host_permissions": [
     "*://chat.openai.com/*",

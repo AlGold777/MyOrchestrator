@@ -6,6 +6,8 @@
 var dispatchMutexManager = new MutexManager();
 var promptDispatchFocusMutex = Promise.resolve();
 var promptSubmitWaiters = new Map();
+var promptInsertionWaiters = new Map();
+var providerSendOnlyRecoveryTimers = new Map();
 var promptDispatchSupervisorTimer = null;
 //- 2.1. Лимит ожидания сигнала из контента -//
 const PROMPT_SUBMIT_TIMEOUT_MS = TimingConfig.getTiming('promptSubmitTimeoutMs', 15000);
@@ -63,6 +65,87 @@ const SCRIPT_RUNTIME_HARD_STOP_ACTIVITY_WINDOW_MS = 15000;
 const SCRIPT_RUNTIME_HARD_STOP_GRACE_MS = 12000;
 const SCRIPT_RUNTIME_HARD_STOP_MAX_GRACE_EXTENSIONS = 2;
 const TRANSPORT_RECOVER_BACKOFF_MS = 12000;
+const PROVIDER_PIPELINE_OWNERSHIP_TTL_MS = 180000;
+const PROVIDER_SEND_ONLY_RECOVERY_DELAY_MS = 5000;
+const PROVIDER_SEND_ONLY_RECOVERY_TIMEOUT_MS = 15000;
+
+function isProviderPipelineOwnershipActive(entry, now = Date.now()) {
+  if (!entry) return false;
+  const active = entry.providerComposerTransactionActive === true
+    || (entry.providerComposerTransactionActive == null && entry.providerPipelineActive === true);
+  if (!active) return false;
+  const activeAt = Number(entry.providerComposerTransactionActiveAt || entry.providerPipelineActiveAt || 0);
+  return activeAt > 0 && Math.max(0, Number(now) - activeAt) < PROVIDER_PIPELINE_OWNERSHIP_TTL_MS;
+}
+
+function cancelProviderSendOnlyRecovery(llmName) {
+  const timer = providerSendOnlyRecoveryTimers.get(llmName);
+  if (!timer) return false;
+  clearTimeout(timer);
+  dispatchDeregisterSessionTimer(timer);
+  providerSendOnlyRecoveryTimers.delete(llmName);
+  return true;
+}
+
+function scheduleProviderSendOnlyRecovery(llmName, options = {}) {
+  const entry = jobState?.llms?.[llmName];
+  if (!entry || !self.ModelPolicy?.modelSupportsSendOnlyRecovery?.(llmName)) return false;
+  const dispatchId = options.dispatchId || entry?.lastDispatchMeta?.dispatchId || null;
+  if (!dispatchId) return false;
+  cancelProviderSendOnlyRecovery(llmName);
+  const delayMs = Math.max(500, Number(options.delayMs || PROVIDER_SEND_ONLY_RECOVERY_DELAY_MS));
+  let timer = null;
+  timer = dispatchRegisterSessionTimer(setTimeout(async () => {
+    dispatchDeregisterSessionTimer(timer);
+    providerSendOnlyRecoveryTimers.delete(llmName);
+    const liveEntry = jobState?.llms?.[llmName];
+    const liveDispatchId = liveEntry?.lastDispatchMeta?.dispatchId || null;
+    if (!liveEntry || liveDispatchId !== dispatchId || liveEntry.promptSubmittedAt
+      || liveEntry.confirmedDispatchId === dispatchId) return;
+    if (!['prompt_inserted', 'send_action_failed'].includes(String(liveEntry.providerDispatchStage || ''))) return;
+    const tabId = resolveBoundTabIdForDispatch(llmName, liveEntry);
+    if (!isValidTabId(tabId)) return;
+    const previousTab = await getActiveTabSnapshot();
+    let automationVisitStarted = false;
+    const automationManager = (self.startAutomationVisit && self.endAutomationVisit) ? self : null;
+    let result = null;
+    try {
+      result = await withPromptDispatchFocusLock(async () => {
+        if (automationManager) automationVisitStarted = automationManager.startAutomationVisit(tabId, llmName);
+        await activateTabForDispatch(tabId);
+        await dispatchSleepMs(250);
+        return sendMessageWithTimeout(tabId, llmName, {
+          type: 'RECOVER_PROVIDER_SEND',
+          prompt: self.TransportPolicy?.resolvePromptForModel
+            ? self.TransportPolicy.resolvePromptForModel(jobState?.session?.promptsByModel, llmName, jobState.prompt)
+            : jobState.prompt,
+          meta: { ...(liveEntry.lastDispatchMeta || {}), dispatchId, runSessionId: jobState?.session?.startTime || null },
+          reason: options.reason || 'send_only_watchdog'
+        }, PROVIDER_SEND_ONLY_RECOVERY_TIMEOUT_MS);
+      });
+    } catch (error) {
+      result = { ok: false, status: 'recovery_transport_failed', reason: error?.message || 'unknown_error' };
+    } finally {
+      if (automationManager && automationVisitStarted) automationManager.endAutomationVisit(llmName);
+      if (previousTab?.id && previousTab.id !== tabId) restoreFocusIfStillOnDispatchTab(tabId, previousTab);
+    }
+    emitTelemetry(llmName, 'PROVIDER_DISPATCH_STAGE_OBSERVED', {
+      level: result?.ok === true ? 'info' : 'warning',
+      details: result?.reason || result?.status || (result?.ok ? 'confirmed' : 'failed'),
+      meta: {
+        tabId,
+        dispatchId,
+        stage: 'send_only_recovery_result',
+        outcome: result?.ok === true ? 'confirmed' : 'failed',
+        resultStatus: result?.status || null,
+        recoveryReason: options.reason || 'send_only_watchdog'
+      },
+      force: true
+    });
+  }, delayMs));
+  providerSendOnlyRecoveryTimers.set(llmName, timer);
+  return true;
+}
 
 const dispatchSessionTimerManager = (() => {
   const register = (typeof self?.registerSessionTimer === 'function')
@@ -245,7 +328,7 @@ function scheduleScriptRuntimeHardStop(llmName, tabId, message, attempt = 1, opt
 
       handleLLMResponse(
         llmName,
-        `Error: script_runtime_hard_stop_${getScriptRuntimeHardStopMs()}ms`,
+        '',
         { type: 'script_runtime_hard_stop', message: `Timed out after ${getScriptRuntimeHardStopMs()}ms` },
         {
           dispatchId: dispatchId || liveDispatchId || null,
@@ -562,6 +645,74 @@ function waitForPromptSubmitted(llmName, dispatchId, timeoutMs = PROMPT_SUBMIT_T
   });
 }
 
+function resolvePromptInsertion(llmName, payload = {}) {
+  const dispatchId = payload?.dispatchId || payload?.meta?.dispatchId || null;
+  if (!llmName || !dispatchId) return false;
+  const modelWaiters = promptInsertionWaiters.get(llmName);
+  const waiters = modelWaiters?.get?.(String(dispatchId));
+  if (!waiters?.size) return false;
+  waiters.forEach((cb) => {
+    try { cb(payload); } catch (_) {}
+  });
+  waiters.clear();
+  modelWaiters.delete(String(dispatchId));
+  if (!modelWaiters.size) promptInsertionWaiters.delete(llmName);
+  return true;
+}
+
+function waitForPromptInsertion(llmName, dispatchId, timeoutMs) {
+  return new Promise((resolve) => {
+    if (!llmName || !dispatchId) {
+      resolve(false);
+      return;
+    }
+    const modelWaiters = promptInsertionWaiters.get(llmName) || new Map();
+    const waiterKey = String(dispatchId);
+    const waiters = modelWaiters.get(waiterKey) || new Set();
+    modelWaiters.set(waiterKey, waiters);
+    promptInsertionWaiters.set(llmName, modelWaiters);
+    let settled = false;
+    const done = (payload) => {
+      if (settled) return;
+      settled = true;
+      if (timer) {
+        clearTimeout(timer);
+        dispatchDeregisterSessionTimer(timer);
+        timer = null;
+      }
+      waiters.delete(handler);
+      if (!waiters.size) modelWaiters.delete(waiterKey);
+      if (!modelWaiters.size) promptInsertionWaiters.delete(llmName);
+      resolve(payload || false);
+    };
+    const handler = (payload) => done(payload);
+    waiters.add(handler);
+    let timer = null;
+    timer = dispatchRegisterSessionTimer(setTimeout(
+      () => done(false),
+      Math.max(0, Number(timeoutMs) || 0)
+    ));
+  });
+}
+
+async function waitForPromptFocusBoundary(submitWaiter, insertionWaiter, holdMs) {
+  const never = () => new Promise(() => {});
+  return Promise.race([
+    Promise.resolve(submitWaiter).then((payload) => (
+      payload ? { reason: 'submit_confirmed', payload } : never()
+    )),
+    Promise.resolve(insertionWaiter).then((payload) => (
+      payload
+        ? {
+            reason: payload.insertionState === 'inserted' ? 'prompt_inserted' : 'insertion_failed',
+            payload
+          }
+        : never()
+    )),
+    dispatchSleepMs(Math.max(0, Number(holdMs) || 0)).then(() => ({ reason: 'hold_elapsed', payload: null }))
+  ]);
+}
+
 function getPromptSubmitTimeoutMs(llmName) {
   if (!llmName) return PROMPT_SUBMIT_TIMEOUT_MS;
   if (self.ModelPolicy?.getPromptSubmitTimeoutMs) {
@@ -834,6 +985,21 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
   if (!llmName || !isValidTabId(tabId) || !prompt) return;
   const entry = jobState?.llms?.[llmName];
   if (!entry) return;
+  const recoveryDispatch = ['retry_supervisor', 'round2_repair', 'round2_repair_pre_visit'].includes(reason);
+  if (recoveryDispatch && isProviderPipelineOwnershipActive(entry)) {
+    emitTelemetry(llmName, 'DISPATCH_DEFERRED_PROVIDER_PIPELINE_ACTIVE', {
+      level: 'info',
+      details: reason,
+      meta: {
+        tabId,
+        dispatchReason: reason,
+        providerPipelineDispatchId: entry.providerPipelineDispatchId || null,
+        providerPipelineActiveAt: entry.providerPipelineActiveAt || null
+      },
+      force: true
+    });
+    return { ok: false, deferred: true, reason: 'provider_pipeline_active' };
+  }
   if (reason !== 'perplexity_paywall_resume'
     && isTransientBlockerDispatchSuspended(llmName, entry)) {
     return { ok: false, deferred: true, reason: 'transient_blocker_active' };
@@ -1073,7 +1239,11 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
       if (machine) {
         machine.activate({ tabId });
       }
+      const tabReadyStartedAt = Date.now();
       const readiness = await ensureTabReadyForDispatch(tabId, llmName, { reason });
+      const tabReadyMs = Date.now() - tabReadyStartedAt;
+      let ackWaitMs = 0;
+      let noFocusProbeMs = 0;
       if (!readiness.ok) {
         broadcastDiagnostic(llmName, {
           type: 'DISPATCH',
@@ -1095,10 +1265,12 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
         meta: { snapshot: readiness.snapshot || null, dispatchId, dispatchReason: reason }
       });
       let waiter = null;
+      let insertionWaiter = null;
       const shouldBypassAck = self.ModelPolicy?.modelRequiresAckReady
         ? !self.ModelPolicy.modelRequiresAckReady(llmName)
         : llmName === 'Perplexity';
       let readyOk = true;
+      const ackWaitStartedAt = Date.now();
       if (shouldBypassAck) {
         emitTelemetry(llmName, 'PERPLEXITY_ACK_BYPASS', {
           details: 'skip ACK_READY wait',
@@ -1188,6 +1360,8 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
         }
       }
 
+      ackWaitMs = Date.now() - ackWaitStartedAt;
+
       const readyInfo = self.ReadySignalManager?.getReadyInfo
         ? self.ReadySignalManager.getReadyInfo(tabId)
         : null;
@@ -1210,6 +1384,7 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
       if (options.skipNoFocusProbe) {
         needsFocus = true;
       } else {
+        const noFocusStartedAt = Date.now();
         noFocusResponse = await sendMessageWithTimeout(tabId, llmName, {
           type: 'GET_ANSWER_NO_FOCUS',
           prompt,
@@ -1222,6 +1397,7 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
             tabSessionId: readyInfo?.tabSessionId || null
           }
         }, NO_FOCUS_TIMEOUT_MS);
+        noFocusProbeMs = Date.now() - noFocusStartedAt;
         needsFocus = !noFocusResponse || noFocusResponse.requiresFocus === true || noFocusResponse.timeout;
       }
       if (options.forceFocus) {
@@ -1290,7 +1466,7 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
         } else if (typeof handleLLMResponse === 'function') {
           handleLLMResponse(
             llmName,
-            `Error: ${pageReadyState.reason || 'user_action_required'}`,
+            '',
             {
               type: 'user_action_required',
               message: pageReadyState.reason || 'User action required before dispatch'
@@ -1320,6 +1496,15 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
       }
 
       waiter = waitForPromptSubmitted(llmName, dispatchId, submitTimeoutMs);
+      const postCommandFocusHoldMs = Math.max(0, Number(options.postCommandFocusHoldMs || 0));
+      const progressFocusExtensionMs = Math.max(0, Number(options.progressFocusExtensionMs || 0));
+      if (postCommandFocusHoldMs > 0) {
+        insertionWaiter = waitForPromptInsertion(
+          llmName,
+          dispatchId,
+          postCommandFocusHoldMs + progressFocusExtensionMs + 1000
+        );
+      }
       const readyWaitMs = Math.max(0, Date.now() - lockAcquiredAt);
   emitTelemetry(llmName, 'DISPATCH_SEND', {
     details: `readyWaitMs=${readyWaitMs}`,
@@ -1328,6 +1513,9 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
       dispatchReason: reason,
       attempt: entry.dispatchAttempts,
       readyWaitMs,
+      tabReadyMs,
+      ackWaitMs,
+      noFocusProbeMs,
       requiresFocus: needsFocus,
       visibilityState,
       hasFocus
@@ -1386,24 +1574,53 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
             await dispatchSleepMs(options.deferSendMs);
           }
           commandDeliveryResult = await deliverAnswerCommand();
-          const postCommandFocusHoldMs = Math.max(0, Number(options.postCommandFocusHoldMs || 0));
           if (postCommandFocusHoldMs > 0) {
             const holdStartedAt = Date.now();
-            const confirmedDuringHold = await Promise.race([
-              Promise.resolve(waiter)
-                .then((payload) => payload === true || payload?.ok === true)
-                .catch(() => false),
-              dispatchSleepMs(postCommandFocusHoldMs).then(() => false)
+            let boundary = await waitForPromptFocusBoundary(
+              waiter,
+              insertionWaiter,
+              postCommandFocusHoldMs
+            );
+            const progressStage = String(entry.providerDispatchStage || '');
+            const progressIsCurrent = entry.providerDispatchStageDispatchId === dispatchId
+              && Number(entry.providerDispatchStageAt || 0) >= holdStartedAt;
+            const extendableStages = new Set([
+              'composer_transaction_started',
+              'composer_ready',
+              'prompt_insertion_started',
+              'send_action_requested'
             ]);
+            let extendedMs = 0;
+            if (boundary.reason === 'hold_elapsed' && progressFocusExtensionMs > 0
+              && progressIsCurrent && extendableStages.has(progressStage)) {
+              extendedMs = progressFocusExtensionMs;
+              const extendedBoundary = await waitForPromptFocusBoundary(
+                waiter,
+                insertionWaiter,
+                progressFocusExtensionMs
+              );
+              boundary = {
+                ...extendedBoundary,
+                reason: extendedBoundary.reason === 'hold_elapsed'
+                  ? 'progress_extension_elapsed'
+                  : extendedBoundary.reason
+              };
+            }
             emitTelemetry(llmName, 'DISPATCH_POST_COMMAND_FOCUS_HOLD', {
-              details: confirmedDuringHold ? 'submit_confirmed' : 'hold_elapsed',
+              details: boundary.reason,
               meta: {
                 tabId,
                 dispatchId,
                 dispatchReason: reason,
                 configuredHoldMs: postCommandFocusHoldMs,
+                configuredProgressExtensionMs: progressFocusExtensionMs,
+                extendedMs,
+                progressStage: progressStage || null,
+                progressIsCurrent,
                 heldMs: Math.max(0, Date.now() - holdStartedAt),
-                confirmedDuringHold
+                boundaryReason: boundary.reason,
+                insertionState: boundary.payload?.insertionState || null,
+                submitConfirmed: boundary.reason === 'submit_confirmed'
               }
             });
           }
@@ -2129,12 +2346,19 @@ function sendPassiveMessageWithRetries(tabId, llmName, message, {
 
 self.dispatchMutexManager = dispatchMutexManager;
 self.promptSubmitWaiters = promptSubmitWaiters;
+self.promptInsertionWaiters = promptInsertionWaiters;
+self.providerSendOnlyRecoveryTimers = providerSendOnlyRecoveryTimers;
 self.getRetryBackoffForModel = getRetryBackoffForModel;
 self.getConnectionRetryDelaysForModel = getConnectionRetryDelaysForModel;
 self.withPromptDispatchLock = withPromptDispatchLock;
 self.withPromptDispatchFocusLock = withPromptDispatchFocusLock;
 self.resolvePromptSubmitted = resolvePromptSubmitted;
 self.waitForPromptSubmitted = waitForPromptSubmitted;
+self.resolvePromptInsertion = resolvePromptInsertion;
+self.waitForPromptInsertion = waitForPromptInsertion;
+self.waitForPromptFocusBoundary = waitForPromptFocusBoundary;
+self.scheduleProviderSendOnlyRecovery = scheduleProviderSendOnlyRecovery;
+self.cancelProviderSendOnlyRecovery = cancelProviderSendOnlyRecovery;
 self.getPromptSubmitTimeoutMs = getPromptSubmitTimeoutMs;
 self.sendMessageWithTimeout = sendMessageWithTimeout;
 self.normalizePageReadyState = normalizePageReadyState;
@@ -2151,5 +2375,6 @@ self.DISPATCH_MAX_ATTEMPTS = DISPATCH_MAX_ATTEMPTS;
 self.clearScriptRuntimeHardStop = clearScriptRuntimeHardStop;
 self.clearAllScriptRuntimeHardStops = clearAllScriptRuntimeHardStops;
 self.armScriptRuntimeHardStopForConfirmedPrompt = armScriptRuntimeHardStopForConfirmedPrompt;
+self.isProviderPipelineOwnershipActive = isProviderPipelineOwnershipActive;
 
 globalThis.LLMLog?.debug?.('[DispatchCoordinator] Module loaded');

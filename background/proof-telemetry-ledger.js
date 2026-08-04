@@ -328,7 +328,9 @@
         policyId: 'proof-default-v2',
         automaticMinimumEvidenceTier: 3,
         privacyMode: 'metadata-only',
-        initialProducer: options.producerComponent || 'runtime-telemetry'
+        initialProducer: options.producerComponent || 'runtime-telemetry',
+        expectedModels: Array.from(new Set((Array.isArray(options.expectedModels) ? options.expectedModels : [])
+          .map((modelId) => String(modelId || '').trim()).filter(Boolean))).sort()
       }
     });
   }
@@ -463,13 +465,27 @@
       const status = details.trim().split(/[\s|:]+/)[0].toUpperCase();
       if (/^[A-Z][A-Z0-9_]{1,40}$/.test(status)) metadata.terminalStatus = status;
     }
-    const canonicalTyped = contracts()?.canonicalFactOf?.({ eventType, payload: { metadata } });
+    // The canonical mapping reads payload.sourceEventType for event types whose
+    // fact depends on the originating label (submission acceptance above all).
+    // Omitting it here silently downgraded every PROMPT_SUBMITTED_ACCEPTED to
+    // `evidence_partial`, so `submission_confirmed` could never pass and every
+    // incident carried a TYPED_CANONICAL_CONFLICT against its own payload.
+    const canonicalTyped = contracts()?.canonicalFactOf?.({ eventType, payload: { sourceEventType, metadata } });
     const canonicalKnown = canonicalTyped
       && canonicalTyped.kind !== 'unknown'
       && canonicalTyped.state !== 'unknown';
+    const runtimeTyped = entry?.typed || rawMetadata.typed || null;
+    // The canonical mapping decides kind and state; qualifiers the producer
+    // attached to the same fact are kept. `strong` is the one that matters:
+    // evidenceTier reaches 3 only on a strong generation transition, and
+    // dropping the flag capped every model at tier 1 regardless of evidence.
     const typed = canonicalKnown
-      ? canonicalTyped
-      : (entry?.typed || rawMetadata.typed || contracts()?.adaptLegacyEvent?.({ payload: { sourceEventType, metadata: rawMetadata } }) || { kind: 'unknown', state: 'unknown' });
+      ? (runtimeTyped
+        && String(runtimeTyped.kind || '') === String(canonicalTyped.kind || '')
+        && String(runtimeTyped.state || '') === String(canonicalTyped.state || '')
+        ? Object.assign({}, runtimeTyped, canonicalTyped)
+        : canonicalTyped)
+      : (runtimeTyped || contracts()?.adaptLegacyEvent?.({ payload: { sourceEventType, metadata: rawMetadata } }) || { kind: 'unknown', state: 'unknown' });
     const dispatchId = rawMetadata.dispatchId || rawMetadata.requestId || undefined;
     const event = nextEnvelope(state, {
       eventType,
@@ -882,12 +898,27 @@
     });
   }
 
-  function buildSnapshot(state, { runSessionId = null, consistency = 'queue_drained' } = {}) {
-      const events = runSessionId === null ? state.events : state.events.filter((event) => String(event.runSessionId) === String(runSessionId));
-      const lifecycle = runSessionId === null ? state.lifecycle : state.lifecycle.filter((event) => String(event.runSessionId) === String(runSessionId));
+  // A caller that passes no runSessionId means "the run I am looking at", not
+  // "every run ever recorded". The old null-means-everything contract made the
+  // JSON export carry events from earlier sessions while labelling the file with
+  // the current runSessionId, so a reload before a fresh run produced an export
+  // that silently mixed two sessions. Absent scope now resolves to the ledger's
+  // own current session; `allRunSessions: true` is the explicit opt-in for the
+  // whole history.
+  function resolveSnapshotScope(state, runSessionId, allRunSessions) {
+    if (allRunSessions === true) return null;
+    if (runSessionId !== null && typeof runSessionId !== 'undefined') return runSessionId;
+    return state.runSessionId ?? null;
+  }
+
+  function buildSnapshot(state, { runSessionId = null, allRunSessions = false, consistency = 'queue_drained' } = {}) {
+      const scope = resolveSnapshotScope(state, runSessionId, allRunSessions);
+      const events = scope === null ? state.events : state.events.filter((event) => String(event.runSessionId) === String(scope));
+      const lifecycle = scope === null ? state.lifecycle : state.lifecycle.filter((event) => String(event.runSessionId) === String(scope));
       return {
         schemaVersion: 6,
-        runSessionId: runSessionId ?? state.runSessionId,
+        runSessionId: scope ?? state.runSessionId,
+        runSessionScope: scope === null ? 'all_run_sessions' : 'single_run_session',
         runGeneration: state.runGeneration,
         status: state.status,
         firstSeq: events[0]?.seq || 0,
@@ -910,19 +941,19 @@
       };
   }
 
-  function snapshot({ runSessionId = null } = {}) {
+  function snapshot({ runSessionId = null, allRunSessions = false } = {}) {
     flushPendingRecordBatch();
     return enqueue((current) => {
       const state = normalizeState(current);
       return flushOperationalIntervals(state, 'export_snapshot') ? state : current;
-    }).then((state) => buildSnapshot(state, { runSessionId, consistency: 'queue_drained' }));
+    }).then((state) => buildSnapshot(state, { runSessionId, allRunSessions, consistency: 'queue_drained' }));
   }
 
-  async function snapshotCommitted({ runSessionId = null } = {}) {
+  async function snapshotCommitted({ runSessionId = null, allRunSessions = false } = {}) {
     const state = stateCache
       ? normalizeState(stateCache)
       : normalizeState(await readStored());
-    return buildSnapshot(state, { runSessionId, consistency: 'committed_boundary' });
+    return buildSnapshot(state, { runSessionId, allRunSessions, consistency: 'committed_boundary' });
   }
 
   function snapshotIncident(scope) {
@@ -969,8 +1000,17 @@
     return operation;
   }
 
+  // Synchronous read of the session the ledger currently considers active, for
+  // callers that must scope a different store (the diagnostics buffer) to the
+  // same run without awaiting a full snapshot. Returns null before the first run.
+  function currentRunSessionId() {
+    const state = stateCache ? normalizeState(stateCache) : null;
+    return state?.runSessionId ?? null;
+  }
+
   root.ProofTelemetryLedger = Object.freeze({
     STORAGE_KEY, MAX_EVENTS, MAX_QUARANTINE_EVENTS, MAX_PENDING_EVENTS,
-    beginRun, closeRun, stagePending, record, appendCanonical, snapshot, snapshotCommitted, snapshotIncident, recover, clear
+    beginRun, closeRun, stagePending, record, appendCanonical, snapshot, snapshotCommitted, snapshotIncident,
+    currentRunSessionId, recover, clear
   });
 })(typeof globalThis !== 'undefined' ? globalThis : self);

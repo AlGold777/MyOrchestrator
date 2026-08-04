@@ -394,7 +394,7 @@ if (typeof window.SelectorFinder === 'undefined') {
     chrome.runtime.sendMessage({
       type: 'LLM_RESPONSE',
       llmName: MODEL,
-      answer: 'Error: Rate limit detected. Please wait.',
+      answer: '',
       error: { 
         type: 'rate_limit', 
         message: `HTTP 429 detected. Suggested wait time: ${waitTime}ms`,
@@ -1948,9 +1948,27 @@ function isLikelyClaudeModelLabel(text = '') {
           composerLength: readComposerValue(inputArea).length
         });
         activity.heartbeat(0.35, { phase: 'typing' });
-        if (!typingSuccess) throw new Error('Text input failed');
+        if (!typingSuccess) {
+          window.ContentUtils?.reportPromptInsertion?.(MODEL, dispatchMeta, {
+            state: 'failed',
+            reason: 'text_input_failed',
+            promptLength: String(prompt || '').length,
+            composerLength: readComposerValue(inputArea).length
+          });
+          throw new Error('Text input failed');
+        }
 
         const composerConfirmed = await ensureComposerValue(inputArea, prompt);
+        window.ContentUtils?.reportPromptInsertion?.(MODEL, dispatchMeta, {
+          // An unconfirmed composer is not a failed insertion here: Claude keeps
+          // sending on the fallback path below, so the verdict states what was
+          // observed and leaves the send outcome to the submission events.
+          state: composerConfirmed ? 'inserted' : 'failed',
+          method: composerConfirmed ? 'composer_confirmed' : null,
+          reason: composerConfirmed ? null : 'composer_not_confirmed',
+          promptLength: String(prompt || '').length,
+          composerLength: readComposerValue(inputArea).length
+        });
         if (!composerConfirmed) {
           const fallbackText = String(readComposerValue(inputArea)).trim();
           console.warn('[content-claude] Composer text not confirmed, proceeding with send fallback', {
@@ -2009,20 +2027,28 @@ function isLikelyClaudeModelLabel(text = '') {
           '[data-testid="user-message"], [data-message-author-role="user"], [data-role="user"]'
         ).length;
 
-        const confirmClaudeSend = async (sendButtonCandidate, composerEl, promptText = '') => {
-          const baseline = claudeSubmitConfirmation?.capture?.({
+        const captureClaudeSendBaseline = (composerEl) => {
+          const snapshot = {
             userTurnCount: countClaudeUserTurns(),
             responseCount: countClaudeTurns(),
             composerTextLength: normalizeComposerText(readComposerValue(composerEl)).length,
             generationElements: collectClaudeGenerationElements()
-          }) || null;
-          const beforeTurns = countClaudeTurns();
-          const beforeUserTurns = countClaudeUserTurns();
-          const beforeGeneration = new Set(collectClaudeGenerationElements());
+          };
+          return {
+            oracle: claudeSubmitConfirmation?.capture?.(snapshot) || null,
+            fallback: {
+              userTurnCount: snapshot.userTurnCount,
+              responseCount: snapshot.responseCount,
+              generationElements: new Set(snapshot.generationElements)
+            }
+          };
+        };
+
+        const confirmClaudeSend = async (baseline, composerEl) => {
           const deadline = Date.now() + 4500;
           let provenLogged = false;
           while (Date.now() < deadline) {
-            const proof = claudeSubmitConfirmation?.evaluate?.(baseline, {
+            const proof = claudeSubmitConfirmation?.evaluate?.(baseline?.oracle, {
               userTurnCount: countClaudeUserTurns(),
               responseCount: countClaudeTurns(),
               composerTextLength: normalizeComposerText(readComposerValue(composerEl)).length,
@@ -2037,9 +2063,9 @@ function isLikelyClaudeModelLabel(text = '') {
             }
             // Fail closed when the shared oracle is unavailable.
             if (!claudeSubmitConfirmation && (
-              countClaudeTurns() > beforeTurns
-              || countClaudeUserTurns() > beforeUserTurns
-              || collectClaudeGenerationElements().some((el) => !beforeGeneration.has(el))
+              countClaudeTurns() > Number(baseline?.fallback?.responseCount || 0)
+              || countClaudeUserTurns() > Number(baseline?.fallback?.userTurnCount || 0)
+              || collectClaudeGenerationElements().some((el) => !baseline?.fallback?.generationElements?.has(el))
             )) {
               return true;
             }
@@ -2092,9 +2118,13 @@ function isLikelyClaudeModelLabel(text = '') {
         telemetry.sendStart = Date.now();
         emitTiming('Send attempt (ctrl+enter)', { composerLength: readComposerValue(inputArea).length });
         activity.heartbeat(0.4, { phase: 'send-dispatched' });
+        // Capture once, before the first send action. Reusing this baseline across
+        // retries prevents a fast Claude UI transition from becoming the new
+        // baseline and being mistaken for "send not confirmed".
+        const sendBaseline = captureClaudeSendBaseline(inputArea);
         await tryEnterSend({ ctrlKey: true });
         let sendButton = null;
-        let sentConfirmed = await confirmClaudeSend(null, inputArea, prompt);
+        let sentConfirmed = await confirmClaudeSend(sendBaseline, inputArea);
 
         if (!sentConfirmed) {
           console.log('[content-claude] Ctrl+Enter not confirmed, searching send button (fast)');
@@ -2104,7 +2134,7 @@ function isLikelyClaudeModelLabel(text = '') {
             emitTiming('Send button found (fast)', { button: describeNode(sendButton) });
             await waitForSendEnabled(sendButton, 1500);
             await clickSendButton(sendButton);
-            sentConfirmed = await confirmClaudeSend(sendButton, inputArea, prompt);
+            sentConfirmed = await confirmClaudeSend(sendBaseline, inputArea);
           }
         }
 
@@ -2115,7 +2145,7 @@ function isLikelyClaudeModelLabel(text = '') {
             emitTiming('Send button found (extended)', { button: describeNode(sendButton) });
             await waitForSendEnabled(sendButton, 2000);
             await clickSendButton(sendButton);
-            sentConfirmed = await confirmClaudeSend(sendButton, inputArea, prompt);
+            sentConfirmed = await confirmClaudeSend(sendBaseline, inputArea);
           }
         }
 
@@ -2125,33 +2155,34 @@ function isLikelyClaudeModelLabel(text = '') {
             console.log('[content-claude] Send not confirmed, retrying Enter');
             emitTiming('Send retry (enter)', { composerLength: stillText.length });
             await tryEnterSend();
-            sentConfirmed = await confirmClaudeSend(sendButton, inputArea, prompt);
+            sentConfirmed = await confirmClaudeSend(sendBaseline, inputArea);
           }
         }
 
         if (!sentConfirmed) {
           emitDiagnostic({
             type: 'SEND',
-            label: 'Send not confirmed',
-            details: 'No confirmation after retries',
-            level: 'error'
+            label: 'Send confirmation deferred',
+            details: 'No direct confirmation after retries; waiting for fresh answer evidence',
+            level: 'warning'
           });
-          throw { type: 'send_failed', message: 'Claude send not confirmed' };
+          activity.heartbeat(0.55, { phase: 'send-confirmation-deferred' });
+        } else {
+          telemetry.sendConfirmed = Date.now();
+          emitTiming('Send confirmed', {
+            confirmMs: telemetry.sendConfirmed - (telemetry.sendStart || telemetry.start)
+          });
+          try { chrome.runtime.sendMessage({ type: 'PROMPT_SUBMITTED', llmName: MODEL, ts: Date.now(), meta: dispatchMeta }); } catch (_) {}
         }
 
-        telemetry.sendConfirmed = Date.now();
-        emitTiming('Send confirmed', {
-          confirmMs: telemetry.sendConfirmed - (telemetry.sendStart || telemetry.start)
-        });
-        try { chrome.runtime.sendMessage({ type: 'PROMPT_SUBMITTED', llmName: MODEL, ts: Date.now(), meta: dispatchMeta }); } catch (_) {}
-
-        console.log('[content-claude] Message sent, waiting for response...');
+        console.log('[content-claude] Send attempted, waiting for response evidence...');
         emitTiming('Waiting for response');
         activity.heartbeat(0.6, { phase: 'waiting-response' });
 
         let response = '';
         let pipelineAnswer = null;
         let responseMeta = null;
+        let sendConfirmationRecovered = false;
         emitTiming('Pipeline start');
         await tryClaudePipeline(prompt, {
           heartbeat: (meta = {}) => activity.heartbeat(0.8, Object.assign({ phase: 'pipeline' }, meta)),
@@ -2230,9 +2261,48 @@ function isLikelyClaudeModelLabel(text = '') {
           throw new Error('Pipeline did not return answer');
         }
         
-        const cleanedResponse = contentCleaner.clean(response, { maxLength: 50000 });
+        let cleanedResponse = contentCleaner.clean(response, { maxLength: 50000 });
         if (!String(cleanedResponse || '').trim()) {
           throw new Error('Empty answer after cleaning');
+        }
+
+        // A fresh non-echo answer after the pre-send assistant anchor is stronger
+        // evidence than a transient Send-button/UI transition. If direct submit
+        // confirmation was missed, publish it now before LLM_RESPONSE so the
+        // background does not lock the real answer behind NO_SEND stale guards.
+        if (!sentConfirmed) {
+          const anchoredFreshAnswer = extractClaudeResponseFromDOM(prompt, baselineElement);
+          const anchoredCleanedAnswer = contentCleaner.clean(anchoredFreshAnswer || '', { maxLength: 50000 }).trim();
+          if (!anchoredCleanedAnswer || isStaleClaudeResponse(anchoredCleanedAnswer, baselineText)) {
+            throw { type: 'send_failed', message: 'Claude send not confirmed and no fresh anchored answer was found' };
+          }
+          response = anchoredFreshAnswer;
+          cleanedResponse = anchoredCleanedAnswer;
+          sentConfirmed = true;
+          sendConfirmationRecovered = true;
+          telemetry.sendConfirmed = Date.now();
+          const inferredSubmitMeta = Object.assign({}, dispatchMeta || {}, {
+            submitEvidence: 'fresh_answer_after_pre_send_anchor',
+            freshTurnEvidence: true
+          });
+          emitTiming('Send confirmed by fresh answer', {
+            confirmMs: telemetry.sendConfirmed - (telemetry.sendStart || telemetry.start),
+            answerLength: String(cleanedResponse).length
+          });
+          emitDiagnostic({
+            type: 'SEND',
+            label: 'Send confirmed by fresh answer',
+            details: `answerLength=${String(cleanedResponse).length}`,
+            level: 'success'
+          });
+          try {
+            await Promise.resolve(chrome.runtime.sendMessage({
+              type: 'PROMPT_SUBMITTED',
+              llmName: MODEL,
+              ts: telemetry.sendConfirmed,
+              meta: inferredSubmitMeta
+            }));
+          } catch (_) {}
         }
         
         metricsCollector.recordTiming('total_response_time', Date.now() - startTime);
@@ -2245,6 +2315,12 @@ function isLikelyClaudeModelLabel(text = '') {
         console.log(`[content-claude] Process completed. Response length: ${cleanedResponse.length}`);
         if (!pipelineAnswer || response !== String(pipelineAnswer || '').trim()) {
           responseMeta = window.ContentUtils?.buildResponseMeta?.(null, { source: 'dom_fallback' }) || null;
+        }
+        if (sendConfirmationRecovered) {
+          responseMeta = Object.assign({}, responseMeta || {}, {
+            freshTurnEvidence: true,
+            sendConfirmationRecovered: true
+          });
         }
         return { text: cleanedResponse, html: lastResponseHtml, meta: responseMeta };
       } catch (error) {
@@ -2390,13 +2466,14 @@ function isLikelyClaudeModelLabel(text = '') {
             if (isEvaluatorMode) {
               chrome.runtime.sendMessage({
                 type: 'EVALUATOR_RESPONSE',
-                answer: `Error: ${errorMessage}`
+                answer: '',
+                error: { type: err?.type || 'generic_error', message: errorMessage }
               });
             } else {
               chrome.runtime.sendMessage({
                 type: responseType,
                 llmName: MODEL,
-                answer: `Error: ${errorMessage}`,
+                answer: '',
                 error: { 
                   type: err?.type || 'generic_error', 
                   message: errorMessage

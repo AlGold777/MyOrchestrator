@@ -670,7 +670,7 @@ const chatgptScrollCoordinator = window.ScrollCoordinator
     chrome.runtime.sendMessage({
       type: 'LLM_RESPONSE',
       llmName: MODEL,
-      answer: 'Error: Rate limit detected. Please wait.',
+      answer: '',
       error: {
         type: 'rate_limit',
         message: `HTTP 429 detected. Suggested wait time: ${waitTime}ms`,
@@ -977,7 +977,8 @@ const chatgptScrollCoordinator = window.ScrollCoordinator
     
     const message = {
       type: messageType,
-      answer: ok ? text : `Error: ${text}`
+      answer: ok ? text : '',
+      error: ok ? null : { type: 'generic_error', message: text }
     };
     
     if (!isEvaluatorMode) {
@@ -1205,6 +1206,19 @@ const chatgptScrollCoordinator = window.ScrollCoordinator
         } else {
           console.warn('[CONTENT-GPT] Duplicate dispatch detected, reusing existing composer text');
         }
+        // The composer was never checked after typing here, so a silently empty
+        // ChatGPT composer produced no evidence at all — neither a failure nor a
+        // confirmation. State the observed outcome before Send is attempted.
+        const composerAfterPrepare = readComposerValue(inputField);
+        const composerHoldsPrompt = Boolean(promptHead
+          && normalizeForComparison(composerAfterPrepare).includes(promptHead));
+        window.ContentUtils?.reportPromptInsertion?.(MODEL, dispatchMeta, {
+          state: composerHoldsPrompt ? 'inserted' : 'failed',
+          method: preparedRecently && hasPreparedPrompt ? 'reused_prepared_composer' : 'composer_prepared',
+          reason: composerHoldsPrompt ? null : 'prompt_head_absent_from_composer',
+          promptLength: String(prompt || '').length,
+          composerLength: String(composerAfterPrepare || '').length
+        });
         activity.heartbeat(0.35, { phase: 'typing' });
 
         console.log('[CONTENT-GPT] Prompt injected, waiting for UI to update...');
@@ -1626,7 +1640,7 @@ const chatgptScrollCoordinator = window.ScrollCoordinator
               chrome.runtime.sendMessage({
                   type: responseType, 
                   llmName: MODEL, 
-                  answer: `Error: ${errorMessage}`,
+                  answer: '',
                   error: { type: err.type || 'generic_error', message: errorMessage },
                   meta: dispatchMeta
               });

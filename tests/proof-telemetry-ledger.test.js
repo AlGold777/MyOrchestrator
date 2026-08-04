@@ -33,7 +33,7 @@ describe('native proof telemetry ledger', () => {
   });
 
   test('persists immutable schema 6 envelopes with monotonic global ingestion order', async () => {
-    await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
+    await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900, expectedModels: ['GPT', 'Claude', 'GPT'] });
     await global.ProofTelemetryLedger.record({
       ts: 1000,
       label: 'DISPATCH_SEND',
@@ -57,6 +57,8 @@ describe('native proof telemetry ledger', () => {
       'SUBMISSION_EVIDENCE_CHANGED',
       'SUBMISSION_INFERRED'
     ]);
+    expect(snapshot.events.find((event) => event.eventType === 'RUN_CONFIG_RECORDED').payload.expectedModels)
+      .toEqual(['Claude', 'GPT']);
     expect(snapshot.events.every((event) => event.schemaVersion === 6)).toBe(true);
     expect(snapshot.events.every((event) => event.ingestSeq > 0 && event.runGeneration === 1)).toBe(true);
     expect(snapshot.events.every((event) => event.clock?.ingestEpochId)).toBe(true);
@@ -167,9 +169,74 @@ describe('native proof telemetry ledger', () => {
     const events = (await global.ProofTelemetryLedger.snapshot()).events;
     expect(events).toEqual(expect.arrayContaining([
       expect.objectContaining({ eventType: 'GENERATION_START_EVALUATED', payload: expect.objectContaining({ typed: { kind: 'generation_start', state: 'started' } }) }),
-      expect.objectContaining({ eventType: 'GENERATION_SIGNAL_CHANGED', payload: expect.objectContaining({ typed: { kind: 'generation_transition', state: 'provider_ui_completed' } }) }),
+      // `strong` decides whether evidenceTier can reach 3; it must survive the
+      // canonical mapping, which states kind and state but knows no qualifiers.
+      expect.objectContaining({ eventType: 'GENERATION_SIGNAL_CHANGED', payload: expect.objectContaining({ typed: { kind: 'generation_transition', state: 'provider_ui_completed', strong: true } }) }),
       expect.objectContaining({ eventType: 'COMPLETION_HYPOTHESIS_EVALUATED', payload: expect.objectContaining({ typed: { kind: 'completion_hypothesis', state: 'probably_complete' } }) })
     ]));
+  });
+
+  test('records an accepted submit as confirmed, without contradicting its own payload', async () => {
+    await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
+    const meta = { runSessionId: 42, dispatchId: 'GPT:42:1', generationEpoch: 1 };
+    await global.ProofTelemetryLedger.record({ ts: 1000, label: 'PROMPT_SUBMITTED_PENDING', meta }, 'GPT');
+    await global.ProofTelemetryLedger.record({ ts: 1100, label: 'PROMPT_SUBMITTED_ACCEPTED', meta }, 'GPT');
+    await global.ProofTelemetryLedger.record({ ts: 1200, label: 'SEND_DEGRADED_AFTER_SUBMIT', meta }, 'GPT');
+
+    const events = (await global.ProofTelemetryLedger.snapshot()).events
+      .filter((event) => event.eventType === 'SUBMISSION_EVIDENCE_CHANGED');
+    const stateOf = (label) => events
+      .find((event) => event.payload.sourceEventType === label)?.payload.typed;
+
+    expect(stateOf('PROMPT_SUBMITTED_PENDING')).toEqual({ kind: 'submission', state: 'evidence_partial' });
+    expect(stateOf('PROMPT_SUBMITTED_ACCEPTED')).toEqual({ kind: 'submission', state: 'confirmed' });
+    expect(stateOf('SEND_DEGRADED_AFTER_SUBMIT')).toEqual({ kind: 'submission', state: 'confirmed' });
+    events.forEach((event) => {
+      expect(global.ProofTelemetryContracts.typedCanonicalConflict(event)).toBeNull();
+    });
+  });
+
+  test('records both insertion verdicts as the prompt-not-inserted slot needs them', async () => {
+    await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
+    const meta = { runSessionId: 42, dispatchId: 'GPT:42:1', generationEpoch: 1 };
+    await global.ProofTelemetryLedger.record({
+      ts: 1000,
+      label: 'PROMPT_INSERTION_CONFIRMED',
+      meta: { ...meta, insertionState: 'inserted', method: 'composer_prepared', promptLength: 6153, composerLength: 6153 }
+    }, 'GPT');
+    await global.ProofTelemetryLedger.record({
+      ts: 1100,
+      label: 'PROMPT_INSERTION_FAILED',
+      meta: { runSessionId: 42, dispatchId: 'Claude:42:1', generationEpoch: 1, insertionState: 'failed', reason: 'react_guard_empty_composer' }
+    }, 'Claude');
+
+    const events = (await global.ProofTelemetryLedger.snapshot()).events
+      .filter((event) => event.eventType === 'PROMPT_INSERTION_EVALUATED');
+    expect(events.map((event) => [event.modelId, event.payload.typed])).toEqual([
+      ['GPT', { kind: 'prompt_insertion', state: 'inserted' }],
+      ['Claude', { kind: 'prompt_insertion', state: 'failed' }]
+    ]);
+    events.forEach((event) => {
+      expect(global.ProofTelemetryContracts.typedCanonicalConflict(event)).toBeNull();
+    });
+    // The slot the prompt-not-inserted report calls critical is exactly this event type.
+    expect(global.ProofTelemetryContracts.normalizedSlots('prompt-not-inserted')
+      .find((slot) => slot.slotId === 'insertion_outcome').eventTypes).toContain('PROMPT_INSERTION_EVALUATED');
+  });
+
+  test('infers candidate identity from a materialized answer, not only from a rejected one', async () => {
+    await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
+    const meta = { runSessionId: 42, dispatchId: 'GPT:42:1', generationEpoch: 1 };
+    await global.ProofTelemetryLedger.record({
+      ts: 1000,
+      label: 'ANSWER_SOURCE_MATERIALIZED',
+      meta: { ...meta, answerIdentity: 'current_dispatch', normalizedLength: 13524, source: 'deferred_finalization' }
+    }, 'GPT');
+    const inferred = (await global.ProofTelemetryLedger.snapshot()).events
+      .find((event) => event.eventType === 'CANDIDATE_IDENTITY_INFERRED');
+    expect(inferred.payload.answerIdentity).toBe('current_dispatch');
+    expect(inferred.payload.typed).toEqual({ kind: 'candidate_identity', state: 'current_dispatch' });
+    expect(inferred.evidenceRefs).toHaveLength(1);
   });
 
   test('snapshot flushes records queued immediately before export', async () => {
@@ -188,6 +255,34 @@ describe('native proof telemetry ledger', () => {
         payload: expect.objectContaining({ sourceEventType: 'ANSWER_GENERATING' })
       })
     ]));
+  });
+
+  test('building an export cannot append to the persistence queue it awaited', async () => {
+    await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
+    const pendingRecord = global.ProofTelemetryLedger.record({
+      ts: 1000,
+      label: 'ANSWER_GENERATING',
+      meta: { runSessionId: 42, dispatchId: 'GPT:42:1', generationEpoch: 1, answerLength: 10 }
+    }, 'GPT');
+
+    const boundary = await global.ProofTelemetryLedger.snapshot();
+    await pendingRecord;
+    expect(boundary.queuedMutationCount).toBe(0);
+    const writesAtBoundary = global.chrome.storage.local.set.mock.calls.length;
+
+    await global.ProofOrientedTelemetry.buildCanonicalEvidence(boundary.events, {
+      canonicalLedger: true,
+      runSessionId: 42,
+      exportedAt: 2000,
+      extensionVersion: 'test',
+      snapshotConsistency: 'queue_drained'
+    });
+
+    const afterExport = await global.ProofTelemetryLedger.snapshot();
+    expect(afterExport.queuedMutationCount).toBe(0);
+    expect(afterExport.eventCount).toBe(boundary.eventCount);
+    expect(afterExport.events).toEqual(boundary.events);
+    expect(global.chrome.storage.local.set.mock.calls.length).toBe(writesAtBoundary);
   });
 
   test('closes a one-frame observation interval with unique evidence refs', async () => {
@@ -335,11 +430,15 @@ describe('native proof telemetry ledger', () => {
       global.ProofTelemetryLedger.beginRun('a', { wallTs: 9000 }),
       global.ProofTelemetryLedger.beginRun('b', { wallTs: 1 })
     ]);
-    const snapshot = await global.ProofTelemetryLedger.snapshot();
+    // This assertion is about generation burning across two runs, so it needs
+    // the full history explicitly: an unscoped snapshot now returns only the
+    // active run session, which is what keeps an export from mixing sessions.
+    const snapshot = await global.ProofTelemetryLedger.snapshot({ allRunSessions: true });
     const intents = snapshot.lifecycle.filter((event) => event.eventType === 'RUN_OPEN_INTENT');
     expect(intents.map((event) => event.runGeneration)).toEqual([1, 2]);
-    expect(snapshot.runSessionId).toBe('b');
     expect(snapshot.status).toBe('active');
+    const scoped = await global.ProofTelemetryLedger.snapshot();
+    expect(scoped.runSessionId).toBe('b');
   });
 
   test('records producer reordering and closes observation coverage after worker restart', async () => {

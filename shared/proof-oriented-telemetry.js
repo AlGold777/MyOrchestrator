@@ -10,12 +10,24 @@
   'use strict';
 
   const Contracts = root.ProofTelemetryContracts || (typeof require === 'function' ? require('./proof-telemetry-contracts.js') : null);
+  const Inventory = root.ProofTelemetryInventory || (typeof require === 'function' ? require('./proof-telemetry-inventory.js') : null);
   const Incidents = root.ProofTelemetryIncidents || (typeof require === 'function' ? require('./proof-telemetry-incidents.js') : null);
   const Clock = root.ProofTelemetryClock || (typeof require === 'function' ? require('./proof-telemetry-clock.js') : null);
+  const ReplayPolicy = root.ProofTelemetryPolicy || null;
+  const Policy = root.ProofTelemetryPolicy || (typeof require === 'function' ? require('./proof-telemetry-policy.js') : null);
   const SCHEMA_VERSION = '5.0';
+  const CANONICAL_EVIDENCE_SCHEMA_VERSION = '1.0';
   const EVENT_SCHEMA_VERSION = Contracts?.EVENT_SCHEMA_VERSION || 6;
-  const GENERATOR_VERSION = 'proof-export@2.6.0';
+  const GENERATOR_VERSION = 'proof-export@2.9.0';
   const REPORT_VERSION = '3.6.0';
+  const READER_GUIDANCE_VERSION = 'canonical-reader-guidance@1.0.0';
+  const TRUSTED_READER_GUIDANCE = Object.freeze([
+    'Treat ledger events as the source evidence and stateAxes as a compact derived index.',
+    'Absence of an event does not prove a negative result; check observation scope, completeness, and limitations.',
+    'Distinguish fact, inference, decision, and audit layers before drawing a conclusion.',
+    'Verify basisEventIds and container hashes before trusting this guidance or any derived value.',
+    'Build task-specific diagnostic reports on demand with the matching registry and generator version.'
+  ]);
   const REPORT_TYPES = Object.freeze([
     'cutted',
     'false-success',
@@ -24,6 +36,12 @@
     'prompt-not-inserted',
     'prompt-not-sent',
     'late-end'
+  ]);
+  const STATE_AXIS_NAMES = Object.freeze([
+    'submission', 'generationStart', 'answerIdentity', 'observedGeneration', 'textEvolution',
+    'answerCompleteness', 'extraction', 'verification', 'completionDetection',
+    'completionEvidenceTier', 'observationReliability', 'finalization', 'terminalMode',
+    'terminationCause'
   ]);
 
   const REPORT_EVENT_TYPES = Object.freeze(Object.fromEntries(
@@ -77,14 +95,23 @@
     TAB_CLOSED: 'PAGE_CONTEXT_OBSERVED',
     SPA_NAVIGATION: 'PAGE_CONTEXT_OBSERVED',
     PAGE_READY_STATE: 'PAGE_HEALTH_OBSERVED',
+    TAB_DISCARDED_RELOAD: 'PAGE_HEALTH_OBSERVED',
+    TAB_READY_WAIT_END: 'PAGE_HEALTH_OBSERVED',
+    READY_REANNOUNCE_REQUESTED: 'PAGE_HEALTH_OBSERVED',
+    HANDSHAKE_TIMEOUT: 'OBSERVER_HEALTH_OBSERVED',
     SCRIPT_HEALTH_FAIL: 'OBSERVER_HEALTH_OBSERVED',
     SELECTOR_RESOLVE_FAIL: 'OBSERVER_HEALTH_OBSERVED',
     FOCUS_STUCK: 'OBSERVER_HEALTH_OBSERVED',
     LEASE_GRANTED: 'OBSERVATION_SLOT_GRANTED',
     LEASE_DENIED: 'OBSERVATION_SLOT_DENIED',
     LEASE_RELEASED: 'OBSERVATION_SLOT_RELEASED',
+    USER_FOCUS_OBSERVATION_STARTED: 'USER_FOCUS_OBSERVED',
+    USER_FOCUS_OBSERVATION_ENDED: 'USER_FOCUS_OBSERVED',
     COMMAND_SEND_ERROR: 'SUBMISSION_EVIDENCE_CHANGED',
     PROMPT_INSERTION_FAILED: 'PROMPT_INSERTION_EVALUATED',
+    PROMPT_INSERTION_CONFIRMED: 'PROMPT_INSERTION_EVALUATED',
+    PROVIDER_DISPATCH_STAGE_OBSERVED: 'DISPATCH_STAGE_OBSERVED',
+    DISPATCH_POST_COMMAND_FOCUS_HOLD: 'DISPATCH_STAGE_OBSERVED',
     SEND_DEFERRED_TRANSIENT_BLOCKER: 'SUBMISSION_EVIDENCE_CHANGED',
     SEND_DEGRADED_AFTER_SUBMIT: 'SUBMISSION_EVIDENCE_CHANGED',
     GEMINI_STALE_BASELINE_REJECTED: 'CANDIDATE_SET_CHANGED',
@@ -109,6 +136,7 @@
   const RUNTIME_TYPED_FACTS = Object.freeze({
     COMMAND_SEND_ERROR: { kind: 'submission', state: 'failed' },
     PROMPT_INSERTION_FAILED: { kind: 'prompt_insertion', state: 'failed' },
+    PROMPT_INSERTION_CONFIRMED: { kind: 'prompt_insertion', state: 'inserted' },
     SEND_DEFERRED_TRANSIENT_BLOCKER: { kind: 'submission', state: 'deferred' },
     SEND_DEGRADED_AFTER_SUBMIT: { kind: 'submission', state: 'confirmed' },
     GEMINI_STALE_BASELINE_REJECTED: { kind: 'candidate_identity', state: 'stale' },
@@ -123,6 +151,8 @@
     STALE_BASELINE_ANSWER_IGNORED: { kind: 'candidate_identity', state: 'stale' },
     TURN_RESOLUTION_ACCEPTED: { kind: 'candidate_identity', state: 'current_dispatch' },
     COMPOSER_NOT_FOUND: { kind: 'observation', state: 'degraded' },
+    TAB_DISCARDED_RELOAD: { kind: 'observation', state: 'degraded' },
+    HANDSHAKE_TIMEOUT: { kind: 'observation', state: 'degraded' },
     SELECTOR_RESOLVE_FAIL: { kind: 'observation', state: 'degraded' },
     ANSWER_SOURCE_MATERIALIZED: { kind: 'source_answer', state: 'materialized' },
     ANSWER_DELIVERY_ACKNOWLEDGED: { kind: 'delivery', state: 'accepted', outcome: 'accepted' },
@@ -163,6 +193,8 @@
     if (rejection) return rejection;
     const pipelineStep = pipelineStepMapping(event, label);
     if (pipelineStep) return pipelineStep;
+    const dispatchStage = dispatchStageMapping(event, label);
+    if (dispatchStage) return dispatchStage;
     if (CANONICAL_EVENT_TYPES.has(label)) return { route: 'canonical', label, eventType: label };
     if (EVENT_MAP[label]) return { route: 'canonical', label, eventType: EVENT_MAP[label], typed: RUNTIME_TYPED_FACTS[label] || null };
     if (OPERATIONAL_EVENT_PATTERN.test(label)) return { route: 'operational', label, eventType: 'OBSERVER_HEALTH_INTERVAL_CLOSED' };
@@ -176,6 +208,7 @@
   const SYSTEM_TYPES = new Set(['RUN_CONFIG_RECORDED', 'SELECTOR_CANARY_RESULT']);
   const CANONICAL_EVENT_TYPES = new Set([
     ...Object.values(EVENT_MAP),
+    'OBSERVER_HEALTH_INTERVAL_CLOSED',
     ...INFERENCE_TYPES,
     ...DECISION_TYPES,
     ...ACTION_TYPES,
@@ -206,6 +239,18 @@
     })[step] || null;
   }
 
+  function dispatchStageMapping(event, label = normalizeLabel(event)) {
+    if (!['PROVIDER_DISPATCH_STAGE_OBSERVED', 'DISPATCH_POST_COMMAND_FOCUS_HOLD'].includes(label)) return null;
+    const stage = String(event?.meta?.stage || event?.meta?.boundaryReason || event?.details || 'unknown')
+      .trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'unknown';
+    return {
+      route: 'canonical',
+      label,
+      eventType: 'DISPATCH_STAGE_OBSERVED',
+      typed: { kind: 'dispatch_stage', state: stage }
+    };
+  }
+
   function canonicalType(event) {
     const explicitType = event?.proofEventType || event?.meta?.proofEventType;
     if (explicitType) return String(explicitType).trim().toUpperCase();
@@ -214,6 +259,8 @@
     if (rejection?.eventType) return rejection.eventType;
     const pipelineStep = pipelineStepMapping(event, label);
     if (pipelineStep?.eventType) return pipelineStep.eventType;
+    const dispatchStage = dispatchStageMapping(event, label);
+    if (dispatchStage?.eventType) return dispatchStage.eventType;
     if (CANONICAL_EVENT_TYPES.has(label)) return label;
     if (EVENT_MAP[label]) return EVENT_MAP[label];
     if (OPERATIONAL_EVENT_PATTERN.test(label)) return 'OBSERVER_HEALTH_INTERVAL_CLOSED';
@@ -677,10 +724,30 @@
     };
   }
 
+  function deriveAxisState(events, fallbackAxes = null) {
+    if (Policy?.deriveAxesWithProvenance && events.length) return Policy.deriveAxesWithProvenance(events, events[events.length - 1]);
+    const stateAxes = fallbackAxes || deriveAxes(events);
+    return {
+      stateAxes,
+      stateAxesProvenance: Object.fromEntries(Object.keys(stateAxes).map((axis) => [axis, {
+        layer: 'audit',
+        basisEventIds: [],
+        ruleId: `legacy-fallback-${axis}`,
+        derivationVersion: 'state-axes-provenance@legacy-fallback'
+      }]))
+    };
+  }
+
+  function assignAxisState(view, events) {
+    const derived = deriveAxisState(events, view.stateAxes);
+    view.stateAxes = derived.stateAxes;
+    view.stateAxesProvenance = derived.stateAxesProvenance;
+    return view;
+  }
+
   function deriveModelView(modelId, events) {
-    const axes = root.ProofTelemetryPolicy?.deriveAxes && events.length
-      ? root.ProofTelemetryPolicy.deriveAxes(events, events[events.length - 1])
-      : deriveAxes(events);
+    const axisState = deriveAxisState(events);
+    const axes = axisState.stateAxes;
     const terminalEvent = [...events].reverse().find((event) => event.eventType === 'MODEL_TERMINAL_RECORDED');
     const terminalSeq = Number(terminalEvent?.seq ?? Infinity);
     const observedTextTypes = new Set(['GENERATION_START_EVALUATED', 'GENERATION_SIGNAL_CHANGED', 'OBSERVATION_FRAME_CAPTURED', 'TEXT_STATE_CHANGED', 'STABILITY_INTERVAL_CLOSED']);
@@ -933,6 +1000,7 @@
     return {
       modelId,
       stateAxes: axes,
+      stateAxesProvenance: axisState.stateAxesProvenance,
       eventSeqs: events.map((event) => event.seq),
       firstSeq: events[0]?.seq || null,
       lastSeq: events[events.length - 1]?.seq || null,
@@ -1212,6 +1280,10 @@
   function dependencyRegistrySnapshot() {
     return {
       registryVersion: Contracts?.REGISTRY_VERSION || '5.0.0',
+      eventInventoryVersion: Inventory?.INVENTORY_VERSION || null,
+      eventRegistry: Inventory?.EVENT_REGISTRY || {},
+      capabilityMatrixVersion: Inventory?.CAPABILITY_MATRIX_VERSION || null,
+      capabilityMatrix: Inventory?.CAPABILITY_MATRIX || [],
       predicateLanguageVersion: '1.0.0',
       maxEscalationDepth: 2,
       reports: Contracts?.REPORT_CONTRACTS || {},
@@ -1266,41 +1338,141 @@
     };
   }
 
-  function buildReports(ledger, modelViews, incidentViews, ledgerHash, registryHash, { legacyMode = false } = {}) {
+  function buildIncidentReportSemantics(events, incident, reportType, context = null, options = {}) {
+    if (!REPORT_TYPES.includes(reportType)) throw new Error(`unsupported proof telemetry report: ${reportType}`);
+    const scope = incident?.scope || incident?.incidentScope || incident;
+    const incidentId = incident?.incidentId || `incident:${Incidents.scopeKey(scope)}`;
+    const incidentRef = { ...(incident || {}), incidentId, scope };
+    const scopedEvents = (events || []).filter((event) => Incidents.exactScope(event, scope));
+    const view = context?.derivedViews || deriveModelView(scope.modelId, scopedEvents);
+    assignAxisState(view, scopedEvents);
+    const evaluationContext = { stateAxes: view.stateAxes, derivedViews: view };
+    const shared = options.shared || {};
+    const integrity = shared.integrity || (Incidents.temporalIntegrity?.(events, incidentRef, { legacyMode: options.legacyMode === true })
+      || { violations: [], limitations: [] });
+    const applicabilityByType = shared.applicabilityByType
+      || Object.fromEntries(REPORT_TYPES.map((type) => [type, evaluateApplicability(type, evaluationContext)]));
+    const evidenceByType = shared.evidenceByType
+      || Object.fromEntries(REPORT_TYPES.map((type) => [type, Incidents.resolveEvidenceSlots(events, incidentRef, type, evaluationContext)]));
+    const verdictByType = shared.verdictByType
+      || Object.fromEntries(REPORT_TYPES.map((type) => [type, diagnosticVerdict(applicabilityByType[type], evidenceByType[type], integrity.violations, type)]));
+    const confirmedDiagnoses = shared.confirmedDiagnoses
+      || DIAGNOSIS_PRIORITY.filter((type) => verdictByType[type] === 'confirmed');
+    const primaryDiagnosis = shared.primaryDiagnosis === undefined ? (confirmedDiagnoses[0] || null) : shared.primaryDiagnosis;
+    Object.assign(shared, { integrity, applicabilityByType, evidenceByType, verdictByType, confirmedDiagnoses, primaryDiagnosis });
+    const applicability = applicabilityByType[reportType];
+    const evidence = evidenceByType[reportType];
+    const verdict = verdictByType[reportType];
+    const closure = Incidents.buildEvidenceClosure(events, incidentRef, reportType, {
+      context: evaluationContext,
+      legacyMode: options.legacyMode === true
+    });
+    const effectiveSlots = evidence.slots.filter((slot) => slot.effectiveCriticality !== 'conditional');
+    const completenessLevel = applicability.status === 'not_confirmed' ? 'not_applicable' : evidence.sufficiency;
+    const completeness = {
+      level: completenessLevel,
+      evidenceCoveragePct: applicability.status === 'not_confirmed' || !effectiveSlots.length
+        ? 0
+        : Math.round((effectiveSlots.filter((slot) => slot.status === 'satisfied').length / effectiveSlots.length) * 10000) / 100,
+      missingCriticalEvidence: evidence.missingEvidence.some((item) => item.criticality === 'critical'),
+      missingItems: applicability.status === 'not_confirmed' ? [] : evidence.missingEvidence,
+      safeConclusions: completenessLevel === 'not_applicable'
+        ? ['diagnosis is refuted or not applicable for the selected incident']
+        : (completenessLevel === 'complete' ? ['all required evidence slots are materialized'] : ['only conclusions supported by satisfied slots']),
+      blockedConclusions: ['complete', 'not_applicable'].includes(completenessLevel)
+        ? []
+        : evidence.missingEvidence.map((item) => `blocked by ${item.slotId}`)
+    };
+    const conclusions = buildConclusions(reportType, verdict, effectiveSlots, evidence.missingEvidence);
+    const relation = applicability.status !== 'confirmed'
+      ? { explanationRole: 'not_applicable', causedBy: null }
+      : diagnosisRelation(reportType, primaryDiagnosis, confirmedDiagnoses);
+    const siblings = (SIBLING_RULES[reportType] || []).map(([target, path, operator, value]) => {
+      const result = evaluatePredicate(evaluationContext, { path, operator, value });
+      return {
+        reportType: target,
+        relation: 'diagnostic-dependency',
+        relationClassification: SIBLING_RELATION_CLASSIFICATIONS[siblingPairKey(reportType, target)],
+        priority: 'required',
+        requestIf: { any: [{ path, operator, value }] },
+        evaluation: {
+          matched: result.matched,
+          predicateResults: [{ modelId: scope.modelId, incidentId, predicate: result.predicate, observedValue: result.observedValue, known: result.known, matched: result.matched }]
+        },
+        antiLoop: { sourceReportType: reportType, requestTargetOnlyOnce: true }
+      };
+    });
+    return {
+      reportType,
+      incident: { incidentId, scope, modelId: scope.modelId },
+      applicability,
+      diagnosticVerdict: verdict,
+      evidence,
+      evidenceSlots: evidence.slots,
+      temporalIntegrity: integrity,
+      invariantViolations: integrity.violations,
+      completeness,
+      missingEvidence: evidence.missingEvidence,
+      conclusions,
+      diagnosisArbitration: { primaryDiagnosis, confirmedDiagnoses, ...relation },
+      siblings,
+      closure,
+      limitations: [
+        ...(integrity.limitations || []),
+        ...(closure.limitations || []),
+        ...(closure.confidenceLimitations || [])
+      ],
+      provenance: {
+        stateAxes: view.stateAxes,
+        stateAxesProvenance: view.stateAxesProvenance
+      },
+      noDeliveryProjection: reportType === 'no-delivery' ? noDeliveryReportProjection(view, evidence, verdict) : null,
+      identity: {
+        generatorVersion: GENERATOR_VERSION,
+        reportVersion: REPORT_VERSION,
+        dependencyRegistryVersion: Contracts?.REGISTRY_VERSION || '5.0.0',
+        dependencyRegistryHash: options.registryHash || null
+      },
+      view,
+      applicabilityByType,
+      verdictByType
+    };
+  }
+
+  function buildReports(ledger, modelViews, incidentViews, ledgerHash, registryHash, { legacyMode = false, onProgress = null } = {}) {
     const allViews = Object.values(incidentViews);
+    const eventSeqById = new Map(ledger.map((event) => [event.eventId, event.seq]));
+    const semanticSharedByIncident = Object.fromEntries(allViews.map((view) => [view.incidentId, {}]));
+    const semanticsByReport = Object.fromEntries(REPORT_TYPES.map((reportType) => [reportType,
+      (onProgress?.(`report:${reportType}`), Object.fromEntries(allViews.map((view) => [view.incidentId, buildIncidentReportSemantics(
+        ledger,
+        { incidentId: view.incidentId, scope: view.incidentScope },
+        reportType,
+        { stateAxes: view.stateAxes, derivedViews: view },
+        { legacyMode, registryHash, shared: semanticSharedByIncident[view.incidentId] }
+      )])))
+    ]));
     const rawApplicability = Object.fromEntries(REPORT_TYPES.map((reportType) => [reportType,
-      Object.fromEntries(allViews.map((view) => [view.incidentId,
-        evaluateApplicability(reportType, { stateAxes: view.stateAxes, derivedViews: view })]))
+      Object.fromEntries(allViews.map((view) => [view.incidentId, semanticsByReport[reportType][view.incidentId].applicability]))
     ]));
     const slotResultsByReport = Object.fromEntries(REPORT_TYPES.map((reportType) => [reportType,
-      Object.fromEntries(allViews.map((view) => [view.incidentId,
-        Incidents.resolveEvidenceSlots(ledger, { scope: view.incidentScope }, reportType, {
-          stateAxes: view.stateAxes,
-          derivedViews: view
-        })
-      ]))
+      Object.fromEntries(allViews.map((view) => [view.incidentId, semanticsByReport[reportType][view.incidentId].evidence]))
     ]));
     const integrityByIncident = Object.fromEntries(allViews.map((view) => [
       view.incidentId,
-      Incidents.temporalIntegrity?.(ledger, { scope: view.incidentScope }, { legacyMode }) || { violations: [], limitations: [] }
+      semanticsByReport[REPORT_TYPES[0]][view.incidentId].temporalIntegrity
     ]));
     const invariantViolationsByIncident = Object.fromEntries(Object.entries(integrityByIncident)
       .map(([incidentId, integrity]) => [incidentId, integrity.violations]));
     const verdicts = Object.fromEntries(REPORT_TYPES.map((reportType) => [reportType,
-      Object.fromEntries(allViews.map((view) => [view.incidentId, diagnosticVerdict(
-        rawApplicability[reportType][view.incidentId],
-        slotResultsByReport[reportType][view.incidentId],
-        invariantViolationsByIncident[view.incidentId],
-        reportType
-      )]))
+      Object.fromEntries(allViews.map((view) => [view.incidentId, semanticsByReport[reportType][view.incidentId].diagnosticVerdict]))
     ]));
     const arbitrationByIncident = Object.fromEntries(allViews.map((view) => {
-      const confirmed = DIAGNOSIS_PRIORITY.filter((reportType) => verdicts[reportType][view.incidentId] === 'confirmed');
-      const primaryDiagnosis = confirmed[0] || null;
+      const first = semanticsByReport[REPORT_TYPES[0]][view.incidentId].diagnosisArbitration;
+      const confirmed = first.confirmedDiagnoses;
+      const primaryDiagnosis = first.primaryDiagnosis;
       const relations = {};
-      confirmed.forEach((reportType) => {
-        relations[reportType] = diagnosisRelation(reportType, primaryDiagnosis, confirmed);
-      });
+      confirmed.forEach((reportType) => { relations[reportType] = semanticsByReport[reportType][view.incidentId].diagnosisArbitration; });
       return [view.incidentId, { primaryDiagnosis, confirmedDiagnoses: confirmed, relations }];
     }));
     const reports = Object.fromEntries(REPORT_TYPES.map((reportType) => {
@@ -1332,16 +1504,9 @@
       const applicabilityStatus = aggregateApplicability(Object.values(applicabilityByIncident).map((result) => ({ status: result.status })));
       const diagnosticStatus = aggregateApplicability(Object.values(applicabilityByIncident).map((result) => ({ status: result.diagnosticVerdict })));
       const siblingEvaluations = (SIBLING_RULES[reportType] || []).map(([target, path, operator, value]) => {
-        const perIncident = allViews.map((view) => {
-          const result = evaluatePredicate({ stateAxes: view.stateAxes, derivedViews: view }, { path, operator, value });
-          return {
-            modelId: view.modelId,
-            incidentId: view.incidentId,
-            observedValue: result.observedValue,
-            known: result.known,
-            matched: result.matched
-          };
-        });
+        const perIncident = allViews.map((view) => semanticsByReport[reportType][view.incidentId].siblings
+          .find((item) => item.reportType === target)?.evaluation?.predicateResults?.[0])
+          .filter(Boolean);
         return {
           reportType: target,
           relation: 'diagnostic-dependency',
@@ -1357,12 +1522,13 @@
       const unresolvedIncidentIds = Object.keys(applicabilityByIncident)
         .filter((incidentId) => rawApplicability[reportType][incidentId].status !== 'not_confirmed');
       const completenessIncidentIds = supportedIncidentIds.length ? supportedIncidentIds : unresolvedIncidentIds;
-      const evidenceClosures = Object.fromEntries(completenessIncidentIds.map((incidentId) => {
-        const view = incidentViews[incidentId];
-        return [incidentId, Incidents.buildEvidenceClosure(ledger, { incidentId, scope: view.incidentScope }, reportType, {
-          context: { stateAxes: view.stateAxes, derivedViews: view }, legacyMode
-        })];
+      const incidentEvidenceClosures = Object.fromEntries(Object.keys(applicabilityByIncident).map((incidentId) => {
+        return [incidentId, semanticsByReport[reportType][incidentId].closure];
       }));
+      const evidenceClosures = Object.fromEntries(completenessIncidentIds.map((incidentId) => [
+        incidentId,
+        incidentEvidenceClosures[incidentId]
+      ]));
       const allSlots = completenessIncidentIds.flatMap((incidentId) => slotResults[incidentId].slots)
         .filter((slot) => slot.effectiveCriticality !== 'conditional');
       const evidenceCoveragePct = allSlots.length
@@ -1405,11 +1571,7 @@
       }));
       const orderedSelectedEvents = [...selectedEvents.values()].sort((left, right) => Number(left.seq) - Number(right.seq));
       const noDeliveryByIncident = reportType === 'no-delivery'
-        ? Object.fromEntries(allViews.map((view) => [view.incidentId, noDeliveryReportProjection(
-          view,
-          slotResults[view.incidentId],
-          verdicts[reportType][view.incidentId]
-        )]))
+        ? Object.fromEntries(allViews.map((view) => [view.incidentId, semanticsByReport[reportType][view.incidentId].noDeliveryProjection]))
         : null;
       return [reportType, {
         reportDescriptor: {
@@ -1441,12 +1603,13 @@
             diagnosticVerdict: applicabilityByIncident[view.incidentId].diagnosticVerdict,
             sufficiency: slotResults[view.incidentId].sufficiency,
             invariantViolations: invariantViolationsByIncident[view.incidentId],
+            limitations: semanticsByReport[reportType][view.incidentId].limitations,
             evidenceSlots: slotResults[view.incidentId].slots.map((slot) => ({
               slotId: slot.slotId,
               status: slot.status,
               effectiveCriticality: slot.effectiveCriticality,
               requiredIfMatched: slot.requiredIfMatched,
-              eventSeqs: slot.eventIds.map((eventId) => ledger.find((event) => event.eventId === eventId)?.seq).filter((seq) => seq !== undefined),
+              eventSeqs: slot.eventIds.map((eventId) => eventSeqById.get(eventId)).filter((seq) => seq !== undefined),
               matchedEventCount: slot.matchedEventCount,
               selectedEventCount: slot.selectedEventCount
             }))
@@ -1499,6 +1662,43 @@
     return violations;
   }
 
+  function validateStateAxesProvenance(stateAxes, stateAxesProvenance, events, target = null) {
+    const violations = [];
+    const byId = new Map((events || []).map((event) => [event.eventId, event]));
+    const axisKeys = Object.keys(stateAxes || {}).sort();
+    const provenanceKeys = Object.keys(stateAxesProvenance || {}).sort();
+    if (stableStringify(axisKeys) !== stableStringify(STATE_AXIS_NAMES.slice().sort())) {
+      violations.push({ invariantId: 'S22', eventId: null, message: 'stateAxes does not contain exactly the fourteen contracted axes' });
+    }
+    if (stableStringify(provenanceKeys) !== stableStringify(STATE_AXIS_NAMES.slice().sort())) {
+      violations.push({ invariantId: 'S22', eventId: null, message: 'stateAxesProvenance does not match the fourteen contracted axes' });
+    }
+    STATE_AXIS_NAMES.forEach((axis) => {
+      const item = stateAxesProvenance?.[axis];
+      if (!item || !['fact', 'inference', 'decision', 'audit'].includes(item.layer)
+        || typeof item.ruleId !== 'string' || !item.ruleId
+        || typeof item.derivationVersion !== 'string' || !item.derivationVersion
+        || !Array.isArray(item.basisEventIds)) {
+        violations.push({ invariantId: 'S22', eventId: null, message: `invalid provenance contract for state axis ${axis}` });
+        return;
+      }
+      if (new Set(item.basisEventIds).size !== item.basisEventIds.length) {
+        violations.push({ invariantId: 'S23', eventId: null, message: `duplicate basisEventIds for state axis ${axis}` });
+      }
+      if (item.layer !== 'audit' && item.basisEventIds.length === 0) {
+        violations.push({ invariantId: 'S22', eventId: null, message: `non-audit provenance requires basis evidence for state axis ${axis}` });
+      }
+      item.basisEventIds.forEach((eventId) => {
+        const basis = byId.get(eventId);
+        if (!basis) violations.push({ invariantId: 'S23', eventId, message: `missing basis event for state axis ${axis}` });
+        else if (target && !Incidents?.exactScope?.(basis, target)) {
+          violations.push({ invariantId: 'S24', eventId, message: `basis event for state axis ${axis} crosses incident scope` });
+        }
+      });
+    });
+    return violations;
+  }
+
   function sourceCompatibility(canonicalLedger) {
     if (canonicalLedger) return {
       mode: 'native-runtime-ledger',
@@ -1525,6 +1725,257 @@
     };
   }
 
+  function normalizedModelIds(value) {
+    return Array.from(new Set((Array.isArray(value) ? value : [])
+      .map((modelId) => String(modelId || '').trim())
+      .filter((modelId) => modelId && modelId !== 'SYSTEM'))).sort();
+  }
+
+  function lifecycleStateForModel(modelId, view, events) {
+    const scoped = (events || []).filter((event) => event.modelId === modelId);
+    const tabClosed = [...scoped].reverse().find((event) => /TAB_CLOSED/.test(String(event?.payload?.sourceEventType || ''))
+      || String(event?.payload?.metadata?.closureState || '') === 'tab_closed_during_generation');
+    const terminal = Boolean(view?.terminalOutcome);
+    const observedGeneration = view?.stateAxes?.observedGeneration || 'unknown';
+    const observedLength = Number(view?.maxObservedTextLength || 0);
+    let observedState = 'no_terminal_outcome';
+    if (terminal) observedState = 'terminal';
+    else if (tabClosed && (eventBoolean(tabClosed, ['generationActive']) === true || observedGeneration === 'active')) observedState = 'tab_closed_during_generation';
+    else if (observedGeneration === 'active' && observedLength > 0) observedState = 'generating_partial_answer';
+    else if (observedGeneration === 'active') observedState = 'generating';
+    else if (observedLength > 0) observedState = 'answer_observed_without_terminal';
+    const terminalEvent = [...scoped].reverse().find((event) => event.eventType === 'MODEL_TERMINAL_RECORDED') || null;
+    const doneReason = String(eventValue(terminalEvent, ['doneReason']) || '').toLowerCase();
+    const consistencyIssues = [];
+    if (String(view?.terminalOutcome || '').toUpperCase() === 'SUCCESS' && doneReason === 'error') {
+      consistencyIssues.push('success_with_error_done_reason');
+    }
+    return {
+      observedState,
+      terminal,
+      terminalStatus: view?.terminalOutcome || null,
+      observedGeneration,
+      latestObservedTextLength: observedLength,
+      consistencyIssues
+    };
+  }
+
+  function deriveExportCompleteness(events, options = {}) {
+    const ledgerEvents = Array.isArray(events) ? events : [];
+    const runtimeConfig = options.runtimeConfig || ledgerEvents.find((event) => event.eventType === 'RUN_CONFIG_RECORDED')?.payload || {};
+    let modelViews = options.modelViews || null;
+    if (!modelViews) {
+      const incidents = Incidents?.indexIncidents?.(ledgerEvents) || [];
+      const latestByModel = {};
+      incidents.forEach((incident) => {
+        const scoped = ledgerEvents.filter((event) => Incidents.exactScope(event, incident.scope));
+        const view = deriveModelView(incident.scope.modelId, scoped);
+        assignAxisState(view, scoped);
+        if (!latestByModel[incident.scope.modelId]
+          || Number(view.lastSeq || 0) > Number(latestByModel[incident.scope.modelId].lastSeq || 0)) latestByModel[incident.scope.modelId] = view;
+      });
+      modelViews = latestByModel;
+    }
+    const observedModels = normalizedModelIds(Object.keys(modelViews || {}));
+    const configuredExpected = normalizedModelIds(options.expectedModels || runtimeConfig.expectedModels || runtimeConfig.selectedModels);
+    const expectedModels = configuredExpected;
+    const terminalModels = normalizedModelIds(Object.entries(modelViews || {})
+      .filter(([, view]) => Boolean(view?.terminalOutcome))
+      .map(([modelId]) => modelId));
+    const terminalSet = new Set(terminalModels);
+    const pendingModels = expectedModels.filter((modelId) => !terminalSet.has(modelId));
+    const runLifecycleStatus = String(options.runLifecycleStatus || options.runStatus || 'unknown').toLowerCase();
+    let runCompleteness = 'unknown';
+    if (['active', 'opening'].includes(runLifecycleStatus) || options.exportedDuringActiveRun === true) runCompleteness = 'active';
+    else if (expectedModels.length && pendingModels.length === 0) runCompleteness = 'complete';
+    else if (expectedModels.length && ['closed', 'closing'].includes(runLifecycleStatus)) runCompleteness = 'incomplete';
+    else if (expectedModels.length && pendingModels.length) runCompleteness = 'active';
+    const consistency = String(options.snapshotConsistency || 'unknown');
+    const dirtySnapshot = options.snapshotBarrierTimedOut === true
+      || Number(options.queuedMutationCount || 0) > 0
+      || Number(options.pendingRecordCount || 0) > 0;
+    const snapshotCompleteness = dirtySnapshot
+      ? 'incomplete'
+      : (consistency === 'queue_drained'
+        ? 'queue_drained'
+        : (consistency === 'committed_boundary' ? 'committed_boundary' : 'incomplete'));
+    return {
+      snapshotCompleteness,
+      runCompleteness,
+      runLifecycleStatus,
+      expectedModels,
+      observedModels,
+      terminalModels,
+      pendingModels,
+      exportedDuringActiveRun: runCompleteness === 'active',
+      modelStates: Object.fromEntries(observedModels.map((modelId) => [
+        modelId,
+        lifecycleStateForModel(modelId, modelViews?.[modelId], ledgerEvents)
+      ]))
+    };
+  }
+
+  async function buildCanonicalEvidence(input, options = {}) {
+    const createdAtMs = Number(options.exportedAt || Date.now());
+    const ledgerEvents = options.canonicalLedger === true
+      ? (Array.isArray(input) ? input.slice() : []).sort((left, right) => Number(left?.seq || 0) - Number(right?.seq || 0))
+      : buildLedger(input, { ...options, exportedAt: createdAtMs });
+    const ledgerViolations = validateLedger(ledgerEvents);
+    if (ledgerViolations.length) throw new Error(`canonical evidence requires a valid ledger: ${ledgerViolations[0].message}`);
+    const ledgerHash = await sha256(ledgerEvents);
+    const registrySnapshot = dependencyRegistrySnapshot();
+    const registryHash = await sha256(registrySnapshot);
+    const runtimeConfigEvent = ledgerEvents.find((event) => event.eventType === 'RUN_CONFIG_RECORDED') || null;
+    const runtimeConfig = runtimeConfigEvent?.payload || {};
+    options.onProgress?.('incident-index');
+    const indexedIncidents = Incidents?.indexIncidents?.(ledgerEvents) || [];
+    const incidentModelViews = {};
+    const incidentViews = Object.fromEntries(indexedIncidents.map((incident) => {
+      const scoped = ledgerEvents.filter((event) => Incidents.exactScope(event, incident.scope));
+      const view = deriveModelView(incident.scope.modelId, scoped);
+      assignAxisState(view, scoped);
+      incidentModelViews[incident.incidentId] = view;
+      return [incident.incidentId, {
+        incidentId: incident.incidentId,
+        scope: incident.scope,
+        firstSeq: scoped[0]?.seq || 0,
+        lastSeq: scoped[scoped.length - 1]?.seq || 0,
+        eventCount: scoped.length,
+        stateAxes: view.stateAxes,
+        stateAxesProvenance: view.stateAxesProvenance
+      }];
+    }));
+    const latestModelViews = {};
+    Object.values(incidentViews).forEach((incident) => {
+      const modelId = incident.scope.modelId;
+      if (!latestModelViews[modelId] || Number(incident.lastSeq) > Number(latestModelViews[modelId].lastSeq || 0)) {
+        latestModelViews[modelId] = incidentModelViews[incident.incidentId];
+      }
+    });
+    const completeness = deriveExportCompleteness(ledgerEvents, { ...options, runtimeConfig, modelViews: latestModelViews });
+    const snapshotLimitations = [];
+    if (options.snapshotBarrierTimedOut === true) snapshotLimitations.push('snapshot_barrier_timed_out');
+    if (Number(options.queuedMutationCount || 0) > 0) snapshotLimitations.push('queued_mutations_not_drained');
+    if (Number(options.pendingRecordCount || 0) > 0) snapshotLimitations.push('pending_records_not_flushed');
+    options.onProgress?.('attachments');
+    const attachments = { byId: {}, omissions: [] };
+    for (const event of ledgerEvents.filter((candidate) => candidate.eventType === 'SELECTOR_FORENSIC_SNAPSHOT_CAPTURED')) {
+      const payload = event.payload || {};
+      if (payload.captureAvailable === false) {
+        attachments.omissions.push({
+          attachmentType: payload.attachmentType || 'unknown',
+          reason: payload.omissionReason || 'capture unavailable',
+          impact: payload.impact || 'forensic detail unavailable',
+          eventRef: event.eventId,
+          anomalyTrigger: payload.anomalyTrigger || null
+        });
+        continue;
+      }
+      const contentHash = await sha256(payload);
+      const attachmentId = `att-${contentHash.replace(/^sha256:/, '').slice(0, 16)}`;
+      attachments.byId[attachmentId] = {
+        attachmentId,
+        attachmentType: payload.attachmentType || 'unknown',
+        contentHash,
+        redacted: true,
+        eventRef: event.eventId,
+        data: payload.data || null
+      };
+    }
+    const readerGuidanceCore = {
+      kind: 'guidance',
+      version: READER_GUIDANCE_VERSION,
+      trustedSource: 'versioned-code-constant',
+      instructions: TRUSTED_READER_GUIDANCE.slice()
+    };
+    const readerGuidance = { ...readerGuidanceCore, hash: await sha256(readerGuidanceCore) };
+    const sourceCompatibilityValue = sourceCompatibility(options.canonicalLedger === true);
+    const runSessionId = ledgerEvents[0]?.runSessionId || String(options.runSessionId || `export-${createdAtMs}`);
+    const lastSeq = ledgerEvents[ledgerEvents.length - 1]?.seq || 0;
+    options.onProgress?.('hashes');
+    const artifact = {
+      schemaVersion: CANONICAL_EVIDENCE_SCHEMA_VERSION,
+      containerType: 'canonical-evidence',
+      exportId: `canonical-${runSessionId}-${createdAtMs}`,
+      createdAt: new Date(createdAtMs).toISOString(),
+      exportMode: 'canonical-evidence',
+      run: completeness,
+      sharedConfig: {
+        runtimeRunConfig: runtimeConfig,
+        runtimeRunConfigEventId: runtimeConfigEvent?.eventId || null,
+        extensionVersion: String(options.extensionVersion || 'unknown'),
+        generatorVersion: GENERATOR_VERSION,
+        reportVersion: REPORT_VERSION,
+        policyIdentity: {
+          policyId: String(runtimeConfig.policyId || 'proof-default-v2'),
+          automaticMinimumEvidenceTier: Number(runtimeConfig.automaticMinimumEvidenceTier || Policy?.AUTOMATIC_MINIMUM_EVIDENCE_TIER || 3),
+          thresholds: Contracts?.THRESHOLDS || {}
+        },
+        sourceCompatibility: sourceCompatibilityValue
+      },
+      dependencyRegistry: registrySnapshot,
+      ledger: {
+        encoding: 'inline-json',
+        firstSeq: ledgerEvents[0]?.seq || 0,
+        lastSeq,
+        eventCount: ledgerEvents.length,
+        ledgerHash,
+        events: ledgerEvents
+      },
+      incidentIndex: {
+        version: Policy?.AXIS_PROVENANCE_VERSION || 'state-axes-provenance@unknown',
+        incidentCount: Object.keys(incidentViews).length,
+        incidents: incidentViews
+      },
+      readerGuidance,
+      attachments,
+      omissions: attachments.omissions.slice(),
+      sourceSnapshot: {
+        runSessionId,
+        ledgerCompleteThroughSeq: lastSeq,
+        consistency: String(options.snapshotConsistency || 'unknown'),
+        snapshotCompleteness: completeness.snapshotCompleteness,
+        barrierTimedOut: options.snapshotBarrierTimedOut === true,
+        queuedMutationCount: Number(options.queuedMutationCount || 0),
+        pendingRecordCount: Number(options.pendingRecordCount || 0)
+      },
+      diagnosticUsability: {
+        status: snapshotLimitations.length ? 'incomplete' : 'complete',
+        usableForDiagnosis: snapshotLimitations.length === 0,
+        limitations: snapshotLimitations
+      },
+      privacy: {
+        mode: 'metadata-only',
+        redactionApplied: true,
+        rawPromptAnswerExported: false,
+        urlMode: 'hash-only'
+      },
+      integrity: {
+        hashes: {
+          ledger: ledgerHash,
+          registry: registryHash,
+          attachments: await sha256(attachments),
+          readerGuidance: readerGuidance.hash,
+          artifact: null
+        },
+        size: { measuredBytes: null },
+        schemaValidation: { valid: true, schemaVersion: CANONICAL_EVIDENCE_SCHEMA_VERSION }
+      }
+    };
+    options.onProgress?.('finalizing');
+    artifact.integrity.hashes.artifact = `sha256:${'0'.repeat(64)}`;
+    for (let pass = 0; pass < 3; pass += 1) {
+      const serialized = JSON.stringify(artifact);
+      artifact.integrity.size.measuredBytes = typeof TextEncoder !== 'undefined'
+        ? new TextEncoder().encode(serialized).length
+        : serialized.length;
+    }
+    const hashInput = JSON.parse(JSON.stringify(artifact));
+    delete hashInput.integrity.hashes.artifact;
+    artifact.integrity.hashes.artifact = await sha256(hashInput);
+    return artifact;
+  }
+
   async function buildAllPresets(input, options = {}) {
     const exportedAt = Number(options.exportedAt || Date.now());
     const ledgerEvents = options.canonicalLedger === true
@@ -1539,17 +1990,16 @@
       automaticMinimumEvidenceTier: Number(runtimeConfig.automaticMinimumEvidenceTier || 3),
       maximumSignalSkewMs: Number(runtimeConfig.maximumSignalSkewMs || Contracts?.THRESHOLDS?.maximumSignalSkewMs || 250)
     };
-    const replayResult = root.ProofTelemetryPolicy?.replay
-      ? root.ProofTelemetryPolicy.replay(ledgerEvents)
+    const replayResult = ReplayPolicy?.replay
+      ? ReplayPolicy.replay(ledgerEvents)
       : null;
+    options.onProgress?.('incident-index');
     const indexedIncidents = Incidents?.indexIncidents?.(ledgerEvents) || [];
     const incidentViews = Object.fromEntries(indexedIncidents.map((incident) => {
       const scopedEvents = ledgerEvents.filter((event) => Incidents.exactScope(event, incident.scope));
       const view = deriveModelView(incident.scope.modelId, scopedEvents);
       enrichPriorIncidentComparison(view, ledgerEvents, incident);
-      if (root.ProofTelemetryPolicy?.deriveAxes) {
-        view.stateAxes = root.ProofTelemetryPolicy.deriveAxes(scopedEvents, scopedEvents[scopedEvents.length - 1]);
-      }
+      assignAxisState(view, scopedEvents);
       view.incidentId = incident.incidentId;
       view.incidentScope = incident.scope;
       return [incident.incidentId, view];
@@ -1566,6 +2016,7 @@
       latest.incidentCount = ordered.length;
       return [modelId, latest];
     }));
+    options.onProgress?.('derived-views');
     const registrySnapshot = dependencyRegistrySnapshot();
     const registryHash = await sha256(registrySnapshot);
     const sharedConfig = {
@@ -1609,21 +2060,32 @@
     };
     const compatibility = sourceCompatibility(options.canonicalLedger === true);
     const reportBuild = buildReports(ledgerEvents, modelViews, incidentViews, ledgerHash, registryHash, {
-      legacyMode: compatibility.mode === 'legacy-runtime-adapter'
+      legacyMode: compatibility.mode === 'legacy-runtime-adapter',
+      onProgress: options.onProgress
     });
     // Freeze the exact JSON representation before it is hashed and returned so
     // in-memory validation and validation after file export see identical data.
     const reports = JSON.parse(JSON.stringify(reportBuild.reports));
     Object.values(reports).forEach((report) => {
       report.reportDescriptor.limitations = compatibility.limitations;
+      Object.values(report?.diagnosticSummary?.incidents || {}).forEach((incident) => {
+        incident.limitations = [...compatibility.limitations, ...(incident.limitations || [])];
+      });
     });
+    options.onProgress?.('hashes');
     const viewsHash = await sha256(derivedViews);
     // Hash the serialized artifact shape. Optional undefined values do not
     // survive JSON export and therefore cannot be part of the offline hash.
-    const reportsHash = await sha256(JSON.parse(JSON.stringify(reports)));
+    const reportsHash = await sha256(reports);
     const invariantViolations = [
       ...validateLedger(ledgerEvents),
-      ...(Array.isArray(replayResult?.invariantViolations) ? replayResult.invariantViolations : [])
+      ...(Array.isArray(replayResult?.invariantViolations) ? replayResult.invariantViolations : []),
+      ...Object.values(incidentViews).flatMap((view) => validateStateAxesProvenance(
+        view.stateAxes,
+        view.stateAxesProvenance,
+        ledgerEvents,
+        view.incidentScope
+      ))
     ];
     if (runtimeConfig.policyId && String(runtimeConfig.policyId) !== policyConfig.policyId) {
       invariantViolations.push({
@@ -1645,6 +2107,12 @@
       usableForDiagnosis: snapshotLimitations.length === 0,
       limitations: snapshotLimitations
     };
+    const completeness = deriveExportCompleteness(ledgerEvents, {
+      ...options,
+      runtimeConfig,
+      modelViews
+    });
+    options.onProgress?.('attachments');
     const attachments = { byId: {}, omissions: [] };
     for (const event of ledgerEvents.filter((candidate) => candidate.eventType === 'SELECTOR_FORENSIC_SNAPSHOT_CAPTURED')) {
       const payload = event.payload || {};
@@ -1669,6 +2137,7 @@
         data: payload.data || null
       };
     }
+    options.onProgress?.('finalizing');
     const container = {
       schemaVersion: SCHEMA_VERSION,
       containerType: 'all-presets',
@@ -1685,12 +2154,14 @@
         omissions: [],
         sourceSnapshot: {
           consistency: String(options.snapshotConsistency || 'unknown'),
+          snapshotCompleteness: completeness.snapshotCompleteness,
           barrierTimedOut: options.snapshotBarrierTimedOut === true,
           waitMs: Number(options.snapshotWaitMs || 0),
           queuedMutationCount: Number(options.queuedMutationCount || 0),
           pendingRecordCount: Number(options.pendingRecordCount || 0),
           diagnosticUsability: diagnosticUsability.status
-        }
+        },
+        ...(options.sourceProvenance ? { sourceArtifact: options.sourceProvenance } : {})
       },
       crossReportCompatibility: {
         mode: 'same_export',
@@ -1723,6 +2194,7 @@
         budget: { limitBytes: 1000000, measuredBytes: null, withinBudget: null },
         sourceCompatibility: compatibility,
         diagnosticUsability,
+        completeness,
         configuration: {
           runtimePolicyId: runtimeConfig.policyId || null,
           exportedPolicyId: policyConfig.policyId,
@@ -1736,6 +2208,7 @@
     // container hash covers every field except itself, including the final
     // measuredBytes/budget decision.
     container.exportAudit.hashes.container = `sha256:${'0'.repeat(64)}`;
+    let previousMeasuredBytes = null;
     for (let pass = 0; pass < 3; pass += 1) {
       const serialized = JSON.stringify(container);
       const measuredBytes = typeof TextEncoder !== 'undefined'
@@ -1744,10 +2217,11 @@
       container.exportAudit.budget.measuredBytes = measuredBytes;
       container.exportAudit.budget.withinBudget = measuredBytes <= container.manifest.sizeBudgetBytes;
       container.exportAudit.budget.status = container.exportAudit.budget.withinBudget ? 'within_budget' : 'oversized_preserved_core';
+      if (measuredBytes === previousMeasuredBytes) break;
+      previousMeasuredBytes = measuredBytes;
     }
-    const hashInput = JSON.parse(JSON.stringify(container));
-    delete hashInput.exportAudit.hashes.container;
-    container.exportAudit.hashes.container = await sha256(hashInput);
+    delete container.exportAudit.hashes.container;
+    container.exportAudit.hashes.container = await sha256(container);
     return container;
   }
 
@@ -1767,14 +2241,12 @@
         const scoped = sourceEvents.filter((event) => Incidents.exactScope(event, incident.scope));
         const view = deriveModelView(modelId, scoped);
         enrichPriorIncidentComparison(view, sourceEvents, incident);
-        view.stateAxes = root.ProofTelemetryPolicy?.deriveAxes
-          ? root.ProofTelemetryPolicy.deriveAxes(scoped, scoped[scoped.length - 1])
-          : view.stateAxes;
-        const context = { stateAxes: view.stateAxes, derivedViews: view };
-        const evidence = Incidents.resolveEvidenceSlots(sourceEvents, incident, reportType, context);
-        const integrity = Incidents.temporalIntegrity?.(sourceEvents, incident, { legacyMode: compatibility.mode === 'legacy-runtime-adapter' })
-          || { violations: [] };
-        return [incident.incidentId, diagnosticVerdict(evaluateApplicability(reportType, context), evidence, integrity.violations, reportType)];
+        assignAxisState(view, scoped);
+        const semantics = buildIncidentReportSemantics(sourceEvents, incident, reportType, {
+          stateAxes: view.stateAxes,
+          derivedViews: view
+        }, { legacyMode: compatibility.mode === 'legacy-runtime-adapter' });
+        return [incident.incidentId, semantics.diagnosticVerdict];
       }));
     const selection = Incidents.selectIncident(sourceEvents, {
       platform: modelId,
@@ -1786,15 +2258,17 @@
     const preliminaryEvents = sourceEvents.filter((event) => Incidents.exactScope(event, selection.selected.scope));
     const preliminaryView = deriveModelView(modelId, preliminaryEvents);
     enrichPriorIncidentComparison(preliminaryView, sourceEvents, selection.selected);
-    preliminaryView.stateAxes = root.ProofTelemetryPolicy?.deriveAxes
-      ? root.ProofTelemetryPolicy.deriveAxes(preliminaryEvents, preliminaryEvents[preliminaryEvents.length - 1])
-      : preliminaryView.stateAxes;
+    assignAxisState(preliminaryView, preliminaryEvents);
     const fullContext = { stateAxes: preliminaryView.stateAxes, derivedViews: preliminaryView };
-    const fullApplicability = Object.fromEntries(REPORT_TYPES.map((type) => [type, evaluateApplicability(type, fullContext)]));
-    const closure = Incidents.buildEvidenceClosure(sourceEvents, selection.selected, reportType, {
-      context: fullContext,
-      legacyMode: compatibility.mode === 'legacy-runtime-adapter'
+    const registrySnapshot = dependencyRegistrySnapshot();
+    const registryHash = await sha256(registrySnapshot);
+    const semantics = buildIncidentReportSemantics(sourceEvents, selection.selected, reportType, fullContext, {
+      legacyMode: compatibility.mode === 'legacy-runtime-adapter',
+      registryHash
     });
+    const fullApplicability = Object.fromEntries(REPORT_TYPES.map((type) => [type,
+      type === reportType ? semantics.applicability : evaluateApplicability(type, fullContext)]));
+    const closure = semantics.closure;
     let materializedEvents = closure.events;
     // A false-success report is only useful when the runtime decision path is
     // present, even if the diagnosis is still unknown. Evidence-slot closure
@@ -1829,8 +2303,8 @@
       });
       materializedEvents = [...existing.values()].sort((left, right) => Number(left.ingestSeq || left.seq) - Number(right.ingestSeq || right.seq));
     }
-    const fullEvidence = Incidents.resolveEvidenceSlots(sourceEvents, selection.selected, reportType, fullContext);
-    const fullVerdict = diagnosticVerdict(fullApplicability[reportType], fullEvidence, closure.violations, reportType);
+    const fullEvidence = semantics.evidence;
+    const fullVerdict = semantics.diagnosticVerdict;
     const slotProjection = (evidence) => (evidence?.slots || []).map((slot) => ({
       slotId: slot.slotId,
       status: slot.status,
@@ -1859,40 +2333,37 @@
       materializedEvents = [...existing.values()].sort((left, right) => Number(left.ingestSeq || left.seq) - Number(right.ingestSeq || right.seq));
       materializedVerdictProjection = fullVerdictProjection;
     }
+    const axisBasisIds = new Set(Object.values(preliminaryView.stateAxesProvenance || {})
+      .flatMap((item) => item.basisEventIds || []));
+    if (axisBasisIds.size) {
+      const existing = new Map(materializedEvents.map((event) => [event.eventId, event]));
+      preliminaryEvents.forEach((event) => {
+        if (!axisBasisIds.has(event.eventId)) return;
+        const current = existing.get(event.eventId);
+        if (current) current.includedFor = Array.from(new Set([...(current.includedFor || []), 'state-axis-provenance']));
+        else existing.set(event.eventId, { ...event, includedFor: ['state-axis-provenance'] });
+      });
+      materializedEvents = [...existing.values()].sort((left, right) => Number(left.ingestSeq || left.seq) - Number(right.ingestSeq || right.seq));
+    }
+    const axisProvenanceViolations = validateStateAxesProvenance(
+      preliminaryView.stateAxes,
+      preliminaryView.stateAxesProvenance,
+      materializedEvents,
+      selection.selected.scope
+    );
     const materializedHash = await sha256(materializedEvents);
     const sourceLedgerHash = await sha256(sourceEvents);
     const modelView = preliminaryView;
     const axes = preliminaryView.stateAxes;
-    const registrySnapshot = dependencyRegistrySnapshot();
-    const registryHash = await sha256(registrySnapshot);
     const context = fullContext;
     const applicability = fullApplicability[reportType];
-    const allApplicability = fullApplicability;
-    const allVerdicts = Object.fromEntries(REPORT_TYPES.map((type) => {
-      const evidence = Incidents.resolveEvidenceSlots(sourceEvents, selection.selected, type, {
-        stateAxes: preliminaryView.stateAxes,
-        derivedViews: preliminaryView
-      });
-      return [type, diagnosticVerdict(allApplicability[type], evidence, closure.violations, type)];
-    }));
+    const allApplicability = semantics.applicabilityByType;
+    const allVerdicts = semantics.verdictByType;
     const verdict = allVerdicts[reportType];
-    const confirmedDiagnoses = DIAGNOSIS_PRIORITY.filter((type) => allVerdicts[type] === 'confirmed');
-    const primaryDiagnosis = confirmedDiagnoses[0] || null;
-    const reportDiagnosisRelation = applicability.status !== 'confirmed'
-      ? { explanationRole: 'not_applicable', causedBy: null }
-      : diagnosisRelation(reportType, primaryDiagnosis, confirmedDiagnoses);
-    const siblings = (SIBLING_RULES[reportType] || []).map(([target, path, operator, value]) => {
-      const result = evaluatePredicate(context, { path, operator, value });
-      return {
-        reportType: target,
-        relation: 'diagnostic-dependency',
-        relationClassification: SIBLING_RELATION_CLASSIFICATIONS[siblingPairKey(reportType, target)],
-        priority: 'required',
-        requestIf: { any: [{ path, operator, value }] },
-        evaluation: { matched: result.matched, predicateResults: [{ modelId, ...result }] },
-        antiLoop: { sourceReportType: reportType, requestTargetOnlyOnce: true }
-      };
-    });
+    const confirmedDiagnoses = semantics.diagnosisArbitration.confirmedDiagnoses;
+    const primaryDiagnosis = semantics.diagnosisArbitration.primaryDiagnosis;
+    const { primaryDiagnosis: _primary, confirmedDiagnoses: _confirmed, ...reportDiagnosisRelation } = semantics.diagnosisArbitration;
+    const siblings = semantics.siblings;
     const fieldProvenance = buildFieldProvenance(modelView, materializedEvents.filter((event) => Incidents.exactScope(event, selection.selected.scope)));
     const replayAxes = axes;
     const replayValid = stableStringify(fullVerdictProjection) === stableStringify(materializedVerdictProjection);
@@ -1908,26 +2379,13 @@
       if (copy.clock) delete copy.clock.ingestMonoMs;
       return copy;
     });
-    const semanticHash = await sha256({ incident: selection.selected.scope, task: reportType, events: semanticEvents, axes });
-    const fullIncidentSemanticHash = await sha256({ incident: selection.selected.scope, events: fullSemanticEvents, axes: preliminaryView.stateAxes });
+    const semanticHash = await sha256({ incident: selection.selected.scope, task: reportType, events: semanticEvents, axes, axesProvenance: preliminaryView.stateAxesProvenance });
+    const fullIncidentSemanticHash = await sha256({ incident: selection.selected.scope, events: fullSemanticEvents, axes: preliminaryView.stateAxes, axesProvenance: preliminaryView.stateAxesProvenance });
     const fullVerdictHash = await sha256(fullVerdictProjection);
     const materializedVerdictHash = await sha256(materializedVerdictProjection);
-    const effectiveSlots = closure.slots.filter((slot) => slot.effectiveCriticality !== 'conditional');
-    const standaloneCompletenessLevel = applicability.status === 'not_confirmed' ? 'not_applicable' : closure.sufficiency;
-    const completeness = {
-      level: standaloneCompletenessLevel,
-      evidenceCoveragePct: effectiveSlots.length ? Math.round((effectiveSlots.filter((slot) => slot.status === 'satisfied').length / effectiveSlots.length) * 10000) / 100 : 0,
-      missingCriticalEvidence: closure.missingEvidence.some((item) => item.criticality === 'critical'),
-      missingItems: closure.missingEvidence,
-      safeConclusions: standaloneCompletenessLevel === 'not_applicable'
-        ? ['diagnosis is refuted or not applicable for the selected incident']
-        : (closure.sufficiency === 'complete' ? ['all required evidence slots are materialized'] : ['only conclusions supported by satisfied slots']),
-      blockedConclusions: ['complete', 'not_applicable'].includes(standaloneCompletenessLevel) ? [] : closure.missingEvidence.map((item) => `blocked by ${item.slotId}`)
-    };
-    const conclusions = buildConclusions(reportType, verdict, effectiveSlots, closure.missingEvidence);
-    const noDeliveryProjection = reportType === 'no-delivery'
-      ? noDeliveryReportProjection(modelView, closure, verdict)
-      : null;
+    const completeness = semantics.completeness;
+    const conclusions = semantics.conclusions;
+    const noDeliveryProjection = semantics.noDeliveryProjection;
     const report = {
       schemaVersion: SCHEMA_VERSION,
       fileKind: 'diagnostic-report',
@@ -1988,6 +2446,7 @@
         ...(noDeliveryProjection || {})
       },
       stateAxes: axes,
+      stateAxesProvenance: preliminaryView.stateAxesProvenance,
       eventSelection: {
         includedEventTypes: Array.from(new Set(materializedEvents.map((event) => event.eventType))),
         eventRefs: materializedEvents.map((event) => event.eventId),
@@ -2009,7 +2468,7 @@
         },
         fieldProvenance
       },
-      contradictions: closure.violations,
+      contradictions: [...closure.violations, ...axisProvenanceViolations],
       missingEvidence: closure.missingEvidence,
       siblings,
       analysisInstructions: {
@@ -2022,6 +2481,7 @@
       },
       crossReportCompatibility: {
         mode: 'same_incident',
+        ...(options.sourceProvenance ? { sourceArtifact: options.sourceProvenance } : {}),
         exactMatch: {
           runSessionId: selection.selected.scope.runSessionId,
           runGeneration: selection.selected.scope.runGeneration,
@@ -2055,10 +2515,10 @@
           duplicateEventIds: materializedEvents.length - new Set(materializedEvents.map((event) => event.eventId)).size
         },
         schemaValidation: {
-          valid: closure.violations.length === 0 && materializedEvents.every((event) => Array.isArray(event.includedFor) && event.includedFor.length > 0),
+          valid: closure.violations.length === 0 && axisProvenanceViolations.length === 0 && materializedEvents.every((event) => Array.isArray(event.includedFor) && event.includedFor.length > 0),
           scope: 'materialized-events',
           status: 'validated',
-          reason: closure.violations.length ? 'incident closure violations' : null
+          reason: closure.violations.length ? 'incident closure violations' : (axisProvenanceViolations.length ? 'state axes provenance violations' : null)
         },
         replay: {
           valid: replayValid,
@@ -2090,10 +2550,16 @@
 
   const api = Object.freeze({
     SCHEMA_VERSION,
+    CANONICAL_EVIDENCE_SCHEMA_VERSION,
     EVENT_SCHEMA_VERSION,
     GENERATOR_VERSION,
+    REPORT_VERSION,
+    READER_GUIDANCE_VERSION,
+    TRUSTED_READER_GUIDANCE,
     REPORT_TYPES,
     REPORT_EVENT_TYPES,
+    STATE_AXIS_NAMES,
+    CANONICAL_EVENT_TYPES: Object.freeze(Array.from(CANONICAL_EVENT_TYPES).sort()),
     SIBLING_RULES,
     DIAGNOSIS_PRIORITY,
     DIAGNOSIS_CAUSAL_RULES,
@@ -2107,12 +2573,17 @@
     eventFingerprint,
     normalizeDispatchIdentity,
     buildLedger,
+    buildCanonicalEvidence,
+    deriveExportCompleteness,
     deriveAxes,
+    deriveAxisState,
     deriveModelView,
+    validateStateAxesProvenance,
     evaluatePredicate,
     evaluateApplicability,
     diagnosticVerdict,
     buildConclusions,
+    buildIncidentReportSemantics,
     buildFieldProvenance,
     validateLedger,
     buildAllPresets,

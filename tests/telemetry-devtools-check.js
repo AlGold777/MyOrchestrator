@@ -40,6 +40,11 @@ const { chromium } = require('playwright');
 
   await page.waitForSelector('#telemetry-tab', { timeout: 20000, state: 'attached' });
   await page.evaluate(() => {
+    const modal = document.getElementById('api-keys-modal');
+    if (modal) {
+      modal.classList.add('is-visible');
+      modal.style.display = 'block';
+    }
     const tab = document.getElementById('telemetry-tab');
     tab && tab.click();
   });
@@ -120,7 +125,15 @@ const { chromium } = require('playwright');
     }
   }, { baseMeta });
 
-  await page.waitForTimeout(1500);
+  await page.waitForFunction(() => {
+    window.__telemetryRefreshHook?.();
+    const timeline = document.getElementById('telemetry-timeline')?.innerText || '';
+    return timeline.includes('ROUND1_START')
+      && timeline.includes('PIPELINE_STEP')
+      && timeline.includes('ROUND1_END')
+      && timeline.includes('ROUND2_START')
+      && timeline.includes('ROUND2_END');
+  }, null, { timeout: 15000, polling: 300 });
 
   const timelineText = await page.locator('#telemetry-timeline').innerText();
   const roundsText = await page.locator('#telemetry-rounds').innerText();
@@ -130,7 +143,10 @@ const { chromium } = require('playwright');
     && timelineText.includes('ROUND1_END')
     && timelineText.includes('ROUND2_START')
     && timelineText.includes('ROUND2_END');
-  const roundsOk = roundsText.includes('Grok') && roundsText.includes('done') && roundsText.includes('R2');
+  const normalizedRounds = roundsText.toLowerCase();
+  const roundsOk = normalizedRounds.includes('grok')
+    && normalizedRounds.includes('done')
+    && normalizedRounds.includes('r2');
 
   if (!timelineOk || !roundsOk) {
     console.error('Telemetry DevTools check failed');

@@ -71,6 +71,34 @@ describe('authoritative turn resolver', () => {
     expect(result.answerNode.textContent).toBe('Visible final answer');
   });
 
+  test('candidate policy skips trailing UI scaffolding and keeps the substantive answer', () => {
+    document.body.innerHTML = `
+      <section class="answer">Substantive generated answer</section>
+      <section class="answer">Refer to the following content</section>`;
+    const result = TurnResolver.resolveTurn({
+      platform: 'test',
+      selectors: { lastMessage: '.answer', messageRoot: '.answer' },
+      document,
+      minimumTextLength: 5,
+      candidateEligible: ({ text }) => !text.startsWith('Refer to')
+    });
+    expect(result.answerNode.textContent).toBe('Substantive generated answer');
+    expect(result.rejectedCandidates).toHaveLength(1);
+  });
+
+  test('candidate policy can exclude a trailing user node admitted by a broad selector', () => {
+    document.body.innerHTML = `
+      <section class="message assistant">Generated answer</section>
+      <section class="message user">Later user prompt</section>`;
+    const result = TurnResolver.resolveTurn({
+      platform: 'test',
+      selectors: { lastMessage: '.message', messageRoot: '.message' },
+      document,
+      candidateEligible: ({ node }) => !node.classList.contains('user')
+    });
+    expect(result.answerNode.textContent).toBe('Generated answer');
+  });
+
   test('does not fall back to previous answers when candidate count equals the turn anchor', () => {
     document.body.innerHTML = `
       <article data-role="assistant">Old answer one</article>

@@ -370,7 +370,7 @@ window.setupHumanoidFetchMonitor?.(MODEL, ({ status, retryAfter }) => {
     chrome.runtime.sendMessage({
         type: 'LLM_RESPONSE',
         llmName: MODEL,
-        answer: 'Error: Rate limit detected. Please wait.',
+        answer: '',
         error: {
             type: 'rate_limit',
             message: `HTTP 429 detected. Suggested wait time: ${waitTime}ms`,
@@ -1300,7 +1300,14 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
             await geminiHumanType(inputField, prompt, { wpm: 115 });
             preparedText = normalizeGeminiComposerText(readComposerText(inputField));
         }
-        if (!promptHead || !preparedText.includes(promptHead)) {
+        const geminiPromptInserted = Boolean(promptHead && preparedText.includes(promptHead));
+        window.ContentUtils?.reportPromptInsertion?.(MODEL, dispatchMeta, {
+            state: geminiPromptInserted ? 'inserted' : 'failed',
+            reason: geminiPromptInserted ? null : 'prompt_head_absent_from_composer',
+            promptLength: String(prompt || '').length,
+            composerLength: readComposerText(inputField).length
+        });
+        if (!geminiPromptInserted) {
             emitGeminiDiagnostic({
                 type: 'DISPATCH',
                 label: 'Gemini prompt injection failed',
@@ -1676,7 +1683,7 @@ const onRuntimeMessage = (message, sender, sendResponse) => {
                 const responseType = message.type === 'GET_ANSWER' ? 'LLM_RESPONSE' : 'FINAL_LLM_RESPONSE';
                 
                 chrome.runtime.sendMessage({
-                    type: responseType, llmName: MODEL, answer: `Error: ${errorMessage}`,
+                    type: responseType, llmName: MODEL, answer: '',
                     error: { type: error.type || 'generic_error', message: errorMessage },
                     meta: message.meta || null
                 });

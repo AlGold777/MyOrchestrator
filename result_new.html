@@ -593,6 +593,12 @@
                                         </select>
                                     </div>
                                     <div class="telemetry-actions">
+                                        <label class="sr-only" for="telemetry-export-format-select">Telemetry export format</label>
+                                        <select id="telemetry-export-format-select" class="devtools-select" title="Choose Digest, Canonical evidence, or Full forensic JSON">
+                                            <option value="digest" selected>Digest</option>
+                                            <option value="canonical-evidence">Canonical evidence</option>
+                                            <option value="full-forensic">Full forensic</option>
+                                        </select>
                                         <button type="button" class="diag-icon-btn" id="telemetry-export-json-btn" title="Export telemetry as JSON" aria-label="Export telemetry as JSON"><i class="ti ti-download" aria-hidden="true"></i></button>
                                         <button type="button" class="diag-icon-btn diag-export-all-logs-btn" id="export-all-logs-md-telemetry" aria-label="Export diagnostics and telemetry as Markdown" title="Export All Logs">MD</button>
                                         <button type="button" class="diag-icon-btn diag-clear-btn" id="telemetry-clear-all-btn" title="Clear telemetry (rounds, timeline, summary, logs)" aria-label="Clear all telemetry and logs"><i class="ti ti-trash" aria-hidden="true"></i></button>
@@ -1031,12 +1037,16 @@
     <script src="shared/telemetry-meta-delta.js"></script>
     <script src="shared/answer-proof-normalization.js"></script>
     <script src="shared/proof-telemetry-contracts.js"></script>
+    <script src="shared/proof-telemetry-inventory.js"></script>
     <script src="shared/proof-telemetry-clock.js"></script>
     <script src="shared/proof-telemetry-incidents.js"></script>
-    <script src="shared/proof-oriented-telemetry.js"></script>
     <script src="shared/proof-telemetry-policy.js"></script>
+    <script src="shared/proof-oriented-telemetry.js"></script>
     <script src="shared/proof-telemetry-audit.js"></script>
+    <script src="shared/proof-telemetry-presentations.js"></script>
+    <script src="shared/telemetry-digest.js"></script>
     <script src="shared/secret-redaction.js"></script>
+    <script src="shared/telemetry-export-runtime.js"></script>
     <script src="shared/transport-policy.js"></script>
     <script src="shared/debate-schema.js"></script>
     <script src="disput/debate-artifact-definitions.js"></script>

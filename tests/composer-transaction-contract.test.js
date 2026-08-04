@@ -88,24 +88,47 @@ describe('composer transaction contract', () => {
 
   test('Perplexity does not publish submit after an unconfirmed send', () => {
     const source = read('content-scripts/content-perplexity.js');
-    const pageButtonAt = source.indexOf('const sendButton = resolveSendButton()');
-    const requestSubmitAt = source.indexOf('form.requestSubmit', pageButtonAt);
-    const enterAt = source.indexOf('dispatchEnter();', requestSubmitAt);
-    const failedAt = source.indexOf("type: 'send_failed'", enterAt);
+    const trustedSendAt = source.indexOf("type: 'PROVIDER_TRUSTED_SEND_REQUEST'");
+    const trustedEnterAt = source.indexOf("type: 'PERPLEXITY_TRUSTED_ENTER_REQUEST'", trustedSendAt);
+    const pageButtonAt = source.indexOf('const sendButton = resolveSendButton()', trustedSendAt);
+    const failedAt = source.indexOf("type: 'send_failed'", trustedSendAt);
     const submittedAt = source.indexOf("type: 'PROMPT_SUBMITTED'", failedAt);
-    expect(pageButtonAt).toBeGreaterThan(-1);
-    expect(requestSubmitAt).toBeGreaterThan(pageButtonAt);
-    expect(enterAt).toBeGreaterThan(requestSubmitAt);
+    expect(trustedSendAt).toBeGreaterThan(-1);
+    expect(trustedEnterAt).toBeGreaterThan(trustedSendAt);
+    expect(pageButtonAt).toBe(-1);
     expect(failedAt).toBeGreaterThan(-1);
     expect(submittedAt).toBeGreaterThan(failedAt);
-    expect(source).toContain('ContentUtils.promptMatchesComposer(value, prompt)');
-    expect(source).toContain('countUserTurns() > baselineUserTurns');
-    expect(source).toContain('hasFreshGenerationEvidence()');
-    expect(source).toContain('baselineGenerationEvidence');
+    expect(source).toContain('findOwnedPerplexityPromptComposer(prompt)');
+    expect(source).toContain('actual === expected');
+    expect(source).toContain('countPerplexityUserTurns()');
+    expect(source).toContain('collectPerplexityGenerationEvidence()');
+    expect(source).not.toContain('if (!liveComposer) return true;');
+    expect(source).toContain('trustedBrowserDispatch');
+    expect(source).toContain('PERPLEXITY_DUPLICATE_DISPATCH_SUPPRESSED');
+    expect(source).toContain('perplexityDispatchGate.begin');
+    expect(source).toContain('perplexityDispatchGate.finish');
     expect(source).not.toContain("const typing = document.querySelector('[aria-busy=\"true\"]");
-    expect(source).not.toContain("type: 'PROVIDER_TRUSTED_SEND_REQUEST'");
-    expect(source).not.toContain("type: 'PERPLEXITY_TRUSTED_ENTER_REQUEST'");
-    expect(source).not.toContain("type: 'PERPLEXITY_TRUSTED_INPUT_REQUEST'");
+  });
+
+  // 2.81.199: in-page insertion stays the primary path, but it is no longer the
+  // only one. Field evidence 2.81.196 and 2.81.198 both ended
+  // `prompt_injection_failed` after three prepare() attempts, so the donor's
+  // native input transaction is restored as the fallback behind it.
+  test('Perplexity falls back to the native input transaction only after prepare fails', () => {
+    const source = read('content-scripts/content-perplexity.js');
+    const prepareAt = source.indexOf('PerplexityComposerTransaction.prepare');
+    const trustedAt = source.indexOf("type: 'PERPLEXITY_TRUSTED_INPUT_REQUEST'");
+    const throwAt = source.indexOf("throw { type: 'prompt_injection_failed'");
+    expect(prepareAt).toBeGreaterThan(-1);
+    expect(trustedAt).toBeGreaterThan(prepareAt);
+    // The native retry must come before giving up, otherwise it is unreachable.
+    expect(trustedAt).toBeLessThan(throwAt);
+    const router = read('background/message-router.js');
+    const enabled = router.slice(
+      router.indexOf('const ENABLED_DEBUGGER_RPC_TYPES'),
+      router.indexOf(']);', router.indexOf('const ENABLED_DEBUGGER_RPC_TYPES'))
+    );
+    expect(enabled).toContain('PERPLEXITY_TRUSTED_INPUT_REQUEST');
   });
 
   test('Perplexity acquires a composer before considering a strictly-owned promotion overlay', () => {
@@ -120,7 +143,7 @@ describe('composer transaction contract', () => {
     expect(source).toContain('PERPLEXITY_DRAFT_REJECTED');
   });
 
-  test('trusted Perplexity actions retain composer ownership when an attachment chip splits the prompt', () => {
+  test('trusted Perplexity actions reject a composer value altered by an attachment chip', () => {
     const router = read('background/message-router.js');
     const loadBuilder = (name, nextMarker) => {
       const start = router.indexOf(`const ${name} =`);
@@ -138,11 +161,12 @@ describe('composer transaction contract', () => {
     const composer = document.querySelector('textarea');
     composer.value = `${normalized.slice(0, width)} architecture-report.pdf ${normalized.slice(-width)}`;
     composer.getBoundingClientRect = () => ({ width: 500, height: 80, top: 0, left: 0, right: 500, bottom: 80 });
-    const send = document.querySelector('button');
-    send.getBoundingClientRect = () => ({ width: 40, height: 40, top: 0, left: 0, right: 40, bottom: 40 });
+    document.querySelector('button').getBoundingClientRect = () => ({
+      width: 40, height: 40, top: 0, left: 0, right: 40, bottom: 40
+    });
 
-    expect(window.eval(buildFocus(prompt))).toBe(true);
-    expect(document.activeElement).toBe(composer);
-    expect(window.eval(buildSend(prompt))).toBe(send);
+    expect(window.eval(buildFocus(prompt))).toBe(false);
+    expect(document.activeElement).not.toBe(composer);
+    expect(window.eval(buildSend(prompt))).toBe(null);
   });
 });

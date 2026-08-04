@@ -145,11 +145,9 @@
       // API (Finder/Explorer uses native file-reference clipboard formats). Ask
       // the background worker to materialize the bytes and use CDP's trusted
       // DOM.setFileInputFiles path instead.
-      // 2.81.116: CDP is unavailable since the `debugger` permission was removed
-      // in 2.81.112. A CDP-only list left no fallback, so an attachment failure
-      // aborted the whole dispatch and the prompt was never inserted. Keep the CDP
-      // entry first (harmless no-op without the permission, and correct if it ever
-      // returns) and fall through to the native input/drop vectors.
+      // 2.81.195: the debugger permission exists only for the scoped Le Chat and
+      // Perplexity submit routes. Attachment CDP RPCs remain policy-disabled, so
+      // every strategy list must retain native input/drop fallbacks.
       strategies: ['cdp-file-input', 'input', 'drop'],
       timeoutMs: 12000,
       scaleTimeoutByFileCount: false,

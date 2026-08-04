@@ -297,7 +297,7 @@ const buildLifecycleContext = (prompt = '', extra = {}) => ({
     chrome.runtime.sendMessage({
       type: 'LLM_RESPONSE',
       llmName: MODEL,
-      answer: 'Error: Rate limit detected. Please wait.',
+      answer: '',
       error: { 
         type: 'rate_limit', 
         message: `HTTP 429 detected. Suggested wait time: ${waitTime}ms`,
@@ -1208,10 +1208,13 @@ const buildLifecycleContext = (prompt = '', extra = {}) => ({
 
   function sendResult(resp, ok = true, responseType = 'LLM_RESPONSE', meta = null) {
     const { text, html, meta: responseMeta } = normalizeResponsePayload(resp, lastResponseHtml);
-    // Some recovery paths (including a manual/latest probe used by automatic
-    // recovery) do not carry message meta of their own. Fill only the missing
-    // identity fields from the active dispatch so a real answer is not rejected
-    // as belonging to an old or unknown run.
+    // Field evidence 2026-08-01: an answer was rejected with
+    // LLM_RESPONSE:run_session_mismatch. The manual-ping path forwards
+    // `msg?.meta` straight through, and a manual ping carries no dispatch
+    // identity, so the delivery went out under whatever session was left over —
+    // and the background discarded a real answer. Normalising here covers every
+    // delivery path at once; ensureDispatchMeta only fills gaps, so an explicit
+    // meta passed by the caller still wins.
     const identity = window.ContentUtils?.ensureDispatchMeta
       ? window.ContentUtils.ensureDispatchMeta(meta && typeof meta === 'object' ? meta : {}, MODEL)
       : (meta && typeof meta === 'object' ? meta : null);
@@ -1227,8 +1230,9 @@ const buildLifecycleContext = (prompt = '', extra = {}) => ({
     chrome.runtime.sendMessage({
       type: responseType,
       llmName: MODEL,
-      answer: ok ? text : `Error: ${text}`,
+      answer: ok ? text : '',
       answerHtml: ok ? html : '',
+      error: ok ? null : { type: 'generic_error', message: text },
       meta: responseMeta
         ? Object.assign({}, identity || {}, { responseMeta })
         : identity
@@ -1423,6 +1427,14 @@ const buildLifecycleContext = (prompt = '', extra = {}) => ({
                 settleMs: 150
               })
             : { ok: false, reason: 'composer_transaction_unavailable' };
+          window.ContentUtils?.reportPromptInsertion?.(MODEL, dispatchMeta, {
+            state: prepared.ok ? 'inserted' : 'failed',
+            method: prepared.method || null,
+            reason: prepared.reason || null,
+            promptLength: String(prompt || '').length,
+            composerLength: String(prepared.value || '').length,
+            attempt: prepared.attempt ?? null
+          });
           if (!prepared.ok) {
             throw { type: 'prompt_injection_failed', message: `DeepSeek prompt preparation failed: ${prepared.reason}` };
           }
@@ -1630,7 +1642,7 @@ const buildLifecycleContext = (prompt = '', extra = {}) => ({
             chrome.runtime.sendMessage({
               type: responseType,
               llmName: MODEL,
-              answer: `Error: ${errorMessage}`,
+              answer: '',
               error: { type: err?.type || 'generic_error', message: errorMessage },
               meta: msg.meta || null
             });

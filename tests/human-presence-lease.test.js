@@ -154,19 +154,22 @@ describe('human presence tab lease arbitration', () => {
     ]));
   });
 
-  test('allows user focus to preempt active automation lease', () => {
+  test('records user focus separately after preempting an automation lease', () => {
     const { context, telemetry, tabVisitTracker, jobState } = createHumanPresenceSandbox();
 
     expect(context.startTabVisit(101, 'GPT', 'automation_focus')).toBe(true);
     expect(context.startTabVisit(202, 'Claude', 'user_focus')).toBe(true);
 
-    expect(tabVisitTracker.tabId).toBe(202);
-    expect(tabVisitTracker.llmName).toBe('Claude');
+    expect(tabVisitTracker.tabId).toBeNull();
+    expect(tabVisitTracker.llmName).toBeNull();
     expect(jobState.llms.GPT.humanVisitDurations).toEqual(expect.arrayContaining([
-      expect.objectContaining({ reason: 'tab_switch', source: 'automation_focus' })
+      expect.objectContaining({ reason: 'user_focus_preempt', source: 'automation_focus' })
     ]));
     expect(telemetry).toEqual(expect.arrayContaining([
       expect.objectContaining({ llmName: 'GPT', label: 'LEASE_RELEASED' }),
+      expect.objectContaining({ llmName: 'Claude', label: 'USER_FOCUS_OBSERVATION_STARTED' })
+    ]));
+    expect(telemetry).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ llmName: 'Claude', label: 'LEASE_GRANTED' })
     ]));
   });
@@ -210,14 +213,14 @@ describe('human presence tab lease arbitration', () => {
       shortVisit: true,
       usefulVisit: false,
       retryable: true,
-      reason: 'tab_switch'
+      reason: 'user_focus_preempt'
     }));
     expect(jobState.llms.GPT.lastAutomationVisitSummary).toEqual(expect.objectContaining({
       shortVisit: true,
-      reason: 'tab_switch'
+      reason: 'user_focus_preempt'
     }));
     expect(jobState.llms.GPT.shortHumanVisitDurations).toEqual(expect.arrayContaining([
-      expect.objectContaining({ reason: 'tab_switch' })
+      expect.objectContaining({ reason: 'user_focus_preempt' })
     ]));
     expect(diagnostics).toEqual(expect.arrayContaining([
       expect.objectContaining({

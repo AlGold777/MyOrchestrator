@@ -14,7 +14,8 @@
     promptSubmitTimeoutMs: 15000,
     preferredTransport: 'web_ui',
     apiDirectAllowed: true,
-    apiSupportsAttachments: false
+    apiSupportsAttachments: false,
+    supportsSendOnlyRecovery: false
   });
 
   const MODEL_POLICIES = Object.freeze({
@@ -32,7 +33,8 @@
     Grok: Object.freeze({
       stableTextMs: 1800,
       conservativeDispatch: true,
-      promptSubmitTimeoutMs: 20000
+      promptSubmitTimeoutMs: 20000,
+      supportsSendOnlyRecovery: true
     }),
     'Le Chat': Object.freeze({
       stableTextMs: 1600,
@@ -52,7 +54,8 @@
       stableTextMs: 1600,
       requireAckReady: false,
       // 8s was aggressive and produced false submit-retries on slow loads.
-      promptSubmitTimeoutMs: 12000
+      promptSubmitTimeoutMs: 12000,
+      supportsSendOnlyRecovery: true
     }),
     'Z.ai': Object.freeze({
       stableTextMs: 1800,
@@ -99,6 +102,10 @@
     return Number.isFinite(value) && value > 0 ? value : fallback;
   }
 
+  function modelSupportsSendOnlyRecovery(llmName) {
+    return getModelPolicy(llmName).supportsSendOnlyRecovery === true;
+  }
+
   const api = Object.freeze({
     DEFAULT_POLICY,
     MODEL_POLICIES,
@@ -107,7 +114,8 @@
     getModelPolicyValue,
     modelRequiresAckReady,
     modelUsesConservativeDispatch,
-    getPromptSubmitTimeoutMs
+    getPromptSubmitTimeoutMs,
+    modelSupportsSendOnlyRecovery
   });
 
   root.ModelPolicy = api;

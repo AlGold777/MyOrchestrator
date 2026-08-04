@@ -17,6 +17,67 @@ const trustedInputFlightsByTab = new Map();
 const geminiAttachmentFlightsByTab = new Map();
 const qwenAttachmentFlightsByTab = new Map();
 const providerAttachmentFlightsByTab = new Map();
+const debuggerSessionQueuesByTab = new Map();
+
+function withManagedDebuggerSession(tabId, label, operation) {
+    if (!Number.isInteger(tabId) || tabId <= 0) return Promise.reject(new Error('invalid_tab'));
+    if (typeof operation !== 'function') return Promise.reject(new Error('missing_debugger_operation'));
+    const queuedAt = Date.now();
+    const previous = debuggerSessionQueuesByTab.get(tabId) || Promise.resolve();
+    const run = previous.catch(() => undefined).then(async () => {
+        const target = { tabId };
+        let attached = false;
+        try {
+            await callChromeDebugger('attach', target, '1.3');
+            attached = true;
+            emitTelemetry('SYSTEM', 'DEBUGGER_SESSION_ACQUIRED', {
+                details: String(label || 'debugger_operation'),
+                meta: { tabId, label: label || null, queuedAt, acquiredAt: Date.now(), queueWaitMs: Date.now() - queuedAt },
+                force: true
+            });
+            return await operation(target);
+        } finally {
+            if (attached) {
+                try { await callChromeDebugger('detach', target); } catch (_) {}
+            }
+            emitTelemetry('SYSTEM', 'DEBUGGER_SESSION_RELEASED', {
+                details: String(label || 'debugger_operation'),
+                meta: { tabId, label: label || null, releasedAt: Date.now() },
+                force: true
+            });
+        }
+    });
+    const tail = run.catch(() => undefined);
+    debuggerSessionQueuesByTab.set(tabId, tail);
+    tail.finally(() => {
+        if (debuggerSessionQueuesByTab.get(tabId) === tail) {
+            debuggerSessionQueuesByTab.delete(tabId);
+        }
+    });
+    return run;
+}
+const DEBUGGER_RPC_TYPES = new Set([
+    'GROK_TRUSTED_INPUT_REQUEST',
+    'LECHAT_TRUSTED_SEND_REQUEST',
+    'PROVIDER_TRUSTED_SEND_REQUEST',
+    'PERPLEXITY_TRUSTED_ENTER_REQUEST',
+    'PERPLEXITY_TRUSTED_INPUT_REQUEST',
+    'PROVIDER_TRUSTED_INPUT_REQUEST',
+    'GEMINI_CDP_ATTACH_REQUEST',
+    'QWEN_CDP_ATTACH_REQUEST',
+    'PROVIDER_CDP_ATTACH_REQUEST'
+]);
+// PERPLEXITY_TRUSTED_INPUT_REQUEST is the donor 2.81.75 insertion path and is
+// enabled for the same reason the send routes are: Perplexity's composer refuses
+// in-page insertion. dispatchProviderTrustedInput focuses the composer, issues a
+// native SelectAll and a native Input.insertText — that SelectAll is also what
+// replaces leftover text in a reused tab, which the execCommand-based clear()
+// cannot do when the editor ignores it.
+const ENABLED_DEBUGGER_RPC_TYPES = new Set([
+    'PROVIDER_TRUSTED_SEND_REQUEST',
+    'PERPLEXITY_TRUSTED_ENTER_REQUEST',
+    'PERPLEXITY_TRUSTED_INPUT_REQUEST'
+]);
 
 const callChromeDebugger = (method, ...args) => new Promise((resolve, reject) => {
     try {
@@ -32,6 +93,38 @@ const callChromeDebugger = (method, ...args) => new Promise((resolve, reject) =>
         reject(err);
     }
 });
+
+// Reported 2026-07-31: the debugger transport "interferes with work". Part of
+// that is the attach banner, which CDP cannot avoid — but the other part was
+// Page.bringToFront, which yanks the Chrome window in front of whatever
+// application the user is in, once per trusted action.
+//
+// CDP input targets the tab's renderer directly and the composer is focused
+// through Runtime.evaluate, so the OS window does not need to be frontmost. The
+// raise is kept only while the user is already in Chrome, matching the donor's
+// visible behaviour there, and skipped entirely when they are elsewhere.
+const bringToFrontUnlessUserIsElsewhere = async (target) => {
+    const browserHasFocus = await new Promise((resolve) => {
+        try {
+            chrome.windows.getLastFocused({}, (win) => {
+                if (chrome.runtime.lastError || !win) {
+                    resolve(false);
+                    return;
+                }
+                resolve(win.focused === true);
+            });
+        } catch (_) {
+            resolve(false);
+        }
+    });
+    if (!browserHasFocus) return false;
+    try {
+        await callChromeDebugger('sendCommand', target, 'Page.bringToFront');
+        return true;
+    } catch (_) {
+        return false;
+    }
+};
 
 const callChromeDownloads = (method, ...args) => new Promise((resolve, reject) => {
     try {
@@ -317,12 +410,10 @@ async function dispatchGeminiCdpAttachments(tabId, attachments = []) {
             force: true,
             meta: { tabId, fileCount: materialized.length, elapsedMs: Date.now() - startedAt }
         });
-        const target = { tabId };
-        let attached = false;
-        let chooserObserver = null;
         try {
-            await callChromeDebugger('attach', target, '1.3');
-            attached = true;
+            return await withManagedDebuggerSession(tabId, 'gemini_cdp_attachments', async (target) => {
+            let chooserObserver = null;
+            try {
             emitTelemetry('Gemini', 'GEMINI_CDP_DEBUGGER_ATTACHED', {
                 force: true,
                 meta: { tabId, elapsedMs: Date.now() - startedAt }
@@ -336,7 +427,7 @@ async function dispatchGeminiCdpAttachments(tabId, attachments = []) {
             let objectId = await findGeminiFileInputObject(target);
             let backendNodeId = chooserObserver.getBackendNodeId();
             for (let attempt = 0; !objectId && !backendNodeId && attempt < 12; attempt++) {
-                await callChromeDebugger('sendCommand', target, 'Page.bringToFront');
+                await bringToFrontUnlessUserIsElsewhere(target);
                 await routerSleep(150);
                 const triggerObjectId = await findGeminiUploadTriggerObject(target);
                 if (triggerObjectId) {
@@ -379,14 +470,14 @@ async function dispatchGeminiCdpAttachments(tabId, attachments = []) {
                 meta: { tabId, fileCount: materialized.length, elapsedMs: Date.now() - startedAt }
             });
             return { ok: true, method: 'cdp_set_file_input', uploadedCount: materialized.length };
-        } finally {
-            chooserObserver?.dispose?.();
-            if (attached) {
+            } finally {
+                chooserObserver?.dispose?.();
                 try {
                     await callChromeDebugger('sendCommand', target, 'Page.setInterceptFileChooserDialog', { enabled: false });
                 } catch (_) {}
-                try { await callChromeDebugger('detach', target); } catch (_) {}
             }
+            });
+        } finally {
             // Gemini may read large files asynchronously after the input change.
             // Keep the materialized source alive longer than the 90s UI confirmation
             // budget so cleanup cannot truncate an otherwise valid upload.
@@ -416,16 +507,14 @@ async function dispatchQwenCdpAttachments(tabId, attachments = []) {
     const flight = (async () => {
         const startedAt = Date.now();
         const materialized = await materializeGeminiAttachments(attachments);
-        const target = { tabId };
-        let attached = false;
-        let objectId = null;
         try {
-            await callChromeDebugger('attach', target, '1.3');
-            attached = true;
+            return await withManagedDebuggerSession(tabId, 'qwen_cdp_attachments', async (target) => {
+            let objectId = null;
+            try {
             await callChromeDebugger('sendCommand', target, 'Runtime.enable');
             await callChromeDebugger('sendCommand', target, 'DOM.enable');
             await callChromeDebugger('sendCommand', target, 'Page.enable');
-            await callChromeDebugger('sendCommand', target, 'Page.bringToFront');
+            await bringToFrontUnlessUserIsElsewhere(target);
             const evaluated = await callChromeDebugger('sendCommand', target, 'Runtime.evaluate', {
                 expression: QWEN_FIND_FILE_INPUT_EXPRESSION,
                 returnByValue: false,
@@ -443,13 +532,13 @@ async function dispatchQwenCdpAttachments(tabId, attachments = []) {
                 meta: { tabId, fileCount: materialized.length, elapsedMs: Date.now() - startedAt }
             });
             return { ok: true, method: 'qwen_cdp_set_file_input', uploadedCount: materialized.length };
+            } finally {
+                if (objectId) {
+                    try { await callChromeDebugger('sendCommand', target, 'Runtime.releaseObject', { objectId }); } catch (_) {}
+                }
+            }
+            });
         } finally {
-            if (objectId && attached) {
-                try { await callChromeDebugger('sendCommand', target, 'Runtime.releaseObject', { objectId }); } catch (_) {}
-            }
-            if (attached) {
-                try { await callChromeDebugger('detach', target); } catch (_) {}
-            }
             materialized.forEach(({ id }) => scheduleMaterializedDownloadCleanup(id, 120000));
         }
     })().finally(() => qwenAttachmentFlightsByTab.delete(tabId));
@@ -496,17 +585,15 @@ async function dispatchProviderCdpAttachments(tabId, model, attachments = []) {
     if (providerAttachmentFlightsByTab.has(tabId)) return providerAttachmentFlightsByTab.get(tabId);
     const flight = (async () => {
         const materialized = await materializeGeminiAttachments(attachments);
-        const target = { tabId };
-        let attached = false;
-        let objectId = null;
-        let chooserObserver = null;
         try {
-            await callChromeDebugger('attach', target, '1.3');
-            attached = true;
+            return await withManagedDebuggerSession(tabId, `provider_cdp_attachments:${model}`, async (target) => {
+            let objectId = null;
+            let chooserObserver = null;
+            try {
             await callChromeDebugger('sendCommand', target, 'Runtime.enable');
             await callChromeDebugger('sendCommand', target, 'DOM.enable');
             await callChromeDebugger('sendCommand', target, 'Page.enable');
-            await callChromeDebugger('sendCommand', target, 'Page.bringToFront');
+            await bringToFrontUnlessUserIsElsewhere(target);
             let backendNodeId = null;
             if (model === 'Perplexity') {
                 chooserObserver = observeGeminiFileChooser(tabId);
@@ -559,17 +646,15 @@ async function dispatchProviderCdpAttachments(tabId, model, attachments = []) {
                 meta: { tabId, fileCount: materialized.length, source: backendNodeId ? 'file_chooser' : 'dom_input' }
             });
             return { ok: true, method: 'provider_cdp_set_file_input', uploadedCount: materialized.length };
-        } finally {
-            chooserObserver?.dispose?.();
-            if (attached) {
+            } finally {
+                chooserObserver?.dispose?.();
                 try { await callChromeDebugger('sendCommand', target, 'Page.setInterceptFileChooserDialog', { enabled: false }); } catch (_) {}
+                if (objectId) {
+                    try { await callChromeDebugger('sendCommand', target, 'Runtime.releaseObject', { objectId }); } catch (_) {}
+                }
             }
-            if (objectId && attached) {
-                try { await callChromeDebugger('sendCommand', target, 'Runtime.releaseObject', { objectId }); } catch (_) {}
-            }
-            if (attached) {
-                try { await callChromeDebugger('detach', target); } catch (_) {}
-            }
+            });
+        } finally {
             materialized.forEach(({ id }) => scheduleMaterializedDownloadCleanup(id, 120000));
         }
     })().finally(() => providerAttachmentFlightsByTab.delete(tabId));
@@ -582,12 +667,8 @@ async function dispatchTrustedGrokInput(tabId, mode, text = '', isMac = false) {
     if (!['paste', 'insertText'].includes(mode)) throw new Error('invalid_mode');
     if (mode === 'insertText' && (!text || text.length > 250000)) throw new Error('invalid_text');
     if (trustedInputFlightsByTab.has(tabId)) return trustedInputFlightsByTab.get(tabId);
-    const target = { tabId };
     const flight = (async () => {
-        let attached = false;
-        try {
-            await callChromeDebugger('attach', target, '1.3');
-            attached = true;
+        return withManagedDebuggerSession(tabId, 'trusted_grok_input', async (target) => {
             if (mode === 'insertText') {
                 await callChromeDebugger('sendCommand', target, 'Input.insertText', { text });
                 return { ok: true, method: 'cdp_insert_text' };
@@ -611,11 +692,7 @@ async function dispatchTrustedGrokInput(tabId, mode, text = '', isMac = false) {
                 modifiers
             });
             return { ok: true, method: isMac ? 'cdp_cmd_v' : 'cdp_ctrl_v' };
-        } finally {
-            if (attached) {
-                try { await callChromeDebugger('detach', target); } catch (_) {}
-            }
-        }
+        });
     })().finally(() => trustedInputFlightsByTab.delete(tabId));
     trustedInputFlightsByTab.set(tabId, flight);
     return flight;
@@ -623,12 +700,8 @@ async function dispatchTrustedGrokInput(tabId, mode, text = '', isMac = false) {
 
 async function dispatchTrustedCtrlEnter(tabId) {
     if (!Number.isInteger(tabId) || tabId <= 0) throw new Error('invalid_tab');
-    const target = { tabId };
-    let attached = false;
-    try {
-        await callChromeDebugger('attach', target, '1.3');
-        attached = true;
-        await callChromeDebugger('sendCommand', target, 'Page.bringToFront');
+    return withManagedDebuggerSession(tabId, 'trusted_ctrl_enter', async (target) => {
+        await bringToFrontUnlessUserIsElsewhere(target);
         await callChromeDebugger('sendCommand', target, 'Input.dispatchKeyEvent', {
             type: 'rawKeyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13,
             nativeVirtualKeyCode: 13, modifiers: 2
@@ -638,9 +711,7 @@ async function dispatchTrustedCtrlEnter(tabId) {
             nativeVirtualKeyCode: 13, modifiers: 2
         });
         return { ok: true, method: 'cdp_ctrl_enter' };
-    } finally {
-        if (attached) try { await callChromeDebugger('detach', target); } catch (_) {}
-    }
+    });
 }
 
 const buildProviderComposerFocusExpression = (expectedText = '') => `(() => {
@@ -650,11 +721,7 @@ const buildProviderComposerFocusExpression = (expectedText = '') => `(() => {
   const normalizedExpected = normalize(expected);
   const matchesPrompt = (value) => {
     const actual = normalize(value);
-    if (!normalizedExpected || !actual) return false;
-    if (actual.includes(normalizedExpected)) return true;
-    const width = Math.min(32, Math.max(12, Math.floor(normalizedExpected.length / 3)));
-    return actual.includes(normalizedExpected.slice(0, width))
-      && actual.includes(normalizedExpected.slice(-width));
+    return Boolean(normalizedExpected) && actual === normalizedExpected;
   };
   const visible = (el) => {
     const r = el.getBoundingClientRect();
@@ -674,13 +741,9 @@ const buildProviderComposerFocusExpression = (expectedText = '') => `(() => {
 
 async function dispatchProviderTrustedEnter(tabId, model, expectedText) {
     if (!Number.isInteger(tabId) || tabId <= 0) throw new Error('invalid_tab');
-    const target = { tabId };
-    let attached = false;
-    try {
-        await callChromeDebugger('attach', target, '1.3');
-        attached = true;
+    return withManagedDebuggerSession(tabId, `provider_trusted_enter:${model}`, async (target) => {
         await callChromeDebugger('sendCommand', target, 'Runtime.enable');
-        await callChromeDebugger('sendCommand', target, 'Page.bringToFront');
+        await bringToFrontUnlessUserIsElsewhere(target);
         const focused = await callChromeDebugger('sendCommand', target, 'Runtime.evaluate', {
             expression: buildProviderComposerFocusExpression(expectedText),
             returnByValue: true,
@@ -699,21 +762,15 @@ async function dispatchProviderTrustedEnter(tabId, model, expectedText) {
             details: 'filled composer + native Enter', force: true, meta: { tabId }
         });
         return { ok: true, method: 'cdp_focused_composer_enter' };
-    } finally {
-        if (attached) try { await callChromeDebugger('detach', target); } catch (_) {}
-    }
+    });
 }
 
 async function dispatchProviderTrustedInput(tabId, model, text, isMac = false) {
     if (!Number.isInteger(tabId) || tabId <= 0) throw new Error('invalid_tab');
     if (!String(text || '') || String(text).length > 250000) throw new Error('invalid_text');
-    const target = { tabId };
-    let attached = false;
-    try {
-        await callChromeDebugger('attach', target, '1.3');
-        attached = true;
+    return withManagedDebuggerSession(tabId, `provider_trusted_input:${model}`, async (target) => {
         await callChromeDebugger('sendCommand', target, 'Runtime.enable');
-        await callChromeDebugger('sendCommand', target, 'Page.bringToFront');
+        await bringToFrontUnlessUserIsElsewhere(target);
         const focused = await callChromeDebugger('sendCommand', target, 'Runtime.evaluate', {
             expression: `(() => {
               const visible = (el) => {
@@ -756,9 +813,7 @@ async function dispatchProviderTrustedInput(tabId, model, text, isMac = false) {
             details: 'focused composer + native text', force: true, meta: { tabId, textLength: String(text).length }
         });
         return { ok: true, method: 'cdp_focused_composer_input' };
-    } finally {
-        if (attached) try { await callChromeDebugger('detach', target); } catch (_) {}
-    }
+    });
 }
 
 const buildProviderSendControlExpression = (expectedText = '') => `(() => {
@@ -768,12 +823,7 @@ const buildProviderSendControlExpression = (expectedText = '') => `(() => {
   const normalizedExpected = normalize(expected);
   const matchesPrompt = (value) => {
     const actual = normalize(value);
-    if (!actual) return false;
-    if (!normalizedExpected) return true;
-    if (actual.includes(normalizedExpected)) return true;
-    const width = Math.min(32, Math.max(12, Math.floor(normalizedExpected.length / 3)));
-    return actual.includes(normalizedExpected.slice(0, width))
-      && actual.includes(normalizedExpected.slice(-width));
+    return Boolean(normalizedExpected) && actual === normalizedExpected;
   };
   const visible = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
   const text = (el) => [el.getAttribute('aria-label'), el.getAttribute('title'), el.getAttribute('data-testid'), el.getAttribute('data-test-id'), el.textContent].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
@@ -810,15 +860,12 @@ const buildProviderSendControlExpression = (expectedText = '') => `(() => {
 })()`;
 
 async function dispatchProviderTrustedSend(tabId, model, expectedText = '') {
-    const target = { tabId };
-    let attached = false;
-    let objectId = null;
-    try {
-        await callChromeDebugger('attach', target, '1.3');
-        attached = true;
+    return withManagedDebuggerSession(tabId, `provider_trusted_send:${model}`, async (target) => {
+        let objectId = null;
+        try {
         await callChromeDebugger('sendCommand', target, 'Runtime.enable');
         await callChromeDebugger('sendCommand', target, 'DOM.enable');
-        await callChromeDebugger('sendCommand', target, 'Page.bringToFront');
+        await bringToFrontUnlessUserIsElsewhere(target);
         const evaluated = await callChromeDebugger('sendCommand', target, 'Runtime.evaluate', {
             expression: buildProviderSendControlExpression(expectedText), returnByValue: false, awaitPromise: false
         });
@@ -831,10 +878,10 @@ async function dispatchProviderTrustedSend(tabId, model, expectedText = '') {
             meta: { tabId, control: clicked.descriptor || null }
         });
         return { ok: true, method: 'cdp_send_control_click', control: clicked.descriptor || null };
-    } finally {
-        if (objectId && attached) try { await callChromeDebugger('sendCommand', target, 'Runtime.releaseObject', { objectId }); } catch (_) {}
-        if (attached) try { await callChromeDebugger('detach', target); } catch (_) {}
-    }
+        } finally {
+            if (objectId) try { await callChromeDebugger('sendCommand', target, 'Runtime.releaseObject', { objectId }); } catch (_) {}
+        }
+    });
 }
 
 const isTerminalRouterEntry = (entry = null) => {
@@ -906,7 +953,16 @@ const validateLifecycleCorrelation = (llmName, message, messageType) => {
         emitTelemetry(llmName, 'LIFECYCLE_CORRELATION_REJECTED', {
             level: 'warning',
             details: `${messageType}:dispatch_mismatch`,
-            meta: { messageType, expectedDispatchId, incomingDispatchId, ...deliveryIdentityMeta(meta) },
+            meta: {
+                messageType,
+                // Exported field, unlike `details`: metadata-only privacy strips
+                // the text, and the reason was previously recoverable only by
+                // measuring detailsLength.
+                correlationReason: incomingDispatchId ? 'dispatch_mismatch' : 'missing_dispatch_id',
+                expectedDispatchId,
+                incomingDispatchId,
+                ...deliveryIdentityMeta(meta)
+            },
             force: true
         });
         return { ok: false, reason: incomingDispatchId ? 'dispatch_mismatch' : 'missing_dispatch_id' };
@@ -915,7 +971,13 @@ const validateLifecycleCorrelation = (llmName, message, messageType) => {
         emitTelemetry(llmName, 'LIFECYCLE_CORRELATION_REJECTED', {
             level: 'warning',
             details: `${messageType}:run_session_mismatch`,
-            meta: { messageType, expectedRunSessionId, incomingRunSessionId, ...deliveryIdentityMeta(meta) },
+            meta: {
+                messageType,
+                correlationReason: incomingRunSessionId ? 'run_session_mismatch' : 'missing_run_session_id',
+                expectedRunSessionId,
+                incomingRunSessionId,
+                ...deliveryIdentityMeta(meta)
+            },
             force: true
         });
         return { ok: false, reason: incomingRunSessionId ? 'run_session_mismatch' : 'missing_run_session_id' };
@@ -1056,7 +1118,7 @@ try {
         });
         handleLLMResponse(
             'Perplexity',
-            'Error: Perplexity file-upload paywall handoff expired',
+            '',
             { type: 'attachment_unavailable', message: 'Perplexity file-upload paywall handoff expired before resume acceptance' },
             entry.lastDispatchMeta || null,
             ''
@@ -1154,9 +1216,21 @@ const DIAG_PINNED_LABELS = new Set([
     'PROMPT_SUBMITTED_INFERRED',
     'PROMPT_SUBMITTED_PENDING',
     'PAGE_READY_BLOCKED',
+    'PROMPT_INSERTION_CONFIRMED',
+    'PROMPT_INSERTION_FAILED',
+    'PROVIDER_DISPATCH_STAGE_OBSERVED',
     'DISPATCH_BASELINE_CAPTURED',
     'STALE_BASELINE_ANSWER_IGNORED',
     'UNSAFE_REUSE_SKIPPED',
+    'SOFT_REUSE_BLOCKER_OVERRIDDEN',
+    'TAB_ISOLATION_FALLBACK_CREATE',
+    'DONOR_STICKY_TAB_REUSED',
+    'PROVIDER_TRUSTED_ENTER_DISPATCHED',
+    'PROVIDER_TRUSTED_SEND_CLICKED',
+    'PROVIDER_TRUSTED_ENTER_FAILED',
+    'PROVIDER_TRUSTED_SEND_FAILED',
+    'PERPLEXITY_DUPLICATE_DISPATCH_SUPPRESSED',
+    'PERPLEXITY_CONCURRENT_DISPATCH_REJECTED',
     'FINALIZE_BLOCKED_SUBMIT_PENDING',
     'SENDER_TAB_MISMATCH_REJECTED',
     'STALE_SNAPSHOT_SIGNATURE_EXCLUDED',
@@ -1375,7 +1449,7 @@ chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
         llmTabClosed = true;
         if (jobState?.llms?.[closedLlmName]) {
             if (!alreadyFinished) {
-                handleLLMResponse(closedLlmName, 'Error: Tab closed during generation', {
+                handleLLMResponse(closedLlmName, '', {
                     type: 'tab_closed_prematurely'
                 });
             }
@@ -1441,7 +1515,7 @@ async function respondProofTelemetrySnapshot(message, sendResponse) {
             runSessionId: message?.runSessionId || null
         }).catch(() => timeoutToken);
         const barrierDeadline = new Promise((resolve) => {
-            timeoutId = setTimeout(() => resolve(timeoutToken), 10000);
+            timeoutId = setTimeout(() => resolve(timeoutToken), 750);
         });
         let snapshot = await Promise.race([barrierSnapshot, barrierDeadline]);
         if (timeoutId) clearTimeout(timeoutId);
@@ -1450,14 +1524,16 @@ async function respondProofTelemetrySnapshot(message, sendResponse) {
             const committed = await ledger.snapshotCommitted?.({
                 runSessionId: message?.runSessionId || null
             });
+            if (!committed) {
+                sendResponse({ success: false, error: 'proof_telemetry_ledger_unavailable' });
+                return;
+            }
             sendResponse({
-                success: false,
-                error: 'proof_telemetry_snapshot_incomplete',
-                retryable: true,
+                success: true,
+                ...committed,
                 barrierTimedOut: true,
                 snapshotWaitMs: Date.now() - snapshotStartedAt,
                 snapshotConsistency: committed?.snapshotConsistency || 'committed_boundary',
-                eventCount: Number(committed?.eventCount || 0),
                 queuedMutationCount: Number(committed?.queuedMutationCount || 0),
                 pendingRecordCount: Number(committed?.pendingRecordCount || 0)
             });
@@ -1489,6 +1565,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message?.type === 'GET_PROOF_TELEMETRY_SNAPSHOT') {
         void respondProofTelemetrySnapshot(message, sendResponse);
         return true;
+    }
+    // The debugger permission is restored only for the proven Le Chat and
+    // Perplexity submit transactions. Keep every other historical CDP route
+    // fail-closed so adding the permission cannot silently change attachments
+    // or input behaviour for unrelated providers.
+    if (DEBUGGER_RPC_TYPES.has(message?.type) && !ENABLED_DEBUGGER_RPC_TYPES.has(message.type)) {
+        sendResponse({ ok: false, reason: 'debugger_route_disabled' });
+        return false;
     }
 
     const processMessage = () => {
@@ -1758,6 +1842,113 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 break;
             }
 
+            case 'PROMPT_INSERTION_OBSERVED': {
+                // Adapter reports the composer transaction outcome for the current
+                // dispatch, success as well as failure. The failure path alone left
+                // the insertion_outcome slot unavailable on every successful run, so
+                // "was the prompt inserted?" was unanswerable from the ledger.
+                const llmName = message.llmName;
+                const entry = llmName && jobState?.llms?.[llmName];
+                const incomingMeta = message?.meta && typeof message.meta === 'object' ? message.meta : {};
+                const senderGate = validateLifecycleSender(llmName, sender, 'PROMPT_INSERTION_OBSERVED', incomingMeta);
+                const correlationGate = validateLifecycleCorrelation(llmName, message, 'PROMPT_INSERTION_OBSERVED');
+                if (!entry || !senderGate.ok || !correlationGate.ok) {
+                    if (typeof sendResponse === 'function') {
+                        sendResponse({
+                            status: 'prompt_insertion_rejected',
+                            reason: !entry
+                                ? 'missing_model_entry'
+                                : (!senderGate.ok ? senderGate.reason : correlationGate.reason)
+                        });
+                    }
+                    break;
+                }
+                if (entry) {
+                    const inserted = message.insertionState === 'inserted';
+                    const dispatchId = incomingMeta.dispatchId;
+                    emitTelemetry(llmName, inserted ? 'PROMPT_INSERTION_CONFIRMED' : 'PROMPT_INSERTION_FAILED', {
+                        level: inserted ? 'info' : 'error',
+                        details: inserted ? (message.method || 'inserted') : (message.reason || 'not_inserted'),
+                        meta: {
+                            dispatchId,
+                            generationEpoch: incomingMeta.generationEpoch
+                                ?? entry?.lastDispatchMeta?.generationEpoch
+                                ?? entry?.generationEpoch
+                                ?? null,
+                            attemptId: incomingMeta.attemptId || entry?.lastDispatchMeta?.attemptId || null,
+                            insertionState: inserted ? 'inserted' : 'failed',
+                            method: message.method || null,
+                            reason: message.reason || null,
+                            promptLength: Number.isFinite(Number(message.promptLength)) ? Number(message.promptLength) : null,
+                            composerLength: Number.isFinite(Number(message.composerLength)) ? Number(message.composerLength) : null,
+                            attempt: Number.isFinite(Number(message.attempt)) ? Number(message.attempt) : null
+                        },
+                        force: true
+                    });
+                    resolvePromptInsertion(llmName, {
+                        ok: inserted,
+                        insertionState: inserted ? 'inserted' : 'failed',
+                        method: message.method || null,
+                        reason: message.reason || null,
+                        dispatchId,
+                        meta: incomingMeta
+                    });
+                }
+                if (typeof sendResponse === 'function') sendResponse({ status: 'prompt_insertion_ack' });
+                break;
+            }
+
+            case 'PROVIDER_DISPATCH_STAGE_OBSERVED': {
+                const llmName = String(message.llmName || '');
+                const incomingMeta = message?.meta && typeof message.meta === 'object' ? message.meta : {};
+                const senderGate = validateLifecycleSender(llmName, sender, 'PROVIDER_DISPATCH_STAGE_OBSERVED', incomingMeta);
+                const correlationGate = validateLifecycleCorrelation(llmName, message, 'PROVIDER_DISPATCH_STAGE_OBSERVED');
+                if (!senderGate.ok || !correlationGate.ok) {
+                    sendResponse?.({
+                        status: 'provider_dispatch_stage_rejected',
+                        reason: !senderGate.ok ? senderGate.reason : correlationGate.reason
+                    });
+                    break;
+                }
+                const stage = String(message.stage || '').trim().toLowerCase();
+                if (!stage) {
+                    sendResponse?.({ status: 'provider_dispatch_stage_rejected', reason: 'missing_stage' });
+                    break;
+                }
+                const entry = jobState?.llms?.[llmName];
+                const dispatchId = incomingMeta.dispatchId || entry?.lastDispatchMeta?.dispatchId || null;
+                if (entry) {
+                    entry.providerDispatchStage = stage;
+                    entry.providerDispatchStageAt = Date.now();
+                    entry.providerDispatchStageDispatchId = dispatchId;
+                }
+                emitTelemetry(llmName, 'PROVIDER_DISPATCH_STAGE_OBSERVED', {
+                    level: /failed|blocked|timeout/.test(String(message.outcome || message.reason || '')) ? 'warning' : 'info',
+                    details: stage,
+                    meta: {
+                        ...incomingMeta,
+                        stage,
+                        outcome: message.outcome || null,
+                        reason: message.reason || null,
+                        elapsedMs: Number.isFinite(Number(message.elapsedMs)) ? Number(message.elapsedMs) : null,
+                        composerVisible: typeof message.composerVisible === 'boolean' ? message.composerVisible : null,
+                        composerConnected: typeof message.composerConnected === 'boolean' ? message.composerConnected : null
+                    },
+                    force: true
+                });
+                if (stage === 'prompt_inserted' || stage === 'send_action_failed') {
+                    self.scheduleProviderSendOnlyRecovery?.(llmName, {
+                        dispatchId,
+                        reason: stage,
+                        delayMs: stage === 'send_action_failed' ? 500 : 14000
+                    });
+                } else if (stage === 'send_action_completed') {
+                    self.cancelProviderSendOnlyRecovery?.(llmName);
+                }
+                sendResponse?.({ status: 'provider_dispatch_stage_ack' });
+                break;
+            }
+
             case 'DISPATCH_BASELINE_CAPTURED': {
                 // Adapter reports the on-page answer signature captured *before* it sends,
                 // so the orchestrator can reject that prior answer until the new one renders
@@ -1951,7 +2142,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 }
                 dispatchProviderTrustedSend(tabId, model, String(message.prompt || ''))
                     .then(sendResponse)
-                    .catch((err) => sendResponse({ ok: false, reason: err?.message || 'trusted_send_failed' }));
+                    .catch((err) => {
+                        const reason = err?.message || 'trusted_send_failed';
+                        emitTelemetry(model, 'PROVIDER_TRUSTED_SEND_FAILED', {
+                            level: 'error',
+                            details: reason,
+                            meta: { tabId, debuggerApiAvailable: typeof chrome.debugger?.attach === 'function' },
+                            force: true
+                        });
+                        sendResponse({ ok: false, reason });
+                    });
                 return true;
             }
 
@@ -1964,7 +2164,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 }
                 dispatchProviderTrustedEnter(tabId, 'Perplexity', String(message.prompt || ''))
                     .then(sendResponse)
-                    .catch((err) => sendResponse({ ok: false, reason: err?.message || 'trusted_enter_failed' }));
+                    .catch((err) => {
+                        const reason = err?.message || 'trusted_enter_failed';
+                        emitTelemetry('Perplexity', 'PROVIDER_TRUSTED_ENTER_FAILED', {
+                            level: 'error',
+                            details: reason,
+                            meta: { tabId, debuggerApiAvailable: typeof chrome.debugger?.attach === 'function' },
+                            force: true
+                        });
+                        sendResponse({ ok: false, reason });
+                    });
                 return true;
             }
 
@@ -2118,17 +2327,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     break;
                 }
                 const entry = jobState?.llms?.[llmName];
-                if (message.active !== true && llmName === 'Perplexity'
+                const phase = ['composer', 'answer_collection'].includes(String(message.phase || ''))
+                    ? String(message.phase)
+                    : 'composer';
+                if (message.active !== true && phase === 'composer' && llmName === 'Perplexity'
                     && perplexityTransientBlockerOwnsLifecycle(entry, message, sender)) {
                     sendResponse({ ok: true, status: 'pipeline_state_deferred_for_transient_blocker' });
                     break;
                 }
                 if (entry) {
-                    entry.providerPipelineActive = message.active === true;
-                    entry.providerPipelineActiveAt = message.active === true ? Date.now() : 0;
-                    entry.providerPipelineDispatchId = message.meta?.dispatchId || null;
+                    const active = message.active === true;
+                    const prefix = phase === 'composer' ? 'providerComposerTransaction' : 'providerAnswerCollection';
+                    entry[`${prefix}Active`] = active;
+                    entry[`${prefix}ActiveAt`] = active ? Date.now() : 0;
+                    entry[`${prefix}DispatchId`] = message.meta?.dispatchId || null;
+                    // Backward-compatible field now means only duplicate-sensitive
+                    // composer ownership, never the long answer wait.
+                    entry.providerPipelineActive = entry.providerComposerTransactionActive === true;
+                    entry.providerPipelineActiveAt = entry.providerComposerTransactionActiveAt || 0;
+                    entry.providerPipelineDispatchId = entry.providerComposerTransactionDispatchId || null;
                 }
-                sendResponse({ ok: true });
+                sendResponse({ ok: true, phase });
                 break;
             }
 
@@ -2360,7 +2579,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                         cancelPerplexityTransientBlockerExpiry(identity.token);
                         handleLLMResponse(
                             llmName,
-                            'Error: Perplexity file upload paywall repeated after an accepted resume',
+                            '',
                             { type: 'attachment_unavailable', message: 'Perplexity file upload paywall repeated after an accepted resume' },
                             liveEntry.lastDispatchMeta || null,
                             ''
@@ -2625,6 +2844,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                         entry.awaitingSubmitConfirmationDispatchId = null;
                         entry.confirmedDispatchId = incomingDispatchId || entry?.lastDispatchMeta?.dispatchId || null;
                         entry.submitSource = 'content';
+                        self.cancelProviderSendOnlyRecovery?.(llmName);
                         if (self.PipelineFSM?.markSubmitted) {
                             const currentControl = jobState?.session?.pipelineControl || self.PipelineFSM.normalizeControlState?.({
                                 pipelineRunId: jobState?.session?.pipelineRunId || null,
@@ -3684,6 +3904,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                         if (Array.isArray(platforms) && platforms.length) {
                             const set = new Set(platforms.map((p) => String(p).toLowerCase()));
                             arr = arr.filter((e) => set.has(String(e?.platform || 'unknown').toLowerCase()));
+                        }
+                        // The persisted diagnostics buffer is cleared when a new
+                        // run starts, not when a page reloads. Reloading the
+                        // results page without starting a run therefore re-hydrated
+                        // the previous session, and the page's own
+                        // "current run" resolver — which reads the newest event it
+                        // was given — then presented that stale run as the active
+                        // one. Scope to the ledger's current run session here so a
+                        // reload cannot resurrect an earlier session. Events that
+                        // carry no run identity (setup/system lines) are kept.
+                        const activeRunSessionId = message?.allRunSessions === true
+                            ? null
+                            : (self.ProofTelemetryLedger?.currentRunSessionId?.() ?? null);
+                        if (activeRunSessionId !== null && activeRunSessionId !== undefined) {
+                            arr = arr.filter((entry) => {
+                                const entryRunSessionId = entry?.meta?.runSessionId
+                                    ?? entry?.meta?.sessionId
+                                    ?? entry?.runSessionId
+                                    ?? entry?.sessionId
+                                    ?? null;
+                                if (entryRunSessionId === null || entryRunSessionId === undefined) return true;
+                                return String(entryRunSessionId) === String(activeRunSessionId);
+                            });
                         }
                         const capSize = (limit && Number.isFinite(limit))
                             ? limit

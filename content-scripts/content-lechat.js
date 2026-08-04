@@ -231,7 +231,7 @@
     chrome.runtime.sendMessage({
       type: 'LLM_RESPONSE',
       llmName: MODEL,
-      answer: 'Error: Rate limit detected. Please wait.',
+      answer: '',
       error: { 
         type: 'rate_limit', 
         message: `HTTP 429 detected. Suggested wait time: ${waitTime}ms`,
@@ -283,7 +283,7 @@
     chrome.runtime.sendMessage({
       type: 'LLM_RESPONSE',
       llmName: MODEL,
-      answer: 'Error: Rate limit detected. Please wait.',
+      answer: '',
       error: { 
         type: 'rate_limit', 
         message: `HTTP 429 detected. Suggested wait time: ${waitTime}ms`,
@@ -956,7 +956,7 @@
       composerTextLength: (composer.value || composer.textContent || '').trim().length,
       generationElements: baselineGenerationEvidence
     }) || null;
-    const confirmLeChatSend = async (sendButtonCandidate, timeout = 3000, beforeTextLength = 0) => {
+    const confirmLeChatSend = async (sendButtonCandidate, timeout = 3000, beforeTextLength = 0, trustedBrowserDispatch = false) => {
       const deadline = Date.now() + timeout;
       while (Date.now() < deadline) {
         const composerText = (composer.value || composer.textContent || '').trim();
@@ -965,7 +965,8 @@
           userTurnCount: countUserTurns(),
           responseCount: currentResponseCount,
           composerTextLength: composerText.length,
-          generationElements: collectGenerationEvidence()
+          generationElements: collectGenerationEvidence(),
+          trustedBrowserDispatch
         });
         if (proof?.confirmed === true) return true;
         // Fail closed if the shared evaluator is unavailable. Only direct
@@ -1002,70 +1003,29 @@
     await sleep(240);
     try { composer.focus?.({ preventScroll: true }); } catch (_) { try { composer.focus?.(); } catch (_) {} }
 
-    // Strategy 1: Button click first (LeChat default happy path).
-    // Le Chat keeps the send button disabled until React registers the
-    // composer input, so wait for it to become enabled (re-nudging input
-    // events meanwhile) instead of skipping the click when it starts disabled.
+    // Donor 2.81.75 fast path: Le Chat ignores synthetic keyboard submission
+    // on some existing conversations, while a browser-level trusted Send is
+    // accepted immediately. The background handler validates the sender URL
+    // and tab before attaching the debugger.
     try {
       const beforeLen = ((composer.value || composer.textContent || '').trim()).length;
-      const sendButton = await waitForSendEnabled(composer, 2500);
-      if (sendButton && !isSendButtonDisabled(sendButton)) {
-        await lechatHumanClick(sendButton);
-        if (await confirmLeChatSend(sendButton, 3000, beforeLen)) {
-          console.log('[content-lechat] Button click send confirmed.');
-          return;
-        }
-      } else {
-        console.warn('[content-lechat] Send button stayed disabled after wait; falling back to Enter.');
+      const trusted = await new Promise((resolve) => {
+        chrome.runtime.sendMessage({
+          type: 'PROVIDER_TRUSTED_SEND_REQUEST',
+          llmName: MODEL
+        }, (response) => {
+          if (chrome.runtime.lastError) resolve({ ok: false, reason: chrome.runtime.lastError.message });
+          else resolve(response || { ok: false, reason: 'empty_response' });
+        });
+      });
+      if (trusted?.ok && await confirmLeChatSend(null, 4000, beforeLen, true)) {
+        console.log('[content-lechat] Trusted Send control confirmed.');
+        return true;
       }
+      throw new Error(`Le Chat trusted Send was not confirmed: ${trusted?.reason || 'no_send_evidence'}`);
     } catch (e) {
-      console.warn('[content-lechat] Button click send failed', e);
-    }
-
-    // Strategy 2: submit the composer's own form. This stays inside the page
-    // and does not attach Chrome's debugger.
-    try {
-      const form = composer.closest?.('form');
-      if (form?.requestSubmit) {
-        form.requestSubmit();
-        if (await confirmLeChatSend(null, 3000)) {
-          console.log('[content-lechat] Form submit confirmed.');
-          return;
-        }
-      }
-    } catch (e) {
-      console.warn('[content-lechat] Form submit failed', e);
-    }
-
-    // Strategy 3: Enter key.
-    try {
-      const beforeLen = ((composer.value || composer.textContent || '').trim()).length;
-      try { composer.focus?.({ preventScroll: true }); } catch (_) {}
-      dispatchEnter();
-      if (await confirmLeChatSend(null, 3000, beforeLen)) {
-        console.log('[content-lechat] Enter key send confirmed.');
-        return;
-      }
-    } catch (e) {
-      console.warn('[content-lechat] Enter key send failed', e);
-    }
-
-    // Strategy 4: Ctrl+Enter fallback.
-    try {
-      const beforeLen = ((composer.value || composer.textContent || '').trim()).length;
-      dispatchEnter({ ctrlKey: true });
-      if (await confirmLeChatSend(null, 3000, beforeLen)) {
-        console.log('[content-lechat] Ctrl+Enter send confirmed.');
-        return;
-      }
-    } catch (e) {
-      console.warn('[content-lechat] Ctrl+Enter send failed', e);
-    }
-
-    // Final check.
-    if (!(await confirmLeChatSend(null, 900))) {
-      console.error('[content-lechat] All send methods failed to confirm.');
-      throw new Error('Failed to confirm prompt submission.');
+      console.warn('[content-lechat] Trusted Send failed.', e);
+      throw e;
     }
   }
 
@@ -1469,15 +1429,26 @@ const hydrateAttachments = (raw = []) =>
             prepared = { ok: true, method: 'reacquired_exact_prompt' };
           }
         }
+        const reportInsertion = (state, reason, observedLength) => window.ContentUtils?.reportPromptInsertion?.(MODEL, dispatchMeta, {
+          state,
+          method: prepared.method || null,
+          reason,
+          promptLength: String(prompt || '').length,
+          composerLength: observedLength,
+          attempt: prepared.attempt ?? null
+        });
         if (!prepared.ok) {
+          reportInsertion('failed', prepared.reason || 'prompt_not_present', String(prepared.value || '').length);
           throw { type: 'prompt_injection_failed', message: `Le Chat prompt preparation failed: ${prepared.reason}` };
         }
 
         await sleep(100);
         const validationText = (composer.value ?? composer.textContent ?? '').trim();
         if (!validationText.length) {
+          reportInsertion('failed', 'react_guard_empty_composer', 0);
           throw { type: 'injection_failed', message: 'Input did not accept value (React guard).' };
         }
+        reportInsertion('inserted', null, validationText.length);
         activity.heartbeat(0.45, { phase: 'typing' });
 
         const preDispatchBaseline = grabLatestAssistantMarkup().text || '';
@@ -1488,6 +1459,8 @@ const hydrateAttachments = (raw = []) =>
         await sendComposer(composer, prompt);
         activity.heartbeat(0.6, { phase: 'send-dispatched' });
         try { chrome.runtime.sendMessage({ type: 'PROMPT_SUBMITTED', llmName: MODEL, ts: Date.now(), meta: dispatchMeta }); } catch (_) {}
+        window.ContentUtils?.reportProviderPipelineState?.(MODEL, dispatchMeta, 'composer', false);
+        window.ContentUtils?.reportProviderPipelineState?.(MODEL, dispatchMeta, 'answer_collection', true);
 
         activity.heartbeat(0.7, { phase: 'waiting-response' });
         const cleaned = await withSmartScroll(async () => {
@@ -1731,7 +1704,7 @@ const hydrateAttachments = (raw = []) =>
       if (msg?.type === 'GET_ANSWER' || msg?.type === 'GET_FINAL_ANSWER') {
         const releaseActive = () => window.ContentUtils?.stopActiveRequest?.();
         window.ContentUtils?.startActiveRequest?.();
-        try { chrome.runtime.sendMessage({ type: 'PROVIDER_DISPATCH_PIPELINE_STATE', llmName: MODEL, active: true, meta: msg.meta || null }); } catch (_) {}
+        window.ContentUtils?.reportProviderPipelineState?.(MODEL, msg.meta || null, 'composer', true);
         injectAndGetResponse(msg.prompt, msg.attachments || [], msg.meta || null)
           .then((resp) => {
             if (msg.isFireAndForget) {
@@ -1764,7 +1737,7 @@ const hydrateAttachments = (raw = []) =>
                chrome.runtime.sendMessage({
                   type: responseType,
                   llmName: MODEL,
-                  answer: `Error: ${errorMessage}`,
+                  answer: '',
                   error: { type: err?.type || 'generic_error', message: errorMessage },
                   meta: msg.meta || null
                });
@@ -1772,7 +1745,8 @@ const hydrateAttachments = (raw = []) =>
             sendResponse?.({ status: 'error', message: errorMessage });
           })
           .finally(() => {
-            try { chrome.runtime.sendMessage({ type: 'PROVIDER_DISPATCH_PIPELINE_STATE', llmName: MODEL, active: false, meta: msg.meta || null }); } catch (_) {}
+            window.ContentUtils?.reportProviderPipelineState?.(MODEL, msg.meta || null, 'composer', false);
+            window.ContentUtils?.reportProviderPipelineState?.(MODEL, msg.meta || null, 'answer_collection', false);
             releaseActive();
           });
         return true;
@@ -1855,7 +1829,7 @@ const hydrateAttachments = (raw = []) =>
       chrome.runtime.sendMessage({
           type: 'LLM_RESPONSE',
           llmName: MODEL,
-          answer: `Structural Error: ${e?.message || String(e)}`,
+          answer: '',
           error: { type: 'structural_listener_error', message: e?.message || String(e) }
       });
     }

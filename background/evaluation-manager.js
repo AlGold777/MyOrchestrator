@@ -38,11 +38,12 @@ function startEvaluation(evalPrompt, evaluatorName = 'Claude', options = {}) {
 
   const url = evaluatorUrls[evaluatorName];
   if (!url) {
-    const errorMsg = `Error: Unknown evaluator '${evaluatorName}'. Cannot open tab.`;
+    const errorMsg = `Unknown evaluator '${evaluatorName}'. Cannot open tab.`;
     console.error(`[BACKGROUND] ${errorMsg}`);
     sendMessageToResultsTab({
       type: 'PROCESS_COMPLETE',
-      finalAnswer: errorMsg
+      finalAnswer: '',
+      error: { type: 'unknown_evaluator', message: errorMsg }
     });
     return;
   }
@@ -78,7 +79,11 @@ function startEvaluation(evalPrompt, evaluatorName = 'Claude', options = {}) {
               console.error(`[BACKGROUND] Error delivering evaluation prompt:`, chrome.runtime.lastError.message);
               sendMessageToResultsTab({
                 type: 'PROCESS_COMPLETE',
-                finalAnswer: `Error: Failed to deliver evaluation prompt (${chrome.runtime.lastError.message})`
+                finalAnswer: '',
+                error: {
+                  type: 'evaluation_prompt_delivery_failed',
+                  message: `Failed to deliver evaluation prompt (${chrome.runtime.lastError.message})`
+                }
               });
             } else {
               globalThis.LLMLog?.debug?.('[BACKGROUND] Evaluation prompt delivered successfully.');
@@ -90,7 +95,11 @@ function startEvaluation(evalPrompt, evaluatorName = 'Claude', options = {}) {
             console.error('[BACKGROUND] Evaluation tab never became ready:', err?.message || err);
             sendMessageToResultsTab({
               type: 'PROCESS_COMPLETE',
-              finalAnswer: `Error: Evaluator tab did not become ready (${err?.message || 'timeout'})`
+              finalAnswer: '',
+              error: {
+                type: 'evaluator_not_ready',
+                message: `Evaluator tab did not become ready (${err?.message || 'timeout'})`
+              }
             });
           });
 

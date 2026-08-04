@@ -8,6 +8,8 @@ const devtoolsSource = fs.readFileSync(path.join(__dirname, '..', 'results-devto
 const messageRouterSource = fs.readFileSync(path.join(__dirname, '..', 'background', 'message-router.js'), 'utf8');
 const proofStoreSource = fs.readFileSync(path.join(__dirname, '..', 'background', 'proof-telemetry-store.js'), 'utf8');
 const exportBootstrapSource = fs.readFileSync(path.join(__dirname, '..', 'results-telemetry-export-bootstrap.js'), 'utf8');
+const exportWorkerSource = fs.readFileSync(path.join(__dirname, '..', 'workers', 'telemetry-export-worker.js'), 'utf8');
+const exportRuntimeSource = fs.readFileSync(path.join(__dirname, '..', 'shared', 'telemetry-export-runtime.js'), 'utf8');
 
 describe('Telemetry export actions', () => {
   test('both result pages expose the extension-native sanitized B1 capture action', () => {
@@ -84,13 +86,75 @@ describe('Telemetry export actions', () => {
     expect(devtoolsSource).toContain("proofTelemetryShadowCompare");
   });
 
-  test('JSON snapshot has a bounded queue wait and refuses an incomplete committed fallback', () => {
+  test('full all-presets construction and serialization run outside the results UI', () => {
+    expect(devtoolsSource).toContain("new Worker(chrome.runtime.getURL('workers/telemetry-export-worker.js'))");
+    expect(devtoolsSource).toContain('buildTelemetryJsonInWorker(canonicalEvents, buildOptions, exportFormat');
+    expect(exportWorkerSource).toContain("'BUILD_CANONICAL_EVIDENCE_JSON'");
+    expect(exportWorkerSource).toContain('self.ProofOrientedTelemetry.buildAllPresets');
+    expect(exportWorkerSource).toContain('self.ProofOrientedTelemetry.buildCanonicalEvidence');
+    expect(exportWorkerSource).toContain('self.SecretRedaction.redactDeep(Array.isArray(request.events) ? request.events : [])');
+    expect(exportWorkerSource).toContain('JSON.stringify(payload)');
+    const allPresetsBranch = devtoolsSource.slice(
+      devtoolsSource.indexOf("if (task === 'all') {"),
+      devtoolsSource.indexOf('const selectedModelId')
+    );
+    expect(allPresetsBranch).not.toContain('window.ProofOrientedTelemetry.buildAllPresets(');
+  });
+
+  test('worker timeout still downloads every canonical event as recovery JSON', () => {
+    expect(devtoolsSource).toContain('const FULL_EXPORT_WORKER_TIMEOUT_MS = 20000;');
+    expect(devtoolsSource).toContain("containerType: 'canonical-ledger-recovery'");
+    expect(devtoolsSource).toContain('allCanonicalEventsPreserved: true');
+    expect(devtoolsSource).toContain("filename.replace(/all-presets|canonical-evidence/, 'canonical-recovery')");
+    expect(devtoolsSource).toContain('Telemetry build ${reason} — canonical recovery JSON exported');
+  });
+
+  test('large export orchestration is cancellable, single-flight and always cleans up resources', () => {
+    expect(exportRuntimeSource).toContain("activeJob?.cancel('superseded by a newer telemetry export')");
+    expect(exportRuntimeSource).toContain("'TELEMETRY_EXPORT_CANCELLED'");
+    expect(exportRuntimeSource).toContain("'TELEMETRY_EXPORT_STAGE_TIMEOUT'");
+    expect(exportRuntimeSource).toContain('worker.terminate()');
+    expect(exportRuntimeSource).toContain('urlApi.revokeObjectURL(url)');
+    expect(exportRuntimeSource).toContain("String(stageName).startsWith('report:')");
+    expect(devtoolsSource).toContain("if (outcome.status === 'cancelled') return;");
+  });
+
+  test('export progress remains outside the observed telemetry ledger', () => {
+    expect(exportWorkerSource).toContain("onProgress: (name) => stage(requestId, name, startedAt)");
+    expect(exportWorkerSource).not.toMatch(/recordProof|appendEvent|chrome\.runtime\.sendMessage|chrome\.storage/);
+    const workerBuild = devtoolsSource.slice(
+      devtoolsSource.indexOf('const buildTelemetryJsonInWorker'),
+      devtoolsSource.indexOf('const buildCanonicalTelemetryRecovery')
+    );
+    expect(workerBuild).not.toMatch(/recordProof|appendEvent|recordTelemetry|persist/);
+    expect(exportRuntimeSource).not.toMatch(/recordProof|appendEvent|recordTelemetry|persist/);
+    expect(devtoolsSource).toContain('window.__PROOF_TELEMETRY_LAST_EXPORT_METRICS__ = Object.freeze({');
+    expect(devtoolsSource).toContain('snapshotRequestMs:');
+    expect(devtoolsSource).toContain('persistenceBoundaryMs:');
+    expect(devtoolsSource).toContain('stageTimingsMs:');
+    expect(devtoolsSource).toContain('blobDownloadMs:');
+  });
+
+  test('both pages expose Digest, Canonical evidence and Full forensic without changing the default', () => {
+    for (const page of [html, pipelineHtml]) {
+      expect(page).toContain('id="telemetry-export-format-select"');
+      expect(page).toContain('<option value="digest" selected>Digest</option>');
+      expect(page).toContain('<option value="canonical-evidence">Canonical evidence</option>');
+      expect(page).toContain('<option value="full-forensic">Full forensic</option>');
+      expect(page).toContain('src="shared/telemetry-export-runtime.js"');
+    }
+    expect(devtoolsSource).toContain("const telemetryExportFormat = () => exportFormatSelect?.value || 'digest'");
+    expect(devtoolsSource).toContain("telemetry-canonical-evidence-${Date.now()}.json");
+  });
+
+  test('JSON snapshot has a short queue wait and exports a marked committed fallback', () => {
     expect(messageRouterSource).toContain('Promise.race([barrierSnapshot, barrierDeadline])');
-    expect(messageRouterSource).toContain('setTimeout(() => resolve(timeoutToken), 10000)');
+    expect(messageRouterSource).toContain('setTimeout(() => resolve(timeoutToken), 750)');
     expect(messageRouterSource).toContain('ledger.snapshotCommitted?.({');
-    expect(messageRouterSource).toContain("error: 'proof_telemetry_snapshot_incomplete'");
-    expect(devtoolsSource).toContain("proofSnapshot?.error === 'proof_telemetry_snapshot_incomplete'");
-    expect(devtoolsSource).toContain('Please retry export.');
+    expect(messageRouterSource).toContain('success: true,\n                ...committed,');
+    expect(messageRouterSource).not.toContain("error: 'proof_telemetry_snapshot_incomplete'");
+    expect(devtoolsSource).not.toContain("proofSnapshot?.error === 'proof_telemetry_snapshot_incomplete'");
+    expect(devtoolsSource).toContain('Exporting committed snapshot');
     expect(devtoolsSource).toContain('snapshotConsistency: proofSnapshot.snapshotConsistency');
     expect(devtoolsSource).toContain('snapshotBarrierTimedOut: proofSnapshot.barrierTimedOut === true');
     expect(proofStoreSource).toContain("durability: 'relaxed'");

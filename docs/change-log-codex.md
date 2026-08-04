@@ -1,20 +1,269 @@
 # Codex phase change log
 
-## 2.81.195 — Automatic extraction recovery collects the latest answer
+## 2.81.269 — Send recovery release gate
 
-- Recovery after `empty_answer`, prompt echo, UI noise, or extraction failure
-  now uses the latest-answer strategy instead of repeating the failed selector.
-- The collection and acceptance phases reuse one correlation object, preserving
-  the run and dispatch identity through automatic delivery.
-- Regression coverage verifies both the chosen strategy and its plumbing.
+- The background trusted-Send selector now uses the same exact full-prompt
+  predicate as the content adapter; attachment labels or partial head/tail
+  fingerprints cannot authorize a Send action.
+- Generated provider bundles were rebuilt from the current sources.
+- Legacy tests that required early or CDP-only submission confirmation now
+  enforce the fail-closed contract. The full 1,663-test suite, telemetry parity
+  suite and headed Chromium telemetry smoke-test pass.
 
-## 2.81.194 — Generated answers keep their dispatch identity
+## 2.81.268 — Perplexity insertion proof is exact and visible
 
-- Grok no longer drops the active dispatch metadata on its primary automatic
-  answer-delivery call.
-- DeepSeek normalizes missing run/dispatch metadata in its shared `sendResult`
-  boundary, so successful recovery output is accepted by background correlation.
-- Regression tests lock both paths and verify that explicit identity still wins.
+- Perplexity accepts insertion only after reacquiring the visible current
+  composer and matching its normalized value to the entire dispatched prompt.
+- A framework transaction, cached node, hidden draft or partial fingerprint is
+  no longer sufficient evidence; the dispatch fails closed before Send.
+- Ordinary Send and send-only recovery share the same exact composer ownership
+  predicate and require a direct current-page submission signal.
+
+## 2.81.267 — Focus follows correlated composer progress
+
+- Round 1 keeps its normal eight-second foreground cap for every model.
+- A model receives one additional five-second window only when its exact
+  dispatch published fresh composer or Send progress during the first window.
+- Missing, stale and cross-dispatch stage signals cannot extend the queue; the
+  extension and its cause are recorded in canonical focus-stage telemetry.
+
+## 2.81.266 — Safe send-only recovery
+
+- A provider-neutral watchdog revisits Grok and Perplexity only after an exact,
+  correlated insertion stage and never reinserts the prompt.
+- Recovery may press Send only when the current visible composer exactly equals
+  the dispatched prompt; stale, hidden and changed drafts fail closed.
+- A successful debugger command no longer counts as submission. Perplexity now
+  requires a new user turn, fresh generation element or new response node.
+- Grok no longer publishes an early unverified `PROMPT_SUBMITTED`; both ordinary
+  and recovery sends require the posted user turn to match the whole prompt.
+
+## 2.81.265 — Composer ownership ends at confirmed Send
+
+- Provider ownership is split into short `composer` and long
+  `answer_collection` phases for Grok, Perplexity and Le Chat.
+- Retry and Round 2 repair are blocked only by the duplicate-sensitive composer
+  transaction; waiting for an answer no longer suppresses delivery recovery.
+- The legacy aggregate ownership fields remain compatible but now represent
+  composer ownership only.
+
+## 2.81.264 — Provider send stages are canonical evidence
+
+- Grok and Perplexity now publish correlated composer, insertion and Send
+  milestones through a provider-neutral content API.
+- Focus-boundary outcomes and provider stages are retained as the canonical
+  `DISPATCH_STAGE_OBSERVED` fact, including elapsed time and failure reason.
+- Stage evidence is accepted only from the bound tab and exact run/dispatch.
+
+## 2.81.263 — Human presence yields to a running dispatch
+
+- The visit loop reschedules itself, so the `promptDispatchInProgress` guard was
+  evaluated only once, at scheduling time. A loop restarted by a window focus
+  change or by job-state rehydration kept foregrounding model tabs while Round 0
+  was acquiring tabs and Round 1 was inserting the prompt.
+- The loop now yields while rounds are in progress or a dispatch is in flight,
+  re-checking on every cycle instead of only when scheduled.
+- Rounds release `roundsInProgress` before starting the post-round visit loop,
+  so the new guard cannot defer the loop the rounds themselves requested.
+
+## 2.81.262 — The pre-send wait is attributable
+
+- A residual slow dispatch can now be attributed from the export alone: the
+  phase split in `DISPATCH_SEND` separates tab readiness from the ACK wait and
+  from the no-focus probe.
+- `READY_REANNOUNCE_REQUESTED`, `TAB_DISCARDED_RELOAD`, `TAB_READY_WAIT_END`
+  and `HANDSHAKE_TIMEOUT` are mapped into the canonical ledger, so a Chrome tab
+  discard and a lost worker handshake are no longer the same blank gap between
+  `DISPATCH_START` and `DISPATCH_SEND`.
+
+## 2.81.261 — Old pages replay readiness without the ACK timeout
+
+- Dispatch detects when the current service-worker epoch has no correlated
+  Ready/ACK pair for an already open provider tab and requests a fresh signal.
+- The content bootstrap replays `SCRIPT_READY` with the existing tab-session
+  identity, so background validates the same document instead of reloading it.
+- A valid cached handshake remains the zero-message fast path; the recovery
+  request is used only when worker memory is missing or uncorrelated.
+- Field evidence from 2.81.260 showed 7.4–10.6 seconds from `DISPATCH_START` to
+  `DISPATCH_SEND` for ACK-gated providers, versus 2.6 seconds for Perplexity,
+  which bypasses that gate.
+
+## 2.81.260 — Round 1 yields after composer insertion
+
+- Round 1 foreground ownership now ends on correlated submit or insertion
+  evidence, with an eight-second cap; it no longer consumes the model's full
+  12–22 second submit timeout when submission is broken or unobservable.
+- Prompt insertion outcomes have dispatch-scoped waiters and pass the same
+  bound-tab and run/dispatch correlation gates as other lifecycle evidence.
+- The longer submission timeout remains asynchronous and repair continues to
+  defer while a provider explicitly owns its live transaction.
+
+## 2.81.259 — Proof examples follow the executable registry
+
+- The checked-in dependency-registry snapshot and every generated proof
+  telemetry example were rebuilt from the current executable contracts.
+- Full regression can now verify the new user-focus event against both the
+  live registry and its documented snapshot.
+
+## 2.81.258 — User-focus telemetry is registered
+
+- The canonical `USER_FOCUS_OBSERVED` event now has explicit inventory,
+  retention and consumer metadata and is classified as contextual observation.
+- The inventory regression guard covers all 45 canonical event types.
+
+## 2.81.257 — User focus is not an automation lease
+
+- An unmarked user tab activation is recorded as a separate focus observation;
+  it no longer creates `LEASE_GRANTED`, a fictitious 12-second TTL or a
+  30-second `FOCUS_STUCK` warning.
+- User activation still preempts and closes a live automated visit, while
+  programmatic visits retain their bounded lease and hard-cap contract.
+- Canonical proof telemetry preserves user-focus start/end events as
+  `USER_FOCUS_OBSERVED`, distinct from observation-slot allocation.
+
+## 2.81.256 — Debugger ownership is serialized per tab
+
+- Every trusted input, Send, Enter and CDP attachment operation now passes
+  through one tab-scoped debugger-session queue.
+- The manager performs the only `chrome.debugger.attach`/`detach` pair in the
+  router; cleanup and object release finish before ownership moves to the next
+  queued operation on that tab.
+- Different tabs remain independent, while queue wait and session lifetime are
+  visible in telemetry.
+
+## 2.81.255 — Focus follows the provider submit transaction
+
+- Round 1 keeps each focused provider foregrounded until correlated
+  `PROMPT_SUBMITTED` evidence arrives or that provider's bounded submit window
+  expires; the next model no longer hides a composer transaction immediately.
+- Grok acknowledges command ownership immediately and reports explicit provider
+  pipeline ownership while its asynchronous insert/send work continues.
+- Retry supervisor and both Round 2 repair paths defer while the original
+  provider transaction owns the dispatch, with a three-minute fail-safe TTL.
+
+## 2.81.254 — Round 1 readiness is prewarmed in parallel
+
+- After tab acquisition, Round 0 validates every bound tab and awaits its
+  document-scoped Ready/ACK signal concurrently.
+- Sequential Round 1 keeps its normal readiness gate as a fallback, but a
+  successfully prewarmed tab now resolves it from the current-session cache
+  instead of consuming another per-model timeout budget.
+- Prewarm outcomes and elapsed time are recorded per model and for the batch.
+
+## 2.81.253 — Completion survives temporary observation loss
+
+- A recovered snapshot explicitly classified as unconfirmed completion remains
+  a visible non-terminal candidate when finalization policy rejects it; it can
+  no longer close a still-generating model as `PARTIAL`.
+- An existing eligible tab whose content script and scripting probe are
+  temporarily unavailable is classified as `UNAVAILABLE`, not `DEAD`.
+- Read-only late collection is serialized across providers and schedules a
+  bounded provider-neutral retry sequence without reloading model pages.
+
+## 2.81.252 — Field validation understands canonical evidence identity
+
+- The field validator reads the dependency registry and incident index from
+  their canonical-evidence locations instead of reporting them as absent.
+- Canonical `sharedConfig.reportVersion` now participates in exact reproduction
+  identity, preventing valid current-generator evidence from being mislabeled
+  as a historical reinterpretation.
+- Regression coverage builds and audits a real canonical-evidence container.
+
+## 2.81.251 — Existing model pages start without multi-minute dispatch stalls
+
+- A new run clears per-model startup promises, submit waiters and dispatch
+  locks left by the preceding run, so new work cannot queue behind stale work.
+- With New pages disabled, independent existing-tab acquisition runs in
+  parallel and the results-page request keeps the MV3 worker alive through the
+  initial send phase.
+- The active round and New pages mode are persisted. If MV3 still interrupts
+  Round 0 or Round 1, rehydration resumes the bootstrap and does not resend a
+  dispatch command that was already attempted.
+
+## 2.81.222 — Telemetry export is an isolated, bounded pipeline
+
+- Full schema construction and safe serialization moved to a dedicated worker,
+  removing long synchronous work from both result surfaces.
+- Worker progress distinguishes report construction from JSON serialization and
+  reports elapsed time after download starts.
+- The pipeline terminates a stalled worker after 20 seconds and downloads a
+  canonical recovery ledger with all raw proof events and failure metadata.
+
+## 2.81.221 — Full JSON export cannot be starved by live telemetry writes
+
+- The persistence barrier is bounded at 750 ms instead of ten seconds.
+- A busy ledger returns its latest durable snapshot as a successful export
+  source, marked `committed_boundary` and diagnostically incomplete when writes
+  are still queued.
+- The results page no longer discards that coherent snapshot or asks the user
+  to repeat an export that may encounter the same continuously active queue.
+
+## 2.81.220 — Telemetry export avoids unnecessary full-container work
+
+- The checked digest path now scans canonical events once and downloads without
+  constructing or hashing all seven embedded preset reports.
+- Unchecked full JSON preserves the complete schema while replacing repeated
+  event scans and whole-container clones with indexed lookup and direct hashing.
+- The UI yields before full report construction and reports the event count so
+  the busy state is painted instead of appearing frozen.
+
+## 2.81.219 — Truncated HTML cannot hide the committed answer tail
+
+- Rich answer HTML is treated as a projection, while the committed text remains
+  authoritative for completeness.
+- A materially shorter HTML projection with the same answer beginning falls
+  back to the full text rendering across live, debate, revision, and recovery
+  surfaces.
+- The regression reproduces the Gemini 6198-to-6046 render loss observed in run
+  `1785611627407` and requires the final tail to remain visible.
+
+## 2.81.218 — Results reload no longer discards persisted answers
+
+- Results-page registration now reconciles the answer-bearing background
+  snapshot even after a page reload.
+- The old DOM is still cleared before hydration; only a confirmed extension
+  runtime reset suppresses restoration.
+- Regression coverage locks the distinction between page reload and runtime
+  reset.
+
+## 2.81.196 — Perplexity single-flight and live Send control
+
+- Field result on 2.81.195: Le Chat submitted quickly; Perplexity inserted the
+  prompt twice and did not submit.
+- Perplexity had no per-tab in-flight guard. Because `GET_ANSWER` is acknowledged
+  before asynchronous provider work completes, retry supervisor could start a
+  second composer transaction before the first emitted `PROMPT_SUBMITTED`.
+- Added a tested dispatch gate: the same active prompt is acknowledged as a
+  suppressed duplicate, a different concurrent prompt is rejected as busy, and
+  the gate reopens only when the owning transaction finishes.
+- Read-only live DOM inspection confirmed the current page uses Lexical
+  `#ask-input`, outside form/search ownership, and exposes a unique localized
+  `aria-label="Отправить"` button only after React commits the draft.
+- Native Send-control click is now primary; native Enter is fallback. The fixed
+  two-second pre-send delay was removed. Le Chat code was not changed.
+
+## 2.81.195 — Make the 2.81.75 Le Chat/Perplexity dispatch path executable
+
+- 2.81.194 restored the donor RPC calls but not the donor's `debugger`
+  permission. At runtime `chrome.debugger` was unavailable, so every trusted
+  action failed before attach and the adapters fell back to their old slow
+  synthetic paths. This is why the field behaviour did not change.
+- The permission is restored, but a router allowlist enables only Le Chat and
+  Perplexity trusted Send plus Perplexity trusted Enter. Grok trusted input,
+  native input RPCs and all CDP attachment RPCs stay fail-closed, preserving the
+  behaviour of unrelated providers.
+- A completed native browser gesture is recorded as
+  `trusted_browser_dispatch` evidence. Composer clearing, shrinking, disabled
+  controls and pre-existing busy nodes remain insufficient, avoiding the false
+  success regression fixed in 2.81.111/2.81.117.
+- The slow page click/form/synthetic keyboard chains were removed from these two
+  submission transactions. A trusted failure now fails promptly instead of
+  consuming the useful session window.
+- With New pages disabled, provider-specific reuse runs before the generic
+  draft/modal probe and can recover the newest matching tab when session cleanup
+  already cleared the persisted mapping.
+- Added executable CDP dispatch tests and a runtime-style cleared-mapping reuse
+  test in addition to source-contract coverage.
 
 ## 2.81.123 — Perplexity insertion no longer trusts execCommand
 

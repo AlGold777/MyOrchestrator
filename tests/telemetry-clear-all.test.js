@@ -14,7 +14,9 @@ describe('telemetry clear-all control', () => {
   test('trash button exists right after the JSON export, in the telemetry actions', () => {
     const actionsIdx = HTML_SRC.indexOf('class="telemetry-actions"');
     expect(actionsIdx).toBeGreaterThan(-1);
-    const block = HTML_SRC.slice(actionsIdx, actionsIdx + 800);
+    // Slice to the end of the actions container rather than a fixed width, so
+    // adding a control to the toolbar cannot push a later button out of view.
+    const block = HTML_SRC.slice(actionsIdx, HTML_SRC.indexOf('</div>', actionsIdx));
     // order: Json export button then the clear-all trash button
     const jsonIdx = block.indexOf('id="telemetry-export-json-btn"');
     const clearIdx = block.indexOf('id="telemetry-clear-all-btn"');

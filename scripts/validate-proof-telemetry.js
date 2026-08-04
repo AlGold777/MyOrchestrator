@@ -56,6 +56,7 @@ function privacyViolations(value, currentPath = '$', violations = []) {
   Object.entries(value).forEach(([key, child]) => {
     const normalized = key.toLowerCase();
     const safeMetric = ProofTelemetry.REPORT_TYPES.includes(key)
+      || ProofTelemetry.CANONICAL_EVENT_TYPES.includes(key)
       || key.split('|').every((part) => ProofTelemetry.REPORT_TYPES.includes(part))
       || /(hash|length|len|count|id|status|state|reason|source|mode|tier|version|type|ref|exported|policy|report|preset|task)/.test(normalized);
     if (!safeMetric && /(prompt|answertext|html|token|cookie|secret|credential|authorization|api.?key|rawdom|fulltext)/.test(normalized)) {
@@ -135,6 +136,8 @@ async function validateContainer(container, { verifyContainerHash = true } = {})
     const recordedApplicabilityByIncident = report?.reportDescriptor?.applicability?.byIncident || {};
     const recomputedApplicabilityByIncident = {};
     Object.entries(container?.derivedViews?.['incident-timeline']?.data || {}).forEach(([incidentId, incident]) => {
+      ProofTelemetry.validateStateAxesProvenance(incident.stateAxes, incident.stateAxesProvenance, events, incident.incidentScope)
+        .forEach((violation) => addError(violation.invariantId, violation.message, violation));
       const recomputed = ProofTelemetry.evaluateApplicability(reportType, { stateAxes: incident.stateAxes, derivedViews: incident });
       const scope = { scope: incident.incidentScope };
       const evidence = Incidents.resolveEvidenceSlots(events, scope, reportType, { stateAxes: incident.stateAxes, derivedViews: incident });
@@ -193,13 +196,40 @@ async function validateContainer(container, { verifyContainerHash = true } = {})
   const recordedDecisionHash = await ProofTelemetry.sha256(replay.recordedDecisions);
   const recomputedDecisionHash = await ProofTelemetry.sha256(replay.recomputedDecisions);
   if (recordedDecisionHash !== recomputedDecisionHash) addError('REPLAY_MISMATCH', 'recorded and recomputed decisions differ');
-  if (container?.exportAudit?.replay?.recordedDecisionHash !== recordedDecisionHash) addError('REPLAY_HASH', 'recorded decision hash is stale');
-  if (container?.exportAudit?.replay?.recomputedDecisionHash !== recomputedDecisionHash) addError('REPLAY_HASH', 'recomputed decision hash is stale');
+  if (container?.exportAudit?.replay?.recordedDecisionHash !== null
+    && container?.exportAudit?.replay?.recordedDecisionHash !== recordedDecisionHash) addError('REPLAY_HASH', 'recorded decision hash is stale');
+  if (container?.exportAudit?.replay?.recomputedDecisionHash !== null
+    && container?.exportAudit?.replay?.recomputedDecisionHash !== recomputedDecisionHash) addError('REPLAY_HASH', 'recomputed decision hash is stale');
 
   const boundary = container?.exportAudit?.exportBoundary?.ledgerCompleteThroughSeq;
   if (Number(boundary || 0) !== Number(container?.ledger?.lastSeq || 0)) addError('EXPORT_BOUNDARY', 'ledger boundary differs from lastSeq');
   if (Number(container?.crossReportCompatibility?.exactMatch?.ledgerCompleteThroughSeq || 0) !== Number(boundary || 0)) addError('COMPATIBILITY_BOUNDARY', 'cross-report boundary mismatch');
   if (container?.crossReportCompatibility?.exactMatch?.ledgerHash !== container?.ledger?.ledgerHash) addError('COMPATIBILITY_HASH', 'cross-report ledger hash mismatch');
+
+  const completeness = container?.exportAudit?.completeness || {};
+  const expectedModels = Array.isArray(completeness.expectedModels) ? completeness.expectedModels : [];
+  const terminalModels = Array.isArray(completeness.terminalModels) ? completeness.terminalModels : [];
+  const expectedTerminal = new Set(terminalModels);
+  const expectedPending = expectedModels.filter((modelId) => !expectedTerminal.has(modelId)).sort();
+  if (JSON.stringify((completeness.pendingModels || []).slice().sort()) !== JSON.stringify(expectedPending)) {
+    addError('RUN_COMPLETENESS', 'pendingModels differs from expectedModels minus terminalModels');
+  }
+  if (completeness.exportedDuringActiveRun !== (completeness.runCompleteness === 'active')) {
+    addError('RUN_COMPLETENESS', 'exportedDuringActiveRun disagrees with runCompleteness');
+  }
+  const snapshot = container?.manifest?.sourceSnapshot || {};
+  const dirtySnapshot = snapshot.barrierTimedOut === true
+    || Number(snapshot.queuedMutationCount || 0) > 0
+    || Number(snapshot.pendingRecordCount || 0) > 0;
+  const expectedSnapshotCompleteness = dirtySnapshot
+    ? 'incomplete'
+    : (snapshot.consistency === 'queue_drained'
+      ? 'queue_drained'
+      : (snapshot.consistency === 'committed_boundary' ? 'committed_boundary' : 'incomplete'));
+  if (completeness.snapshotCompleteness !== expectedSnapshotCompleteness
+    || snapshot.snapshotCompleteness !== expectedSnapshotCompleteness) {
+    addError('SNAPSHOT_COMPLETENESS', 'snapshot completeness disagrees with the recorded boundary');
+  }
 
   const measuredBytes = byteLength(container);
   if (Number(container?.exportAudit?.budget?.measuredBytes || 0) !== measuredBytes) addError('SIZE_MISMATCH', 'recorded measuredBytes differs from serialized size');
@@ -253,6 +283,8 @@ async function validateStandaloneReport(report) {
     if (!Array.isArray(event.includedFor) || event.includedFor.length === 0) addError('INCLUDED_FOR_MISSING', `event ${event.eventId} has no inclusion reason`);
   });
   const correlation = report?.correlation || {};
+  ProofTelemetry.validateStateAxesProvenance(report.stateAxes, report.stateAxesProvenance, events, correlation)
+    .forEach((violation) => addError(violation.invariantId, violation.message));
   events.filter((event) => event.modelId !== 'SYSTEM').forEach((event) => {
     const eventIncidentId = `incident:${Incidents.scopeKey(Incidents.scopeOf(event))}`;
     const inPriorLane = correlation.priorIncidentRef && eventIncidentId === correlation.priorIncidentRef;
@@ -282,6 +314,9 @@ async function validateStandaloneReport(report) {
   }
   if (ProofTelemetry.stableStringify(recordedView?.stateAxes || {}) !== ProofTelemetry.stableStringify(report.stateAxes || {})) {
     addError('REPLAY_MISMATCH', 'recorded full-incident axes differ from report state axes');
+  }
+  if (ProofTelemetry.stableStringify(recordedView?.stateAxesProvenance || {}) !== ProofTelemetry.stableStringify(report.stateAxesProvenance || {})) {
+    addError('REPLAY_MISMATCH', 'recorded full-incident axis provenance differs from report provenance');
   }
   const compatibility = declaredRegistryCompatibility;
   const registrySnapshot = ProofTelemetry.dependencyRegistrySnapshot();
@@ -351,7 +386,7 @@ async function validateStandaloneReport(report) {
       if (copy.clock) delete copy.clock.ingestMonoMs;
       return copy;
     });
-    const reconstructedFullHash = await ProofTelemetry.sha256({ incident: Incidents.scopeOf(correlation), events: fullProjection, axes: report.stateAxes });
+    const reconstructedFullHash = await ProofTelemetry.sha256({ incident: Incidents.scopeOf(correlation), events: fullProjection, axes: report.stateAxes, axesProvenance: report.stateAxesProvenance });
     if (Number(report?.exportIntegrity?.fullIncidentEventCount) !== fullProjection.length
       || report?.exportIntegrity?.fullIncidentSemanticHash !== reconstructedFullHash) {
       addError('FULL_INCIDENT_HASH_MISMATCH', 'full incident fallback does not match its semantic commitment');
@@ -369,7 +404,7 @@ async function validateStandaloneReport(report) {
     modelId: correlation.modelId,
     dispatchId: correlation.dispatchId,
     generationEpoch: correlation.generationEpoch
-  }, task: report?.reportDescriptor?.reportType, events: semanticEvents, axes: report.stateAxes });
+  }, task: report?.reportDescriptor?.reportType, events: semanticEvents, axes: report.stateAxes, axesProvenance: report.stateAxesProvenance });
   if (report?.exportIntegrity?.semanticHash !== semanticHash || report?.exportIntegrity?.hashes?.semantic !== semanticHash) {
     addError('SEMANTIC_HASH_MISMATCH', 'semantic hash mismatch');
   }
@@ -415,10 +450,92 @@ async function optimizeRepresentation(report, { transportLimitBytes = null, exte
   return optimized;
 }
 
+async function validateCanonicalEvidence(artifact, { verifyArtifactHash = true } = {}) {
+  const errors = [];
+  const warnings = [];
+  const addError = (code, message) => errors.push({ code, message });
+  if (!artifact || typeof artifact !== 'object') return { valid: false, errors: [{ code: 'CANONICAL_INVALID', message: 'artifact must be an object' }], warnings };
+  schemaErrors('canonical-evidence.schema.json', artifact).forEach((error) => addError(error.code, error.message));
+  if (artifact.containerType !== 'canonical-evidence') addError('CONTAINER_TYPE', 'containerType must equal canonical-evidence');
+  if (Object.prototype.hasOwnProperty.call(artifact, 'reports')) addError('PRECOMPUTED_REPORTS', 'canonical evidence must not contain reports');
+  if (Object.prototype.hasOwnProperty.call(artifact, 'derivedViews')) addError('DERIVED_VIEWS', 'canonical evidence must not contain full derivedViews');
+  const events = Array.isArray(artifact?.ledger?.events) ? artifact.ledger.events : [];
+  events.forEach((event) => schemaErrors('telemetry-event-v6.schema.json', event).forEach((error) => addError(error.code, error.message)));
+  ProofTelemetry.validateLedger(events).forEach((violation) => addError(violation.invariantId, violation.message));
+  const ledgerHash = await ProofTelemetry.sha256(events);
+  if (artifact?.ledger?.ledgerHash !== ledgerHash || artifact?.integrity?.hashes?.ledger !== ledgerHash) addError('HASH_MISMATCH', 'ledger hash mismatch');
+  if (Number(artifact?.ledger?.eventCount || 0) !== events.length) addError('LEDGER_COUNT', 'ledger eventCount mismatch');
+  const lastSeq = events[events.length - 1]?.seq || 0;
+  if (Number(artifact?.ledger?.lastSeq || 0) !== Number(lastSeq)
+    || Number(artifact?.sourceSnapshot?.ledgerCompleteThroughSeq || 0) !== Number(lastSeq)) addError('EXPORT_BOUNDARY', 'source snapshot boundary differs from ledger lastSeq');
+  const registryHash = await ProofTelemetry.sha256(artifact?.dependencyRegistry || {});
+  if (artifact?.integrity?.hashes?.registry !== registryHash) addError('HASH_MISMATCH', 'registry hash mismatch');
+  const currentRegistryHash = await ProofTelemetry.sha256(ProofTelemetry.dependencyRegistrySnapshot());
+  if (artifact?.sharedConfig?.generatorVersion !== ProofTelemetry.GENERATOR_VERSION
+    || artifact?.sharedConfig?.reportVersion !== ProofTelemetry.REPORT_VERSION
+    || registryHash !== currentRegistryHash) {
+    addError('REPRODUCTION_UNSUPPORTED', 'generator, report, or dependency registry is not supported for exact reproduction');
+  }
+  const guidanceCore = {
+    kind: artifact?.readerGuidance?.kind,
+    version: artifact?.readerGuidance?.version,
+    trustedSource: artifact?.readerGuidance?.trustedSource,
+    instructions: artifact?.readerGuidance?.instructions
+  };
+  const guidanceHash = await ProofTelemetry.sha256(guidanceCore);
+  if (artifact?.readerGuidance?.version !== ProofTelemetry.READER_GUIDANCE_VERSION
+    || ProofTelemetry.stableStringify(artifact?.readerGuidance?.instructions) !== ProofTelemetry.stableStringify(ProofTelemetry.TRUSTED_READER_GUIDANCE)
+    || artifact?.readerGuidance?.trustedSource !== 'versioned-code-constant'
+    || artifact?.readerGuidance?.hash !== guidanceHash
+    || artifact?.integrity?.hashes?.readerGuidance !== guidanceHash) {
+    addError('UNTRUSTED_READER_GUIDANCE', 'readerGuidance is not the trusted versioned code constant');
+  }
+  const incidents = artifact?.incidentIndex?.incidents || {};
+  const indexed = Incidents.indexIncidents(events);
+  if (Number(artifact?.incidentIndex?.incidentCount || 0) !== indexed.length
+    || Object.keys(incidents).length !== indexed.length) addError('INCIDENT_INDEX_COUNT', 'incident index count mismatch');
+  indexed.forEach((incident) => {
+    const recorded = incidents[incident.incidentId];
+    if (!recorded) {
+      addError('INCIDENT_INDEX_MISSING', `missing incident ${incident.incidentId}`);
+      return;
+    }
+    const scoped = events.filter((event) => Incidents.exactScope(event, incident.scope));
+    const recomputed = ProofTelemetry.deriveAxisState(scoped);
+    if (ProofTelemetry.stableStringify(recorded.stateAxes) !== ProofTelemetry.stableStringify(recomputed.stateAxes)
+      || ProofTelemetry.stableStringify(recorded.stateAxesProvenance) !== ProofTelemetry.stableStringify(recomputed.stateAxesProvenance)) {
+      addError('INCIDENT_INDEX_MISMATCH', `state index mismatch for ${incident.incidentId}`);
+    }
+    ProofTelemetry.validateStateAxesProvenance(recorded.stateAxes, recorded.stateAxesProvenance, events, incident.scope)
+      .forEach((violation) => addError(violation.invariantId, violation.message));
+    if (Number(recorded.firstSeq || 0) !== Number(scoped[0]?.seq || 0)
+      || Number(recorded.lastSeq || 0) !== Number(scoped[scoped.length - 1]?.seq || 0)
+      || Number(recorded.eventCount || 0) !== scoped.length) addError('INCIDENT_BOUNDARY', `incident boundary mismatch for ${incident.incidentId}`);
+  });
+  const attachmentsHash = await ProofTelemetry.sha256(artifact?.attachments || {});
+  if (artifact?.integrity?.hashes?.attachments !== attachmentsHash) addError('HASH_MISMATCH', 'attachments hash mismatch');
+  if (verifyArtifactHash) {
+    const hashInput = JSON.parse(JSON.stringify(artifact));
+    delete hashInput.integrity.hashes.artifact;
+    const artifactHash = await ProofTelemetry.sha256(hashInput);
+    if (artifact?.integrity?.hashes?.artifact !== artifactHash) addError('HASH_MISMATCH', 'artifact hash mismatch');
+  }
+  if (Number(artifact?.integrity?.size?.measuredBytes || 0) !== byteLength(artifact)) addError('SIZE_MISMATCH', 'recorded measuredBytes differs from serialized size');
+  privacyViolations(artifact).forEach((violation) => addError(violation.code, `forbidden privacy key at ${violation.path}`));
+  return {
+    valid: errors.length === 0,
+    errors,
+    warnings,
+    reproductionMode: errors.some((error) => error.code === 'REPRODUCTION_UNSUPPORTED') ? 'unsupported' : 'exact-reproduction',
+    readerGuidanceTrusted: verifyArtifactHash
+      && !errors.some((error) => ['UNTRUSTED_READER_GUIDANCE', 'HASH_MISMATCH'].includes(error.code))
+  };
+}
+
 async function validateArtifact(artifact, options = {}) {
-  return artifact?.fileKind === 'diagnostic-report'
-    ? validateStandaloneReport(artifact, options)
-    : validateContainer(artifact, options);
+  if (artifact?.fileKind === 'diagnostic-report') return validateStandaloneReport(artifact, options);
+  if (artifact?.containerType === 'canonical-evidence') return validateCanonicalEvidence(artifact, options);
+  return validateContainer(artifact, options);
 }
 
 async function main(argv = process.argv.slice(2)) {
@@ -435,7 +552,7 @@ async function main(argv = process.argv.slice(2)) {
   if (!result.valid) process.exitCode = 1;
 }
 
-module.exports = { validateContainer, validateStandaloneReport, validateArtifact, reconstructAtSeq, privacyViolations, semanticInvariantViolations, optimizeRepresentation, registryCompatibility };
+module.exports = { validateContainer, validateStandaloneReport, validateCanonicalEvidence, validateArtifact, reconstructAtSeq, privacyViolations, semanticInvariantViolations, optimizeRepresentation, registryCompatibility };
 if (require.main === module) main().catch((error) => {
   console.error(error?.stack || error);
   process.exitCode = 1;

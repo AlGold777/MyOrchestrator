@@ -223,8 +223,39 @@ async function checkScriptHealth(tabId, llmName, { silent = false } = {}) {
 
 const READY_WAIT_TIMEOUT_MS = TimingConfig.getTiming('readyAckTimeoutMs', 8000);
 
+function requestFreshScriptReady(tabId, llmName) {
+  try {
+    chrome.tabs.sendMessage(tabId, {
+      type: 'REQUEST_SCRIPT_READY',
+      llmName,
+      reason: 'dispatch_handshake_recovery'
+    }, () => {
+      // The request is a wake-up signal. SCRIPT_READY arrives through the
+      // runtime channel, so this callback intentionally ignores the body.
+      void chrome.runtime.lastError;
+    });
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 async function waitForScriptReady(tabId, llmName, { timeoutMs = READY_WAIT_TIMEOUT_MS, intervalMs = 250 } = {}) {
   if (self.ReadySignalManager?.waitForReady) {
+    // MV3 can restart the service worker while an old provider page remains
+    // fully alive. In that case the in-memory handshake maps are empty, but the
+    // page has already stopped its finite SCRIPT_READY retry loop. Ask that page
+    // to replay the same tab-session handshake instead of spending the entire
+    // ACK timeout before reloading it.
+    const handshakeCurrent = self.ReadySignalManager.hasCorrelatedHandshake?.(tabId) === true;
+    if (!handshakeCurrent) {
+      const requested = requestFreshScriptReady(tabId, llmName);
+      emitTelemetry(llmName, 'READY_REANNOUNCE_REQUESTED', {
+        details: requested ? 'requested' : 'send_failed',
+        level: requested ? 'info' : 'warning',
+        meta: { tabId, requested, reason: 'handshake_not_correlated' }
+      });
+    }
     let info = null;
     try {
       info = await self.ReadySignalManager.waitForReady(tabId, timeoutMs);
@@ -340,6 +371,7 @@ self.runHealthChecks = runHealthChecks;
 self.startHeartbeatMonitor = startHeartbeatMonitor;
 self.stopHeartbeatMonitor = stopHeartbeatMonitor;
 self.checkScriptHealth = checkScriptHealth;
+self.requestFreshScriptReady = requestFreshScriptReady;
 self.waitForScriptReady = waitForScriptReady;
 self.reinjectScript = reinjectScript;
 self.prepareTabForUse = prepareTabForUse;

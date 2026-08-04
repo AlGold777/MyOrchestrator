@@ -417,7 +417,7 @@
     chrome.runtime.sendMessage({
       type: 'LLM_RESPONSE',
       llmName: MODEL,
-      answer: 'Error: Rate limit detected. Please wait.',
+      answer: '',
       error: { 
         type: 'rate_limit', 
         message: `HTTP 429 detected. Suggested wait time: ${waitTime}ms`,
@@ -1864,8 +1864,9 @@
     chrome.runtime.sendMessage({
       type: 'LLM_RESPONSE',
       llmName: MODEL,
-      answer: ok ? text : `Error: ${text}`,
+      answer: ok ? text : '',
       answerHtml: ok ? html : '',
+      error: ok ? null : { type: 'generic_error', message: text },
       meta: meta || null
     });
   }
@@ -1992,6 +1993,14 @@
     const dispatchMeta = window.ContentUtils?.ensureDispatchMeta
       ? window.ContentUtils.ensureDispatchMeta(meta, MODEL)
       : (meta && typeof meta === 'object' ? meta : null);
+    const stageStartedAt = Date.now();
+    const reportStage = (stage, outcome = {}) => window.ContentUtils?.reportDispatchStage?.(
+      MODEL,
+      dispatchMeta,
+      stage,
+      { ...outcome, elapsedMs: Date.now() - stageStartedAt }
+    );
+    reportStage('composer_transaction_started');
     return runLifecycle('grok:inject', buildLifecycleContext(prompt), async (activity) => {
       const opId = metricsCollector.startOperation('injectAndGetResponse');
       const startTime = Date.now();
@@ -2013,9 +2022,11 @@
         responseDelivered = true;
         if (payload.html) lastResponseHtml = payload.html;
         if (text) lastResponseCache = text;
-        // This is the primary automatic delivery path. Keep the dispatch
-        // identity that was captured for this request; otherwise the background
-        // correlation gate correctly rejects a generated answer as unrelated.
+        // Field evidence 2026-08-01: this delivery carried no dispatch meta, so
+        // the background's lifecycle correlation rejected the answer with
+        // LLM_RESPONSE:dispatch_mismatch and a null incoming dispatchId — the
+        // answer existed and was simply thrown away. Every other Grok delivery
+        // path already passes it; this one, the main one, did not.
         sendResult(payload, true, dispatchMeta);
         activity.stop({ status: 'success', answerLength: text.length, source });
         return true;
@@ -2052,6 +2063,10 @@
         });
         }
         activity.heartbeat(0.3, { phase: 'composer-ready' });
+        reportStage('composer_ready', {
+          composerConnected: composer?.isConnected === true,
+          composerVisible: isElementInteractable(composer)
+        });
 
         if (Array.isArray(attachments) && attachments.length) {
           let attachmentsOk = false;
@@ -2120,6 +2135,7 @@
         // черновику в уже открытой беседе (источник «непонятно откуда взявшегося» текста).
         await clearComposer(composer);
 
+        reportStage('prompt_insertion_started');
         // Page-owned input first, then a second clean editor transaction.
         let pasteOk = await grokClipboardPaste(composer, prompt);
         let insertMethod = pasteOk ? 'page_input_events' : null;
@@ -2206,9 +2222,18 @@
           await window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, baselineSnapshot.text || '');
         } catch (_) {}
         const committedComposer = await waitForGrokComposerCommit(composer, prompt, 5000, 250);
+        window.ContentUtils?.reportPromptInsertion?.(MODEL, dispatchMeta, {
+          state: committedComposer ? 'inserted' : 'failed',
+          method: committedComposer ? 'composer_commit_window' : null,
+          reason: committedComposer ? null : 'composer_not_stable_for_commit_window',
+          promptLength: String(prompt || '').length,
+          composerLength: readComposerValue(committedComposer || composer).length
+        });
         if (!committedComposer) {
+          reportStage('prompt_insertion_failed', { outcome: 'failed', reason: 'composer_commit_timeout' });
           throw { type: 'injection_failed', message: 'Grok composer did not remain stable for the 5-second commit window.' };
         }
+        reportStage('prompt_inserted', { outcome: 'confirmed', composerConnected: true });
         composer = committedComposer;
         const userMessageBaseline = grabLatestGrokUserMessage();
 
@@ -2245,6 +2270,7 @@
 
         let sendMethod = 'button';
         let dispatchSuccess = false;
+        reportStage('send_action_requested');
         if (sendBtn && !sendBtn.disabled) {
           emitDiagnostic({
             type: 'SELECTOR',
@@ -2309,6 +2335,7 @@
         }
 
         if (!dispatchSuccess) {
+          reportStage('send_action_failed', { outcome: 'failed', reason: sendMethod });
           emitDiagnostic({
             type: 'SEND',
             label: `Submission not confirmed (${sendMethod})`,
@@ -2316,15 +2343,6 @@
           });
           throw { type: 'send_failed', message: `Grok submission was not confirmed (${sendMethod}).` };
         }
-
-        const earlySubmissionMeta = Object.assign({}, dispatchMeta || {}, {
-          confirmed: true,
-          method: sendMethod,
-          payloadVerified: false,
-          promptTurnVerified: false,
-          submitConfirmationSource: 'dispatch_success'
-        });
-        try { chrome.runtime.sendMessage({ type: 'PROMPT_SUBMITTED', llmName: MODEL, ts: Date.now(), meta: earlySubmissionMeta }); } catch (_) {}
 
         const submittedPrompt = await waitForGrokSubmittedPrompt(prompt, userMessageBaseline, 10000, 200);
         if (!submittedPrompt.observed || !submittedPrompt.matches) {
@@ -2358,6 +2376,7 @@
         }
 
         console.log(`[content-grok] Prompt dispatched via ${sendMethod} and verified in the posted user turn`);
+        reportStage('send_action_completed', { outcome: 'confirmed', reason: sendMethod });
         emitDiagnostic({
           type: 'SEND',
           label: 'GROK_SENT_PROMPT_CONFIRMED',
@@ -2367,6 +2386,8 @@
         activity.heartbeat(0.6, { phase: 'send-dispatched' });
         const submissionMeta = Object.assign({}, dispatchMeta || {}, { confirmed: true, method: sendMethod, payloadVerified: true, promptTurnVerified: true });
         try { chrome.runtime.sendMessage({ type: 'PROMPT_SUBMITTED', llmName: MODEL, ts: Date.now(), meta: submissionMeta }); } catch (_) {}
+        window.ContentUtils?.reportProviderPipelineState?.(MODEL, dispatchMeta, 'composer', false);
+        window.ContentUtils?.reportProviderPipelineState?.(MODEL, dispatchMeta, 'answer_collection', true);
 
         activity.heartbeat(0.65, { phase: 'waiting-response' });
         const responsePayload = await withSmartScroll(async () => {
@@ -2554,6 +2575,53 @@
   }
 
   // -------------------- Message bus --------------------
+  let grokSendOnlyRecoveryActive = false;
+  async function recoverGrokSendOnly(prompt, meta) {
+    if (grokSendOnlyRecoveryActive) return { ok: false, status: 'recovery_busy', reason: 'send_only_recovery_active' };
+    const composer = discoverComposer();
+    const expected = normalizeForComparison(prompt);
+    const actual = normalizeForComparison(readComposerValue(composer));
+    if (!composer?.isConnected || !isElementInteractable(composer) || !expected || actual !== expected) {
+      return { ok: false, status: 'send_only_rejected', reason: 'visible_composer_prompt_mismatch' };
+    }
+    grokSendOnlyRecoveryActive = true;
+    const startedAt = Date.now();
+    const reportStage = (stage, outcome = {}) => window.ContentUtils?.reportDispatchStage?.(
+      MODEL, meta, stage, { ...outcome, elapsedMs: Date.now() - startedAt }
+    );
+    reportStage('send_only_recovery_started', { composerVisible: true, composerConnected: true });
+    try {
+      const baseline = grabLatestGrokUserMessage();
+      let method = 'button';
+      let button = await fallbackFindSendButton(composer, 1200);
+      let dispatched = Boolean(button && !button.disabled) && await attemptSendViaButton(button, composer);
+      if (!dispatched && normalizeForComparison(readComposerValue(composer)) === expected) {
+        method = 'ctrl_enter';
+        dispatched = await attemptSendViaCtrlEnter(composer);
+      }
+      if (!dispatched) {
+        reportStage('send_only_recovery_failed', { outcome: 'failed', reason: method });
+        return { ok: false, status: 'send_only_failed', reason: 'send_not_observed' };
+      }
+      const submitted = await waitForGrokSubmittedPrompt(prompt, baseline, 6000, 160);
+      if (!submitted.observed || !submitted.matches) {
+        reportStage('send_only_recovery_failed', { outcome: 'failed', reason: 'posted_prompt_unverified' });
+        return { ok: false, status: 'send_only_failed', reason: 'posted_prompt_unverified' };
+      }
+      const submissionMeta = Object.assign({}, meta || {}, {
+        confirmed: true,
+        method: `send_only_${method}`,
+        payloadVerified: true,
+        promptTurnVerified: true
+      });
+      reportStage('send_only_recovery_completed', { outcome: 'confirmed', reason: method });
+      chrome.runtime.sendMessage({ type: 'PROMPT_SUBMITTED', llmName: MODEL, ts: Date.now(), meta: submissionMeta });
+      return { ok: true, status: 'send_only_confirmed', method };
+    } finally {
+      grokSendOnlyRecoveryActive = false;
+    }
+  }
+
   const onRuntimeMessage = (msg, _sender, sendResponse) => {
     try {
       if (!msg) return false;
@@ -2576,6 +2644,13 @@
       
       if (msg?.type === 'HEALTH_CHECK_PING') {
         sendResponse({ type: 'HEALTH_CHECK_PONG', pingId: msg.pingId, llmName: MODEL });
+        return true;
+      }
+
+      if (msg?.type === 'RECOVER_PROVIDER_SEND') {
+        recoverGrokSendOnly(String(msg.prompt || ''), msg.meta || null)
+          .then(sendResponse)
+          .catch((error) => sendResponse({ ok: false, status: 'send_only_failed', reason: error?.message || 'unknown_error' }));
         return true;
       }
 
@@ -2651,13 +2726,36 @@
       }
 
       if (msg?.type === 'GET_ANSWER' || msg?.type === 'GET_FINAL_ANSWER') {
+        const acceptedMeta = window.ContentUtils?.ensureDispatchMeta
+          ? window.ContentUtils.ensureDispatchMeta(msg.meta || null, MODEL)
+          : (msg.meta || null);
+        if (!String(msg.prompt || '').trim()) {
+          sendResponse?.({
+            ok: false,
+            accepted: false,
+            status: 'rejected',
+            reason: 'empty_prompt',
+            dispatchId: acceptedMeta?.dispatchId || null
+          });
+          return false;
+        }
+        // Acknowledge command ownership immediately. The background keeps this
+        // tab focused separately until PROMPT_SUBMITTED or its bounded submit
+        // timeout; the message port must not remain open through generation.
+        sendResponse?.({
+          ok: true,
+          accepted: true,
+          status: 'accepted',
+          dispatchId: acceptedMeta?.dispatchId || null,
+          tabSessionId: acceptedMeta?.tabSessionId || null
+        });
         const releaseActive = () => window.ContentUtils?.stopActiveRequest?.();
         window.ContentUtils?.startActiveRequest?.();
+        window.ContentUtils?.reportProviderPipelineState?.(MODEL, acceptedMeta || msg.meta || null, 'composer', true);
         injectAndGetResponse(msg.prompt, msg.attachments, msg.meta || null)
           .then((resp) => {
             if (msg.isFireAndForget) {
               console.log('[content-grok] Fire-and-forget request processed. Not sending response back.');
-              sendResponse?.({ status: 'success_fire_and_forget' });
               return;
             }
             const responseType = msg.type === 'GET_ANSWER' ? 'LLM_RESPONSE' : 'FINAL_LLM_RESPONSE';
@@ -2680,11 +2778,9 @@
                 ? Object.assign({}, msg.meta || {}, { responseMeta: payload.meta })
                 : (msg.meta || null)
             });
-            sendResponse?.({ status: 'success' });
           })
           .catch((err) => {
             if (err?.code === 'background-force-stop') {
-              sendResponse?.({ status: 'force_stopped' });
               return;
             }
             const errorMessage = err?.message || String(err) || 'Unknown error in content-grok';
@@ -2692,14 +2788,17 @@
             chrome.runtime.sendMessage({
               type: responseType,
               llmName: MODEL,
-              answer: `Error: ${errorMessage}`,
+              answer: '',
               error: { type: err?.type || 'generic_error', message: errorMessage },
               meta: msg.meta || null
             });
-            sendResponse?.({ status: 'error', message: errorMessage });
           })
-          .finally(releaseActive);
-        return true;
+          .finally(() => {
+            window.ContentUtils?.reportProviderPipelineState?.(MODEL, acceptedMeta || msg.meta || null, 'composer', false);
+            window.ContentUtils?.reportProviderPipelineState?.(MODEL, acceptedMeta || msg.meta || null, 'answer_collection', false);
+            releaseActive();
+          });
+        return false;
       }
 
       if (msg.action === 'injectPrompt' || msg.action === 'sendPrompt' || msg.action === 'REQUEST_LLM_RESPONSE') {

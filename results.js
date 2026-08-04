@@ -13940,6 +13940,29 @@ document.addEventListener('click', (event) => {
             finish(null);
         }
     });
+    const requestProofTelemetrySnapshotForMarkdown = (timeoutMs = EXPORT_SNAPSHOT_DEADLINE_MS) => new Promise((resolve) => {
+        const runtime = (typeof chrome !== 'undefined' && chrome?.runtime) ? chrome.runtime : null;
+        if (!runtime?.sendMessage) {
+            resolve(null);
+            return;
+        }
+        let settled = false;
+        const finish = (value) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            resolve(value);
+        };
+        const timer = setTimeout(() => finish(null), Math.max(0, timeoutMs));
+        try {
+            runtime.sendMessage({ type: 'GET_PROOF_TELEMETRY_SNAPSHOT', runSessionId: null }, (resp) => {
+                if (runtime.lastError) finish(null);
+                else finish(resp || null);
+            });
+        } catch (_) {
+            finish(null);
+        }
+    });
     const confirmIncompleteRunExport = (runOutcomeSummary) => {
         if (!runOutcomeSummary?.success || runOutcomeSummary.complete !== false) return true;
         const pending = (runOutcomeSummary.models || [])
@@ -13948,7 +13971,7 @@ document.addEventListener('click', (event) => {
             .join('\n');
         return window.confirm(`The run is not complete. The export will be marked incomplete.\n\n${pending}\n\nExport anyway?`);
     };
-    const buildAllLogsMarkdown = (telemetryEvents = [], sources = [], logs = {}, runOutcomeSummary = null) => {
+    const buildAllLogsMarkdown = (telemetryEvents = [], sources = [], logs = {}, runOutcomeSummary = null, proofShadow = null) => {
         const title = 'All Logs';
         const version = chrome?.runtime?.getManifest?.()?.version || 'unknown';
         const exportedAt = new Date().toLocaleString();
@@ -13965,13 +13988,14 @@ document.addEventListener('click', (event) => {
         const telemetryRoundsSection = buildTelemetryRoundsMarkdown(scopedTelemetryEvents);
         const runSummarySection = buildRunOutcomeSummaryMarkdown(runOutcomeSummary);
         const diagnosticsSection = buildDiagnosticsSectionMarkdown(scopedDiagnostics.sources, scopedDiagnostics.logs);
+        const proofSection = proofShadow?.markdown ? `\n${proofShadow.markdown}` : '';
         const runLine = runScope.runSessionId
             ? `Run session: ${runScope.runSessionId} (${runScope.strict ? 'current' : 'fallback'})`
             : (runScope.scopeMode === 'cycle'
                 ? 'Run session: n/a (cycle fallback)'
                 : 'Run session: n/a (no active run)');
         const profileLine = `Generation wait profile: **${lastGenerationWaitProfile === 'long' ? 'LONG' : 'STANDARD'}** — ${generationWaitProfileLabel(lastGenerationWaitProfile)}`;
-        const markdown = `# ${title}\nVersion: ${version}\nExported: ${exportedAt}\n${runLine}\n${profileLine}\n\n${telemetrySection}${telemetryRoundsSection}${runSummarySection}${diagnosticsSection}`;
+        const markdown = `# ${title}\nVersion: ${version}\nExported: ${exportedAt}\n${runLine}\n${profileLine}\n\n${telemetrySection}${telemetryRoundsSection}${runSummarySection}${diagnosticsSection}${proofSection}`;
         // Defense-in-depth: scrub any provider key/token shape before the
         // "All Logs" markdown leaves the extension (shared/secret-redaction.js).
         // This export is the historical leak surface that motivated the module.
@@ -14528,12 +14552,13 @@ document.addEventListener('click', (event) => {
         if (sourceFilter) {
             sources = sources.filter((name) => sourceFilter.has(String(name || '').trim().toLowerCase()));
         }
-        const [telemetryEvents, runOutcomeSummary] = await Promise.all([
+        const [telemetryEvents, runOutcomeSummary, proofSnapshot] = await Promise.all([
             getTelemetryEventsForExport(snapshotTs).catch((err) => {
                 console.warn('[Diagnostics] telemetry export failed', err);
                 return [];
             }),
-            requestRunOutcomeSummary(EXPORT_SNAPSHOT_DEADLINE_MS)
+            requestRunOutcomeSummary(EXPORT_SNAPSHOT_DEADLINE_MS),
+            requestProofTelemetrySnapshotForMarkdown(EXPORT_SNAPSHOT_DEADLINE_MS)
         ]);
         const telemetryBridge = getTelemetryBridge();
         const onlyTelemetryProblems = btn.id === 'export-all-logs-md-telemetry'
@@ -14546,12 +14571,24 @@ document.addEventListener('click', (event) => {
         }
         const hasLogs = sources.length > 0;
         const hasTelemetry = telemetryEvents.length > 0;
+        const hasProofTelemetry = Boolean(proofSnapshot?.events?.length);
         const hasRunSummary = Boolean(runOutcomeSummary?.success && runOutcomeSummary.models?.length);
-        if (!hasLogs && !hasTelemetry && !hasRunSummary) {
+        if (!hasLogs && !hasTelemetry && !hasProofTelemetry && !hasRunSummary) {
             flashButtonFeedback(btn, 'warn');
             return;
         }
-        const markdownContent = buildAllLogsMarkdown(telemetryEvents, sources, logsSnapshot, runOutcomeSummary);
+        const proofShadow = proofSnapshot?.events && window.ProofTelemetryPresentations?.buildShadowBundle
+            ? window.ProofTelemetryPresentations.buildShadowBundle(telemetryEvents, proofSnapshot.events, {
+                generatedAt: snapshotTs,
+                title: 'Canonical proof telemetry (shadow)',
+                snapshotBoundary: {
+                    runSessionId: proofSnapshot.runSessionId,
+                    ledgerCompleteThroughSeq: proofSnapshot.lastSeq || proofSnapshot.events[proofSnapshot.events.length - 1]?.seq || 0
+                }
+            })
+            : null;
+        if (proofShadow) window.__PROOF_TELEMETRY_MARKDOWN_SHADOW__ = proofShadow;
+        const markdownContent = buildAllLogsMarkdown(telemetryEvents, sources, logsSnapshot, runOutcomeSummary, proofShadow);
         if (!confirmIncompleteRunExport(runOutcomeSummary)) {
             flashButtonFeedback(btn, 'warn');
             return;
@@ -15627,7 +15664,7 @@ document.addEventListener('click', (event) => {
         const panelHasAnswer = !!outputElement && !!String(outputElement.textContent || '').trim();
         if (panelHasAnswer) return true;
         if (outputElement) {
-            const finalHtml = answerHtml || convertMarkdownToHTML(answerText);
+            const finalHtml = resolveCompleteAnswerHtml(answerText, answerHtml);
             replaceChildrenFromSanitizedHtml(outputElement, finalHtml);
             decorateLinksForNewTab(outputElement);
             outputElement.dataset.hash = String(finalHtml || '').length
@@ -15862,7 +15899,13 @@ document.addEventListener('click', (event) => {
         if (pageWasReloaded || response?.runtimeReset === true || !hasLiveSnapshot) {
             clearLiveResponseCards();
         }
-        syncStatusFromGlobalState(pageWasReloaded ? {} : (response?.state || {}), { replace: true });
+        // A page reload clears the old DOM, but the answer-bearing background
+        // snapshot is the recovery channel for messages missed during reload.
+        // Only a genuine extension-runtime reset invalidates that snapshot.
+        const reconciliationState = response?.runtimeReset === true
+            ? {}
+            : (response?.state || {});
+        syncStatusFromGlobalState(reconciliationState, { replace: true });
         if (response?.runtimeReset === true) {
             applyModelButtonSelection([]);
             void safeStorageLocalRemove([
@@ -16207,8 +16250,11 @@ document.addEventListener('click', (event) => {
                 case 'PROCESS_COMPLETE':
                     if (comparisonSpinner) comparisonSpinner.style.display = 'none';
                     const cleanedAnswer = sanitizeFinalAnswer(message.finalAnswer || '');
+                    const evaluationError = String(message.error?.message || '').trim();
                     pendingJudgeAnswer = cleanedAnswer;
-                    pendingJudgeHTML = cleanedAnswer
+                    pendingJudgeHTML = evaluationError
+                        ? `<p class="comparison-placeholder comparison-error">${escapeHtml(evaluationError)}</p>`
+                        : cleanedAnswer
                         ? convertMarkdownToHTML(cleanedAnswer)
                         : '<p class="comparison-placeholder">No evaluation response received.</p>';
                     if (comparisonOutput) {
@@ -16460,6 +16506,36 @@ document.addEventListener('click', (event) => {
         } catch (_) {}
     }
 
+    const normalizeRenderedAnswerText = (value = '') => String(value || '')
+        .normalize('NFKC')
+        .replace(/\u00a0/g, ' ')
+        .replace(/[\u200B-\u200D\u2060\uFEFF]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    function resolveCompleteAnswerHtml(answerText = '', answerHtml = '') {
+        const text = String(answerText || '').trim();
+        const sanitizedHtml = sanitizeInlineHtml(String(answerHtml || '').trim());
+        const textHtml = convertMarkdownToHTML(text);
+        if (!sanitizedHtml || !text) return sanitizedHtml || textHtml;
+
+        // The text payload is the committed answer. Rich HTML is only a
+        // projection of it and may have been captured from an incomplete DOM
+        // subtree. If that projection shares the answer's beginning but loses a
+        // material tail, render the authoritative text instead of a cut card.
+        const textProjection = normalizeRenderedAnswerText(plainTextFromHtml(textHtml));
+        const htmlProjection = normalizeRenderedAnswerText(plainTextFromHtml(sanitizedHtml));
+        const comparableHeadLength = Math.min(160, textProjection.length, htmlProjection.length);
+        const sameAnswerHead = comparableHeadLength >= 40
+            && textProjection.slice(0, comparableHeadLength) === htmlProjection.slice(0, comparableHeadLength);
+        const missingTailChars = textProjection.length - htmlProjection.length;
+        const htmlProjectionIsTruncated = textProjection.length >= 120
+            && sameAnswerHead
+            && missingTailChars >= 24
+            && htmlProjection.length < textProjection.length * 0.99;
+        return htmlProjectionIsTruncated ? textHtml : sanitizedHtml;
+    }
+
     function updateLLMPanelOutput(llmName, answer, answerHtml = '', meta = {}) {
         const panelId = llmName.toLowerCase().replace(/[^a-z0-9]+/g, '');
         const panel = document.getElementById(`panel-${panelId}`);
@@ -16478,7 +16554,8 @@ document.addEventListener('click', (event) => {
         const normalizedText = payload.text || '';
         const rawHtml = payload.html || '';
         const sanitizedHtml = sanitizeInlineHtml(rawHtml);
-        const resolvedHtml = sanitizedHtml || (looksLikeHtml(normalizedText) ? sanitizeInlineHtml(normalizedText) : '');
+        const richHtml = sanitizedHtml || (looksLikeHtml(normalizedText) ? sanitizeInlineHtml(normalizedText) : '');
+        const resolvedHtml = resolveCompleteAnswerHtml(normalizedText, richHtml);
         const debateUpdate = updateDebateModelCardOutput(llmName, normalizedText, resolvedHtml, meta);
         if (debateUpdate?.postTerminalRevision) return debateUpdate;
         if (panel) {
@@ -19369,8 +19446,7 @@ function checkCompareButtonState() {
     }
     function renderDebateResponseBody(outputEl, text = '', html = '') {
         if (!outputEl) return '';
-        const sanitizedHtml = sanitizeInlineHtml(String(html || '').trim());
-        const formattedHtml = sanitizedHtml || convertMarkdownToHTML(String(text || ''));
+        const formattedHtml = resolveCompleteAnswerHtml(text, html);
         replaceChildrenFromSanitizedHtml(outputEl, formattedHtml);
         decorateLinksForNewTab(outputEl);
         return String(outputEl.innerHTML || '').trim();

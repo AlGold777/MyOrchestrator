@@ -55,23 +55,550 @@
   `tests/model-selection-toolbar.test.js` фиксируют, что тулбар остаётся открытым
   после звезды, что вторая звезда снимает фрагмент, и что клик мимо скрывает его.
 
-### 2026-08-01 — Automatic recovery collects the latest answer, version 2.81.195
+### 2026-08-03 — Attribute the pre-send wait, version 2.81.262
 
-- Terminal extraction recovery now requests the latest provider answer instead
-  of retrying the same target that already returned empty text, prompt echo, or
-  UI noise.
-- Collection and acceptance share one metadata object, preventing a recovered
-  answer from being rejected at the lifecycle-correlation boundary.
-- Added regression coverage for the recovery strategy and identity plumbing.
+- `DISPATCH_SEND` now reports the phase split of the pre-send wait
+  (`tabReadyMs`, `ackWaitMs`, `noFocusProbeMs`) next to the total `readyWaitMs`.
+- The handshake-recovery request emits `READY_REANNOUNCE_REQUESTED`, so the
+  replay path is visible in evidence instead of being silent.
+- Tab and handshake diagnostics reach canonical exports: `TAB_DISCARDED_RELOAD`,
+  `TAB_READY_WAIT_END`, `READY_REANNOUNCE_REQUESTED` and `HANDSHAKE_TIMEOUT`
+  were previously dropped as debug events, which made a discarded-tab reload
+  indistinguishable from a lost handshake.
 
-### 2026-08-01 — Preserve answer delivery identity, version 2.81.194
+### 2026-08-03 — Immediate repeat dispatch on old pages, version 2.81.261
 
-- Grok's primary automatic answer path now includes the active `dispatchId`
-  instead of sending an uncorrelated payload that the background rejects.
-- DeepSeek now fills missing run and dispatch identity at its shared delivery
-  boundary, covering automatic recovery paths without overwriting explicit meta.
-- Added regression coverage for both delivery paths and the fill-only identity
-  contract.
+- Already-open provider pages can replay their document-scoped `SCRIPT_READY`
+  handshake when an MV3 service-worker restart has cleared background memory.
+- Repeat requests no longer consume the six-second ACK timeout and subsequent
+  recovery work before dispatch begins.
+- The replay preserves `tabSessionId`; cached correlated handshakes are reused
+  without an extra message.
+
+### 2026-08-02 — Full telemetry export moved off the UI thread, version 2.81.222
+
+- All-presets construction, hashing, redaction, and JSON serialization now run
+  in a dedicated extension worker instead of the results-page event loop.
+- The toolbar remains responsive and displays the current build/serialization
+  stage while the immutable snapshot is processed.
+- A 20-second hard boundary guarantees an artifact: if derived report building
+  fails, a recovery JSON containing every canonical event is downloaded.
+
+### 2026-08-02 — JSON export no longer waits for a quiet ledger, version 2.81.221
+
+- Full telemetry export waits at most 750 ms for the live persistence queue.
+- If observation continues, export proceeds from the latest durable committed
+  boundary instead of waiting ten seconds and requiring another click.
+- The exported audit records the committed-boundary consistency and outstanding
+  queue counts, so diagnostic limitations remain explicit rather than hidden.
+
+### 2026-08-01 — Telemetry export no longer builds unused reports, version 2.81.220
+
+- The default digest export is now generated directly from the canonical event
+  ledger instead of waiting for the complete all-presets JSON container first.
+- Full JSON remains lossless and is built only when selected or when digest
+  generation fails.
+- Full-container generation uses indexed event lookup, skips redundant deep
+  copies, and stops byte-budget serialization as soon as the value stabilizes.
+
+### 2026-08-01 — Complete text wins over truncated rich HTML, version 2.81.219
+
+- Results rendering now checks the visible-text projection of rich HTML against
+  the committed answer text. When the HTML shares the answer beginning but loses
+  a material tail, the card is rendered from the complete text payload.
+- The guard covers live panels, debate cards, post-terminal revisions, and
+  global-state recovery after a missed delivery message or page reload.
+- Regression coverage reproduces a long Gemini answer whose HTML projection is
+  missing its tail and verifies that both result surfaces retain the ending.
+
+Field evidence: run `1785611627407` committed 6198 normalized Gemini characters,
+while `panel-gemini` rendered 6046; the post-terminal audit marked that boundary
+as contradicted.
+
+### 2026-08-01 — Results reload preserves delivered answers, version 2.81.218
+
+- Reloading the results page still clears its old live DOM, but it now hydrates
+  the authoritative background snapshot instead of replacing that snapshot
+  with an empty object.
+- A genuine extension-runtime reset remains the only condition that invalidates
+  the returned snapshot, so stale runtime state is not restored.
+- Added regression coverage for both reload hydration and runtime-reset clearing.
+
+### 2026-08-01 — A strong transition and a resolved identity survive to the decision, version 2.81.217
+
+Two more facts were being stated by the runtime and lost before the decision
+read them, which is why run 1785603157691 recorded `evidenceTier: 0` for every
+model:
+
+- `PIPELINE_STEP: streaming_done` is emitted with `strong: true` — the flag
+  `evidenceTier` requires for tier 3 — and the ledger replaced the whole typed
+  fact with the canonical one, which states kind and state but no qualifiers.
+  The canonical mapping still decides kind and state; qualifiers on the same
+  fact are now kept.
+- Candidate identity was inferred only when a candidate was *rejected* as stale
+  or ambiguous. `ANSWER_SOURCE_MATERIALIZED` carries the identity the extractor
+  resolved the answer to, so the positive resolution is now inferred from it.
+
+Replaying that run with 2.81.215-217 applied: `submission_confirmed` and
+`answer_identity_current_dispatch` pass for GPT and Z.ai, where before every
+rule failed for every model.
+
+Two producer gaps remain and still block automatic acceptance, both of them
+missing evidence rather than lost evidence: no coherent observation frame is
+emitted on the normal answer path (`observationReliability` stays `unknown`,
+and the frames that do exist carry `maximumSignalSkewMs: null`, which counts as
+degraded), and the deferred-finalization path records no structural
+verification at all. Neither is fixed here.
+
+### 2026-08-01 — Every adapter states whether the prompt reached the composer, version 2.81.216
+
+In run 1785603157691 the prompt-not-inserted report answered `not_confirmed`
+for GPT, Claude and Z.ai and `unknown` for DeepSeek, Le Chat and Perplexity —
+exactly the models whose prompts the user saw fail to appear. Its critical
+`insertion_outcome` slot was `unavailable` for all nine models: only insertion
+*failure* was ever reported, and only from some adapters, so a run in which
+insertion silently did nothing looked identical to a run in which it worked.
+
+Every adapter now reports its own verdict once per dispatch through
+`ContentUtils.reportPromptInsertion` — `PROMPT_INSERTION_OBSERVED` in the
+content script, `PROMPT_INSERTION_CONFIRMED` / `PROMPT_INSERTION_FAILED` in the
+background, `PROMPT_INSERTION_EVALUATED` in the ledger. The verdict is placed
+after each adapter's own recovery path, not inside the shared composer gate,
+which does not know whether the adapter still intends to repair a replaced
+composer. It is fire-and-forget: dispatch never waits on a proof message.
+
+ChatGPT never checked its composer after typing at all — an empty ChatGPT
+composer produced no evidence in either direction. It is now checked before
+Send is attempted.
+
+### 2026-08-01 — An accepted submit is recorded as confirmed, version 2.81.215
+
+All-presets run 1785603157691 (nine models) failed the same six decision rules
+for every model that reached a decision, `submission_confirmed` first among
+them, and every incident carried the invariant `TYPED_CANONICAL_CONFLICT` with
+`typed=evidence_partial` against `canonical=confirmed` on its own payload.
+
+The ledger built the typed fact from `canonicalFactOf({ eventType, payload: {
+metadata } })` — without `sourceEventType`. That is the only field the canonical
+mapping for `SUBMISSION_EVIDENCE_CHANGED` reads, so every
+`PROMPT_SUBMITTED_ACCEPTED` was stored as `evidence_partial`, the submission
+axis could never reach `confirmed`, and no answer could be accepted
+automatically. Replaying that run's ledger through the corrected mapping turns
+the axis to `confirmed` for GPT, Claude and Z.ai and takes the conflict count
+from 6 to 0; DeepSeek correctly stays `evidence_partial` — it never submitted.
+
+Two labels whose runtime fact the canonical mapping still contradicted are now
+mapped as their producer states them: `SEND_DEGRADED_AFTER_SUBMIT` (emitted only
+after a confirmed submit) is `confirmed`, `SEND_DEFERRED_TRANSIENT_BLOCKER` is
+`deferred`. Registry version 6.7.0.
+
+This does not by itself make acceptance reachable: `observation_reliable`,
+`answer_identity_current_dispatch`, `structural_verification` and
+`minimum_evidence_tier` still fail in that run for reasons of their own.
+
+### 2026-08-01 — A later extraction no longer overwrites a longer one, version 2.81.214
+
+Isolated single-model Grok run, reported as "the answer appeared and then was
+immediately replaced by the original prompt". The full report shows exactly that:
+
+    66.7s  ANSWER_SOURCE_MATERIALIZED  len=2546  deferred_finalization
+    68.8s  OBSERVATION_FRAME_CAPTURED  len=88    inline_executeScript
+    68.9s  ANSWER_SOURCE_MATERIALIZED  len=88    manual_ping
+    68.9s  ANSWER_COMMIT_EVALUATED     len=88
+    69.0s  MODEL_TERMINAL_RECORDED     len=88    forced_success_with_text
+
+The correct answer was extracted and then discarded two seconds later for one
+29x shorter. Both extractions carry `answerIdentity: current_dispatch`, so
+identity cannot separate them; the run's own
+`extraction_identity_ambiguous — multiple pre-terminal extractions exist without
+a unique accepted-answer identity` says as much.
+
+A later extraction may no longer displace an answer already held for the same
+dispatch when it is less than half its length. Growth is unaffected — the
+condition is one-sided — and a held answer below the recovery floor blocks
+nothing. Rejections are recorded as `SHORTER_EXTRACTION_REJECTED` with both
+lengths, so this can never silently discard a genuine correction.
+
+### 2026-08-01 — The digest now carries what the last two fixes needed, version 2.81.213
+
+Both 2.81.211 and 2.81.212 were diagnosed from the full JSON, not the digest.
+Worse, one of them was only diagnosable by measuring `detailsLength` (30 vs 33)
+to tell `dispatch_mismatch` from `run_session_mismatch` — the reason text itself
+is never exported under metadata-only privacy.
+
+- `correlationReason` is now emitted as a metadata field on both lifecycle
+  rejections, so the reason survives export instead of being inferred from a
+  string length. It also distinguishes *missing* identity from *wrong* identity,
+  which are different defects.
+- The digest reports that reason together with the expected and incoming ids.
+- The extraction chain is now visible: `OBSERVATION_FRAME_CAPTURED` carries its
+  text length, and `ANSWER_SOURCE_MATERIALIZED` / `EXTRACTION_COMPLETED` are
+  carried at all. The wrong-node signature — a 131-character frame yielding a
+  47-character answer while the real one is 1797 — reads directly off the digest.
+- The five types previously marked `[UNRECOGNISED]` are read now:
+  `STRUCTURAL_VERIFICATION_EVALUATED`, `CANDIDATE_SET_CHANGED`,
+  `CANDIDATE_IDENTITY_INFERRED`, `GENERATION_SIGNAL_CHANGED`,
+  `GENERATION_STATE_INFERRED`.
+
+Newly visible in the same data, not yet investigated: deliveries also get
+rejected by the *sender* gate — `SENDER_TAB_MISMATCH_REJECTED` for Grok and GPT,
+`SENDER_WITHOUT_BINDING_REJECTED` for Qwen. That is a different check from
+lifecycle correlation and has no `correlationReason` yet.
+
+### 2026-08-01 — A failed extraction now retries the way that works, version 2.81.212
+
+Isolated single-model run (Grok), three exports around one answer:
+
+| moment | result |
+|---|---|
+| before Get It | no terminal, generation started |
+| after Get It | `EXTRACT_FAILED / answer_prompt_echo`, 47 chars |
+| after double-click | `SUCCESS / manual_latest_recovery`, **1797 chars** |
+
+The answer was on the page the whole time. Automatic extraction saw a
+131-character frame and pulled 47 characters of the user's own prompt out of it,
+classified that correctly as a prompt echo, and stopped. `runTerminalExtractionRecovery`
+then ran as designed — and re-read the same wrong node, returning the same 131
+characters. The manual double-click asks for the *latest* answer node instead
+and had the full text within seconds.
+
+- The recovery now requests the latest answer node rather than repeating the
+  default target. Every reason that makes it eligible — empty answer, prompt
+  echo, UI noise, extract failed — means the default target was wrong, so
+  repeating it cannot help.
+- Collection and acceptance now share one meta object. They were built
+  separately, which is exactly how a recovered answer can still be rejected on
+  correlation — the defect fixed in 2.81.211 for two other paths.
+
+### 2026-08-01 — Generated answers were discarded on delivery, version 2.81.211
+
+Full telemetry report of run 1785580394378. All nine models received the prompt
+and wrote answers; two of those answers never reached the user because the
+background's lifecycle correlation rejected them — for two different reasons.
+
+| model | rejection | cause |
+|---|---|---|
+| Grok | `LLM_RESPONSE:dispatch_mismatch` | delivered with a null dispatchId |
+| DeepSeek | `LLM_RESPONSE:run_session_mismatch` | delivered under a leftover session |
+
+- **Grok**: the main delivery path called `sendResult(payload, true)` while
+  `dispatchMeta` was already in scope a few lines above, and every other Grok
+  delivery path passed it. The answer arrived with no identity and was dropped.
+- **DeepSeek**: `sendResult` forwarded the caller's meta unchanged, and the
+  manual-ping path forwards `msg?.meta` — a manual ping carries no dispatch
+  identity. Identity is now normalised inside `sendResult`, so every delivery
+  path is covered at once. `ensureDispatchMeta` only fills gaps, so an explicit
+  meta from a caller still wins.
+- Neither answer was missing or short: the same run shows Claude recovering 2997
+  characters and Gemini 2726 through manual collection, after the automatic run
+  had recorded `send_failed` and `extract_failed` for them.
+
+Not addressed here: why the automatic collection misses answers that manual
+collection retrieves, and why most successes are still forced rather than
+proven. Those are the same evidence-layer problem, and they are separate.
+
+### 2026-07-31 — The digest states its own limits to its reader, version 2.81.210
+
+A digest is lossy by construction, and a model reading one cannot otherwise
+tell the difference between "this run had no such event" and "this document
+does not carry that kind of event". The file now opens with a block addressed
+to whatever model reads it:
+
+- what it carries, with the count of events carried against the run total;
+- **the exact event types it does not carry, with their counts in this run** —
+  derived from the run itself, not a static list, so it is always accurate;
+- types the digest has no rule for at all are marked `[UNRECOGNISED]`, which is
+  the case where the digest may be misleading rather than merely incomplete;
+- the rule: do not infer absence from this document, and if the question
+  depends on an omitted event type or the failure is not explained here, ask
+  the user for the full report before concluding;
+- how to produce it: uncheck the `digest` checkbox next to Export.
+
+The previous trailing "unrecognised types" note is folded into this block, so
+the warning appears before the data rather than after it. The digest grew from
+~9.1KB to ~10.7KB on the reference run — 1.6% of the 640KB report.
+
+### 2026-07-31 — Export delivers digest or full report, by checkbox, version 2.81.209
+
+- A `digest` checkbox sits next to the telemetry Export button on both extension
+  pages, checked by default and remembered in `chrome.storage.local`.
+  - **Checked** — the export delivers the digest, `…-digest.txt` (~9KB).
+  - **Unchecked** — the export delivers the complete report, `…json` (~640KB).
+- The report itself is still built in full in both cases. `buildAllPresets` runs
+  either way and the digest is derived from its output, so the two documents
+  always describe the same run; the toggle only decides which one is handed over.
+- The export can never come back empty-handed: if the digest is requested but
+  cannot be produced, the full JSON is written instead and the status line says
+  `Digest unavailable — full JSON exported`. An absent checkbox or an unset
+  preference behaves as checked.
+- 2.81.207 wrote both files on every export. That was a misreading of the
+  request; the choice is between the two documents, not an extra companion file.
+- One existing test sliced a fixed 800 characters from the telemetry toolbar to
+  assert button order; the new control pushed a later button past that window.
+  The slice now runs to the end of the container, so adding a control cannot
+  break the assertion again.
+
+### 2026-07-31 — The digest carries exceptions instead of counting them, version 2.81.208
+
+The 2.81.206 digest read 19% of events and dropped 81%, including
+`ANSWER_DELIVERY_REJECTED`, `MISSING_EVIDENCE_RECORDED`,
+`POST_TERMINAL_AUDIT_COMPLETED`, `SELECTOR_FORENSIC_SNAPSHOT_CAPTURED`,
+`POLICY_OVERRIDE_APPLIED` and the reasons inside `OBSERVATION_FRAME_CAPTURED`.
+
+The first proposal was a coverage line listing what had been dropped. That was
+wrong: knowing that six forensic snapshots were discarded does not say whether
+the explanation was in them, so it buys a round trip to the JSON rather than
+protection. The fix is to stop dropping what matters.
+
+- Exception events are now carried in full. They are rare *because* they mark
+  exceptions — 36 of 295 in the run this was built against, against 70
+  `OBSERVER_HEALTH_INTERVAL_CLOSED`. The digest went from ~1.7KB to ~9KB, still
+  1.4% of the 640KB export.
+- The coverage line survives with a narrower and honest job: it reports only
+  event types the digest has no rule for at all — types added after it was
+  written. That is the one case where the full JSON is genuinely required, and
+  it says so.
+- On the 2026-07-31 export the expansion immediately surfaced facts that several
+  hand-written queries had missed: Gemini accepted a 1090-character answer while
+  4316 characters were observed afterwards (growth 3226), Grok accepted 47
+  against 1830, and Claude and Le Chat — the two models with no terminal at all —
+  both show `dead_tab_no_snapshot / state=DEAD`. That last one is direct
+  evidence for the deferred item 4.
+
+### 2026-07-31 — Export writes the digest automatically, version 2.81.207
+
+- The Export button now saves a small companion file next to the JSON:
+  `telemetry-all-presets-<ts>-digest.txt`. The JSON stays the archive; the
+  digest is the part meant to be read — ~1.7KB against ~640KB.
+- The digest logic moved from `scripts/` to `shared/telemetry-digest.js` and the
+  CLI is now a thin wrapper over it. One implementation, so a digest produced by
+  the button and one produced from the saved file cannot drift apart. The CLI
+  invocation is unchanged.
+- Both extension pages load the shared module; `web_accessible_resources` needs
+  no entry, since they are extension pages loading a same-origin script.
+- A digest failure never costs the export: the JSON is written first, and the
+  digest is wrapped so any error only skips the companion file. The status line
+  says `JSON exported + digest` only when the digest was actually written.
+- Tests pin the ordering (archive before digest), the failure isolation, the
+  filename pairing, the script tags on both pages, and that the CLI holds no
+  second copy of the logic.
+
+### 2026-07-31 — Telemetry digest tool, version 2.81.206
+
+A full "all presets" export of one run measures ~640KB — about 163k tokens read
+whole. Its composition:
+
+| section | share |
+|---|---|
+| `ledger` | 48.8% |
+| `reports` (preset definitions) | 45.6% |
+| `derivedViews` | 9.0% |
+| everything else | <3% |
+
+Nearly half the file is preset report definitions, which carry no run data, and
+every diagnosis so far has come from about a dozen fields inside
+`ledger.events`.
+
+`scripts/telemetry-digest.js` prints those fields and nothing else: build and
+run-session scope (flagging a mixed-session export outright), per-model terminal
+status and reason, delivered answers whose length matches the text already on
+the page, focus leases that fell below `minUsefulMs`, failed decision rules
+grouped by rule, and tab-reuse overrides and fallback creations.
+
+On the 2026-07-31 export that is 1714 bytes instead of 653020 — a 380× cut —
+and it surfaced in one line what had taken several separate queries to
+assemble: `submission_confirmed` failed for all eight dispatched models.
+
+    node scripts/telemetry-digest.js <export.json>        # human-readable
+    node scripts/telemetry-digest.js <export.json> --json # machine-readable
+
+Tests pin what the digest must never drop, including a model that never reached
+a terminal and the mixed-session warning.
+
+### 2026-07-31 — No resend after a successful send; debugger stops grabbing focus, version 2.81.205
+
+**Duplicate insert and send after an already successful send (reported for Claude).**
+The Round 2 repair path re-dispatches whenever the content script has not
+confirmed the submit, and the only bar to that resend was
+`RecoveryIntent.authorize` refusing a page-mutating intent once *answer*
+evidence existed. While the provider was still generating there was none, so a
+prompt that had gone through perfectly was inserted and sent a second time.
+A submission already on the page is now proof in its own right, independent of
+any answer: `authorize` refuses `resend_prompt` / `composer_repair` when the
+submission is confirmed for this dispatch, when generation is active, or when
+generation has started. Deliberately unchanged: an `inferred_answer_evidence`
+submit does **not** count (it was guessed from page text, not observed, and
+treating it as proof would block a real repair), observe-only intents are
+untouched, and an explicit user override still wins.
+
+**The debugger transport interrupts work.**
+Two separate things were happening. The attach banner is inherent to CDP and
+cannot be removed while the donor transport is in use — see the note below. The
+other half was `Page.bringToFront`, fired once per trusted action, which yanks
+the Chrome window in front of whatever application the user is working in. CDP
+input targets the tab's renderer directly and the composer is focused through
+`Runtime.evaluate`, so the OS window does not need to be frontmost. All seven
+dispatcher call sites now route through a guard that raises the window only
+while Chrome already holds focus — the same rule the visit loop got in
+2.81.204 — and skips it on an unknown focus state rather than guessing.
+The executable dispatcher tests now compile the real guard into their sandbox
+instead of stubbing it, so the guard is exercised rather than assumed.
+
+Still open, and a genuine trade-off rather than an oversight: the attach banner
+itself. It appears per trusted action, and the trusted path currently runs
+*first* for Le Chat because that is what made its send fast. Making it a
+fallback behind the in-page strategies would cut the banner to the rare failure
+case, at the cost of Le Chat's speed. That choice has not been made here.
+
+### 2026-07-31 — Blank main page, focus theft, duplicate tabs, version 2.81.204
+
+Three reported defects, three separate causes.
+
+**1. The main page periodically loses everything, then returns intact.**
+The signature — an empty tab with no address, restored complete by clicking the
+extension button — is Chrome's memory saver discarding the tab: the document is
+torn down while the tab keeps its slot, and re-activation reloads it and
+rehydrates from storage, which is why nothing is actually lost. A long run
+leaves the page backgrounded for minutes, exactly when discard happens.
+`result_new.html` and `pipeline_panel.html` are now marked
+`autoDiscardable: false`, re-asserted on every load and at startup because the
+flag is per-tab and survives neither a reload nor a browser restart.
+
+**2. The extension holds focus for 10–15 minutes and takes it from other apps.**
+The human/automation visit loop runs while any model is non-terminal, and every
+visit called `chrome.windows.update({ focused: true })`, which raises the Chrome
+window over whatever application the user is in. A visit needs its tab
+foregrounded *inside Chrome*; it does not need Chrome pulled in front of another
+app. Both visit paths now check `chrome.windows.getLastFocused()` first and skip
+the window raise when no Chrome window holds focus — and skip it on an unknown
+state too, rather than stealing focus on a guess. Yielding is recorded as
+`WINDOW_FOCUS_YIELDED_TO_USER`.
+This bounds the *focus* damage, not the run length; runs stay long while models
+fail to reach terminal, which is the deferred item 4.
+
+**3. A repeat request opens a new tab with New pages off.**
+`probeReusableTabSurface` rejects any tab whose composer holds text. A draft left
+behind by a failed insertion therefore made the tab "unsafe" on the next request,
+`tryAttachExistingTab` returned false, and `runModelThroughTabs` fell through to
+`createNewLlmTab`. One failed insertion guaranteed a duplicate tab next time —
+self-reinforcing, and matching the telemetry, where GPT alone had an empty
+dispatch baseline and `anchorAnswerCount: 1`.
+With New pages off, reuse is now mandatory: recoverable residue
+(`composer_has_draft`, `modal_visible`, a failed probe) is overridden rather than
+answered with a duplicate tab, recorded as `SOFT_REUSE_BLOCKER_OVERRIDDEN`.
+`generation_active` is deliberately **not** overridable — taking over a tab
+mid-generation would destroy a running answer. `TAB_ISOLATION_FALLBACK_CREATE` is
+now pinned in telemetry, so a duplicate tab can never again be created without a
+retained trace.
+
+### 2026-07-31 — A near-identical prior answer no longer passes as new, version 2.81.203
+
+Diagnosed from the telemetry export of 2026-07-31 (extensionVersion 2.81.201).
+
+- Reported symptom: a repeat request was inserted into no existing page; only a
+  new GPT tab opened, and only there was the prompt submitted. The report is
+  correct, and the run was worse than "nothing worked" — it reported **SUCCESS**
+  for two providers that had received nothing.
+
+  | model | prior text on page | delivered | reported |
+  |---|---|---|---|
+  | DeepSeek | 5055 chars | 5005 chars | SUCCESS |
+  | Qwen | 646 chars | 648 chars | SUCCESS |
+  | GPT | 0 (new tab) | 7444 chars | SUCCESS — the only real one |
+
+- Every one of those was `mode: forced`, `evidenceTier: 0`, with
+  `submission_confirmed` failing as `evidence_partial` and
+  `answer_identity_current_dispatch` observed as `candidate`. The answers were
+  never proven to belong to the dispatch; the policy forced them through anyway.
+- `isBaselineEquivalent` — the guard whose job is exactly this — compared for
+  strict equality. A re-render, a trimmed trailing token or a re-streamed tail
+  moves a few characters, and 5055 vs 5005 is not equal, so the previous answer
+  was accepted as new.
+- The guard now also rejects a candidate that matches the baseline to within a
+  small edge difference: a shared prefix and suffix covering ≥97% of the shorter
+  text, applied only to answers of at least 120 characters. A genuinely new
+  answer diverges early and does not reach that threshold; short texts are left
+  alone, where incidental similarity is likely.
+- All nine adapters call this one function, so the fix is shared. Tests pin both
+  directions, including a new answer that opens with the same sentence as the old.
+- Not addressed here: why the prompt reached only one provider, and why a new GPT
+  tab opened with New pages off. This change does not fix delivery — it stops a
+  failed delivery from being reported as success, so the next run's data is
+  truthful.
+
+### 2026-07-31 — Donor trusted transport is the baseline again, version 2.81.202
+
+- Reverts `67cc6d5 "fix: remove browser debugger transport"` by explicit
+  decision: the donor 2.81.75 implementation is the baseline we measure the next
+  run against, not its removal.
+- Restored: the `debugger` permission, `ENABLED_DEBUGGER_RPC_TYPES` with
+  `PROVIDER_TRUSTED_SEND_REQUEST`, `PERPLEXITY_TRUSTED_ENTER_REQUEST` and
+  `PERPLEXITY_TRUSTED_INPUT_REQUEST`, Le Chat's trusted Send as its first submit
+  strategy, and Perplexity's native input transaction as the fallback behind
+  in-page preparation. Every route stays sender-gated on the provider origin.
+- The telemetry run-session scoping from 2.81.201 is kept on top; the revert
+  touched only the transport.
+- Status of the two open questions is unchanged and deliberately not claimed as
+  fixed: Le Chat submitted quickly on this transport in the field, Perplexity's
+  `prompt_injection_failed` has not yet been observed against the restored
+  native input path.
+
+### 2026-07-31 — Telemetry is scoped to one run session, version 2.81.201
+
+- Symptom: reloading the results page pulled in telemetry and other data from
+  the previous session, so an export could describe two runs at once.
+- Two independent stores leaked, for the same reason: neither was scoped to a
+  run, and both were only ever cleared when a *new run started* — not when a
+  page reloaded.
+  - **Proof ledger.** The export requests its snapshot with `runSessionId: null`
+    (the page does not track the active session), and the ledger read null as
+    "every run ever recorded". `beginRun` resets `state.events` but deliberately
+    keeps `state.lifecycle`, so the lifecycle stream carried earlier sessions
+    into the file — while the file was labelled with the *current*
+    `runSessionId`. An absent scope now resolves to the ledger's own active run;
+    `allRunSessions: true` is the explicit opt-in for the full history, and the
+    snapshot reports which of the two it is via `runSessionScope`.
+  - **Diagnostics buffer.** `GET_DIAG_EVENTS` returned the whole persisted
+    buffer. After a reload with no new run, the page re-hydrated the previous
+    session, and its own "current run" resolver — which reads the newest event
+    it was handed — then presented that stale run as active. The handler now
+    scopes to the ledger's active run. Entries with no run identity
+    (setup/system lines) are kept, so nothing legitimate disappears.
+- Added `ProofTelemetryLedger.currentRunSessionId()` for callers that must scope
+  a different store to the same run without awaiting a snapshot. It is covered
+  by a test on purpose: the diagnostics filter reads it through optional
+  chaining, so had it stayed absent the filter would have silently become a
+  no-op and looked like a fix while changing nothing.
+- One existing ledger test asserted the old whole-history default; it is about
+  generation burning across two runs, so it now asks for `allRunSessions: true`
+  explicitly and additionally pins the new scoped default.
+
+### 2026-07-31 — Perplexity regains the donor's native input transaction, version 2.81.199
+
+Two earlier attempts at this defect were wrong and are reverted; this entry
+records what the field data actually ruled out.
+
+- **Refuted — the Lexical commit race (2.81.197).** Real, but not the cause.
+- **Refuted — the focus lease (2.81.198).** The hypothesis was that Perplexity's
+  automation focus lease (684 ms against `minUsefulMs` 1500) ended before the
+  in-page insert could run. The hold was raised to 8000 ms and the lease
+  duly grew to **8656 ms** — and the run still ended `prompt_injection_failed`.
+  Focus was not the cause. The change also starved Le Chat downstream (denied
+  `active_lease` at its round-3 precollect) and broke a working provider, so it
+  is reverted in full.
+- **What was actually missing.** Donor 2.81.75 gives Perplexity *two* trusted
+  paths, input and send. Only the send half was ported; the insertion half was
+  left out on the assumption that insertion worked. The observed failure is
+  `prompt_injection_failed` — insertion — and 2.81.195's allowlist additionally
+  had `PERPLEXITY_TRUSTED_INPUT_REQUEST` returning `debugger_route_disabled`.
+- Restored: the route is enabled, and when `prepare()` fails the adapter
+  re-enters through `dispatchProviderTrustedInput` — focus the composer, native
+  SelectAll, native `Input.insertText`, then reacquire the live editor because
+  React may swap the node. **That SelectAll is also the clear** that the
+  execCommand-based `clear()` cannot perform when the editor ignores it, which
+  is why leftover text in a reused tab was never replaced.
+- In-page insertion remains the primary path; the native transaction is the
+  fallback behind it. Le Chat is untouched.
 
 ### 2026-07-30 — Eager telemetry export click bootstrap, version 2.81.182
 
@@ -5112,6 +5639,34 @@ Backlog `what-to-do.md`, батч 1 (UI + Финализация).
 - Для чего: сократить длительное «красное окно» после `script_runtime_hard_stop`, когда ответ может прийти с задержкой. Изменение: добавлены модельно-зависимые defer-окна (`Gemini/Claude/Le Chat/Perplexity/Grok`) и расширен deferred-recovery не только для `GPT`; перед финальной hard-stop ошибкой добавлен дополнительный `final_ping_before_error`. Файл: `background/job-orchestrator.js`.
 - Для чего: ускорить восстановление канала при `PING_TRANSPORT_ERROR` и `message port closed`. Изменение: `sendPassiveMessageWithRetries` поддерживает явный план задержек (`transportRetryDelays`), а оркестратор использует быстрый профиль ретраев для `getResponses` ping (включая hard-stop и manual ping). Файлы: `background/dispatch-coordinator.js`, `background/job-orchestrator.js`.
 - Для чего: убрать повторяющийся flood `SELECTOR_STATS` и повысить сигнал/шум в диагностике. Изменение: в watcher добавлена дедупликация одинаковых selector-метрик в окне `selectorStatsDedupWindowMs` (по умолчанию 30s). Файл: `content-scripts/unified-answer-watcher.js`.
+# 2.81.196
+
+- Added a Perplexity per-tab single-flight gate so retry-supervisor commands
+  cannot run two concurrent composer insertions for the same prompt.
+- Switched current Perplexity submission to native click on the proven
+  `#ask-input`-owned localized Send control; native Enter is now fallback only.
+- Removed the redundant two-second delay after draft preparation. Le Chat is
+  unchanged.
+
+# 2.81.195
+
+- Fixed the missing `debugger` manifest permission that made the restored donor
+  Send/Enter routes unreachable in 2.81.194.
+- Restricted debugger RPC execution to Le Chat/Perplexity submission only;
+  historical trusted-input and CDP-attachment routes remain fail-closed.
+- Native browser dispatch is now explicit submission evidence, avoiding both
+  slow DOM fallback chains and the old composer-clearing false-positive.
+- With New pages disabled, Le Chat and Perplexity reuse a persisted or newest
+  matching provider tab before generic surface rejection can create a duplicate.
+
+# 2.81.194
+
+- Restored the proven 2.81.75 browser-level submission path for Le Chat and
+  Perplexity: trusted provider Send for Le Chat, trusted Enter followed by
+  trusted Send for Perplexity, with current proof-based confirmation retained.
+- When New pages is disabled, only Le Chat and Perplexity get one direct retry
+  against their persisted mapped conversation before a fresh tab is created.
+
 # 2.81.192
 
 - Routed concrete unified-pipeline streaming/finalization steps into canonical
@@ -5167,3 +5722,156 @@ Backlog `what-to-do.md`, батч 1 (UI + Финализация).
 
 - Proof telemetry now coalesces mutations accumulated during an active persistence transaction, preventing a high-rate event stream from creating a transaction-per-event backlog.
 - JSON export no longer downloads the last committed boundary when the proof-ledger barrier times out. It returns a retryable incomplete-snapshot status and asks the user to export again after the queue drains.
+# 2.81.223
+
+- Добавлен машинно проверяемый реестр всех канонических событий proof-телеметрии: производители, идентичность, получатели, sampling, retention и потребители.
+- Добавлена матрица диагностических возможностей для legacy/schema 6 и всех экспортных представлений.
+- Dependency registry полного экспорта теперь содержит снимок event inventory и capability matrix.
+
+# 2.81.224
+
+- Добавлена общая воспроизводимая матрица из 13 обязательных сценариев телеметрии.
+- Добавлен read-only анализатор размеров, повторов, event envelope, observer/lease потоков и покрытия legacy/native producers.
+- Команда `npm run measure:telemetry -- <file.json>` измеряет пользовательский all-presets JSON без его изменения.
+
+# 2.81.225
+
+- Replay harness теперь явно различает legacy events, grouped legacy export, schema 6 events, all-presets и standalone report.
+- Schema 6 адаптер читает `modelId`, `eventType` и `wallTs` и сверяет набор моделей с `ProofTelemetryPolicy.replay`.
+- Смешанный и неизвестный вход завершается ошибкой `UNSUPPORTED_REPLAY_SCHEMA` вместо молчаливого пустого или неверного replay.
+
+# 2.81.226
+
+- Export audit теперь независимо фиксирует `snapshotCompleteness` и `runCompleteness`.
+- `RUN_CONFIG_RECORDED` сохраняет ожидаемые модели, а audit перечисляет observed, terminal и pending models.
+- Для каждой модели сохраняются состояния активного запуска, включая partial answer, tab closed during generation и SUCCESS с error done reason.
+- Event inventory загружается в export worker и обе страницы результатов до построителя телеметрии.
+
+# 2.81.227
+
+- Добавлен семантический comparator embedded и standalone отчётов для каждой задачи, модели и инцидента.
+- Embedded `seq` нормализуется обратно в канонический `eventId`; сравниваются verdict, sufficiency, slots, evidence, ограничения, нарушения, arbitration и sibling relations.
+- Мутационные отрицательные тесты доказывают, что изменение verdict, slot, evidence, limitation или causal relation ломает parity gate.
+
+# 2.81.228
+
+- Все четырнадцать `stateAxes` теперь вычисляются вместе с точным `stateAxesProvenance`: слоем, фактическими basis-событиями, правилом и версией.
+- Basis-ссылки входят в semantic/artifact hashes, материализуются в standalone отчёте и проверяются на существование и принадлежность тому же инциденту.
+
+# 2.81.229
+
+- Embedded и standalone отчёты теперь используют одно чистое ядро `buildIncidentReportSemantics` для applicability, verdict, slots, completeness, arbitration, siblings и provenance.
+- Parity gate сравнивает обе экспортные формы ещё и с канонической проекцией ядра для каждой задачи, модели и инцидента.
+
+# 2.81.230
+
+- Добавлен контейнер `canonical-evidence`: полный canonical ledger, registry и компактный индекс всех incident axes/provenance без `reports` и полного `derivedViews`.
+- Доверенный `readerGuidance` берётся только из версионированной константы; schema и offline validator проверяют allowlist, boundaries, basis refs, privacy и все section/artifact hashes.
+
+# 2.81.231
+
+- Добавлен офлайн CLI `build-proof-telemetry-report.js`: проверяет canonical/full input, перечисляет incidents и строит standalone либо full forensic тем же shared builder.
+- Неоднозначный incident требует явного `--incident`; unknown generator требует явного `--reproduction=reinterpretation`, а выход хранит source и полный cache-key provenance.
+
+# 2.81.232
+
+- В обеих страницах результатов добавлен явный выбор `Digest` / `Canonical evidence` / `Full forensic`; default остаётся `Digest`, прежняя настройка toggle мигрируется.
+- Canonical evidence и full forensic строятся/сериализуются в worker, а timeout по-прежнему гарантирует recovery JSON со всеми canonical events.
+
+# 2.81.233
+
+- Добавлены read-only proof-ledger проекции Timeline и Markdown с eventId, scope, layer и typed fact без сырых prompt/answer данных.
+- Timeline сравнивается с legacy потоком в shadow-режиме; MD сохраняет прежние разделы и добавляет canonical proof appendix из той же snapshot boundary.
+
+# 2.81.234
+
+- Большой JSON-экспорт получил progress по стадиям, single-flight отмену, отдельные stage/overall deadlines, обязательное завершение worker и transient-метрики без записи в наблюдаемый ledger.
+- Temporal slot matching переведён с повторного полного сканирования на индексированный поиск; full forensic для 10 000 событий в контрольном прогоне ускорен примерно с 32,4 с до 0,5 с.
+- Добавлен воспроизводимый stress gate для 500/2 000/5 000/10 000 событий, трёх параллельных экспортов, malformed ledger, missing registry и 32 MiB memory pressure.
+
+# 2.81.235
+
+- Добавлен безопасный полевой валидатор сохранённых JSON/выжимок: он классифицирует исторический drift по версии, перестраивает current canonical/full, сверяет ledger hash и семантику всех задач/инцидентов.
+- Все восемь доступных реальных JSON прошли gate: 16 валидных перестроенных артефактов, 826 из 826 эквивалентных семантических сравнений, ни одного необъяснённого расхождения.
+- Зафиксировано назначение выжимки: быстрый triage без integrity/replay; для воспроизводимого диагноза требуется JSON либо canonical evidence.
+
+# 2.81.236
+
+- Export worker теперь применяет secret redaction к входному ledger до построения артефакта; hashes и measuredBytes относятся к фактически скачиваемому представлению.
+- Добавлен регрессионный тест с реальным token-shaped значением: redacted canonical evidence остаётся полностью валидным.
+
+# 2.81.237
+
+- Offline report CLI теперь независимо сравнивает generator, report version и registry hash с текущим toolchain для canonical и all-presets inputs.
+- Исторический all-presets больше не может быть помечен как exact reproduction; без явного `--reproduction=reinterpretation` CLI завершает работу с `REPRODUCTION_UNSUPPORTED`.
+
+# 2.81.238
+
+- Results pages и background теперь загружают proof telemetry policy до export builder, как это уже делал worker.
+- Page-side task reports используют точный `stateAxesProvenance` с реальными basis event IDs вместо `legacy-fallback-*`; порядок закреплён browser-context тестом.
+
+# 2.81.239
+
+- Field validator принимает historical drift только по точной сигнатуре, структуре и ожидаемому числу migration findings; дополнительные либо частичные S22 теперь блокируют gate.
+- Project version читается из manifest, а exact identity учитывает generator, report version и registry hash вместо hardcoded версии и одной проверки generator.
+
+# 2.81.240
+
+- Worker orchestration вынесена в общий исполняемый runtime, используемый production UI и поведенческими тестами.
+- Реально проверяются single-flight cancel, stage/overall timeout, worker crash, synchronous postMessage failure, terminate, canonical recovery и Blob URL cleanup; прежние строковые проверки больше не являются единственным gate.
+
+# 2.81.241
+
+- Offline CLI больше не скрывает допустимые диагностические нарушения S06/S15: они записываются в source provenance итогового артефакта и печатаются в stderr.
+- Артефакт перестраивается с limitations до окончательной проверки, поэтому добавленная диагностика входит в integrity hashes.
+
+# 2.81.242
+
+- Выводы `none`/`not_started`/tier 0 из полного отсутствия сигналов теперь имеют слой `audit`, а не необоснованный `inference`.
+- Валидатор отклоняет `fact`, `inference` и `decision` provenance без basis event; версия derivation повышена до 1.1.0, generator — до 2.8.0.
+
+# 2.81.243
+
+- Исполняемый ledger-тест фиксирует инвариант экспортной границы: export builder не добавляет событий, persistence writes или queued mutations после ожидаемого snapshot.
+
+# 2.81.244
+
+- Контракт CLI различает exact, conditional legacy, explicit reinterpretation и unsupported outcome.
+- `legacy-reproduction` больше не является нераспознанной строкой: без зарегистрированного исторического адаптера он fail-closed завершается кодом `REPRODUCTION_UNSUPPORTED`; текущая policy не выдаётся за legacy.
+
+# 2.81.245
+
+- Строгий field validator распознаёт миграцию пяти zero-basis inference из артефактов до 2.81.242 только по точной версии generator, derivation version, ruleId, пустому basis и вычисленному из структуры числу находок.
+- Любое частичное совпадение, изменённое правило или неверное число S22 остаётся блокирующей необъяснённой ошибкой.
+
+# 2.81.246
+
+- Claude теперь фиксирует исходное состояние подтверждения строго до первой попытки отправки и использует его повторно во всех проверках. Быстрый новый ход, новый ответ или индикатор генерации больше не теряется из-за повторного снятия baseline после отправки.
+- Ошибки транспорта вида `Error: Claude send not confirmed` передаются с пустым полем ответа и классифицируются как `technical_message`; они не материализуются, не отмечаются как завершённая экстракция и не учитываются как символы ответа.
+- Добавлены регрессии на порядок снятия Claude baseline, его повторное использование и отсечение технических сообщений.
+
+# 2.81.247
+
+- Неполученное прямое подтверждение Send у Claude больше не прерывает выполнение до запуска pipeline и DOM-экстракции. Адаптер продолжает ждать новый ответ относительно сохранённого до отправки assistant-якоря.
+- Если новый непустой, не-echo и не-baseline ответ найден, он подтверждает текущую отправку доказательством `fresh_answer_after_pre_send_anchor`; `PROMPT_SUBMITTED` публикуется перед `LLM_RESPONSE`, поэтому настоящий ответ не блокируется терминальным `NO_SEND`.
+- Если отправки действительно не было, прежний ответ не принимается: позиционный якорь, prompt-echo и baseline-проверки остаются обязательными, а пустое ожидание заканчивается обычной ошибкой экстракции.
+
+# 2.81.248
+
+- Восстановление после неподтверждённой отправки перенесено на общий уровень оркестратора и больше не зависит от списка известных моделей. Любой текущий или будущий адаптер, использующий общий `handleLLMResponse`, получает одинаковое окно наблюдения до терминального `NO_SEND`.
+- Общий контур выполняет до шести проверок свежего ответа в течение 165 секунд. Единственный управляемый визит и все DOM-чтения ограничены единым бюджетом; при появлении ответа цикл немедленно прекращается.
+- Автоматически принимается только ответ с доказательством текущего хода: lifecycle-сигналом или позиционным DOM-якорем. Нулевой baseline теперь тоже является полноценным якорем — первый появившийся assistant-ответ можно доказать как новый.
+- `anchorApplied` больше не теряется между inline-экстрактором и решением оркестратора. Технические строки `Error: <любой новый провайдер> send not confirmed` отсекаются без перечня имён моделей.
+- Ошибки вложений не входят в этот recovery: отсутствие подтверждённой загрузки файла остаётся отдельной fail-closed ошибкой.
+
+# 2.81.249
+
+- Общий распознаватель текущего хода теперь пропускает DOM-кандидаты, которые классификатор определил как служебный интерфейс, prompt echo или техническое сообщение, и продолжает поиск содержательного ответа в том же новом ходе.
+- Профиль Z.AI распознаёт актуальный `message-…-start` без обязательных старых CSS-классов, но явно исключает пользовательские сообщения. Локальный DOM fallback применяет ту же классификацию, что и общий pipeline.
+- Добавлены регрессии для случая из прогона `1785761736255`: настоящий ответ расположен перед 24-символьной подсказкой интерфейса `Refer to the following content`; подсказка больше не заменяет ответ.
+
+# 2.81.250
+
+- Внутренние ошибки больше не передаются и не сохраняются как текст ответа. Все девять адаптеров, фоновые таймауты, ошибки вкладок, отправки, извлечения и оценщика используют структурный канал `error.type`/`error.message`, оставляя `answer` пустым.
+- Центральная финализация больше не синтезирует строки `Error: …` для пустого ответа, UI scaffolding, prompt echo и исчерпанного восстановления. Старые сообщения распознаются единым реестром технических форматов; явно помеченная внутренняя ошибка от будущего адаптера отсекается независимо от её текста.
+- Добавлен исполняемый контракт, запрещающий адаптерам сериализовать `Error:` или `Structural Error:` в `answer`, и регрессия для Z.AI: ошибка `Extracted text is prompt/UI scaffolding, not an answer` даёт `EXTRACT_FAILED` с нулевой длиной ответа.

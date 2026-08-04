@@ -28,7 +28,19 @@
       "type": "string"
     },
     "manifest": {
-      "type": "object"
+      "type": "object",
+      "required": ["sourceSnapshot"],
+      "properties": {
+        "sourceSnapshot": {
+          "type": "object",
+          "required": ["consistency", "snapshotCompleteness", "diagnosticUsability"],
+          "properties": {
+            "consistency": { "type": "string" },
+            "snapshotCompleteness": { "enum": ["queue_drained", "committed_boundary", "incomplete"] },
+            "diagnosticUsability": { "enum": ["complete", "incomplete"] }
+          }
+        }
+      }
     },
     "crossReportCompatibility": {
       "type": "object"
@@ -87,7 +99,29 @@
       "type": "object"
     },
     "exportAudit": {
-      "type": "object"
+      "type": "object",
+      "required": ["completeness"],
+      "properties": {
+        "completeness": {
+          "type": "object",
+          "required": [
+            "snapshotCompleteness", "runCompleteness", "expectedModels",
+            "observedModels", "terminalModels", "pendingModels",
+            "exportedDuringActiveRun", "modelStates"
+          ],
+          "properties": {
+            "snapshotCompleteness": { "enum": ["queue_drained", "committed_boundary", "incomplete"] },
+            "runCompleteness": { "enum": ["complete", "active", "incomplete", "unknown"] },
+            "runLifecycleStatus": { "type": "string" },
+            "expectedModels": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+            "observedModels": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+            "terminalModels": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+            "pendingModels": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+            "exportedDuringActiveRun": { "type": "boolean" },
+            "modelStates": { "type": "object" }
+          }
+        }
+      }
     }
   },
   "additionalProperties": false
