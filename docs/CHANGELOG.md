@@ -1,5 +1,22 @@
 # CHANGELOG — Project
 
+### 2026-08-04 — Diagnostic trace for the import folder default, version 2.81.276
+
+- Импорт из sidebar по-прежнему открывается в `Downloads` вместо
+  `Downloads/Saved sessions` после двух предыдущих правок (2.81.274, 2.81.275) —
+  обе были сделаны по документации File System Access API без проверки в
+  реальном браузере с загруженным расширением и не решили проблему.
+- Вместо третьей правки вслепую в каждую точку принятия решения
+  (`readSavedSessionsDirectoryState`, `linkSavedSessionsDirectory`,
+  `pickSavedSessionsFile`) добавлено логирование через единый префикс
+  `fsDiag` → `console.warn('[results][fs-diag]', ...)`. След показывает: что
+  хранится в IndexedDB, результат `queryPermission`, что вернул выбор папки,
+  и что получилось после разрешения подпапки — то есть на каком именно шаге
+  расходится ожидание с действительностью.
+- Регрессия: `tests/release-log-regressions.test.js` фиксирует, что все точки
+  ветвления логируются через `fsDiag`, чтобы диагностика не потерялась при
+  следующей правке этого участка.
+
 ### 2026-08-04 — Sidebar backup icons swapped and export points up, version 2.81.275
 
 - Иконки кнопок `#notes-hint-backup-export` и `#notes-hint-backup-import`

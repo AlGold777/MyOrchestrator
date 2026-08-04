@@ -8029,14 +8029,25 @@ document.addEventListener('click', (event) => {
                 }
             };
 
+            // Every branch here logs with this one prefix, so a single console
+            // filter (`fs-diag`) shows the exact path an import press took. Two
+            // earlier fixes to this flow shipped without being exercised in a
+            // real browser and did not resolve the reported symptom, so this
+            // trace exists to replace guessing with an actual read of what
+            // happens on the user's machine before changing this code again.
+            const fsDiag = (...args) => console.warn('[results][fs-diag]', ...args);
+
             const readSavedSessionsDirectoryState = async () => {
                 const stored = await readSavedSessionsDirectoryHandle();
+                fsDiag('stored handle', stored ? { name: stored.name, kind: stored.kind } : null);
                 if (!stored?.queryPermission) return { handle: null, state: 'missing' };
                 try {
                     const permission = await stored.queryPermission({ mode: 'read' });
+                    fsDiag('queryPermission', permission);
                     if (permission !== 'granted') return { handle: stored, state: 'prompt' };
                     // Heals a handle stored before the subfolder check existed.
                     const resolved = await resolveSavedSessionsDirectory(stored);
+                    fsDiag('resolved handle', resolved ? { name: resolved.name, kind: resolved.kind } : null);
                     if (!resolved) return { handle: null, state: 'missing' };
                     if (resolved !== stored) await writeSavedSessionsDirectoryHandle(resolved);
                     return { handle: resolved, state: 'granted' };
@@ -8048,12 +8059,15 @@ document.addEventListener('click', (event) => {
 
             const linkSavedSessionsDirectory = async () => {
                 try {
+                    fsDiag('opening directory picker, startIn: downloads');
                     const picked = await window.showDirectoryPicker({
                         id: SAVED_SESSIONS_PICKER_ID,
                         mode: 'read',
                         startIn: 'downloads'
                     });
+                    fsDiag('directory picked', { name: picked.name, kind: picked.kind });
                     const handle = await resolveSavedSessionsDirectory(picked);
+                    fsDiag('resolved after picking', handle ? { name: handle.name, kind: handle.kind } : null);
                     if (!handle) {
                         setStatus(`Select the ${SAVED_SESSIONS_FOLDER} folder itself`, 6000);
                         return false;
@@ -8061,8 +8075,10 @@ document.addEventListener('click', (event) => {
                     await writeSavedSessionsDirectoryHandle(handle);
                     return true;
                 } catch (error) {
-                    if (error?.name !== 'AbortError') {
-                        console.warn('[results] saved sessions folder selection failed', error);
+                    if (error?.name === 'AbortError') {
+                        fsDiag('directory picker cancelled by the user');
+                    } else {
+                        console.warn('[results] saved sessions folder selection failed', error?.name, error?.message);
                     }
                     return false;
                 }

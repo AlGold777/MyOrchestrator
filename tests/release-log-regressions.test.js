@@ -787,6 +787,23 @@ describe('release log regression guards', () => {
     expect(source).toContain('if (!supportsFileSystemAccess()) return pickBackupFile();');
   });
 
+  test('saved sessions folder resolution traces every branch to one console filter', () => {
+    // Two prior fixes to "import opens Downloads instead of the subfolder"
+    // shipped without a real-browser trace and did not resolve the report.
+    // This lock-in keeps the next diagnosis evidence-based instead of another
+    // guess: every branch that decides where the picker opens must log through
+    // fsDiag, filterable in DevTools by "fs-diag".
+    const source = fs.readFileSync(path.join(__dirname, '..', 'results.js'), 'utf8');
+
+    expect(source).toContain("const fsDiag = (...args) => console.warn('[results][fs-diag]', ...args);");
+    expect(source).toContain("fsDiag('stored handle',");
+    expect(source).toContain("fsDiag('queryPermission', permission);");
+    expect(source).toContain("fsDiag('resolved handle',");
+    expect(source).toContain("fsDiag('opening directory picker, startIn: downloads');");
+    expect(source).toContain("fsDiag('directory picked',");
+    expect(source).toContain("fsDiag('resolved after picking',");
+  });
+
   test('sidebar backup buttons point their arrows the way the data moves', () => {
     const resultHtml = fs.readFileSync(path.join(__dirname, '..', 'result_new.html'), 'utf8');
     const pipelineHtml = fs.readFileSync(path.join(__dirname, '..', 'pipeline_panel.html'), 'utf8');
