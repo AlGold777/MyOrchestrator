@@ -1,5 +1,19 @@
 # CHANGELOG — Project
 
+### 2026-08-04 — Bound the deferral, report why acceptance never fires, version 2.81.283
+
+- Run 1785870408469 showed the deferral trading a definite outcome for none:
+  Grok and Perplexity were deferred and then stayed pending with no terminal at
+  all. The deferral is now bounded — if the repair window passes with no
+  submission, no insertion and no answer, the withheld status is recorded and
+  `PRE_INSERTION_DEFERRAL_EXPIRED` says so.
+- Acceptance on stable evidence did not fire once across four models and twelve
+  decisions. `FINALIZATION_DECISION` now carries `stableEvidenceBlockedReasons`,
+  naming the precondition that failed instead of leaving the next attempt to
+  guesswork.
+- `ROUND2_REPAIR_DISPATCH_START` / `_SKIPPED` reach canonical exports, so a
+  deferral can actually be traced to the repair it was supposed to enable.
+
 ### 2026-08-04 — Universal recovery for dispatch and finalization, version 2.81.282
 
 - A dispatch that fails before the prompt reaches the composer no longer becomes

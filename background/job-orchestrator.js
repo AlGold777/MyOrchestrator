@@ -7520,18 +7520,21 @@ function buildFinalizationEvidence(llmName, entry, context = {}) {
   const liftedContradictions = [];
   const strictnessOnlyBlockers = contradictions.length > 0
     && contradictions.every((reason) => LIFTABLE_STRICTNESS_CONTRADICTIONS.has(reason));
-  if (
-    strictnessOnlyBlockers
-    && success
-    && !promptEcho
-    && !staleBaseline
-    && hasAcceptedAnswer
-    && verificationIdentity.ok
-    && automaticSubmissionConfirmed
-    && evidencePolicy?.ok === true
-    && verification?.generationActive === false
-    && verification?.lengthRegressionActive !== true
-  ) {
+  // Run 1785870408469: this lift never fired once across four models and twelve
+  // decisions, so the reason each precondition failed has to be on the record -
+  // otherwise the next attempt to widen it is guesswork again.
+  const stableEvidenceBlockers = [];
+  if (!strictnessOnlyBlockers) stableEvidenceBlockers.push('non_strictness_blocker');
+  if (!success) stableEvidenceBlockers.push('not_success_status');
+  if (promptEcho) stableEvidenceBlockers.push('prompt_echo');
+  if (staleBaseline) stableEvidenceBlockers.push('stale_baseline');
+  if (!hasAcceptedAnswer) stableEvidenceBlockers.push('no_accepted_answer');
+  if (!verificationIdentity.ok) stableEvidenceBlockers.push('identity_unproven');
+  if (!automaticSubmissionConfirmed) stableEvidenceBlockers.push('submission_unconfirmed');
+  if (evidencePolicy?.ok !== true) stableEvidenceBlockers.push(`evidence_policy:${evidencePolicy?.reason || 'blocked'}`);
+  if (verification?.generationActive !== false) stableEvidenceBlockers.push('generation_inactive_unproven');
+  if (verification?.lengthRegressionActive === true) stableEvidenceBlockers.push('length_regression_active');
+  if (!stableEvidenceBlockers.length) {
     liftedContradictions.push(...contradictions.splice(0, contradictions.length));
   }
   return {
@@ -7585,6 +7588,7 @@ function buildFinalizationEvidence(llmName, entry, context = {}) {
     success,
     contradictions,
     liftedContradictions,
+    stableEvidenceBlockers,
     acceptedOnStableEvidence: liftedContradictions.length > 0,
     accepted: contradictions.length === 0 || manualRecovery
   };
@@ -7779,6 +7783,7 @@ function emitFinalizationDecision(llmName, evidence = {}) {
       decisionReasons: Array.isArray(evidence.contradictions) ? evidence.contradictions.slice(0, 12) : [],
       liftedDecisionReasons: Array.isArray(evidence.liftedContradictions) ? evidence.liftedContradictions.slice(0, 12) : [],
       acceptedOnStableEvidence: evidence.acceptedOnStableEvidence === true,
+      stableEvidenceBlockedReasons: Array.isArray(evidence.stableEvidenceBlockers) ? evidence.stableEvidenceBlockers.slice(0, 12) : [],
       modelFinalStatus: evidence.modelFinalStatus || null,
       doneReason: evidence.doneReason || null,
       dispatchId: evidence.dispatchId || null,
@@ -7828,6 +7833,12 @@ function getTerminalRank(status) {
 // never liftable.
 const LIFTABLE_STRICTNESS_CONTRADICTIONS = new Set(['answer_not_verified']);
 const PRE_INSERTION_DEFERRAL_LIMIT = 1;
+// Round 2 has to fit its whole batch inside its budget, so the deferral has to
+// outlive that batch - and then stop. Run 1785870408469: Grok and Perplexity were
+// deferred and simply stayed pending, with no terminal at all, where the old code
+// had at least reported a definite outcome in 30 seconds. A deferral that is not
+// bounded trades a bad answer for no answer.
+const PRE_INSERTION_DEFERRAL_TIMEOUT_MS = 120000;
 // Blockers a repeat dispatch cannot clear - only a human can. Everything else
 // (attachment upload not confirmed, unclassified adapter error, transport loss)
 // is worth exactly one more attempt before the model is written off.
@@ -7873,6 +7884,57 @@ function evaluatePreInsertionFailureDeferral(llmName, entry, context = {}) {
   };
 }
 
+const preInsertionDeferralTimers = new Map();
+
+function clearPreInsertionDeferralTimeout(llmName) {
+  const timer = preInsertionDeferralTimers.get(llmName);
+  if (!timer) return;
+  clearTimeout(timer);
+  deregisterSessionTimer(timer);
+  preInsertionDeferralTimers.delete(llmName);
+}
+
+function schedulePreInsertionDeferralTimeout(llmName, decision = {}) {
+  clearPreInsertionDeferralTimeout(llmName);
+  const timer = registerSessionTimer(setTimeout(() => {
+    preInsertionDeferralTimers.delete(llmName);
+    deregisterSessionTimer(timer);
+    const entry = jobState?.llms?.[llmName];
+    if (!entry || isFinalizedEntry(entry)) return;
+    // The repair had its window. Anything that made progress - a confirmed
+    // submission, an inserted prompt, an answer - keeps the model open.
+    if (entry.promptSubmittedAt || entry.promptInsertedAt || String(entry.answer || '').trim()) return;
+    emitTelemetry(llmName, 'PRE_INSERTION_DEFERRAL_EXPIRED', {
+      level: 'warning',
+      details: decision.reason || 'unknown',
+      meta: {
+        dispatchId: decision.dispatchId || null,
+        reason: decision.reason || null,
+        deferredFinalStatus: decision.finalStatus || null,
+        timeoutMs: PRE_INSERTION_DEFERRAL_TIMEOUT_MS,
+        phase: 'pre_insertion'
+      },
+      force: true
+    });
+    handleLLMResponse(
+      llmName,
+      '',
+      {
+        type: decision.reason || 'pre_insertion_failure',
+        message: `Prompt never reached the composer and the repair window expired (${PRE_INSERTION_DEFERRAL_TIMEOUT_MS}ms)`
+      },
+      {
+        dispatchId: decision.dispatchId || entry?.lastDispatchMeta?.dispatchId || null,
+        sessionId: jobState?.session?.startTime || undefined,
+        runSessionId: jobState?.session?.startTime || undefined,
+        lastResortTerminal: true
+      },
+      ''
+    );
+  }, PRE_INSERTION_DEFERRAL_TIMEOUT_MS));
+  preInsertionDeferralTimers.set(llmName, timer);
+}
+
 function applyPreInsertionFailureDeferral(llmName, entry, decision = {}) {
   if (!entry) return false;
   entry.preInsertionDeferralCount = Number(entry.preInsertionDeferralCount || 0) + 1;
@@ -7891,6 +7953,7 @@ function applyPreInsertionFailureDeferral(llmName, entry, decision = {}) {
   entry.csBusyUntil = 0;
   const machine = self.DispatchStateManager?.get?.(llmName) || null;
   if (machine && typeof machine.reset === 'function') machine.reset();
+  schedulePreInsertionDeferralTimeout(llmName, decision);
   emitTelemetry(llmName, 'PRE_INSERTION_FAILURE_DEFERRED', {
     level: 'warning',
     details: `${decision.finalStatus || 'FAILURE'}:${decision.reason || 'unknown'}`,

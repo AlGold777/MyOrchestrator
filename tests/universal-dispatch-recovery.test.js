@@ -240,6 +240,54 @@ describe('pre-insertion failure deferral', () => {
   });
 });
 
+describe('deferral is bounded', () => {
+  test('a deferred model that made no progress is finalized when the window expires', () => {
+    jest.useFakeTimers();
+    try {
+      const { context, telemetryEvents } = createSandbox({ llms: { Grok: openEntry() } });
+      const entry = context.jobState.llms.Grok;
+      context.handleLLMResponse = jest.fn();
+      context.self.handleLLMResponse = context.handleLLMResponse;
+
+      context.applyPreInsertionFailureDeferral('Grok', entry, {
+        reason: 'injection_failed',
+        failureClass: 'dispatch',
+        finalStatus: 'UNCERTAIN',
+        dispatchId: DISPATCH_ID,
+        attempt: 1
+      });
+
+      jest.advanceTimersByTime(200000);
+
+      expect(telemetryEvents.map((event) => event.event)).toContain('PRE_INSERTION_DEFERRAL_EXPIRED');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('a deferred model that got its prompt in keeps the window open', () => {
+    jest.useFakeTimers();
+    try {
+      const { context, telemetryEvents } = createSandbox({ llms: { Grok: openEntry() } });
+      const entry = context.jobState.llms.Grok;
+
+      context.applyPreInsertionFailureDeferral('Grok', entry, {
+        reason: 'injection_failed',
+        finalStatus: 'UNCERTAIN',
+        dispatchId: DISPATCH_ID,
+        attempt: 1
+      });
+      entry.promptSubmittedAt = Date.now();
+
+      jest.advanceTimersByTime(200000);
+
+      expect(telemetryEvents.map((event) => event.event)).not.toContain('PRE_INSERTION_DEFERRAL_EXPIRED');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});
+
 describe('submission inferred from answer evidence', () => {
   const inferredEntry = (overrides = {}) => openEntry({
     promptSubmittedAt: Date.now() - 5000,
