@@ -33,7 +33,8 @@
     if (newUserTurn) directSignals.push('new_user_turn');
     if (freshGenerationElement) directSignals.push('fresh_generation_element');
     if (newResponseNode) directSignals.push('new_response_node');
-    if (trustedBrowserDispatch) directSignals.push('trusted_browser_dispatch');
+    // A successful CDP command proves only that an input event was delivered to
+    // the page. It does not prove that the provider accepted the prompt.
     return {
       confirmed: directSignals.length > 0,
       directSignals,

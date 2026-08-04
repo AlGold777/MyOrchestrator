@@ -721,11 +721,7 @@ const buildProviderComposerFocusExpression = (expectedText = '') => `(() => {
   const normalizedExpected = normalize(expected);
   const matchesPrompt = (value) => {
     const actual = normalize(value);
-    if (!normalizedExpected || !actual) return false;
-    if (actual.includes(normalizedExpected)) return true;
-    const width = Math.min(32, Math.max(12, Math.floor(normalizedExpected.length / 3)));
-    return actual.includes(normalizedExpected.slice(0, width))
-      && actual.includes(normalizedExpected.slice(-width));
+    return Boolean(normalizedExpected) && actual === normalizedExpected;
   };
   const visible = (el) => {
     const r = el.getBoundingClientRect();
@@ -1924,6 +1920,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     sendResponse?.({ status: 'provider_dispatch_stage_rejected', reason: 'missing_stage' });
                     break;
                 }
+                const entry = jobState?.llms?.[llmName];
+                const dispatchId = incomingMeta.dispatchId || entry?.lastDispatchMeta?.dispatchId || null;
+                if (entry) {
+                    entry.providerDispatchStage = stage;
+                    entry.providerDispatchStageAt = Date.now();
+                    entry.providerDispatchStageDispatchId = dispatchId;
+                }
                 emitTelemetry(llmName, 'PROVIDER_DISPATCH_STAGE_OBSERVED', {
                     level: /failed|blocked|timeout/.test(String(message.outcome || message.reason || '')) ? 'warning' : 'info',
                     details: stage,
@@ -1938,6 +1941,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     },
                     force: true
                 });
+                if (stage === 'prompt_inserted' || stage === 'send_action_failed') {
+                    self.scheduleProviderSendOnlyRecovery?.(llmName, {
+                        dispatchId,
+                        reason: stage,
+                        delayMs: stage === 'send_action_failed' ? 500 : 14000
+                    });
+                } else if (stage === 'send_action_completed') {
+                    self.cancelProviderSendOnlyRecovery?.(llmName);
+                }
                 sendResponse?.({ status: 'provider_dispatch_stage_ack' });
                 break;
             }
@@ -2837,6 +2849,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                         entry.awaitingSubmitConfirmationDispatchId = null;
                         entry.confirmedDispatchId = incomingDispatchId || entry?.lastDispatchMeta?.dispatchId || null;
                         entry.submitSource = 'content';
+                        self.cancelProviderSendOnlyRecovery?.(llmName);
                         if (self.PipelineFSM?.markSubmitted) {
                             const currentControl = jobState?.session?.pipelineControl || self.PipelineFSM.normalizeControlState?.({
                                 pipelineRunId: jobState?.session?.pipelineRunId || null,

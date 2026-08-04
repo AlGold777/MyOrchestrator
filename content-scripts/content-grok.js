@@ -2296,11 +2296,9 @@
         }
 
         if (!dispatchSuccess) {
-          reportStage('send_action_failed', { outcome: 'failed', reason: sendMethod });
           sendMethod = 'ctrl_enter';
           dispatchSuccess = await attemptSendViaCtrlEnter(composer);
         }
-        reportStage('send_action_completed', { outcome: 'confirmed', reason: sendMethod });
         if (!dispatchSuccess) {
           dispatchSuccess = await attemptSendViaEnter(composer);
           if (dispatchSuccess) {
@@ -2337,6 +2335,7 @@
         }
 
         if (!dispatchSuccess) {
+          reportStage('send_action_failed', { outcome: 'failed', reason: sendMethod });
           emitDiagnostic({
             type: 'SEND',
             label: `Submission not confirmed (${sendMethod})`,
@@ -2344,15 +2343,6 @@
           });
           throw { type: 'send_failed', message: `Grok submission was not confirmed (${sendMethod}).` };
         }
-
-        const earlySubmissionMeta = Object.assign({}, dispatchMeta || {}, {
-          confirmed: true,
-          method: sendMethod,
-          payloadVerified: false,
-          promptTurnVerified: false,
-          submitConfirmationSource: 'dispatch_success'
-        });
-        try { chrome.runtime.sendMessage({ type: 'PROMPT_SUBMITTED', llmName: MODEL, ts: Date.now(), meta: earlySubmissionMeta }); } catch (_) {}
 
         const submittedPrompt = await waitForGrokSubmittedPrompt(prompt, userMessageBaseline, 10000, 200);
         if (!submittedPrompt.observed || !submittedPrompt.matches) {
@@ -2386,6 +2376,7 @@
         }
 
         console.log(`[content-grok] Prompt dispatched via ${sendMethod} and verified in the posted user turn`);
+        reportStage('send_action_completed', { outcome: 'confirmed', reason: sendMethod });
         emitDiagnostic({
           type: 'SEND',
           label: 'GROK_SENT_PROMPT_CONFIRMED',
@@ -2584,6 +2575,53 @@
   }
 
   // -------------------- Message bus --------------------
+  let grokSendOnlyRecoveryActive = false;
+  async function recoverGrokSendOnly(prompt, meta) {
+    if (grokSendOnlyRecoveryActive) return { ok: false, status: 'recovery_busy', reason: 'send_only_recovery_active' };
+    const composer = discoverComposer();
+    const expected = normalizeForComparison(prompt);
+    const actual = normalizeForComparison(readComposerValue(composer));
+    if (!composer?.isConnected || !isElementInteractable(composer) || !expected || actual !== expected) {
+      return { ok: false, status: 'send_only_rejected', reason: 'visible_composer_prompt_mismatch' };
+    }
+    grokSendOnlyRecoveryActive = true;
+    const startedAt = Date.now();
+    const reportStage = (stage, outcome = {}) => window.ContentUtils?.reportDispatchStage?.(
+      MODEL, meta, stage, { ...outcome, elapsedMs: Date.now() - startedAt }
+    );
+    reportStage('send_only_recovery_started', { composerVisible: true, composerConnected: true });
+    try {
+      const baseline = grabLatestGrokUserMessage();
+      let method = 'button';
+      let button = await fallbackFindSendButton(composer, 1200);
+      let dispatched = Boolean(button && !button.disabled) && await attemptSendViaButton(button, composer);
+      if (!dispatched && normalizeForComparison(readComposerValue(composer)) === expected) {
+        method = 'ctrl_enter';
+        dispatched = await attemptSendViaCtrlEnter(composer);
+      }
+      if (!dispatched) {
+        reportStage('send_only_recovery_failed', { outcome: 'failed', reason: method });
+        return { ok: false, status: 'send_only_failed', reason: 'send_not_observed' };
+      }
+      const submitted = await waitForGrokSubmittedPrompt(prompt, baseline, 6000, 160);
+      if (!submitted.observed || !submitted.matches) {
+        reportStage('send_only_recovery_failed', { outcome: 'failed', reason: 'posted_prompt_unverified' });
+        return { ok: false, status: 'send_only_failed', reason: 'posted_prompt_unverified' };
+      }
+      const submissionMeta = Object.assign({}, meta || {}, {
+        confirmed: true,
+        method: `send_only_${method}`,
+        payloadVerified: true,
+        promptTurnVerified: true
+      });
+      reportStage('send_only_recovery_completed', { outcome: 'confirmed', reason: method });
+      chrome.runtime.sendMessage({ type: 'PROMPT_SUBMITTED', llmName: MODEL, ts: Date.now(), meta: submissionMeta });
+      return { ok: true, status: 'send_only_confirmed', method };
+    } finally {
+      grokSendOnlyRecoveryActive = false;
+    }
+  }
+
   const onRuntimeMessage = (msg, _sender, sendResponse) => {
     try {
       if (!msg) return false;
@@ -2606,6 +2644,13 @@
       
       if (msg?.type === 'HEALTH_CHECK_PING') {
         sendResponse({ type: 'HEALTH_CHECK_PONG', pingId: msg.pingId, llmName: MODEL });
+        return true;
+      }
+
+      if (msg?.type === 'RECOVER_PROVIDER_SEND') {
+        recoverGrokSendOnly(String(msg.prompt || ''), msg.meta || null)
+          .then(sendResponse)
+          .catch((error) => sendResponse({ ok: false, status: 'send_only_failed', reason: error?.message || 'unknown_error' }));
         return true;
       }
 

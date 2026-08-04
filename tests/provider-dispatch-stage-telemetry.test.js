@@ -43,4 +43,19 @@ describe('provider dispatch stage telemetry', () => {
     expect(router).toContain("validateLifecycleSender(llmName, sender, 'PROVIDER_DISPATCH_STAGE_OBSERVED'");
     expect(router).toContain("validateLifecycleCorrelation(llmName, message, 'PROVIDER_DISPATCH_STAGE_OBSERVED')");
   });
+
+  test('send-only recovery is exact, provider-neutral and never reinserts the prompt', () => {
+    const coordinator = read('background', 'dispatch-coordinator.js');
+    const router = read('background', 'message-router.js');
+    const grok = read('content-scripts', 'content-grok.js');
+    const perplexity = read('content-scripts', 'content-perplexity.js');
+    expect(router).toContain("stage === 'prompt_inserted' || stage === 'send_action_failed'");
+    expect(coordinator).toContain("type: 'RECOVER_PROVIDER_SEND'");
+    expect(coordinator).toContain('liveDispatchId !== dispatchId');
+    expect(grok).toContain("msg?.type === 'RECOVER_PROVIDER_SEND'");
+    expect(grok).toContain("reason: 'visible_composer_prompt_mismatch'");
+    expect(perplexity).toContain("message?.type === 'RECOVER_PROVIDER_SEND'");
+    expect(perplexity).toContain('findOwnedPerplexityPromptComposer(prompt)');
+    expect(perplexity).toContain("reason: 'visible_current_composer_prompt_mismatch'");
+  });
 });

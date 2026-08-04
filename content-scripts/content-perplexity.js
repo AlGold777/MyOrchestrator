@@ -263,6 +263,63 @@ const findVisiblePerplexityComposer = () => {
   return null;
 };
 
+const normalizePerplexityComposerText = (value) => String(value || '').normalize('NFKC')
+  .replace(/[\u200B-\u200D\u2060\uFEFF]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+
+const findOwnedPerplexityPromptComposer = (prompt) => {
+  const composer = findVisiblePerplexityComposer();
+  if (!composer) return null;
+  const actual = normalizePerplexityComposerText(composer.value || composer.innerText || composer.textContent || '');
+  const expected = normalizePerplexityComposerText(prompt);
+  return expected && actual === expected ? composer : null;
+};
+
+const PERPLEXITY_USER_TURN_SELECTORS = [
+  '[data-message-author-role="user"]',
+  '[data-role="user"]',
+  '[data-testid*="user-message" i]',
+  '[class*="user-message" i]'
+];
+const countPerplexityUserTurns = () => new Set(PERPLEXITY_USER_TURN_SELECTORS.flatMap((selector) => (
+  Array.from(document.querySelectorAll(selector))
+))).size;
+const collectPerplexityGenerationEvidence = () => [
+  'button[aria-label*="stop" i]:not([disabled])',
+  'button[data-testid*="stop" i]:not([disabled])',
+  '[data-streaming="true"]',
+  '[data-generating="true"]'
+].flatMap((selector) => Array.from(document.querySelectorAll(selector)).filter((element) => {
+  const rect = element?.getBoundingClientRect?.();
+  const style = element ? getComputedStyle(element) : null;
+  return Boolean(rect && rect.width > 0 && rect.height > 0
+    && style?.display !== 'none' && style?.visibility !== 'hidden');
+}));
+const countPerplexityResponses = () => document.querySelectorAll(
+  '[data-message-author-role="assistant"], [data-role="assistant"], [data-testid*="answer" i], main article'
+).length;
+const capturePerplexitySubmitBaseline = (composer) => window.ProviderSubmitConfirmation?.capture?.({
+  userTurnCount: countPerplexityUserTurns(),
+  responseCount: countPerplexityResponses(),
+  composerTextLength: (composer?.value || composer?.textContent || '').trim().length,
+  generationElements: collectPerplexityGenerationEvidence()
+}) || null;
+const waitForPerplexitySubmitEvidence = async (baseline, timeoutMs = 6000) => {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const composer = findVisiblePerplexityComposer();
+    const proof = window.ProviderSubmitConfirmation?.evaluate?.(baseline, {
+      userTurnCount: countPerplexityUserTurns(),
+      responseCount: countPerplexityResponses(),
+      composerTextLength: (composer?.value || composer?.textContent || '').trim().length,
+      generationElements: collectPerplexityGenerationEvidence(),
+      trustedBrowserDispatch: true
+    });
+    if (proof?.confirmed === true) return proof;
+    await new Promise((resolve) => setTimeout(resolve, 120));
+  }
+  return null;
+};
+
 const waitForVisiblePerplexityComposer = (timeoutMs = 15000) => new Promise((resolve) => {
   const immediate = findVisiblePerplexityComposer();
   if (immediate) {
@@ -1508,24 +1565,7 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
     }
 
     console.log('[content-perplexity] Input field found. Injecting prompt...');
-    const normalizeComposerText = (value) => String(value || '').normalize('NFKC')
-      .replace(/[\u200B-\u200D\u2060\uFEFF]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
-    const expectedPrompt = normalizeComposerText(prompt);
-    const composerMatchesPrompt = (candidate) => {
-      if (!candidate?.isConnected) return false;
-      const value = candidate.value || candidate.innerText || candidate.textContent || '';
-      if (window.ContentUtils?.promptMatchesComposer) {
-        return window.ContentUtils.promptMatchesComposer(value, prompt);
-      }
-      const normalizedValue = normalizeComposerText(value);
-      if (normalizedValue.includes(expectedPrompt)) return true;
-      const width = Math.min(32, Math.max(12, Math.floor(expectedPrompt.length / 3)));
-      return Boolean(expectedPrompt)
-        && normalizedValue.includes(expectedPrompt.slice(0, width))
-        && normalizedValue.includes(expectedPrompt.slice(-width));
-    };
-    const findLivePromptComposer = () => Array.from(document.querySelectorAll(inputSelectors.join(',')))
-      .find(composerMatchesPrompt) || null;
+    const findLivePromptComposer = () => findOwnedPerplexityPromptComposer(prompt);
     reportStage('prompt_insertion_started');
     let prepared = window.PerplexityComposerTransaction?.prepare
       ? await window.PerplexityComposerTransaction.prepare({
@@ -1625,62 +1665,20 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
     reportInsertion('inserted', null, __val.length);
     reportStage('prompt_inserted', { outcome: 'confirmed', composerConnected: inputField?.isConnected === true });
     inputField = findLivePromptComposer() || inputField;
-    const visible = (element) => {
-      const rect = element?.getBoundingClientRect?.();
-      const style = element ? getComputedStyle(element) : null;
-      return Boolean(rect && rect.width > 0 && rect.height > 0
-        && style?.display !== 'none' && style?.visibility !== 'hidden');
-    };
-    const userTurnSelectors = [
-      '[data-message-author-role="user"]',
-      '[data-role="user"]',
-      '[data-testid*="user-message" i]',
-      '[class*="user-message" i]'
-    ];
-    const countUserTurns = () => new Set(userTurnSelectors.flatMap((selector) => (
-      Array.from(document.querySelectorAll(selector))
-    ))).size;
-    const baselineUserTurns = countUserTurns();
-    const collectGenerationEvidence = () => [
-      'button[aria-label*="stop" i]:not([disabled])',
-      'button[data-testid*="stop" i]:not([disabled])',
-      '[data-streaming="true"]',
-      '[data-generating="true"]'
-    ].flatMap((selector) => Array.from(document.querySelectorAll(selector)).filter(visible));
-    const baselineGenerationEvidence = new Set(collectGenerationEvidence());
-    const hasFreshGenerationEvidence = () => collectGenerationEvidence()
-      .some((element) => !baselineGenerationEvidence.has(element));
-    const baselineResponseCount = document.querySelectorAll(
-      '[data-message-author-role="assistant"], [data-role="assistant"], [data-testid*="answer" i], main article'
-    ).length;
-    const submitConfirmation = window.ProviderSubmitConfirmation || null;
-    const submitBaseline = submitConfirmation?.capture?.({
-      userTurnCount: baselineUserTurns,
-      responseCount: baselineResponseCount,
-      composerTextLength: (inputField.value || inputField.textContent || '').trim().length,
-      generationElements: baselineGenerationEvidence
-    }) || null;
+    const submitBaseline = capturePerplexitySubmitBaseline(inputField);
 
     const confirmPerplexitySend = async (timeout = 6000, trustedBrowserDispatch = false) => {
       const deadline = Date.now() + timeout;
       while (Date.now() < deadline) {
         const liveComposer = findLivePromptComposer();
-        const currentResponseCount = document.querySelectorAll(
-          '[data-message-author-role="assistant"], [data-role="assistant"], [data-testid*="answer" i], main article'
-        ).length;
-        const proof = submitConfirmation?.evaluate?.(submitBaseline, {
-          userTurnCount: countUserTurns(),
-          responseCount: currentResponseCount,
+        const proof = window.ProviderSubmitConfirmation?.evaluate?.(submitBaseline, {
+          userTurnCount: countPerplexityUserTurns(),
+          responseCount: countPerplexityResponses(),
           composerTextLength: (liveComposer?.value || liveComposer?.textContent || '').trim().length,
-          generationElements: collectGenerationEvidence(),
+          generationElements: collectPerplexityGenerationEvidence(),
           trustedBrowserDispatch
         });
         if (proof?.confirmed === true) return true;
-        if (!submitConfirmation && (
-          countUserTurns() > baselineUserTurns
-          || hasFreshGenerationEvidence()
-          || currentResponseCount > baselineResponseCount
-        )) return true;
         await sleep(120);
       }
       return false;
@@ -1822,6 +1820,57 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
   });
 }
 
+let perplexitySendOnlyRecoveryActive = false;
+async function recoverPerplexitySendOnly(prompt, meta) {
+  if (perplexitySendOnlyRecoveryActive) {
+    return { ok: false, status: 'recovery_busy', reason: 'send_only_recovery_active' };
+  }
+  const composer = findOwnedPerplexityPromptComposer(prompt);
+  if (!composer) {
+    return { ok: false, status: 'send_only_rejected', reason: 'visible_current_composer_prompt_mismatch' };
+  }
+  perplexitySendOnlyRecoveryActive = true;
+  const startedAt = Date.now();
+  const reportStage = (stage, outcome = {}) => window.ContentUtils?.reportDispatchStage?.(
+    MODEL, meta, stage, { ...outcome, elapsedMs: Date.now() - startedAt }
+  );
+  reportStage('send_only_recovery_started', { composerVisible: true, composerConnected: true });
+  try {
+    const baseline = capturePerplexitySubmitBaseline(composer);
+    let method = 'trusted_send';
+    let action = await sendPerplexityRuntimeMessage({
+      type: 'PROVIDER_TRUSTED_SEND_REQUEST', llmName: MODEL, prompt
+    });
+    let proof = action?.ok ? await waitForPerplexitySubmitEvidence(baseline, 5000) : null;
+    if (!proof && findOwnedPerplexityPromptComposer(prompt)) {
+      method = 'trusted_enter';
+      action = await sendPerplexityRuntimeMessage({
+        type: 'PERPLEXITY_TRUSTED_ENTER_REQUEST', llmName: MODEL, prompt
+      });
+      proof = action?.ok ? await waitForPerplexitySubmitEvidence(baseline, 5000) : null;
+    }
+    if (!proof) {
+      reportStage('send_only_recovery_failed', {
+        outcome: 'failed', reason: action?.reason || 'no_page_submit_evidence'
+      });
+      return { ok: false, status: 'send_only_failed', reason: action?.reason || 'no_page_submit_evidence' };
+    }
+    const submissionMeta = Object.assign({}, meta || {}, {
+      confirmed: true,
+      method: `send_only_${method}`,
+      payloadVerified: true,
+      promptTurnVerified: proof.newUserTurn === true
+    });
+    reportStage('send_only_recovery_completed', {
+      outcome: 'confirmed', reason: proof.directSignals?.join(',') || method
+    });
+    chrome.runtime.sendMessage({ type: 'PROMPT_SUBMITTED', llmName: MODEL, ts: Date.now(), meta: submissionMeta });
+    return { ok: true, status: 'send_only_confirmed', method, evidence: proof.directSignals || [] };
+  } finally {
+    perplexitySendOnlyRecoveryActive = false;
+  }
+}
+
 // --- ОБРАБОТЧИК СООБЩЕНИЙ ---
 const onRuntimeMessage = (message, sender, sendResponse) => {
   if (!message) return false;
@@ -1847,6 +1896,13 @@ const onRuntimeMessage = (message, sender, sendResponse) => {
 
   if (message?.type === 'HEALTH_CHECK_PING') {
     sendResponse({ type: 'HEALTH_CHECK_PONG', pingId: message.pingId, llmName: MODEL });
+    return true;
+  }
+
+  if (message?.type === 'RECOVER_PROVIDER_SEND') {
+    recoverPerplexitySendOnly(String(message.prompt || ''), message.meta || null)
+      .then(sendResponse)
+      .catch((error) => sendResponse({ ok: false, status: 'send_only_failed', reason: error?.message || 'unknown_error' }));
     return true;
   }
 

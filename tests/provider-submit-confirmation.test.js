@@ -52,4 +52,16 @@ describe('provider submission confirmation', () => {
     expect(result.confirmed).toBe(true);
     expect(result.directSignals).toContain(signal);
   });
+
+  test('trusted browser dispatch without page evidence remains unconfirmed', () => {
+    const result = Confirmation.evaluate(baseline(), {
+      userTurnCount: 4,
+      responseCount: 4,
+      composerTextLength: 120,
+      generationElements: [oldBusy],
+      trustedBrowserDispatch: true
+    });
+    expect(result.confirmed).toBe(false);
+    expect(result.trustedBrowserDispatch).toBe(true);
+  });
 });

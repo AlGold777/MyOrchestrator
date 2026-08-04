@@ -7,6 +7,7 @@ var dispatchMutexManager = new MutexManager();
 var promptDispatchFocusMutex = Promise.resolve();
 var promptSubmitWaiters = new Map();
 var promptInsertionWaiters = new Map();
+var providerSendOnlyRecoveryTimers = new Map();
 var promptDispatchSupervisorTimer = null;
 //- 2.1. Лимит ожидания сигнала из контента -//
 const PROMPT_SUBMIT_TIMEOUT_MS = TimingConfig.getTiming('promptSubmitTimeoutMs', 15000);
@@ -65,6 +66,8 @@ const SCRIPT_RUNTIME_HARD_STOP_GRACE_MS = 12000;
 const SCRIPT_RUNTIME_HARD_STOP_MAX_GRACE_EXTENSIONS = 2;
 const TRANSPORT_RECOVER_BACKOFF_MS = 12000;
 const PROVIDER_PIPELINE_OWNERSHIP_TTL_MS = 180000;
+const PROVIDER_SEND_ONLY_RECOVERY_DELAY_MS = 5000;
+const PROVIDER_SEND_ONLY_RECOVERY_TIMEOUT_MS = 15000;
 
 function isProviderPipelineOwnershipActive(entry, now = Date.now()) {
   if (!entry) return false;
@@ -73,6 +76,75 @@ function isProviderPipelineOwnershipActive(entry, now = Date.now()) {
   if (!active) return false;
   const activeAt = Number(entry.providerComposerTransactionActiveAt || entry.providerPipelineActiveAt || 0);
   return activeAt > 0 && Math.max(0, Number(now) - activeAt) < PROVIDER_PIPELINE_OWNERSHIP_TTL_MS;
+}
+
+function cancelProviderSendOnlyRecovery(llmName) {
+  const timer = providerSendOnlyRecoveryTimers.get(llmName);
+  if (!timer) return false;
+  clearTimeout(timer);
+  dispatchDeregisterSessionTimer(timer);
+  providerSendOnlyRecoveryTimers.delete(llmName);
+  return true;
+}
+
+function scheduleProviderSendOnlyRecovery(llmName, options = {}) {
+  const entry = jobState?.llms?.[llmName];
+  if (!entry || !self.ModelPolicy?.modelSupportsSendOnlyRecovery?.(llmName)) return false;
+  const dispatchId = options.dispatchId || entry?.lastDispatchMeta?.dispatchId || null;
+  if (!dispatchId) return false;
+  cancelProviderSendOnlyRecovery(llmName);
+  const delayMs = Math.max(500, Number(options.delayMs || PROVIDER_SEND_ONLY_RECOVERY_DELAY_MS));
+  let timer = null;
+  timer = dispatchRegisterSessionTimer(setTimeout(async () => {
+    dispatchDeregisterSessionTimer(timer);
+    providerSendOnlyRecoveryTimers.delete(llmName);
+    const liveEntry = jobState?.llms?.[llmName];
+    const liveDispatchId = liveEntry?.lastDispatchMeta?.dispatchId || null;
+    if (!liveEntry || liveDispatchId !== dispatchId || liveEntry.promptSubmittedAt
+      || liveEntry.confirmedDispatchId === dispatchId) return;
+    if (!['prompt_inserted', 'send_action_failed'].includes(String(liveEntry.providerDispatchStage || ''))) return;
+    const tabId = resolveBoundTabIdForDispatch(llmName, liveEntry);
+    if (!isValidTabId(tabId)) return;
+    const previousTab = await getActiveTabSnapshot();
+    let automationVisitStarted = false;
+    const automationManager = (self.startAutomationVisit && self.endAutomationVisit) ? self : null;
+    let result = null;
+    try {
+      result = await withPromptDispatchFocusLock(async () => {
+        if (automationManager) automationVisitStarted = automationManager.startAutomationVisit(tabId, llmName);
+        await activateTabForDispatch(tabId);
+        await dispatchSleepMs(250);
+        return sendMessageWithTimeout(tabId, llmName, {
+          type: 'RECOVER_PROVIDER_SEND',
+          prompt: self.TransportPolicy?.resolvePromptForModel
+            ? self.TransportPolicy.resolvePromptForModel(jobState?.session?.promptsByModel, llmName, jobState.prompt)
+            : jobState.prompt,
+          meta: { ...(liveEntry.lastDispatchMeta || {}), dispatchId, runSessionId: jobState?.session?.startTime || null },
+          reason: options.reason || 'send_only_watchdog'
+        }, PROVIDER_SEND_ONLY_RECOVERY_TIMEOUT_MS);
+      });
+    } catch (error) {
+      result = { ok: false, status: 'recovery_transport_failed', reason: error?.message || 'unknown_error' };
+    } finally {
+      if (automationManager && automationVisitStarted) automationManager.endAutomationVisit(llmName);
+      if (previousTab?.id && previousTab.id !== tabId) restoreFocusIfStillOnDispatchTab(tabId, previousTab);
+    }
+    emitTelemetry(llmName, 'PROVIDER_DISPATCH_STAGE_OBSERVED', {
+      level: result?.ok === true ? 'info' : 'warning',
+      details: result?.reason || result?.status || (result?.ok ? 'confirmed' : 'failed'),
+      meta: {
+        tabId,
+        dispatchId,
+        stage: 'send_only_recovery_result',
+        outcome: result?.ok === true ? 'confirmed' : 'failed',
+        resultStatus: result?.status || null,
+        recoveryReason: options.reason || 'send_only_watchdog'
+      },
+      force: true
+    });
+  }, delayMs));
+  providerSendOnlyRecoveryTimers.set(llmName, timer);
+  return true;
 }
 
 const dispatchSessionTimerManager = (() => {
@@ -2245,6 +2317,7 @@ function sendPassiveMessageWithRetries(tabId, llmName, message, {
 self.dispatchMutexManager = dispatchMutexManager;
 self.promptSubmitWaiters = promptSubmitWaiters;
 self.promptInsertionWaiters = promptInsertionWaiters;
+self.providerSendOnlyRecoveryTimers = providerSendOnlyRecoveryTimers;
 self.getRetryBackoffForModel = getRetryBackoffForModel;
 self.getConnectionRetryDelaysForModel = getConnectionRetryDelaysForModel;
 self.withPromptDispatchLock = withPromptDispatchLock;
@@ -2254,6 +2327,8 @@ self.waitForPromptSubmitted = waitForPromptSubmitted;
 self.resolvePromptInsertion = resolvePromptInsertion;
 self.waitForPromptInsertion = waitForPromptInsertion;
 self.waitForPromptFocusBoundary = waitForPromptFocusBoundary;
+self.scheduleProviderSendOnlyRecovery = scheduleProviderSendOnlyRecovery;
+self.cancelProviderSendOnlyRecovery = cancelProviderSendOnlyRecovery;
 self.getPromptSubmitTimeoutMs = getPromptSubmitTimeoutMs;
 self.sendMessageWithTimeout = sendMessageWithTimeout;
 self.normalizePageReadyState = normalizePageReadyState;

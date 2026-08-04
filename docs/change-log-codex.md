@@ -1,5 +1,16 @@
 # Codex phase change log
 
+## 2.81.266 — Safe send-only recovery
+
+- A provider-neutral watchdog revisits Grok and Perplexity only after an exact,
+  correlated insertion stage and never reinserts the prompt.
+- Recovery may press Send only when the current visible composer exactly equals
+  the dispatched prompt; stale, hidden and changed drafts fail closed.
+- A successful debugger command no longer counts as submission. Perplexity now
+  requires a new user turn, fresh generation element or new response node.
+- Grok no longer publishes an early unverified `PROMPT_SUBMITTED`; both ordinary
+  and recovery sends require the posted user turn to match the whole prompt.
+
 ## 2.81.265 — Composer ownership ends at confirmed Send
 
 - Provider ownership is split into short `composer` and long
