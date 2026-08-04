@@ -823,12 +823,7 @@ const buildProviderSendControlExpression = (expectedText = '') => `(() => {
   const normalizedExpected = normalize(expected);
   const matchesPrompt = (value) => {
     const actual = normalize(value);
-    if (!actual) return false;
-    if (!normalizedExpected) return true;
-    if (actual.includes(normalizedExpected)) return true;
-    const width = Math.min(32, Math.max(12, Math.floor(normalizedExpected.length / 3)));
-    return actual.includes(normalizedExpected.slice(0, width))
-      && actual.includes(normalizedExpected.slice(-width));
+    return Boolean(normalizedExpected) && actual === normalizedExpected;
   };
   const visible = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
   const text = (el) => [el.getAttribute('aria-label'), el.getAttribute('title'), el.getAttribute('data-testid'), el.getAttribute('data-test-id'), el.textContent].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();

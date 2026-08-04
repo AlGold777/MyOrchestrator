@@ -98,10 +98,10 @@ describe('composer transaction contract', () => {
     expect(pageButtonAt).toBe(-1);
     expect(failedAt).toBeGreaterThan(-1);
     expect(submittedAt).toBeGreaterThan(failedAt);
-    expect(source).toContain('ContentUtils.promptMatchesComposer(value, prompt)');
-    expect(source).toContain('countUserTurns() > baselineUserTurns');
-    expect(source).toContain('hasFreshGenerationEvidence()');
-    expect(source).toContain('baselineGenerationEvidence');
+    expect(source).toContain('findOwnedPerplexityPromptComposer(prompt)');
+    expect(source).toContain('actual === expected');
+    expect(source).toContain('countPerplexityUserTurns()');
+    expect(source).toContain('collectPerplexityGenerationEvidence()');
     expect(source).not.toContain('if (!liveComposer) return true;');
     expect(source).toContain('trustedBrowserDispatch');
     expect(source).toContain('PERPLEXITY_DUPLICATE_DISPATCH_SUPPRESSED');
@@ -143,7 +143,7 @@ describe('composer transaction contract', () => {
     expect(source).toContain('PERPLEXITY_DRAFT_REJECTED');
   });
 
-  test('trusted Perplexity actions retain composer ownership when an attachment chip splits the prompt', () => {
+  test('trusted Perplexity actions reject a composer value altered by an attachment chip', () => {
     const router = read('background/message-router.js');
     const loadBuilder = (name, nextMarker) => {
       const start = router.indexOf(`const ${name} =`);
@@ -161,11 +161,12 @@ describe('composer transaction contract', () => {
     const composer = document.querySelector('textarea');
     composer.value = `${normalized.slice(0, width)} architecture-report.pdf ${normalized.slice(-width)}`;
     composer.getBoundingClientRect = () => ({ width: 500, height: 80, top: 0, left: 0, right: 500, bottom: 80 });
-    const send = document.querySelector('button');
-    send.getBoundingClientRect = () => ({ width: 40, height: 40, top: 0, left: 0, right: 40, bottom: 40 });
+    document.querySelector('button').getBoundingClientRect = () => ({
+      width: 40, height: 40, top: 0, left: 0, right: 40, bottom: 40
+    });
 
-    expect(window.eval(buildFocus(prompt))).toBe(true);
-    expect(document.activeElement).toBe(composer);
-    expect(window.eval(buildSend(prompt))).toBe(send);
+    expect(window.eval(buildFocus(prompt))).toBe(false);
+    expect(document.activeElement).not.toBe(composer);
+    expect(window.eval(buildSend(prompt))).toBe(null);
   });
 });

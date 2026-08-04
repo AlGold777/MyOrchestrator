@@ -1,5 +1,15 @@
 # Codex phase change log
 
+## 2.81.269 — Send recovery release gate
+
+- The background trusted-Send selector now uses the same exact full-prompt
+  predicate as the content adapter; attachment labels or partial head/tail
+  fingerprints cannot authorize a Send action.
+- Generated provider bundles were rebuilt from the current sources.
+- Legacy tests that required early or CDP-only submission confirmation now
+  enforce the fail-closed contract. The full 1,663-test suite, telemetry parity
+  suite and headed Chromium telemetry smoke-test pass.
+
 ## 2.81.268 — Perplexity insertion proof is exact and visible
 
 - Perplexity accepts insertion only after reacquiring the visible current

@@ -86,14 +86,13 @@ describe('prompt-echo / suspect is not a green answer (preservation path)', () =
     expect(ctrlEnterAt).toBeGreaterThan(buttonAt);
   });
 
-  test('Grok reports dispatch confirmation before strict posted-turn verification', () => {
+  test('Grok reports dispatch confirmation only after strict posted-turn verification', () => {
     const dispatchSuccessAt = GROK_SRC.indexOf('if (!dispatchSuccess)');
     const earlySubmittedAt = GROK_SRC.indexOf("submitConfirmationSource: 'dispatch_success'", dispatchSuccessAt);
     const verifyAt = GROK_SRC.indexOf('const submittedPrompt = await waitForGrokSubmittedPrompt');
     const verifiedSubmittedAt = GROK_SRC.indexOf('promptTurnVerified: true', verifyAt);
     expect(dispatchSuccessAt).toBeGreaterThan(-1);
-    expect(earlySubmittedAt).toBeGreaterThan(dispatchSuccessAt);
-    expect(earlySubmittedAt).toBeLessThan(verifyAt);
+    expect(earlySubmittedAt).toBe(-1);
     expect(verifyAt).toBeGreaterThan(-1);
     expect(GROK_SRC.indexOf('GROK_SENT_PROMPT_MISMATCH', verifyAt)).toBeGreaterThan(verifyAt);
     expect(GROK_SRC.indexOf('stopGrokWrongGeneration()', verifyAt)).toBeGreaterThan(verifyAt);
