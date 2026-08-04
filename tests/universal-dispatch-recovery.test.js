@@ -209,6 +209,21 @@ describe('pre-insertion failure deferral', () => {
     expect(decision).toEqual({ defer: false, reason: 'last_resort_terminal' });
   });
 
+  test('a failure from an earlier dispatch never touches the live one', () => {
+    const { context } = createSandbox({ llms: { Grok: openEntry() } });
+
+    const decision = context.evaluatePreInsertionFailureDeferral('Grok', context.jobState.llms.Grok, {
+      isSuccess: false,
+      answerText: '',
+      error: { type: 'generic_error', message: 'adapter failed' },
+      finalStatus: 'UNCERTAIN',
+      failureClassification: { class: 'unknown', type: 'generic_error' },
+      dispatchId: 'Grok:1781159284885:0'
+    });
+
+    expect(decision).toEqual({ defer: false, reason: 'foreign_dispatch' });
+  });
+
   test('an answer that arrived is not a bare failure', () => {
     const { context } = createSandbox({ llms: { Grok: openEntry() } });
 

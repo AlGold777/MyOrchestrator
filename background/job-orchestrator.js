@@ -4069,6 +4069,10 @@ const finalizeAutomationDeadline = (llmName, phase, budgetMs, meta = {}) => {
       dispatchId: entry?.lastDispatchMeta?.dispatchId || null,
       providerGenerationLeftRunning: true,
       manualRecoveryAvailable: true,
+      // A model that reached the deadline after a deferred pre-insertion failure
+      // did not simply run out of generation time - say so in the record.
+      preInsertionDeferredReason: entry?.preInsertionDeferral?.reason || null,
+      preInsertionDeferredStatus: entry?.preInsertionDeferral?.deferredFinalStatus || null,
       ...meta
     },
     force: true
@@ -7837,6 +7841,12 @@ function evaluatePreInsertionFailureDeferral(llmName, entry, context = {}) {
   // construction: they run when every earlier stage is already spent, so
   // deferring them would leave the model open with nothing left to reopen it.
   if (context.lastResortTerminal) return decline('last_resort_terminal');
+  // The gate runs before run-identity validation, so a late failure from an
+  // earlier dispatch must not reset the flags of the dispatch that is live now.
+  const liveDispatchId = entry.lastDispatchMeta?.dispatchId || null;
+  if (context.dispatchId && liveDispatchId && String(context.dispatchId) !== String(liveDispatchId)) {
+    return decline('foreign_dispatch');
+  }
   if (isFinalizedEntry(entry)) return decline('already_finalized');
   if (entry.promptSubmittedAt) return decline('prompt_already_submitted');
   const dispatchId = context.dispatchId || null;
