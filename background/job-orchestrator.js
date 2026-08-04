@@ -19,6 +19,7 @@ const ROUND1_POST_COMMAND_FOCUS_HOLD_MS = Object.freeze({
   Qwen: 6000
 });
 const ROUND1_PROMPT_INSERTION_FOCUS_HOLD_MS = 8000;
+const ROUND1_PROGRESS_FOCUS_EXTENSION_MS = 5000;
 const ROUND_PROVIDER_PIPELINE_OWNERSHIP_TTL_MS = 180000;
 const ROUND2_VISIT_COUNT = 2;
 const ROUND2_VISIT_MIN_MS = 5000;
@@ -5677,6 +5678,7 @@ async function dispatchRound1Sequentially(selectedLLMs, prompt, attachments = []
       // evidence arrives, capped independently of the longer submit watchdog.
       // Switching immediately throttles the provider's composer timers.
       postCommandFocusHoldMs: resolveRound1PostCommandFocusHoldMs(llmName),
+      progressFocusExtensionMs: ROUND1_PROGRESS_FOCUS_EXTENSION_MS,
       skipTypingGuard: true,
       resetStateAfterSend: false
     });

@@ -48,6 +48,16 @@ describe('Round 1 prompt insertion focus boundary', () => {
     expect(ORCHESTRATOR).toContain('const ROUND1_PROMPT_INSERTION_FOCUS_HOLD_MS = 8000');
     expect(resolver).toContain('ROUND1_PROMPT_INSERTION_FOCUS_HOLD_MS');
     expect(resolver).not.toContain('getPromptSubmitTimeoutMs');
+    expect(ORCHESTRATOR).toContain('const ROUND1_PROGRESS_FOCUS_EXTENSION_MS = 5000');
+    expect(ORCHESTRATOR).toContain('progressFocusExtensionMs: ROUND1_PROGRESS_FOCUS_EXTENSION_MS');
+  });
+
+  test('focus extension is bounded and requires current correlated progress', () => {
+    expect(SOURCE).toContain('const progressIsCurrent = entry.providerDispatchStageDispatchId === dispatchId');
+    expect(SOURCE).toContain("boundary.reason === 'hold_elapsed'");
+    expect(SOURCE).toContain('extendableStages.has(progressStage)');
+    expect(SOURCE).toContain("reason: extendedBoundary.reason === 'hold_elapsed'");
+    expect(SOURCE).toContain("? 'progress_extension_elapsed'");
   });
 
   test('insertion waiters resolve only for the exact model and dispatch', async () => {

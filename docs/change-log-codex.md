@@ -1,5 +1,13 @@
 # Codex phase change log
 
+## 2.81.267 — Focus follows correlated composer progress
+
+- Round 1 keeps its normal eight-second foreground cap for every model.
+- A model receives one additional five-second window only when its exact
+  dispatch published fresh composer or Send progress during the first window.
+- Missing, stale and cross-dispatch stage signals cannot extend the queue; the
+  extension and its cause are recorded in canonical focus-stage telemetry.
+
 ## 2.81.266 — Safe send-only recovery
 
 - A provider-neutral watchdog revisits Grok and Perplexity only after an exact,

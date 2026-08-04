@@ -1497,11 +1497,12 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
 
       waiter = waitForPromptSubmitted(llmName, dispatchId, submitTimeoutMs);
       const postCommandFocusHoldMs = Math.max(0, Number(options.postCommandFocusHoldMs || 0));
+      const progressFocusExtensionMs = Math.max(0, Number(options.progressFocusExtensionMs || 0));
       if (postCommandFocusHoldMs > 0) {
         insertionWaiter = waitForPromptInsertion(
           llmName,
           dispatchId,
-          postCommandFocusHoldMs + 1000
+          postCommandFocusHoldMs + progressFocusExtensionMs + 1000
         );
       }
       const readyWaitMs = Math.max(0, Date.now() - lockAcquiredAt);
@@ -1575,11 +1576,36 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
           commandDeliveryResult = await deliverAnswerCommand();
           if (postCommandFocusHoldMs > 0) {
             const holdStartedAt = Date.now();
-            const boundary = await waitForPromptFocusBoundary(
+            let boundary = await waitForPromptFocusBoundary(
               waiter,
               insertionWaiter,
               postCommandFocusHoldMs
             );
+            const progressStage = String(entry.providerDispatchStage || '');
+            const progressIsCurrent = entry.providerDispatchStageDispatchId === dispatchId
+              && Number(entry.providerDispatchStageAt || 0) >= holdStartedAt;
+            const extendableStages = new Set([
+              'composer_transaction_started',
+              'composer_ready',
+              'prompt_insertion_started',
+              'send_action_requested'
+            ]);
+            let extendedMs = 0;
+            if (boundary.reason === 'hold_elapsed' && progressFocusExtensionMs > 0
+              && progressIsCurrent && extendableStages.has(progressStage)) {
+              extendedMs = progressFocusExtensionMs;
+              const extendedBoundary = await waitForPromptFocusBoundary(
+                waiter,
+                insertionWaiter,
+                progressFocusExtensionMs
+              );
+              boundary = {
+                ...extendedBoundary,
+                reason: extendedBoundary.reason === 'hold_elapsed'
+                  ? 'progress_extension_elapsed'
+                  : extendedBoundary.reason
+              };
+            }
             emitTelemetry(llmName, 'DISPATCH_POST_COMMAND_FOCUS_HOLD', {
               details: boundary.reason,
               meta: {
@@ -1587,6 +1613,10 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
                 dispatchId,
                 dispatchReason: reason,
                 configuredHoldMs: postCommandFocusHoldMs,
+                configuredProgressExtensionMs: progressFocusExtensionMs,
+                extendedMs,
+                progressStage: progressStage || null,
+                progressIsCurrent,
                 heldMs: Math.max(0, Date.now() - holdStartedAt),
                 boundaryReason: boundary.reason,
                 insertionState: boundary.payload?.insertionState || null,
