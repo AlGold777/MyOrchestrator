@@ -1,5 +1,20 @@
 # CHANGELOG — Project
 
+### 2026-08-04 — Selection toolbar survives the favourite press, version 2.81.196
+
+- Нажатие звёздочки в тулбаре выделения больше не закрывает тулбар: и на главной
+  странице (`response-sel-toolbar`), и на странице модели
+  (`codex-model-selection-toolbar`) выделение и тулбар остаются на месте, поэтому
+  заполненная/пустая звезда видна как подтверждение того, что фрагмент добавлен
+  или удалён из избранного. Повторное нажатие по-прежнему переключает состояние.
+- Тулбар закрывается по клику мимо него — как и раньше по клику вне карточки, а
+  теперь ещё и когда клик внутри той же карточки снимает выделение: раньше
+  `showResponseSelectionToolbar` просто выходил при схлопнутом выделении и
+  оставлял тулбар висеть в устаревшей позиции.
+- Регрессии: `tests/results-debate-favorites.test.js` и
+  `tests/model-selection-toolbar.test.js` фиксируют, что тулбар остаётся открытым
+  после звезды, что вторая звезда снимает фрагмент, и что клик мимо скрывает его.
+
 ### 2026-08-01 — Automatic recovery collects the latest answer, version 2.81.195
 
 - Terminal extraction recovery now requests the latest provider answer instead

@@ -17003,10 +17003,19 @@ function showResponseSelectionToolbar(target) {
     const toolbar = ensureResponseSelectionToolbar();
     if (!toolbar || !target) return;
     const sel = window.getSelection();
-    if (!sel || sel.isCollapsed || !sel.toString().trim()) return;
+    // A click that collapses the selection must dismiss the toolbar, otherwise it
+    // would linger at a stale position — the toolbar now survives a star press,
+    // so it can no longer rely on the favourite handler to close it.
+    if (!sel || sel.isCollapsed || !sel.rangeCount || !sel.toString().trim()) {
+        hideResponseSelectionToolbar();
+        return;
+    }
     const range = sel.getRangeAt(0).cloneRange();
     const rect = range.getBoundingClientRect();
-    if (!rect) return;
+    if (!rect) {
+        hideResponseSelectionToolbar();
+        return;
+    }
     responseSelectionState.range = range;
     responseSelectionState.target = target;
     const sourceCard = target.closest?.('.llm-panel') || null;
@@ -17056,8 +17065,9 @@ function bindMainPageFavoritesInteractions() {
         const sourceCard = responseSelectionState.target?.closest?.('.llm-panel') || null;
         const isActive = toggleFavoriteFragmentFromSelection({ sourceCard, text, html });
         setSelectionFavoriteButtonState(toolbar, isActive);
-        hideResponseSelectionToolbar();
-        window.getSelection?.()?.removeAllRanges?.();
+        // The toolbar and the selection stay in place: the filled/outline star is
+        // the only feedback that the fragment was stored, and hiding the toolbar
+        // right away would hide that answer. A click outside still dismisses it.
     });
     document.addEventListener('click', (event) => {
         const toolbar = event.target?.closest?.(`#${responseSelectionToolbarId}`);
@@ -17089,8 +17099,7 @@ function bindMainPageFavoritesInteractions() {
             const sourceCard = responseSelectionState.target?.closest?.('.llm-panel') || null;
             const isActive = toggleFavoriteFragmentFromSelection({ sourceCard, text, html });
             setSelectionFavoriteButtonState(toolbar, isActive);
-            hideResponseSelectionToolbar();
-            window.getSelection?.()?.removeAllRanges?.();
+            // Keep the toolbar and the selection so the star state stays visible.
         }
     });
     document.addEventListener('click', (event) => {
@@ -21851,8 +21860,7 @@ function exportSingleTemplate(templateName, sourceData = null) {
             const sourceCard = responseSelectionState.target?.closest?.('.llm-panel') || null;
             const isActive = toggleFavoriteFragmentFromSelection({ sourceCard, text, html });
             setSelectionFavoriteButtonState(toolbar, isActive);
-            hideResponseSelectionToolbar();
-            window.getSelection?.()?.removeAllRanges?.();
+            // Keep the toolbar and the selection so the star state stays visible.
         }
     });
     document.addEventListener('mouseup', (event) => {

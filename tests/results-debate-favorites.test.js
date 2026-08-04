@@ -529,6 +529,52 @@ describe('Pipeline debate favorites view', () => {
     output.textContent = '';
   });
 
+  test('main-page star keeps the toolbar open and a click outside dismisses it', async () => {
+    const output = document.getElementById('output-gemini');
+    const favoriteState = window.__resultsExportDebug.favoriteState;
+    const originalEntries = favoriteState.entries;
+    favoriteState.entries = [];
+    output.textContent = 'Toolbar must stay open after starring.';
+    await selectTextInOutput(output, 12, 16);
+    const toolbar = document.getElementById('responseSelTb');
+    const favorite = toolbar.querySelector('[data-fav]');
+
+    favorite.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true }));
+    favorite.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+    expect(favoriteState.entries).toHaveLength(1);
+    expect(toolbar.classList.contains('vis')).toBe(true);
+    expect(favorite.getAttribute('aria-pressed')).toBe('true');
+
+    // A second press on the still-open toolbar must toggle the fragment back off.
+    favorite.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true }));
+    favorite.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(favoriteState.entries).toHaveLength(0);
+    expect(toolbar.classList.contains('vis')).toBe(true);
+    expect(favorite.getAttribute('aria-pressed')).toBe('false');
+
+    document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    expect(toolbar.classList.contains('vis')).toBe(false);
+
+    favoriteState.entries = originalEntries;
+    output.textContent = '';
+  });
+
+  test('collapsing the selection inside the same card dismisses the response toolbar', async () => {
+    const output = document.getElementById('output-gemini');
+    output.textContent = 'Collapse inside the very same output card.';
+    await selectTextInOutput(output, 0, 8);
+    const toolbar = document.getElementById('responseSelTb');
+    expect(toolbar.classList.contains('vis')).toBe(true);
+
+    window.getSelection().removeAllRanges();
+    output.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    await delay(20);
+
+    expect(toolbar.classList.contains('vis')).toBe(false);
+    output.textContent = '';
+  });
+
   test('delete session removes the current session when multiple sessions exist', async () => {
     const addBtn = document.getElementById('debate-session-add-btn');
     addBtn.click();

@@ -142,6 +142,28 @@ describe('Model selection toolbar', () => {
     expect(payload.llmComparatorFavoriteEntries[0].text).toContain('Selected');
   });
 
+  test('star press keeps the toolbar open and a click outside dismisses it', async () => {
+    await selectText();
+    const toolbar = document.getElementById('codex-model-selection-toolbar');
+    const favorite = toolbar.querySelector('[data-fav]');
+
+    favorite.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true }));
+    await delay(20);
+
+    expect(toolbar.classList.contains('is-visible')).toBe(true);
+    expect(favorite.getAttribute('aria-pressed')).toBe('true');
+
+    // The still-open toolbar must stay usable: a second press removes the fragment.
+    favorite.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true }));
+    await delay(20);
+    expect(chrome.storage.local.set.mock.calls.at(-1)[0].llmComparatorFavoriteEntries).toHaveLength(0);
+    expect(toolbar.classList.contains('is-visible')).toBe(true);
+    expect(favorite.getAttribute('aria-pressed')).toBe('false');
+
+    document.querySelector('main').dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    expect(toolbar.classList.contains('is-visible')).toBe(false);
+  });
+
   test('renders remove-highlight before yellow and clears an applied highlight', async () => {
     await selectText();
     const toolbar = document.getElementById('codex-model-selection-toolbar');

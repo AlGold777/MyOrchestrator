@@ -458,7 +458,9 @@
     const html = getSelectionHtml();
     if (!String(text || '').trim() && !String(html || '').trim()) return;
     favoriteActivationPending = true;
-    hideToolbar();
+    // The toolbar stays open on purpose: the star is the only feedback that the
+    // fragment was stored, so hiding it here would leave the result invisible.
+    // It closes on the next click outside, like any other dismissal.
     try {
       const isActive = await toggleFavoriteEntry({ text, html });
       setFavoriteButtonState(isActive);
