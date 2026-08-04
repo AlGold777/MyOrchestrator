@@ -1,6 +1,6 @@
 # CHANGELOG — Project
 
-### 2026-08-04 — Sidebar sessions live in Downloads/Saved sessions, version 2.81.197
+### 2026-08-04 — Sidebar sessions live in Downloads/Saved sessions, version 2.81.264
 
 - Экспорт сессий и заметок из левого sidebar теперь сохраняется в
   `Downloads/Saved sessions` через `chrome.downloads` (`saveAs: false`,
@@ -17,7 +17,7 @@
 - Регрессии: `tests/release-log-regressions.test.js` фиксирует путь загрузки в
   подпапку, единый picker для обоих импортов, fallback-ветки и подписи кнопок.
 
-### 2026-08-04 — Selection toolbar survives the favourite press, version 2.81.196
+### 2026-08-04 — Selection toolbar survives the favourite press, version 2.81.263
 
 - Нажатие звёздочки в тулбаре выделения больше не закрывает тулбар: и на главной
   странице (`response-sel-toolbar`), и на странице модели
