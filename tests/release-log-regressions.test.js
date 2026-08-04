@@ -787,6 +787,21 @@ describe('release log regression guards', () => {
     expect(source).toContain('if (!supportsFileSystemAccess()) return pickBackupFile();');
   });
 
+  test('sidebar backup buttons point their arrows the way the data moves', () => {
+    const resultHtml = fs.readFileSync(path.join(__dirname, '..', 'result_new.html'), 'utf8');
+    const pipelineHtml = fs.readFileSync(path.join(__dirname, '..', 'pipeline_panel.html'), 'utf8');
+
+    [resultHtml, pipelineHtml].forEach((html) => {
+      const buttonFor = (id) => html.slice(html.indexOf(`id="${id}"`), html.indexOf('</button>', html.indexOf(`id="${id}"`)));
+      // Export sends data out of the page: a plain arrow pointing up.
+      expect(buttonFor('notes-hint-backup-export')).toContain('>↑');
+      expect(buttonFor('notes-hint-backup-export')).not.toContain('ti-download');
+      // Import brings data in: the download icon.
+      expect(buttonFor('notes-hint-backup-import')).toContain('ti ti-download');
+      expect(buttonFor('notes-hint-backup-import')).not.toContain('↓');
+    });
+  });
+
   test('sidebar backup buttons name the Saved sessions folder and their overwrite behaviour', () => {
     const resultHtml = fs.readFileSync(path.join(__dirname, '..', 'result_new.html'), 'utf8');
     const pipelineHtml = fs.readFileSync(path.join(__dirname, '..', 'pipeline_panel.html'), 'utf8');

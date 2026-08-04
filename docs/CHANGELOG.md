@@ -1,5 +1,13 @@
 # CHANGELOG — Project
 
+### 2026-08-04 — Sidebar backup icons swapped and export points up, version 2.81.275
+
+- Иконки кнопок `#notes-hint-backup-export` и `#notes-hint-backup-import`
+  поменяны местами: экспорт (данные уходят со страницы) теперь стрелка `↑`,
+  импорт (данные приходят) — иконка `ti-download`.
+- Регрессия: `tests/release-log-regressions.test.js` фиксирует, какая иконка на
+  какой кнопке.
+
 ### 2026-08-04 — Import pickers open the folder, not Downloads, version 2.81.274
 
 - Импорт по-прежнему открывался в `Downloads`, и причин было две.
