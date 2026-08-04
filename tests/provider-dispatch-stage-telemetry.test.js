@@ -57,5 +57,7 @@ describe('provider dispatch stage telemetry', () => {
     expect(perplexity).toContain("message?.type === 'RECOVER_PROVIDER_SEND'");
     expect(perplexity).toContain('findOwnedPerplexityPromptComposer(prompt)');
     expect(perplexity).toContain("reason: 'visible_current_composer_prompt_mismatch'");
+    expect(perplexity).toContain('const ownedPromptComposer = findLivePromptComposer()');
+    expect(perplexity).toContain('inputField = ownedPromptComposer');
   });
 });

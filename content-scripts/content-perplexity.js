@@ -1657,14 +1657,28 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
     }
     activity.heartbeat(0.3, { phase: 'typing' });
     await sleep(100);
-    const __val = (inputField.value ?? inputField.textContent ?? '').trim();
-    if (!__val.length) {
-      reportInsertion('failed', 'react_guard_empty_composer', 0);
-      throw { type: 'injection_failed', message: 'Textarea did not accept value (React guard).' };
+    const ownedPromptComposer = findLivePromptComposer();
+    const __val = (ownedPromptComposer?.value ?? ownedPromptComposer?.textContent ?? '').trim();
+    if (!ownedPromptComposer) {
+      reportInsertion('failed', 'visible_current_composer_prompt_mismatch', __val.length);
+      reportStage('prompt_insertion_failed', {
+        outcome: 'failed',
+        reason: 'visible_current_composer_prompt_mismatch',
+        composerVisible: false,
+        composerConnected: false
+      });
+      throw {
+        type: 'injection_failed',
+        message: 'Perplexity visible current composer does not exactly match the dispatched prompt.'
+      };
     }
+    inputField = ownedPromptComposer;
     reportInsertion('inserted', null, __val.length);
-    reportStage('prompt_inserted', { outcome: 'confirmed', composerConnected: inputField?.isConnected === true });
-    inputField = findLivePromptComposer() || inputField;
+    reportStage('prompt_inserted', {
+      outcome: 'confirmed',
+      composerConnected: true,
+      composerVisible: true
+    });
     const submitBaseline = capturePerplexitySubmitBaseline(inputField);
 
     const confirmPerplexitySend = async (timeout = 6000, trustedBrowserDispatch = false) => {

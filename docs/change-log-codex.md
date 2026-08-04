@@ -1,5 +1,14 @@
 # Codex phase change log
 
+## 2.81.268 — Perplexity insertion proof is exact and visible
+
+- Perplexity accepts insertion only after reacquiring the visible current
+  composer and matching its normalized value to the entire dispatched prompt.
+- A framework transaction, cached node, hidden draft or partial fingerprint is
+  no longer sufficient evidence; the dispatch fails closed before Send.
+- Ordinary Send and send-only recovery share the same exact composer ownership
+  predicate and require a direct current-page submission signal.
+
 ## 2.81.267 — Focus follows correlated composer progress
 
 - Round 1 keeps its normal eight-second foreground cap for every model.
