@@ -7975,8 +7975,12 @@ document.addEventListener('click', (event) => {
                     return fileHandle ? await fileHandle.getFile() : null;
                 } catch (error) {
                     if (error?.name === 'AbortError') return null;
-                    console.warn('[results] saved sessions file picker failed', error);
-                    // Anything other than a dismissal still leaves a usable path.
+                    // Never fail silently here: a press that opens nothing and
+                    // says nothing is indistinguishable from a dead button, and
+                    // that is exactly how the previous attempts were reported.
+                    console.warn('[results] saved sessions file picker failed', error?.name, error?.message);
+                    setStatus(formatStatusError('File window did not open', error), 6000);
+                    // A dismissal is a decision; anything else still leaves a path.
                     return pickBackupFile();
                 }
             };

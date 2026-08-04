@@ -1,5 +1,21 @@
 # CHANGELOG — Project
 
+### 2026-08-04 — A failed file window says so, version 2.81.281
+
+- Если `showOpenFilePicker` падает не отменой пользователя, нажатие больше не
+  остаётся молчаливым: статус показывает `File window did not open` с именем
+  ошибки, и только после этого идёт резервный `<input type="file">`. Раньше при
+  такой ошибке резервный диалог тоже не открывался (активация клика уже
+  потрачена), и кнопка выглядела мёртвой.
+- Проверено в реальном Chrome for Testing 143 с загруженным расширением, через
+  сырой CDP без автоматизации Playwright: `showOpenFilePicker` на странице
+  `chrome-extension://<id>/result_new.html` не отклоняется — промис остаётся
+  `pending`, то есть системное окно действительно открыто. Под перехватом
+  Playwright тот же вызов даёт `AbortError: Intercepted by
+  Page.setInterceptFileChooserDialog()` — Chrome доходит до показа окна.
+- Какую папку показывает окно, локально проверить нельзя: у процесса нет прав на
+  запись экрана и на Accessibility.
+
 ### 2026-08-04 — Import opens the standard file window in Saved sessions, version 2.81.280
 
 - Нажатие `↓` или `+` теперь открывает обычное системное окно выбора файла,

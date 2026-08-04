@@ -792,6 +792,7 @@ describe('release log regression guards', () => {
       .toBeLessThan(reader.indexOf('await readFileAsText(file);'));
     // A dead end still reports itself instead of leaving the press silent.
     expect(source).toContain("formatStatusError('Cannot read the backup file', error)");
+    expect(source).toContain("formatStatusError('File window did not open', error)");
   });
 
   test('the in-app folder file chooser is gone from both pages', () => {
