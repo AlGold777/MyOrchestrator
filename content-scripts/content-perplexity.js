@@ -1732,6 +1732,8 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
     reportStage('send_action_completed', { outcome: 'confirmed' });
     activity.heartbeat(0.55, { phase: 'send-dispatched' });
     try { chrome.runtime.sendMessage({ type: 'PROMPT_SUBMITTED', llmName: MODEL, ts: Date.now(), meta: dispatchMeta }); } catch (_) {}
+    window.ContentUtils?.reportProviderPipelineState?.(MODEL, dispatchMeta, 'composer', false);
+    window.ContentUtils?.reportProviderPipelineState?.(MODEL, dispatchMeta, 'answer_collection', true);
 
     console.log('[content-perplexity] Message sent, waiting for response...');
     activity.heartbeat(0.6, { phase: 'waiting-response' });
@@ -1944,7 +1946,7 @@ const onRuntimeMessage = (message, sender, sendResponse) => {
     });
     const releaseActive = () => window.ContentUtils?.stopActiveRequest?.();
     window.ContentUtils?.startActiveRequest?.();
-    try { chrome.runtime.sendMessage({ type: 'PROVIDER_DISPATCH_PIPELINE_STATE', llmName: MODEL, active: true, meta: message.meta || null }); } catch (_) {}
+    window.ContentUtils?.reportProviderPipelineState?.(MODEL, message.meta || null, 'composer', true);
     injectAndGetResponse(message.prompt, message.attachments, message.meta || null)
       .then(result => {
         if (message.isFireAndForget) {
@@ -1997,7 +1999,8 @@ const onRuntimeMessage = (message, sender, sendResponse) => {
       .finally(() => {
         const liveBlockerMarker = readPerplexityBlockerMarker();
         if (!markerOwnsPerplexityDispatch(liveBlockerMarker, acceptedMeta)) {
-          try { chrome.runtime.sendMessage({ type: 'PROVIDER_DISPATCH_PIPELINE_STATE', llmName: MODEL, active: false, meta: message.meta || null }); } catch (_) {}
+          window.ContentUtils?.reportProviderPipelineState?.(MODEL, message.meta || null, 'composer', false);
+          window.ContentUtils?.reportProviderPipelineState?.(MODEL, message.meta || null, 'answer_collection', false);
         }
         releaseActive();
         perplexityDispatchGate.finish(dispatchGateToken);

@@ -8,7 +8,7 @@ describe('provider focused dispatch ownership', () => {
     const source = read('content-scripts/content-grok.js');
     const handlerAt = source.indexOf("if (msg?.type === 'GET_ANSWER'");
     const acceptedAt = source.indexOf("status: 'accepted'", handlerAt);
-    const activeAt = source.indexOf("type: 'PROVIDER_DISPATCH_PIPELINE_STATE'", acceptedAt);
+    const activeAt = source.indexOf("reportProviderPipelineState?.(MODEL, acceptedMeta || msg.meta || null, 'composer', true)", acceptedAt);
     const injectAt = source.indexOf('injectAndGetResponse(', activeAt);
     expect(handlerAt).toBeGreaterThan(0);
     expect(acceptedAt).toBeGreaterThan(handlerAt);
@@ -23,13 +23,15 @@ describe('provider focused dispatch ownership', () => {
     const handlerAt = source.indexOf("if (msg?.type === 'GET_ANSWER'");
     const handler = source.slice(handlerAt, source.indexOf("if (msg.action === 'injectPrompt'", handlerAt));
     expect(handler).toContain('.finally(() => {');
-    expect(handler).toContain('active: false');
+    expect(handler).toContain("'composer', false");
+    expect(handler).toContain("'answer_collection', false");
     expect(handler).toContain('releaseActive();');
   });
 
   test('recovery dispatches defer while current provider ownership is alive', () => {
     const coordinator = read('background/dispatch-coordinator.js');
     expect(coordinator).toContain('function isProviderPipelineOwnershipActive');
+    expect(coordinator).toContain('providerComposerTransactionActive');
     expect(coordinator).toContain("['retry_supervisor', 'round2_repair', 'round2_repair_pre_visit'].includes(reason)");
     expect(coordinator).toContain("reason: 'provider_pipeline_active'");
     expect(coordinator).toContain('const PROVIDER_PIPELINE_OWNERSHIP_TTL_MS = 180000');

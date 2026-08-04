@@ -482,6 +482,17 @@
     });
   };
 
+  const reportProviderPipelineState = (llmName, meta, phase, active) => {
+    if (!llmName || !['composer', 'answer_collection'].includes(String(phase || ''))) return false;
+    return safeRuntimeSendMessage({
+      type: 'PROVIDER_DISPATCH_PIPELINE_STATE',
+      llmName,
+      phase,
+      active: active === true,
+      meta: ensureDispatchMeta(meta && typeof meta === 'object' ? meta : {}, llmName) || {}
+    });
+  };
+
   // Canonical composer transaction gate. Dispatch code may proceed to Send only
   // when the live composer contains the current prompt, never merely because an
   // input/paste event was fired or because the composer is non-empty.
@@ -1155,6 +1166,7 @@
     ensurePromptPrepared,
     reportPromptInsertion,
     reportDispatchStage,
+    reportProviderPipelineState,
     reportDispatchBaseline,
     isBaselineEquivalent,
     detectProviderErrorSurface,

@@ -1459,6 +1459,8 @@ const hydrateAttachments = (raw = []) =>
         await sendComposer(composer, prompt);
         activity.heartbeat(0.6, { phase: 'send-dispatched' });
         try { chrome.runtime.sendMessage({ type: 'PROMPT_SUBMITTED', llmName: MODEL, ts: Date.now(), meta: dispatchMeta }); } catch (_) {}
+        window.ContentUtils?.reportProviderPipelineState?.(MODEL, dispatchMeta, 'composer', false);
+        window.ContentUtils?.reportProviderPipelineState?.(MODEL, dispatchMeta, 'answer_collection', true);
 
         activity.heartbeat(0.7, { phase: 'waiting-response' });
         const cleaned = await withSmartScroll(async () => {
@@ -1702,7 +1704,7 @@ const hydrateAttachments = (raw = []) =>
       if (msg?.type === 'GET_ANSWER' || msg?.type === 'GET_FINAL_ANSWER') {
         const releaseActive = () => window.ContentUtils?.stopActiveRequest?.();
         window.ContentUtils?.startActiveRequest?.();
-        try { chrome.runtime.sendMessage({ type: 'PROVIDER_DISPATCH_PIPELINE_STATE', llmName: MODEL, active: true, meta: msg.meta || null }); } catch (_) {}
+        window.ContentUtils?.reportProviderPipelineState?.(MODEL, msg.meta || null, 'composer', true);
         injectAndGetResponse(msg.prompt, msg.attachments || [], msg.meta || null)
           .then((resp) => {
             if (msg.isFireAndForget) {
@@ -1743,7 +1745,8 @@ const hydrateAttachments = (raw = []) =>
             sendResponse?.({ status: 'error', message: errorMessage });
           })
           .finally(() => {
-            try { chrome.runtime.sendMessage({ type: 'PROVIDER_DISPATCH_PIPELINE_STATE', llmName: MODEL, active: false, meta: msg.meta || null }); } catch (_) {}
+            window.ContentUtils?.reportProviderPipelineState?.(MODEL, msg.meta || null, 'composer', false);
+            window.ContentUtils?.reportProviderPipelineState?.(MODEL, msg.meta || null, 'answer_collection', false);
             releaseActive();
           });
         return true;

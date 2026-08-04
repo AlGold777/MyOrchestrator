@@ -67,8 +67,11 @@ const TRANSPORT_RECOVER_BACKOFF_MS = 12000;
 const PROVIDER_PIPELINE_OWNERSHIP_TTL_MS = 180000;
 
 function isProviderPipelineOwnershipActive(entry, now = Date.now()) {
-  if (!entry || entry.providerPipelineActive !== true) return false;
-  const activeAt = Number(entry.providerPipelineActiveAt || 0);
+  if (!entry) return false;
+  const active = entry.providerComposerTransactionActive === true
+    || (entry.providerComposerTransactionActive == null && entry.providerPipelineActive === true);
+  if (!active) return false;
+  const activeAt = Number(entry.providerComposerTransactionActiveAt || entry.providerPipelineActiveAt || 0);
   return activeAt > 0 && Math.max(0, Number(now) - activeAt) < PROVIDER_PIPELINE_OWNERSHIP_TTL_MS;
 }
 

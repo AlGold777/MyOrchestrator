@@ -348,8 +348,8 @@ describe('attachment bridge authentication', () => {
 
   test('active provider transactions cannot be overwritten by Round 2 repair', () => {
     const orchestrator = fs.readFileSync(path.join(__dirname, '..', 'background', 'job-orchestrator.js'), 'utf8');
-    expect(PROVIDER_SOURCES['Le Chat']).toContain("type: 'PROVIDER_DISPATCH_PIPELINE_STATE'");
-    expect(PROVIDER_SOURCES.Perplexity).toContain("type: 'PROVIDER_DISPATCH_PIPELINE_STATE'");
+    expect(PROVIDER_SOURCES['Le Chat']).toContain('reportProviderPipelineState');
+    expect(PROVIDER_SOURCES.Perplexity).toContain('reportProviderPipelineState');
     expect(ROUTER_SRC).toContain("case 'PROVIDER_DISPATCH_PIPELINE_STATE'");
     expect(orchestrator).toContain("reason: 'provider_pipeline_active'");
     expect(orchestrator.indexOf('const providerPipelineActive')).toBeLessThan(orchestrator.indexOf("ROUND2_REPAIR_MODELS.has(llmName)"));

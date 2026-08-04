@@ -2395,6 +2395,8 @@
         activity.heartbeat(0.6, { phase: 'send-dispatched' });
         const submissionMeta = Object.assign({}, dispatchMeta || {}, { confirmed: true, method: sendMethod, payloadVerified: true, promptTurnVerified: true });
         try { chrome.runtime.sendMessage({ type: 'PROMPT_SUBMITTED', llmName: MODEL, ts: Date.now(), meta: submissionMeta }); } catch (_) {}
+        window.ContentUtils?.reportProviderPipelineState?.(MODEL, dispatchMeta, 'composer', false);
+        window.ContentUtils?.reportProviderPipelineState?.(MODEL, dispatchMeta, 'answer_collection', true);
 
         activity.heartbeat(0.65, { phase: 'waiting-response' });
         const responsePayload = await withSmartScroll(async () => {
@@ -2704,14 +2706,7 @@
         });
         const releaseActive = () => window.ContentUtils?.stopActiveRequest?.();
         window.ContentUtils?.startActiveRequest?.();
-        try {
-          chrome.runtime.sendMessage({
-            type: 'PROVIDER_DISPATCH_PIPELINE_STATE',
-            llmName: MODEL,
-            active: true,
-            meta: acceptedMeta || msg.meta || null
-          });
-        } catch (_) {}
+        window.ContentUtils?.reportProviderPipelineState?.(MODEL, acceptedMeta || msg.meta || null, 'composer', true);
         injectAndGetResponse(msg.prompt, msg.attachments, msg.meta || null)
           .then((resp) => {
             if (msg.isFireAndForget) {
@@ -2754,14 +2749,8 @@
             });
           })
           .finally(() => {
-            try {
-              chrome.runtime.sendMessage({
-                type: 'PROVIDER_DISPATCH_PIPELINE_STATE',
-                llmName: MODEL,
-                active: false,
-                meta: acceptedMeta || msg.meta || null
-              });
-            } catch (_) {}
+            window.ContentUtils?.reportProviderPipelineState?.(MODEL, acceptedMeta || msg.meta || null, 'composer', false);
+            window.ContentUtils?.reportProviderPipelineState?.(MODEL, acceptedMeta || msg.meta || null, 'answer_collection', false);
             releaseActive();
           });
         return false;

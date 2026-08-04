@@ -2320,17 +2320,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     break;
                 }
                 const entry = jobState?.llms?.[llmName];
-                if (message.active !== true && llmName === 'Perplexity'
+                const phase = ['composer', 'answer_collection'].includes(String(message.phase || ''))
+                    ? String(message.phase)
+                    : 'composer';
+                if (message.active !== true && phase === 'composer' && llmName === 'Perplexity'
                     && perplexityTransientBlockerOwnsLifecycle(entry, message, sender)) {
                     sendResponse({ ok: true, status: 'pipeline_state_deferred_for_transient_blocker' });
                     break;
                 }
                 if (entry) {
-                    entry.providerPipelineActive = message.active === true;
-                    entry.providerPipelineActiveAt = message.active === true ? Date.now() : 0;
-                    entry.providerPipelineDispatchId = message.meta?.dispatchId || null;
+                    const active = message.active === true;
+                    const prefix = phase === 'composer' ? 'providerComposerTransaction' : 'providerAnswerCollection';
+                    entry[`${prefix}Active`] = active;
+                    entry[`${prefix}ActiveAt`] = active ? Date.now() : 0;
+                    entry[`${prefix}DispatchId`] = message.meta?.dispatchId || null;
+                    // Backward-compatible field now means only duplicate-sensitive
+                    // composer ownership, never the long answer wait.
+                    entry.providerPipelineActive = entry.providerComposerTransactionActive === true;
+                    entry.providerPipelineActiveAt = entry.providerComposerTransactionActiveAt || 0;
+                    entry.providerPipelineDispatchId = entry.providerComposerTransactionDispatchId || null;
                 }
-                sendResponse({ ok: true });
+                sendResponse({ ok: true, phase });
                 break;
             }
 

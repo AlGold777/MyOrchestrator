@@ -1,5 +1,14 @@
 # Codex phase change log
 
+## 2.81.265 — Composer ownership ends at confirmed Send
+
+- Provider ownership is split into short `composer` and long
+  `answer_collection` phases for Grok, Perplexity and Le Chat.
+- Retry and Round 2 repair are blocked only by the duplicate-sensitive composer
+  transaction; waiting for an answer no longer suppresses delivery recovery.
+- The legacy aggregate ownership fields remain compatible but now represent
+  composer ownership only.
+
 ## 2.81.264 — Provider send stages are canonical evidence
 
 - Grok and Perplexity now publish correlated composer, insertion and Send

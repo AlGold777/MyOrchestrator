@@ -6130,8 +6130,8 @@ async function dispatchRound2Verification(selectedLLMs, sessionId) {
       let repairAttemptedBeforeVisit = false;
       const providerPipelineActive = self.isProviderPipelineOwnershipActive
         ? self.isProviderPipelineOwnershipActive(entry)
-        : (entry?.providerPipelineActive === true
-          && Date.now() - Number(entry?.providerPipelineActiveAt || 0) < ROUND_PROVIDER_PIPELINE_OWNERSHIP_TTL_MS);
+        : ((entry?.providerComposerTransactionActive === true || entry?.providerPipelineActive === true)
+          && Date.now() - Number(entry?.providerComposerTransactionActiveAt || entry?.providerPipelineActiveAt || 0) < ROUND_PROVIDER_PIPELINE_OWNERSHIP_TTL_MS);
       if (!confirmedByContent && providerPipelineActive) {
         emitTelemetry(llmName, 'ROUND2_REPAIR_DISPATCH_SKIPPED', {
           level: 'info',

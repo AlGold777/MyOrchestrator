@@ -303,9 +303,11 @@ submission watchdog stays asynchronous and does not block the remaining model
 queue. Insertion evidence is accepted only from the bound tab with the exact
 run and dispatch identity. An adapter publishes
 `PROVIDER_DISPATCH_PIPELINE_STATE` while its asynchronous composer transaction
-is alive; retry supervisor and Round 2 repair must defer rather than overwrite
-that owner. A bounded ownership TTL prevents a lost MV3 release message from
-blocking recovery forever.
+is alive. On confirmed Send it closes `composer` ownership and opens the
+independent `answer_collection` phase. Retry supervisor and Round 2 repair defer
+only for the former, so a long or stuck answer wait cannot hide a failed Send.
+A bounded ownership TTL prevents a lost MV3 release message from blocking
+recovery forever.
 
 Every provider may publish the same dispatch-stage contract:
 `composer_transaction_started`, `composer_ready`, `prompt_insertion_started`,
