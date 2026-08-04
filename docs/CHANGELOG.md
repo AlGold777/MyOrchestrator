@@ -1,6 +1,6 @@
 # CHANGELOG — Project
 
-### 2026-08-04 — TXT export of all saved sessions from the sidebar, version 2.81.270
+### 2026-08-04 — TXT export of all saved sessions from the sidebar, version 2.81.272
 
 - В `.sidebar-hint` справа от `+` добавлена кнопка `txt`
   (`#notes-hint-sessions-export-txt`): выгружает ответы всех сохранённых сессий
@@ -23,7 +23,7 @@
   `tests/results-debate-favorites.test.js`, разметка и привязка кнопки — в
   `tests/release-log-regressions.test.js`.
 
-### 2026-08-04 — Sidebar sessions live in Downloads/Saved sessions, version 2.81.269
+### 2026-08-04 — Sidebar sessions live in Downloads/Saved sessions, version 2.81.271
 
 - Экспорт сессий и заметок из левого sidebar теперь сохраняется в
   `Downloads/Saved sessions` через `chrome.downloads` (`saveAs: false`,
@@ -40,7 +40,7 @@
 - Регрессии: `tests/release-log-regressions.test.js` фиксирует путь загрузки в
   подпапку, единый picker для обоих импортов, fallback-ветки и подписи кнопок.
 
-### 2026-08-04 — Selection toolbar survives the favourite press, version 2.81.268
+### 2026-08-04 — Selection toolbar survives the favourite press, version 2.81.270
 
 - Нажатие звёздочки в тулбаре выделения больше не закрывает тулбар: и на главной
   странице (`response-sel-toolbar`), и на странице модели
