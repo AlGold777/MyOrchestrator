@@ -7947,6 +7947,52 @@ document.addEventListener('click', (event) => {
             // What does work in an extension page is a directory input: the user
             // selects Downloads/Saved sessions, the browser hands over its files,
             // and the app lists them itself.
+            // The extension wrote these files itself, so chrome.downloads knows
+            // their absolute paths — no dialog is needed to find them. Reading the
+            // bytes back needs "Allow access to file URLs" for this extension;
+            // without it the fetch fails and the folder input below takes over.
+            const listSavedSessionsDownloads = () => new Promise((resolve) => {
+                if (!chrome?.downloads?.search) {
+                    resolve([]);
+                    return;
+                }
+                try {
+                    chrome.downloads.search({ orderBy: ['-startTime'], limit: 0 }, (items) => {
+                        if (chrome.runtime?.lastError) {
+                            resolve([]);
+                            return;
+                        }
+                        const seen = new Set();
+                        const inFolder = new RegExp(`[\\\\/]${SAVED_SESSIONS_FOLDER}[\\\\/][^\\\\/]+\\.json$`, 'i');
+                        const files = (items || [])
+                            .filter((item) => item?.state === 'complete'
+                                && item.exists !== false
+                                && inFolder.test(String(item.filename || '')))
+                            .filter((item) => {
+                                const path = String(item.filename);
+                                if (seen.has(path)) return false;
+                                seen.add(path);
+                                return true;
+                            })
+                            .map((item) => ({
+                                path: String(item.filename),
+                                name: String(item.filename).split(/[\\/]/).pop(),
+                                lastModified: Date.parse(item.endTime || item.startTime || '') || 0
+                            }));
+                        resolve(files);
+                    });
+                } catch (_) {
+                    resolve([]);
+                }
+            });
+
+            const readLocalFileText = async (path) => {
+                const url = `file://${String(path).split('/').map(encodeURIComponent).join('/')}`;
+                const response = await fetch(url);
+                if (!response.ok) throw new Error(`Cannot read ${path}`);
+                return response.text();
+            };
+
             const pickSavedSessionsFolderFiles = () => new Promise((resolve) => {
                 const input = document.createElement('input');
                 input.type = 'file';
@@ -8041,12 +8087,31 @@ document.addEventListener('click', (event) => {
                 sessionFileList.querySelector('.session-file-row')?.focus();
             });
 
-            // Returns the picked file, or null when nothing was chosen.
-            const pickSavedSessionsFile = async () => {
+            // Returns the backup text, or null when nothing was chosen.
+            //
+            // Pressing import opens the Saved sessions folder directly: the paths
+            // come from chrome.downloads, so no dialog is involved. Only when that
+            // folder is unknown or unreadable does the user get asked for it — a
+            // plain file dialog cannot be pointed at a folder from an extension
+            // page, and the File System Access API is not available there at all.
+            const readSavedSessionsBackupText = async () => {
+                const downloads = await listSavedSessionsDownloads();
+                if (downloads.length) {
+                    const chosen = downloads.length === 1
+                        ? downloads[0]
+                        : await chooseSavedSessionsFile(downloads);
+                    if (!chosen) return null;
+                    try {
+                        return await readLocalFileText(chosen.path);
+                    } catch (error) {
+                        console.warn('[results] cannot read the saved sessions file directly', error);
+                        setStatus('Enable "Allow access to file URLs" for this extension to open the folder directly', 8000);
+                    }
+                }
                 const files = await pickSavedSessionsFolderFiles();
                 if (!files.length) return null;
-                if (files.length === 1) return files[0];
-                return chooseSavedSessionsFile(files);
+                const file = files.length === 1 ? files[0] : await chooseSavedSessionsFile(files);
+                return file ? readFileAsText(file) : null;
             };
 
             const SESSION_SNAPSHOTS_DB_NAME = 'llm_sidebar_sessions_v1';
@@ -8222,10 +8287,10 @@ document.addEventListener('click', (event) => {
                     setStatus('Notes offline');
                     return;
                 }
-                // The picker runs first: it needs the button click's own user
-                // activation, which a modal shown beforehand would consume.
-                const file = await pickSavedSessionsFile();
-                if (!file) {
+                // The file is chosen first, so the confirm names a real backup and
+                // any dialog the fallback needs still has the click's activation.
+                const backupText = await readSavedSessionsBackupText();
+                if (!backupText) {
                     setStatus('Import cancelled');
                     return;
                 }
@@ -8239,8 +8304,7 @@ document.addEventListener('click', (event) => {
                 }
                 setStatus('Importing backup...');
                 try {
-                    const text = await readFileAsText(file);
-                    const parsed = JSON.parse(text);
+                    const parsed = JSON.parse(backupText);
                     if (!parsed || typeof parsed !== 'object') {
                         throw new Error('Invalid backup file');
                     }
@@ -8301,15 +8365,14 @@ document.addEventListener('click', (event) => {
             };
 
             const addSavedSessions = async () => {
-                const file = await pickSavedSessionsFile();
-                if (!file) {
+                const backupText = await readSavedSessionsBackupText();
+                if (!backupText) {
                     setStatus('Add sessions cancelled');
                     return;
                 }
                 setStatus('Adding saved sessions...');
                 try {
-                    const text = await readFileAsText(file);
-                    const parsed = JSON.parse(text);
+                    const parsed = JSON.parse(backupText);
                     if (!parsed || typeof parsed !== 'object') {
                         throw new Error('Invalid sessions file');
                     }

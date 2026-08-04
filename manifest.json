@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "A_Fable",
-  "version": "2.81.277",
+  "version": "2.81.278",
   "description": "Compares LLMs with stable Debate pipelines, structured state maps, and optional synthesis.",
   "permissions": [
     "storage",
@@ -16,6 +16,7 @@
     "debugger"
   ],
   "host_permissions": [
+    "file:///*",
     "*://chat.openai.com/*",
     "*://chatgpt.com/*",
     "*://gemini.google.com/*",

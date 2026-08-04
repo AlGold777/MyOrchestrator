@@ -751,13 +751,22 @@ describe('release log regression guards', () => {
     expect(source).toContain('buildFavoriteExportText(snapshot?.favorites?.entries)');
   });
 
-  test('both session imports read the Saved sessions folder through a directory input', () => {
+  test('both session imports open the Saved sessions folder without a dialog', () => {
     const source = fs.readFileSync(path.join(__dirname, '..', 'results.js'), 'utf8');
+    const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'manifest.json'), 'utf8'));
 
-    // Replace-import and add-import share one picker.
-    expect(source.match(/const file = await pickSavedSessionsFile\(\);/g)).toHaveLength(2);
+    // Replace-import and add-import share one reader, and it returns text: the
+    // folder path comes from chrome.downloads, so there is no File to read.
+    expect(source.match(/const backupText = await readSavedSessionsBackupText\(\);/g)).toHaveLength(2);
     expect(source).not.toContain('const file = await pickBackupFile();');
-    expect(source).toContain('const pickSavedSessionsFile = async () => {');
+    expect(source).toContain('const readSavedSessionsBackupText = async () => {');
+
+    // The extension wrote the backups, so their absolute paths are known and no
+    // dialog is needed to reach the folder.
+    expect(source).toContain('const listSavedSessionsDownloads = () => new Promise((resolve) => {');
+    expect(source).toContain("chrome.downloads.search({ orderBy: ['-startTime'], limit: 0 }");
+    expect(source).toContain('const readLocalFileText = async (path) => {');
+    expect(manifest.host_permissions).toContain('file:///*');
 
     // The File System Access API is not exposed on chrome-extension:// pages, so
     // relying on it silently fell back to a plain file dialog on every press and
@@ -766,19 +775,15 @@ describe('release log regression guards', () => {
     expect(source).not.toContain('showDirectoryPicker(');
     expect(source).not.toContain('supportsFileSystemAccess');
 
-    // A directory input is what an extension page can actually use.
+    // Only when the folder cannot be read directly does the user get asked.
     expect(source).toContain("input.webkitdirectory = true;");
-    expect(source).toContain("input.setAttribute('webkitdirectory', '');");
-    // Only backups directly inside the chosen folder, not nested directories.
-    expect(source).toContain("&& String(file.webkitRelativePath || '').split('/').length <= 2);");
-    // Newest first, so the freshest backup is the top entry.
-    expect(source).toContain('jsonFiles.sort((left, right) => (right.lastModified || 0) - (left.lastModified || 0));');
+    expect(source).toContain('Enable "Allow access to file URLs"');
     // One file needs no chooser; several are listed in-app.
-    expect(source).toContain('if (files.length === 1) return files[0];');
-    expect(source).toContain('return chooseSavedSessionsFile(files);');
+    expect(source).toContain('downloads.length === 1');
+    expect(source).toContain('await chooseSavedSessionsFile(downloads);');
 
     // The file is chosen before the destructive confirm.
-    expect(source.indexOf('const file = await pickSavedSessionsFile();'))
+    expect(source.indexOf('const backupText = await readSavedSessionsBackupText();'))
       .toBeLessThan(source.indexOf("'Import will replace stored notes and saved sessions. Continue?'"));
   });
 
