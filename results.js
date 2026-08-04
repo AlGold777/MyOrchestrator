@@ -8014,51 +8014,80 @@ document.addEventListener('click', (event) => {
                 }
             };
 
-            const ensureSavedSessionsDirectoryHandle = async () => {
-                if (!supportsFileSystemAccess()) return null;
+            const readSavedSessionsDirectoryState = async () => {
                 const stored = await readSavedSessionsDirectoryHandle();
-                if (stored?.queryPermission) {
-                    try {
-                        let permission = await stored.queryPermission({ mode: 'read' });
-                        if (permission === 'prompt') {
-                            permission = await stored.requestPermission({ mode: 'read' });
-                        }
-                        if (permission === 'granted') return stored;
-                    } catch (error) {
-                        console.warn('[results] saved sessions folder permission check failed', error);
-                    }
+                if (!stored?.queryPermission) return { handle: null, state: 'missing' };
+                try {
+                    const permission = await stored.queryPermission({ mode: 'read' });
+                    return { handle: stored, state: permission === 'granted' ? 'granted' : 'prompt' };
+                } catch (error) {
+                    console.warn('[results] saved sessions folder permission check failed', error);
+                    return { handle: null, state: 'missing' };
                 }
+            };
+
+            const linkSavedSessionsDirectory = async () => {
                 try {
                     const handle = await window.showDirectoryPicker({
                         id: SAVED_SESSIONS_PICKER_ID,
                         mode: 'read',
                         startIn: 'downloads'
                     });
-                    if (!handle) return null;
+                    if (!handle) return false;
                     await writeSavedSessionsDirectoryHandle(handle);
-                    return handle;
+                    return true;
                 } catch (error) {
                     if (error?.name !== 'AbortError') {
                         console.warn('[results] saved sessions folder selection failed', error);
                     }
-                    return null;
+                    return false;
                 }
             };
 
-            // Returns the picked file, or null when the user cancelled. Falls back
+            // Set when a press was spent linking the folder rather than choosing a
+            // file, so the caller reports that instead of "cancelled".
+            let savedSessionsFolderJustLinked = false;
+
+            // Returns the picked file, or null when nothing was chosen. Falls back
             // to the plain file input wherever the File System Access API is
             // missing, so import keeps working without the folder grant.
+            //
+            // A file or directory picker consumes the click's transient user
+            // activation, so only one of them may run per press. That is why
+            // linking the folder takes its own press: the first import (and the
+            // first one after a browser restart drops the grant) links
+            // Downloads/Saved sessions, and every later import opens straight
+            // inside it. Chaining both in one press made the second call throw and
+            // silently fall back to the plain dialog in the OS default folder.
             const pickSavedSessionsFile = async () => {
+                savedSessionsFolderJustLinked = false;
                 if (!supportsFileSystemAccess()) return pickBackupFile();
-                const directory = await ensureSavedSessionsDirectoryHandle();
+                const { handle, state } = await readSavedSessionsDirectoryState();
+                if (state !== 'granted') {
+                    let linked = false;
+                    if (state === 'prompt') {
+                        try {
+                            linked = (await handle.requestPermission({ mode: 'read' })) === 'granted';
+                        } catch (error) {
+                            console.warn('[results] saved sessions folder permission request failed', error);
+                        }
+                    } else {
+                        linked = await linkSavedSessionsDirectory();
+                    }
+                    savedSessionsFolderJustLinked = linked;
+                    if (linked) {
+                        setStatus(`Folder ${SAVED_SESSIONS_FOLDER} linked — press the button again to pick a file`, 6000);
+                    }
+                    return null;
+                }
                 try {
-                    const [handle] = await window.showOpenFilePicker({
+                    const [fileHandle] = await window.showOpenFilePicker({
                         id: SAVED_SESSIONS_PICKER_ID,
-                        startIn: directory || 'downloads',
+                        startIn: handle,
                         multiple: false,
                         types: SAVED_SESSIONS_FILE_TYPES
                     });
-                    return handle ? await handle.getFile() : null;
+                    return fileHandle ? await fileHandle.getFile() : null;
                 } catch (error) {
                     if (error?.name === 'AbortError') return null;
                     console.warn('[results] saved sessions file picker failed', error);
@@ -8239,15 +8268,18 @@ document.addEventListener('click', (event) => {
                     setStatus('Notes offline');
                     return;
                 }
+                // The picker runs first: it needs the button click's own user
+                // activation, which a modal shown beforehand would consume.
+                const file = await pickSavedSessionsFile();
+                if (!file) {
+                    if (!savedSessionsFolderJustLinked) setStatus('Import cancelled');
+                    return;
+                }
                 const confirmed = await showConfirm(
                     'Import will replace stored notes and saved sessions. Continue?',
                     { confirmText: 'Yes' }
                 );
                 if (!confirmed) {
-                    return;
-                }
-                const file = await pickSavedSessionsFile();
-                if (!file) {
                     setStatus('Import cancelled');
                     return;
                 }
@@ -8317,7 +8349,7 @@ document.addEventListener('click', (event) => {
             const addSavedSessions = async () => {
                 const file = await pickSavedSessionsFile();
                 if (!file) {
-                    setStatus('Add sessions cancelled');
+                    if (!savedSessionsFolderJustLinked) setStatus('Add sessions cancelled');
                     return;
                 }
                 setStatus('Adding saved sessions...');
@@ -17910,10 +17942,12 @@ function buildSessionExportBlock(sessionName, snapshot = {}) {
     if (!responsesText) return '';
     const promptText = String(snapshot?.promptText || '').trim();
     const favoriteText = buildFavoriteExportText(snapshot?.favorites?.entries);
+    // No `=== LLM Responses ===` header here: the session name already opens the
+    // block, and the model headers below it read as the answer list on their own.
     const body = [
         promptText ? `=== Prompt ===\n${promptText}` : '',
         favoriteText ? `=== Favourite ===\n${favoriteText}` : '',
-        `=== LLM Responses ===\n${responsesText}`
+        responsesText
     ].filter(Boolean).join('\n\n');
     const name = String(sessionName || '').trim() || 'Session';
     return `${name}.\n${indentSessionExportBlock(body)}`;

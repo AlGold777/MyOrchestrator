@@ -573,7 +573,9 @@ describe('Pipeline debate favorites view', () => {
 
     expect(block.split('\n')[0]).toBe('Session Name 1.');
     expect(block).toContain('\n    === Prompt ===\n    Compare the approaches');
-    expect(block).toContain('\n    === LLM Responses ===\n    === GPT ===');
+    // No "=== LLM Responses ===" header: the session name opens the block.
+    expect(block).not.toContain('LLM Responses');
+    expect(block).toContain('\n    === GPT ===');
     expect(block).toContain('\n    === Claude ===\n    Claude answer');
     // Every line of a multi-line answer is shifted, and blank lines stay blank
     // so the file carries no trailing whitespace.
@@ -601,7 +603,7 @@ describe('Pipeline debate favorites view', () => {
     expect(withFavorites).toContain('    === Favourite ===');
     expect(withFavorites).toContain('Starred fragment');
     // The Favourite panel of the open page must not leak into a session block.
-    expect(withFavorites.indexOf('=== Favourite ===')).toBeLessThan(withFavorites.indexOf('=== LLM Responses ==='));
+    expect(withFavorites.indexOf('=== Favourite ===')).toBeLessThan(withFavorites.indexOf('=== GPT ==='));
 
     expect(buildSessionExportBlock('Empty', { responseCards: [] })).toBe('');
     expect(buildSessionExportBlock('Errors only', {

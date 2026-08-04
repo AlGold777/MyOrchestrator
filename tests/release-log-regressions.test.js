@@ -758,10 +758,20 @@ describe('release log regression guards', () => {
     expect(source.match(/const file = await pickSavedSessionsFile\(\);/g)).toHaveLength(2);
     expect(source).not.toContain('const file = await pickBackupFile();');
     expect(source).toContain('const pickSavedSessionsFile = async () => {');
-    expect(source).toContain("startIn: directory || 'downloads',");
-    expect(source).toContain('const ensureSavedSessionsDirectoryHandle = async () => {');
-    expect(source).toContain("await stored.requestPermission({ mode: 'read' });");
+    // The picker opens inside the stored folder handle, not merely in Downloads.
+    expect(source).toContain('startIn: handle,');
+    expect(source).toContain('const readSavedSessionsDirectoryState = async () => {');
+    expect(source).toContain('const linkSavedSessionsDirectory = async () => {');
     expect(source).toContain('await writeSavedSessionsDirectoryHandle(handle);');
+    // A picker consumes the click activation, so linking the folder and choosing
+    // a file must never be chained inside one press.
+    expect(source).toContain('savedSessionsFolderJustLinked = linked;');
+    expect(source).toContain('if (!savedSessionsFolderJustLinked) setStatus(\'Import cancelled\');');
+    expect(source).toContain('if (!savedSessionsFolderJustLinked) setStatus(\'Add sessions cancelled\');');
+    // The file is chosen before the destructive confirm, which would otherwise
+    // consume the activation the picker needs.
+    expect(source.indexOf('const file = await pickSavedSessionsFile();'))
+      .toBeLessThan(source.indexOf("'Import will replace stored notes and saved sessions. Continue?'"));
     // Browsers without the File System Access API keep the plain file input.
     expect(source).toContain('if (!supportsFileSystemAccess()) return pickBackupFile();');
   });
