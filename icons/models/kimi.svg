@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Kimi">
-  <rect width="64" height="64" rx="14" fill="#111827"/>
-  <path d="M17 15h8v14.5L38.5 15H49L34.5 31.2 49 49H38.6L25 32.6V49h-8z" fill="#fff"/>
-  <circle cx="47" cy="17" r="4" fill="#6366f1"/>
+  <rect width="64" height="64" rx="14" fill="#000"/>
+  <path d="M17.5 18h6.6v13.6L37.6 18h8.6L32.9 31.4 46.5 46h-8.9L24.1 32.9V46h-6.6z" fill="#fff"/>
+  <path d="M47 13.5a5.5 5.5 0 1 1 0 11h-4.4a1.1 1.1 0 0 1-1.1-1.1V19a5.5 5.5 0 0 1 5.5-5.5z" fill="#1677ff"/>
 </svg>

@@ -1,5 +1,13 @@
 # CHANGELOG — Project
 
+### 2026-08-05 — Fit ten providers in the header row, version 2.81.285
+
+- The model row in the results header is `flex-wrap: nowrap`, so the tenth
+  provider (Kimi) overflowed the bar instead of wrapping. Gap dropped 10px → 5px
+  and the per-button slot 58px → 46px (3px / 40px under 1160px), which is where
+  the room for a tenth model comes from.
+- Kimi icon redrawn to the product mark: black square, white K, blue dot.
+
 ### 2026-08-04 — Kimi added as a tenth provider, version 2.81.284
 
 - Kimi (`kimi.com`) is registered end to end: manifest host permissions and
