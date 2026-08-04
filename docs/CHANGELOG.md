@@ -1,5 +1,31 @@
 # CHANGELOG — Project
 
+### 2026-08-04 — Import reads the folder through a directory input, version 2.81.277
+
+- Найдена настоящая причина, по которой импорт всё время открывался в
+  `Downloads`. Страница результатов открывается как
+  `chrome.runtime.getURL('result_new.html')`, то есть это `chrome-extension://`
+  страница, а на таких страницах Chrome не выставляет `showOpenFilePicker` и
+  `showDirectoryPicker`. Значит `supportsFileSystemAccess()` всегда возвращал
+  `false`, и **первая же строка** `pickSavedSessionsFile` уходила в
+  `return pickBackupFile()` — обычный `<input type="file">`, открывающийся в
+  последней папке Chrome. Весь код ниже (handle папки, `startIn`, разрешение
+  подпапки, снятый `id`, диагностика 2.81.276) никогда не исполнялся: правки
+  2.81.274 и 2.81.275 меняли мёртвый код.
+- Весь путь File System Access удалён вместе с IndexedDB-хранилищем handle
+  (`llm_sidebar_fs_handles_v1`) и `fsDiag`.
+- Импорт переведён на directory input (`webkitdirectory`), который на
+  extension-странице работает: пользователь выбирает папку `Saved sessions`,
+  браузер отдаёт её файлы, приложение само показывает список `.json` — новее
+  сверху, с датой. Один файл открывается сразу, без списка. Берутся только файлы
+  самой папки, вложенные каталоги игнорируются.
+- Добавлена модалка выбора файла (`#session-file-modal`) на обе страницы и стили
+  списка.
+- Регрессии: `tests/release-log-regressions.test.js` запрещает возврат
+  `showOpenFilePicker`/`showDirectoryPicker`/`supportsFileSystemAccess` в этот
+  путь и фиксирует directory input, фильтр по уровню вложенности, сортировку и
+  наличие модалки в обеих страницах.
+
 ### 2026-08-04 — Diagnostic trace for the import folder default, version 2.81.276
 
 - Импорт из sidebar по-прежнему открывается в `Downloads` вместо

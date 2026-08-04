@@ -751,57 +751,48 @@ describe('release log regression guards', () => {
     expect(source).toContain('buildFavoriteExportText(snapshot?.favorites?.entries)');
   });
 
-  test('both session imports open in the Saved sessions folder by default', () => {
+  test('both session imports read the Saved sessions folder through a directory input', () => {
     const source = fs.readFileSync(path.join(__dirname, '..', 'results.js'), 'utf8');
 
-    // Replace-import and add-import share one picker anchored to the folder.
+    // Replace-import and add-import share one picker.
     expect(source.match(/const file = await pickSavedSessionsFile\(\);/g)).toHaveLength(2);
     expect(source).not.toContain('const file = await pickBackupFile();');
     expect(source).toContain('const pickSavedSessionsFile = async () => {');
-    // The picker opens inside the stored folder handle, not merely in Downloads.
-    expect(source).toContain('startIn: handle,');
-    // A remembered directory for a picker id overrides startIn, so the file
-    // picker must not reuse the folder chooser's id.
-    const filePicker = source.slice(
-      source.indexOf('const [fileHandle] = await window.showOpenFilePicker({'),
-      source.indexOf('return fileHandle ? await fileHandle.getFile() : null;')
-    );
-    expect(filePicker).not.toContain('id:');
-    // Picking Downloads instead of the subfolder must resolve to the subfolder.
-    expect(source).toContain('const resolveSavedSessionsDirectory = async (handle) => {');
-    expect(source).toContain('return await handle.getDirectoryHandle(SAVED_SESSIONS_FOLDER);');
-    expect(source).toContain('if (resolved !== stored) await writeSavedSessionsDirectoryHandle(resolved);');
-    expect(source).toContain('const readSavedSessionsDirectoryState = async () => {');
-    expect(source).toContain('const linkSavedSessionsDirectory = async () => {');
-    expect(source).toContain('await writeSavedSessionsDirectoryHandle(handle);');
-    // A picker consumes the click activation, so linking the folder and choosing
-    // a file must never be chained inside one press.
-    expect(source).toContain('savedSessionsFolderJustLinked = linked;');
-    expect(source).toContain('if (!savedSessionsFolderJustLinked) setStatus(\'Import cancelled\');');
-    expect(source).toContain('if (!savedSessionsFolderJustLinked) setStatus(\'Add sessions cancelled\');');
-    // The file is chosen before the destructive confirm, which would otherwise
-    // consume the activation the picker needs.
+
+    // The File System Access API is not exposed on chrome-extension:// pages, so
+    // relying on it silently fell back to a plain file dialog on every press and
+    // the import kept opening in Downloads. It must not come back here.
+    expect(source).not.toContain('showOpenFilePicker(');
+    expect(source).not.toContain('showDirectoryPicker(');
+    expect(source).not.toContain('supportsFileSystemAccess');
+
+    // A directory input is what an extension page can actually use.
+    expect(source).toContain("input.webkitdirectory = true;");
+    expect(source).toContain("input.setAttribute('webkitdirectory', '');");
+    // Only backups directly inside the chosen folder, not nested directories.
+    expect(source).toContain("&& String(file.webkitRelativePath || '').split('/').length <= 2);");
+    // Newest first, so the freshest backup is the top entry.
+    expect(source).toContain('jsonFiles.sort((left, right) => (right.lastModified || 0) - (left.lastModified || 0));');
+    // One file needs no chooser; several are listed in-app.
+    expect(source).toContain('if (files.length === 1) return files[0];');
+    expect(source).toContain('return chooseSavedSessionsFile(files);');
+
+    // The file is chosen before the destructive confirm.
     expect(source.indexOf('const file = await pickSavedSessionsFile();'))
       .toBeLessThan(source.indexOf("'Import will replace stored notes and saved sessions. Continue?'"));
-    // Browsers without the File System Access API keep the plain file input.
-    expect(source).toContain('if (!supportsFileSystemAccess()) return pickBackupFile();');
   });
 
-  test('saved sessions folder resolution traces every branch to one console filter', () => {
-    // Two prior fixes to "import opens Downloads instead of the subfolder"
-    // shipped without a real-browser trace and did not resolve the report.
-    // This lock-in keeps the next diagnosis evidence-based instead of another
-    // guess: every branch that decides where the picker opens must log through
-    // fsDiag, filterable in DevTools by "fs-diag".
-    const source = fs.readFileSync(path.join(__dirname, '..', 'results.js'), 'utf8');
+  test('the folder file chooser exists in both pages', () => {
+    const resultHtml = fs.readFileSync(path.join(__dirname, '..', 'result_new.html'), 'utf8');
+    const pipelineHtml = fs.readFileSync(path.join(__dirname, '..', 'pipeline_panel.html'), 'utf8');
+    const css = readResolvedCss();
 
-    expect(source).toContain("const fsDiag = (...args) => console.warn('[results][fs-diag]', ...args);");
-    expect(source).toContain("fsDiag('stored handle',");
-    expect(source).toContain("fsDiag('queryPermission', permission);");
-    expect(source).toContain("fsDiag('resolved handle',");
-    expect(source).toContain("fsDiag('opening directory picker, startIn: downloads');");
-    expect(source).toContain("fsDiag('directory picked',");
-    expect(source).toContain("fsDiag('resolved after picking',");
+    [resultHtml, pipelineHtml].forEach((html) => {
+      expect(html).toContain('id="session-file-modal"');
+      expect(html).toContain('id="session-file-list"');
+      expect(html).toContain('id="session-file-cancel-btn"');
+    });
+    expect(css).toContain('.session-file-row {');
   });
 
   test('sidebar backup buttons point their arrows the way the data moves', () => {

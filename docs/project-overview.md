@@ -75,7 +75,9 @@ The buttons at the bottom of the left sidebar work against one dedicated folder,
 
 The TXT file groups answers by Session: a line with the Session name, then that Session's prompt, Favourite and model answers indented under it. `Current session` is not included — use the `txt` button on the main page for the work currently open. Saved answers carry no time/URL metadata line, because that metadata describes a live run and is not part of a stored Session.
 
-Both imports open the file dialog inside `Downloads/Saved sessions`. The very first import instead asks you to select that folder once, so the browser can grant read access to it — the status line then says the folder is linked and asks you to press the button again. Selecting `Downloads` itself works too: the app steps into `Saved sessions` inside it. From that point on every import opens straight inside the folder. The browser drops the grant when it restarts, so the folder-linking press comes back once per browser session. If the browser does not support folder access, the import falls back to an ordinary file dialog.
+Both imports ask for a folder rather than a file: select `Downloads/Saved sessions`, and the app lists the `.json` backups it contains — newest first, with their dates — so you pick from that list instead of navigating the file system. A folder holding a single backup skips the list. Only files directly inside the chosen folder are offered; nested folders are ignored.
+
+The dialog asks for a folder because the results page is an extension page, and Chrome does not expose the File System Access API there — a plain file dialog cannot be pointed at a folder, so a directory input is the only way to read that folder's contents.
 
 ## Attachments Behavior
 

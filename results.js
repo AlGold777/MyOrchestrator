@@ -7938,205 +7938,115 @@ document.addEventListener('click', (event) => {
                 input.click();
             });
 
-            // A file input cannot be pointed at a directory, so the import pickers
-            // use the File System Access API. The directory handle for
-            // Downloads/Saved sessions is granted once and kept in IndexedDB, and
-            // every later import opens straight inside that folder.
-            const SAVED_SESSIONS_PICKER_ID = 'codexSavedSessionsFolder';
-            const FS_HANDLES_DB_NAME = 'llm_sidebar_fs_handles_v1';
-            const FS_HANDLES_DB_VERSION = 1;
-            const FS_HANDLES_STORE = 'handles';
-            const SAVED_SESSIONS_HANDLE_KEY = 'savedSessionsDirectory';
-            const SAVED_SESSIONS_FILE_TYPES = [{
-                description: 'Saved sessions',
-                accept: { 'application/json': ['.json'] }
-            }];
-
-            const supportsFileSystemAccess = () => typeof window.showOpenFilePicker === 'function'
-                && typeof window.showDirectoryPicker === 'function';
-
-            const openFsHandlesDb = () => new Promise((resolve, reject) => {
-                if (!globalThis.indexedDB) {
-                    reject(new Error('IndexedDB unavailable'));
-                    return;
-                }
-                const request = indexedDB.open(FS_HANDLES_DB_NAME, FS_HANDLES_DB_VERSION);
-                request.onupgradeneeded = () => {
-                    const db = request.result;
-                    if (!db.objectStoreNames.contains(FS_HANDLES_STORE)) {
-                        db.createObjectStore(FS_HANDLES_STORE);
-                    }
+            // A file input cannot be pointed at a folder, and the File System
+            // Access API (showOpenFilePicker/showDirectoryPicker) is not exposed on
+            // chrome-extension:// pages at all — an earlier attempt to use it here
+            // silently fell back to a plain file dialog on every press, which is
+            // why imports kept opening in Downloads.
+            //
+            // What does work in an extension page is a directory input: the user
+            // selects Downloads/Saved sessions, the browser hands over its files,
+            // and the app lists them itself.
+            const pickSavedSessionsFolderFiles = () => new Promise((resolve) => {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.webkitdirectory = true;
+                input.setAttribute('webkitdirectory', '');
+                input.setAttribute('directory', '');
+                input.style.position = 'fixed';
+                input.style.opacity = '0';
+                input.style.pointerEvents = 'none';
+                let settled = false;
+                const cleanup = () => {
+                    window.removeEventListener('focus', handleWindowFocus);
+                    if (input.parentNode) input.parentNode.removeChild(input);
                 };
-                request.onsuccess = () => resolve(request.result);
-                request.onerror = () => reject(request.error || new Error('Failed to open FS handles DB'));
+                const finalize = (files) => {
+                    if (settled) return;
+                    settled = true;
+                    cleanup();
+                    resolve(files);
+                };
+                const handleWindowFocus = () => {
+                    if (settled) return;
+                    setTimeout(() => {
+                        if (!settled && !input.files?.length) finalize([]);
+                    }, 500);
+                };
+                input.addEventListener('change', () => {
+                    const all = Array.from(input.files || []);
+                    // Only .json, and only the folder's own level: a directory input
+                    // reports every descendant, and nested folders are not backups.
+                    const jsonFiles = all.filter((file) => /\.json$/i.test(file.name)
+                        && String(file.webkitRelativePath || '').split('/').length <= 2);
+                    jsonFiles.sort((left, right) => (right.lastModified || 0) - (left.lastModified || 0));
+                    finalize(jsonFiles);
+                });
+                window.addEventListener('focus', handleWindowFocus);
+                document.body.appendChild(input);
+                input.click();
             });
 
-            const runFsHandlesTx = async (mode, handler) => {
-                const db = await openFsHandlesDb();
-                return new Promise((resolve, reject) => {
-                    const tx = db.transaction([FS_HANDLES_STORE], mode);
-                    const store = tx.objectStore(FS_HANDLES_STORE);
-                    let result;
-                    Promise.resolve()
-                        .then(() => handler(store))
-                        .then((value) => {
-                            result = value;
-                        })
-                        .catch((error) => {
-                            try { tx.abort(); } catch (_) {}
-                            reject(error);
-                        });
-                    tx.oncomplete = () => resolve(result);
-                    tx.onerror = () => reject(tx.error || new Error('FS handles transaction failed'));
-                    tx.onabort = () => reject(tx.error || new Error('FS handles transaction aborted'));
+            // Newest first, so the freshest backup is the top entry.
+            const chooseSavedSessionsFile = (files = []) => new Promise((resolve) => {
+                // Resolved on use: this runs on a click, long after the page is
+                // built, and the sidebar block does not own these elements.
+                const sessionFileModal = document.getElementById('session-file-modal');
+                const sessionFileList = document.getElementById('session-file-list');
+                const sessionFileMessage = document.getElementById('session-file-message');
+                const sessionFileCancelBtn = document.getElementById('session-file-cancel-btn');
+                if (!sessionFileModal || !sessionFileList) {
+                    resolve(files[0] || null);
+                    return;
+                }
+                sessionFileList.textContent = '';
+                if (sessionFileMessage) {
+                    sessionFileMessage.textContent = `Choose a file from ${SAVED_SESSIONS_FOLDER}`;
+                }
+                let settled = false;
+                const finish = (file) => {
+                    if (settled) return;
+                    settled = true;
+                    sessionFileList.removeEventListener('click', onListClick);
+                    sessionFileCancelBtn?.removeEventListener('click', onCancel);
+                    modalManager.hide(sessionFileModal);
+                    resolve(file);
+                };
+                const onCancel = () => finish(null);
+                const onListClick = (event) => {
+                    const row = event.target.closest('.session-file-row');
+                    if (!row) return;
+                    finish(files[Number(row.dataset.index)] || null);
+                };
+                files.forEach((file, index) => {
+                    const row = document.createElement('button');
+                    row.type = 'button';
+                    row.className = 'session-file-row';
+                    row.dataset.index = String(index);
+                    row.setAttribute('role', 'option');
+                    const name = document.createElement('span');
+                    name.className = 'session-file-name';
+                    name.textContent = file.name;
+                    const meta = document.createElement('span');
+                    meta.className = 'session-file-meta';
+                    meta.textContent = file.lastModified
+                        ? new Date(file.lastModified).toLocaleString()
+                        : '';
+                    row.append(name, meta);
+                    sessionFileList.appendChild(row);
                 });
-            };
+                sessionFileList.addEventListener('click', onListClick);
+                sessionFileCancelBtn?.addEventListener('click', onCancel);
+                modalManager.show(sessionFileModal);
+                sessionFileList.querySelector('.session-file-row')?.focus();
+            });
 
-            const readSavedSessionsDirectoryHandle = async () => {
-                try {
-                    const stored = await runFsHandlesTx('readonly', (store) =>
-                        idbRequestToPromise(store.get(SAVED_SESSIONS_HANDLE_KEY)));
-                    return stored || null;
-                } catch (error) {
-                    console.warn('[results] failed to read saved sessions folder handle', error);
-                    return null;
-                }
-            };
-
-            const writeSavedSessionsDirectoryHandle = async (handle) => {
-                try {
-                    await runFsHandlesTx('readwrite', (store) =>
-                        idbRequestToPromise(store.put(handle, SAVED_SESSIONS_HANDLE_KEY)));
-                    return true;
-                } catch (error) {
-                    console.warn('[results] failed to store saved sessions folder handle', error);
-                    return false;
-                }
-            };
-
-            // The folder chooser opens in Downloads, so selecting Downloads itself
-            // instead of stepping into the subfolder is the natural mistake — and
-            // it used to be stored as-is, which then reopened Downloads on every
-            // import. Descend into the subfolder whenever the picked handle is a
-            // parent of it.
-            const resolveSavedSessionsDirectory = async (handle) => {
-                if (!handle) return null;
-                if (String(handle.name || '') === SAVED_SESSIONS_FOLDER) return handle;
-                try {
-                    return await handle.getDirectoryHandle(SAVED_SESSIONS_FOLDER);
-                } catch (_) {
-                    return null;
-                }
-            };
-
-            // Every branch here logs with this one prefix, so a single console
-            // filter (`fs-diag`) shows the exact path an import press took. Two
-            // earlier fixes to this flow shipped without being exercised in a
-            // real browser and did not resolve the reported symptom, so this
-            // trace exists to replace guessing with an actual read of what
-            // happens on the user's machine before changing this code again.
-            const fsDiag = (...args) => console.warn('[results][fs-diag]', ...args);
-
-            const readSavedSessionsDirectoryState = async () => {
-                const stored = await readSavedSessionsDirectoryHandle();
-                fsDiag('stored handle', stored ? { name: stored.name, kind: stored.kind } : null);
-                if (!stored?.queryPermission) return { handle: null, state: 'missing' };
-                try {
-                    const permission = await stored.queryPermission({ mode: 'read' });
-                    fsDiag('queryPermission', permission);
-                    if (permission !== 'granted') return { handle: stored, state: 'prompt' };
-                    // Heals a handle stored before the subfolder check existed.
-                    const resolved = await resolveSavedSessionsDirectory(stored);
-                    fsDiag('resolved handle', resolved ? { name: resolved.name, kind: resolved.kind } : null);
-                    if (!resolved) return { handle: null, state: 'missing' };
-                    if (resolved !== stored) await writeSavedSessionsDirectoryHandle(resolved);
-                    return { handle: resolved, state: 'granted' };
-                } catch (error) {
-                    console.warn('[results] saved sessions folder permission check failed', error);
-                    return { handle: null, state: 'missing' };
-                }
-            };
-
-            const linkSavedSessionsDirectory = async () => {
-                try {
-                    fsDiag('opening directory picker, startIn: downloads');
-                    const picked = await window.showDirectoryPicker({
-                        id: SAVED_SESSIONS_PICKER_ID,
-                        mode: 'read',
-                        startIn: 'downloads'
-                    });
-                    fsDiag('directory picked', { name: picked.name, kind: picked.kind });
-                    const handle = await resolveSavedSessionsDirectory(picked);
-                    fsDiag('resolved after picking', handle ? { name: handle.name, kind: handle.kind } : null);
-                    if (!handle) {
-                        setStatus(`Select the ${SAVED_SESSIONS_FOLDER} folder itself`, 6000);
-                        return false;
-                    }
-                    await writeSavedSessionsDirectoryHandle(handle);
-                    return true;
-                } catch (error) {
-                    if (error?.name === 'AbortError') {
-                        fsDiag('directory picker cancelled by the user');
-                    } else {
-                        console.warn('[results] saved sessions folder selection failed', error?.name, error?.message);
-                    }
-                    return false;
-                }
-            };
-
-            // Set when a press was spent linking the folder rather than choosing a
-            // file, so the caller reports that instead of "cancelled".
-            let savedSessionsFolderJustLinked = false;
-
-            // Returns the picked file, or null when nothing was chosen. Falls back
-            // to the plain file input wherever the File System Access API is
-            // missing, so import keeps working without the folder grant.
-            //
-            // A file or directory picker consumes the click's transient user
-            // activation, so only one of them may run per press. That is why
-            // linking the folder takes its own press: the first import (and the
-            // first one after a browser restart drops the grant) links
-            // Downloads/Saved sessions, and every later import opens straight
-            // inside it. Chaining both in one press made the second call throw and
-            // silently fall back to the plain dialog in the OS default folder.
+            // Returns the picked file, or null when nothing was chosen.
             const pickSavedSessionsFile = async () => {
-                savedSessionsFolderJustLinked = false;
-                if (!supportsFileSystemAccess()) return pickBackupFile();
-                const { handle, state } = await readSavedSessionsDirectoryState();
-                if (state !== 'granted') {
-                    let linked = false;
-                    if (state === 'prompt') {
-                        try {
-                            linked = (await handle.requestPermission({ mode: 'read' })) === 'granted';
-                        } catch (error) {
-                            console.warn('[results] saved sessions folder permission request failed', error);
-                        }
-                    } else {
-                        linked = await linkSavedSessionsDirectory();
-                    }
-                    savedSessionsFolderJustLinked = linked;
-                    if (linked) {
-                        setStatus(`Folder ${SAVED_SESSIONS_FOLDER} linked — press the button again to pick a file`, 6000);
-                    }
-                    return null;
-                }
-                try {
-                    // No `id` here on purpose: when a picker id has a remembered
-                    // directory, the browser reopens that directory and ignores
-                    // `startIn`. The folder chooser above uses this same id and
-                    // remembered Downloads, which is exactly what reopened
-                    // Downloads instead of the folder handle below.
-                    const [fileHandle] = await window.showOpenFilePicker({
-                        startIn: handle,
-                        multiple: false,
-                        types: SAVED_SESSIONS_FILE_TYPES
-                    });
-                    return fileHandle ? await fileHandle.getFile() : null;
-                } catch (error) {
-                    if (error?.name === 'AbortError') return null;
-                    console.warn('[results] saved sessions file picker failed', error);
-                    return pickBackupFile();
-                }
+                const files = await pickSavedSessionsFolderFiles();
+                if (!files.length) return null;
+                if (files.length === 1) return files[0];
+                return chooseSavedSessionsFile(files);
             };
 
             const SESSION_SNAPSHOTS_DB_NAME = 'llm_sidebar_sessions_v1';
@@ -8316,7 +8226,7 @@ document.addEventListener('click', (event) => {
                 // activation, which a modal shown beforehand would consume.
                 const file = await pickSavedSessionsFile();
                 if (!file) {
-                    if (!savedSessionsFolderJustLinked) setStatus('Import cancelled');
+                    setStatus('Import cancelled');
                     return;
                 }
                 const confirmed = await showConfirm(
@@ -8393,7 +8303,7 @@ document.addEventListener('click', (event) => {
             const addSavedSessions = async () => {
                 const file = await pickSavedSessionsFile();
                 if (!file) {
-                    if (!savedSessionsFolderJustLinked) setStatus('Add sessions cancelled');
+                    setStatus('Add sessions cancelled');
                     return;
                 }
                 setStatus('Adding saved sessions...');
