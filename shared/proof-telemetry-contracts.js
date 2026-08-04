@@ -344,6 +344,7 @@
             : (/DEFERRED/.test(String(payload.sourceEventType || '')) ? 'deferred' : 'evidence_partial'))
       },
       DISPATCH_BASELINE_CAPTURED: { kind: 'dispatch_baseline', state: metadata.baselineState || 'captured' },
+      DISPATCH_STAGE_OBSERVED: { kind: 'dispatch_stage', state: metadata.stage || metadata.boundaryReason || payload.typed?.state || 'unknown' },
       PROMPT_INSERTION_EVALUATED: { kind: 'prompt_insertion', state: payload.insertionState || metadata.insertionState || 'unknown' },
       GENERATION_STATE_INFERRED: { kind: 'generation', state: payload.observedGeneration || metadata.observedGeneration || 'unknown' },
       GENERATION_START_EVALUATED: { kind: 'generation_start', state: payload.typed?.state || metadata.state || 'started' },

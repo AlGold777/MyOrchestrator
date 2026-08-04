@@ -660,6 +660,59 @@
         "report:prompt-not-sent"
       ]
     },
+    "DISPATCH_STAGE_OBSERVED": {
+      "eventType": "DISPATCH_STAGE_OBSERVED",
+      "contractVersion": "1.0.0",
+      "layer": "fact",
+      "producers": [
+        "runtime-observer",
+        "legacy-telemetry-adapter"
+      ],
+      "requiredEnvelopeFields": [
+        "schemaVersion",
+        "eventId",
+        "eventType",
+        "layer",
+        "seq",
+        "wallTs",
+        "runSessionId",
+        "producer",
+        "payload"
+      ],
+      "identity": {
+        "modelScoped": true,
+        "requiredFields": [
+          "runSessionId",
+          "modelId"
+        ],
+        "incidentDiscriminatorFields": [
+          "dispatchId",
+          "generationEpoch",
+          "documentInstanceId",
+          "navigationEpoch"
+        ]
+      },
+      "recipients": [
+        "proof-ledger",
+        "all-presets-json",
+        "standalone-report",
+        "canonical-evidence"
+      ],
+      "sampling": {
+        "mode": "none",
+        "lossPolicy": "lossless"
+      },
+      "retention": {
+        "criticality": "critical",
+        "canonical": "lossless",
+        "legacyParallelStream": "runtime-dependent"
+      },
+      "consumers": [
+        "incident-timeline",
+        "model-timeline",
+        "telemetry-validator"
+      ]
+    },
     "EXPORT_AUDIT_RECORDED": {
       "eventType": "EXPORT_AUDIT_RECORDED",
       "contractVersion": "1.0.0",

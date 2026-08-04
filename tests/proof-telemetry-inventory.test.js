@@ -6,7 +6,7 @@ describe('proof telemetry inventory', () => {
   test('registers every canonical event type and every report dependency', () => {
     const result = Inventory.validateInventory(ProofTelemetry.CANONICAL_EVENT_TYPES);
     expect(result).toEqual({ valid: true, errors: [] });
-    expect(Object.keys(Inventory.EVENT_REGISTRY)).toHaveLength(45);
+    expect(Object.keys(Inventory.EVENT_REGISTRY)).toHaveLength(46);
   });
 
   test('fails closed when code introduces an event without registry metadata', () => {

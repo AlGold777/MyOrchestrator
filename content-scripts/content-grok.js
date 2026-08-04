@@ -1993,6 +1993,14 @@
     const dispatchMeta = window.ContentUtils?.ensureDispatchMeta
       ? window.ContentUtils.ensureDispatchMeta(meta, MODEL)
       : (meta && typeof meta === 'object' ? meta : null);
+    const stageStartedAt = Date.now();
+    const reportStage = (stage, outcome = {}) => window.ContentUtils?.reportDispatchStage?.(
+      MODEL,
+      dispatchMeta,
+      stage,
+      { ...outcome, elapsedMs: Date.now() - stageStartedAt }
+    );
+    reportStage('composer_transaction_started');
     return runLifecycle('grok:inject', buildLifecycleContext(prompt), async (activity) => {
       const opId = metricsCollector.startOperation('injectAndGetResponse');
       const startTime = Date.now();
@@ -2055,6 +2063,10 @@
         });
         }
         activity.heartbeat(0.3, { phase: 'composer-ready' });
+        reportStage('composer_ready', {
+          composerConnected: composer?.isConnected === true,
+          composerVisible: isElementInteractable(composer)
+        });
 
         if (Array.isArray(attachments) && attachments.length) {
           let attachmentsOk = false;
@@ -2123,6 +2135,7 @@
         // черновику в уже открытой беседе (источник «непонятно откуда взявшегося» текста).
         await clearComposer(composer);
 
+        reportStage('prompt_insertion_started');
         // Page-owned input first, then a second clean editor transaction.
         let pasteOk = await grokClipboardPaste(composer, prompt);
         let insertMethod = pasteOk ? 'page_input_events' : null;
@@ -2217,8 +2230,10 @@
           composerLength: readComposerValue(committedComposer || composer).length
         });
         if (!committedComposer) {
+          reportStage('prompt_insertion_failed', { outcome: 'failed', reason: 'composer_commit_timeout' });
           throw { type: 'injection_failed', message: 'Grok composer did not remain stable for the 5-second commit window.' };
         }
+        reportStage('prompt_inserted', { outcome: 'confirmed', composerConnected: true });
         composer = committedComposer;
         const userMessageBaseline = grabLatestGrokUserMessage();
 
@@ -2255,6 +2270,7 @@
 
         let sendMethod = 'button';
         let dispatchSuccess = false;
+        reportStage('send_action_requested');
         if (sendBtn && !sendBtn.disabled) {
           emitDiagnostic({
             type: 'SELECTOR',
@@ -2280,9 +2296,11 @@
         }
 
         if (!dispatchSuccess) {
+          reportStage('send_action_failed', { outcome: 'failed', reason: sendMethod });
           sendMethod = 'ctrl_enter';
           dispatchSuccess = await attemptSendViaCtrlEnter(composer);
         }
+        reportStage('send_action_completed', { outcome: 'confirmed', reason: sendMethod });
         if (!dispatchSuccess) {
           dispatchSuccess = await attemptSendViaEnter(composer);
           if (dispatchSuccess) {

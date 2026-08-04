@@ -30,7 +30,7 @@
     "runtimeRunConfig": {},
     "runtimeRunConfigEventId": null,
     "extensionVersion": "2.81.169",
-    "generatorVersion": "proof-export@2.8.0",
+    "generatorVersion": "proof-export@2.9.0",
     "reportVersion": "3.6.0",
     "policyIdentity": {
       "policyId": "proof-default-v2",
@@ -710,6 +710,59 @@
           "report:old-answer",
           "report:prompt-not-inserted",
           "report:prompt-not-sent"
+        ]
+      },
+      "DISPATCH_STAGE_OBSERVED": {
+        "eventType": "DISPATCH_STAGE_OBSERVED",
+        "contractVersion": "1.0.0",
+        "layer": "fact",
+        "producers": [
+          "runtime-observer",
+          "legacy-telemetry-adapter"
+        ],
+        "requiredEnvelopeFields": [
+          "schemaVersion",
+          "eventId",
+          "eventType",
+          "layer",
+          "seq",
+          "wallTs",
+          "runSessionId",
+          "producer",
+          "payload"
+        ],
+        "identity": {
+          "modelScoped": true,
+          "requiredFields": [
+            "runSessionId",
+            "modelId"
+          ],
+          "incidentDiscriminatorFields": [
+            "dispatchId",
+            "generationEpoch",
+            "documentInstanceId",
+            "navigationEpoch"
+          ]
+        },
+        "recipients": [
+          "proof-ledger",
+          "all-presets-json",
+          "standalone-report",
+          "canonical-evidence"
+        ],
+        "sampling": {
+          "mode": "none",
+          "lossPolicy": "lossless"
+        },
+        "retention": {
+          "criticality": "critical",
+          "canonical": "lossless",
+          "legacyParallelStream": "runtime-dependent"
+        },
+        "consumers": [
+          "incident-timeline",
+          "model-timeline",
+          "telemetry-validator"
         ]
       },
       "EXPORT_AUDIT_RECORDED": {
@@ -3764,7 +3817,7 @@
     "firstSeq": 1,
     "lastSeq": 20,
     "eventCount": 20,
-    "ledgerHash": "sha256:34881d7fa7418aca77ab48c5b1d69359b07ea1d9ac0d0f32d67ddf852ca369ef",
+    "ledgerHash": "sha256:ab3a3a61bed56c06aef8e7924348cb13fff2ecac354f7b288a910f5bb73dccef",
     "events": [
       {
         "schemaVersion": 6,
@@ -3779,7 +3832,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.8.0"
+          "version": "proof-export@2.9.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -3822,7 +3875,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.8.0"
+          "version": "proof-export@2.9.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -3865,7 +3918,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.8.0"
+          "version": "proof-export@2.9.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -3908,7 +3961,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.8.0"
+          "version": "proof-export@2.9.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -3952,7 +4005,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.8.0"
+          "version": "proof-export@2.9.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -3995,7 +4048,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.8.0"
+          "version": "proof-export@2.9.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -4039,7 +4092,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.8.0"
+          "version": "proof-export@2.9.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -4082,7 +4135,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.8.0"
+          "version": "proof-export@2.9.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -4126,7 +4179,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.8.0"
+          "version": "proof-export@2.9.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -4172,7 +4225,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.8.0"
+          "version": "proof-export@2.9.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -4215,7 +4268,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.8.0"
+          "version": "proof-export@2.9.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -4259,7 +4312,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.8.0"
+          "version": "proof-export@2.9.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -4303,7 +4356,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.8.0"
+          "version": "proof-export@2.9.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -4347,7 +4400,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.8.0"
+          "version": "proof-export@2.9.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -4393,7 +4446,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.8.0"
+          "version": "proof-export@2.9.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -4436,7 +4489,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.8.0"
+          "version": "proof-export@2.9.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -4479,7 +4532,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.8.0"
+          "version": "proof-export@2.9.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -4522,7 +4575,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.8.0"
+          "version": "proof-export@2.9.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -4565,7 +4618,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.8.0"
+          "version": "proof-export@2.9.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -4608,7 +4661,7 @@
         "modelId": "GPT",
         "producer": {
           "component": "legacy-telemetry-adapter",
-          "version": "proof-export@2.8.0"
+          "version": "proof-export@2.9.0"
         },
         "clock": {
           "contractVersion": "1.0",
@@ -4825,14 +4878,14 @@
   },
   "integrity": {
     "hashes": {
-      "ledger": "sha256:34881d7fa7418aca77ab48c5b1d69359b07ea1d9ac0d0f32d67ddf852ca369ef",
-      "registry": "sha256:1483f2961efa6a1b95b5664e43528ead69c7619ce43ac40f0455dc3ca4756ba4",
+      "ledger": "sha256:ab3a3a61bed56c06aef8e7924348cb13fff2ecac354f7b288a910f5bb73dccef",
+      "registry": "sha256:9ad054628e5cf86f31a52b2263edef90e948be046539ebaebb04077059a351e6",
       "attachments": "sha256:b1968c832915f5cdc3320b65fc5ad56f2c9f3a9d20eaa0919b749ad664b9c18a",
       "readerGuidance": "sha256:55a0e2506c3ddcf6d0a57be946312816e086a30dedaf56719f89bbfd82cc8a5b",
-      "artifact": "sha256:ff78a0a0f54d5e92f59c2d97005d738e3fa478740a6460d747fe4c2839508fc2"
+      "artifact": "sha256:53b77df54a18d142e3ca3e19d7c340008671f50290cc8e9a8e25a67703566389"
     },
     "size": {
-      "measuredBytes": 77999
+      "measuredBytes": 78787
     },
     "schemaValidation": {
       "valid": true,

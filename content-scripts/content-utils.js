@@ -466,6 +466,22 @@
     });
   };
 
+  const reportDispatchStage = (llmName, meta, stage, outcome = {}) => {
+    const normalizedStage = String(stage || '').trim().toLowerCase();
+    if (!llmName || !normalizedStage) return false;
+    return safeRuntimeSendMessage({
+      type: 'PROVIDER_DISPATCH_STAGE_OBSERVED',
+      llmName,
+      stage: normalizedStage,
+      outcome: outcome.outcome ? String(outcome.outcome) : null,
+      reason: outcome.reason ? String(outcome.reason) : null,
+      elapsedMs: Number.isFinite(Number(outcome.elapsedMs)) ? Number(outcome.elapsedMs) : null,
+      composerVisible: typeof outcome.composerVisible === 'boolean' ? outcome.composerVisible : null,
+      composerConnected: typeof outcome.composerConnected === 'boolean' ? outcome.composerConnected : null,
+      meta: ensureDispatchMeta(meta && typeof meta === 'object' ? meta : {}, llmName) || {}
+    });
+  };
+
   // Canonical composer transaction gate. Dispatch code may proceed to Send only
   // when the live composer contains the current prompt, never merely because an
   // input/paste event was fired or because the composer is non-empty.
@@ -1138,6 +1154,7 @@
     countPromptOccurrences,
     ensurePromptPrepared,
     reportPromptInsertion,
+    reportDispatchStage,
     reportDispatchBaseline,
     isBaselineEquivalent,
     detectProviderErrorSurface,

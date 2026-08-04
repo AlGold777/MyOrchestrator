@@ -1227,6 +1227,7 @@ const DIAG_PINNED_LABELS = new Set([
     'PAGE_READY_BLOCKED',
     'PROMPT_INSERTION_CONFIRMED',
     'PROMPT_INSERTION_FAILED',
+    'PROVIDER_DISPATCH_STAGE_OBSERVED',
     'DISPATCH_BASELINE_CAPTURED',
     'STALE_BASELINE_ANSWER_IGNORED',
     'UNSAFE_REUSE_SKIPPED',
@@ -1903,6 +1904,41 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     });
                 }
                 if (typeof sendResponse === 'function') sendResponse({ status: 'prompt_insertion_ack' });
+                break;
+            }
+
+            case 'PROVIDER_DISPATCH_STAGE_OBSERVED': {
+                const llmName = String(message.llmName || '');
+                const incomingMeta = message?.meta && typeof message.meta === 'object' ? message.meta : {};
+                const senderGate = validateLifecycleSender(llmName, sender, 'PROVIDER_DISPATCH_STAGE_OBSERVED', incomingMeta);
+                const correlationGate = validateLifecycleCorrelation(llmName, message, 'PROVIDER_DISPATCH_STAGE_OBSERVED');
+                if (!senderGate.ok || !correlationGate.ok) {
+                    sendResponse?.({
+                        status: 'provider_dispatch_stage_rejected',
+                        reason: !senderGate.ok ? senderGate.reason : correlationGate.reason
+                    });
+                    break;
+                }
+                const stage = String(message.stage || '').trim().toLowerCase();
+                if (!stage) {
+                    sendResponse?.({ status: 'provider_dispatch_stage_rejected', reason: 'missing_stage' });
+                    break;
+                }
+                emitTelemetry(llmName, 'PROVIDER_DISPATCH_STAGE_OBSERVED', {
+                    level: /failed|blocked|timeout/.test(String(message.outcome || message.reason || '')) ? 'warning' : 'info',
+                    details: stage,
+                    meta: {
+                        ...incomingMeta,
+                        stage,
+                        outcome: message.outcome || null,
+                        reason: message.reason || null,
+                        elapsedMs: Number.isFinite(Number(message.elapsedMs)) ? Number(message.elapsedMs) : null,
+                        composerVisible: typeof message.composerVisible === 'boolean' ? message.composerVisible : null,
+                        composerConnected: typeof message.composerConnected === 'boolean' ? message.composerConnected : null
+                    },
+                    force: true
+                });
+                sendResponse?.({ status: 'provider_dispatch_stage_ack' });
                 break;
             }
 

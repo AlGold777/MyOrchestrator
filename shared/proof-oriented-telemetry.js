@@ -110,6 +110,8 @@
     COMMAND_SEND_ERROR: 'SUBMISSION_EVIDENCE_CHANGED',
     PROMPT_INSERTION_FAILED: 'PROMPT_INSERTION_EVALUATED',
     PROMPT_INSERTION_CONFIRMED: 'PROMPT_INSERTION_EVALUATED',
+    PROVIDER_DISPATCH_STAGE_OBSERVED: 'DISPATCH_STAGE_OBSERVED',
+    DISPATCH_POST_COMMAND_FOCUS_HOLD: 'DISPATCH_STAGE_OBSERVED',
     SEND_DEFERRED_TRANSIENT_BLOCKER: 'SUBMISSION_EVIDENCE_CHANGED',
     SEND_DEGRADED_AFTER_SUBMIT: 'SUBMISSION_EVIDENCE_CHANGED',
     GEMINI_STALE_BASELINE_REJECTED: 'CANDIDATE_SET_CHANGED',
@@ -191,6 +193,8 @@
     if (rejection) return rejection;
     const pipelineStep = pipelineStepMapping(event, label);
     if (pipelineStep) return pipelineStep;
+    const dispatchStage = dispatchStageMapping(event, label);
+    if (dispatchStage) return dispatchStage;
     if (CANONICAL_EVENT_TYPES.has(label)) return { route: 'canonical', label, eventType: label };
     if (EVENT_MAP[label]) return { route: 'canonical', label, eventType: EVENT_MAP[label], typed: RUNTIME_TYPED_FACTS[label] || null };
     if (OPERATIONAL_EVENT_PATTERN.test(label)) return { route: 'operational', label, eventType: 'OBSERVER_HEALTH_INTERVAL_CLOSED' };
@@ -235,6 +239,18 @@
     })[step] || null;
   }
 
+  function dispatchStageMapping(event, label = normalizeLabel(event)) {
+    if (!['PROVIDER_DISPATCH_STAGE_OBSERVED', 'DISPATCH_POST_COMMAND_FOCUS_HOLD'].includes(label)) return null;
+    const stage = String(event?.meta?.stage || event?.meta?.boundaryReason || event?.details || 'unknown')
+      .trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'unknown';
+    return {
+      route: 'canonical',
+      label,
+      eventType: 'DISPATCH_STAGE_OBSERVED',
+      typed: { kind: 'dispatch_stage', state: stage }
+    };
+  }
+
   function canonicalType(event) {
     const explicitType = event?.proofEventType || event?.meta?.proofEventType;
     if (explicitType) return String(explicitType).trim().toUpperCase();
@@ -243,6 +259,8 @@
     if (rejection?.eventType) return rejection.eventType;
     const pipelineStep = pipelineStepMapping(event, label);
     if (pipelineStep?.eventType) return pipelineStep.eventType;
+    const dispatchStage = dispatchStageMapping(event, label);
+    if (dispatchStage?.eventType) return dispatchStage.eventType;
     if (CANONICAL_EVENT_TYPES.has(label)) return label;
     if (EVENT_MAP[label]) return EVENT_MAP[label];
     if (OPERATIONAL_EVENT_PATTERN.test(label)) return 'OBSERVER_HEALTH_INTERVAL_CLOSED';

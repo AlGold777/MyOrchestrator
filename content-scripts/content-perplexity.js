@@ -1365,6 +1365,14 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
   const dispatchMeta = window.ContentUtils?.ensureDispatchMeta
     ? window.ContentUtils.ensureDispatchMeta(meta, MODEL)
     : (meta && typeof meta === 'object' ? meta : null);
+  const stageStartedAt = Date.now();
+  const reportStage = (stage, outcome = {}) => window.ContentUtils?.reportDispatchStage?.(
+    MODEL,
+    dispatchMeta,
+    stage,
+    { ...outcome, elapsedMs: Date.now() - stageStartedAt }
+  );
+  reportStage('composer_transaction_started');
   return runLifecycle('perplexity:inject', buildLifecycleContext(prompt), async (activity) => {
     console.log('[content-perplexity] Starting Perplexity injection process');
     try {
@@ -1397,8 +1405,13 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
       inputField = await waitForPerplexityComposer(inputSelectors, 10000).catch(() => null);
     }
     if (!inputField) {
+      reportStage('composer_unavailable', { outcome: 'failed', reason: 'owned_composer_not_found' });
       throw { type: 'selector_not_found', message: 'Perplexity owned input field not found' };
     }
+    reportStage('composer_ready', {
+      composerConnected: inputField?.isConnected === true,
+      composerVisible: Boolean(inputField?.getBoundingClientRect?.().width && inputField?.getBoundingClientRect?.().height)
+    });
 
     // Capture the prior on-page answer before submitting a follow-up, so the background
     // rejects it as stale until the new answer renders (avoids finalizing the old answer).
@@ -1513,6 +1526,7 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
     };
     const findLivePromptComposer = () => Array.from(document.querySelectorAll(inputSelectors.join(',')))
       .find(composerMatchesPrompt) || null;
+    reportStage('prompt_insertion_started');
     let prepared = window.PerplexityComposerTransaction?.prepare
       ? await window.PerplexityComposerTransaction.prepare({
           doc: document,
@@ -1598,6 +1612,7 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
     });
     if (!prepared.ok) {
       reportInsertion('failed', prepared.reason || 'prompt_not_present', String(prepared.value || '').length);
+      reportStage('prompt_insertion_failed', { outcome: 'failed', reason: prepared.reason || 'prompt_not_present' });
       throw { type: 'prompt_injection_failed', message: `Perplexity prompt preparation failed: ${prepared.reason}` };
     }
     activity.heartbeat(0.3, { phase: 'typing' });
@@ -1608,6 +1623,7 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
       throw { type: 'injection_failed', message: 'Textarea did not accept value (React guard).' };
     }
     reportInsertion('inserted', null, __val.length);
+    reportStage('prompt_inserted', { outcome: 'confirmed', composerConnected: inputField?.isConnected === true });
     inputField = findLivePromptComposer() || inputField;
     const visible = (element) => {
       const rect = element?.getBoundingClientRect?.();
@@ -1675,6 +1691,7 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
     // control exists, so click it natively first. Enter is a bounded fallback
     // for layouts where the control disappears between preparation and CDP.
     activity.heartbeat(0.4, { phase: 'trusted-send-control' });
+    reportStage('send_action_requested');
     const trustedSend = await new Promise((resolve) => {
       chrome.runtime.sendMessage({
         type: 'PROVIDER_TRUSTED_SEND_REQUEST',
@@ -1703,11 +1720,16 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
     }
 
     if (!confirmed) {
+      reportStage('send_action_failed', {
+        outcome: 'failed',
+        reason: trustedSend?.reason || trustedEnter?.reason || 'no_send_evidence'
+      });
       throw {
         type: 'send_failed',
         message: `Perplexity submit not confirmed: click=${trustedSend?.reason || 'no_send_evidence'}, enter=${trustedEnter?.reason || 'not_attempted'}`
       };
     }
+    reportStage('send_action_completed', { outcome: 'confirmed' });
     activity.heartbeat(0.55, { phase: 'send-dispatched' });
     try { chrome.runtime.sendMessage({ type: 'PROMPT_SUBMITTED', llmName: MODEL, ts: Date.now(), meta: dispatchMeta }); } catch (_) {}
 

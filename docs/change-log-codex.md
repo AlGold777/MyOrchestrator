@@ -1,5 +1,13 @@
 # Codex phase change log
 
+## 2.81.264 — Provider send stages are canonical evidence
+
+- Grok and Perplexity now publish correlated composer, insertion and Send
+  milestones through a provider-neutral content API.
+- Focus-boundary outcomes and provider stages are retained as the canonical
+  `DISPATCH_STAGE_OBSERVED` fact, including elapsed time and failure reason.
+- Stage evidence is accepted only from the bound tab and exact run/dispatch.
+
 ## 2.81.263 — Human presence yields to a running dispatch
 
 - The visit loop reschedules itself, so the `promptDispatchInProgress` guard was

@@ -307,6 +307,12 @@ is alive; retry supervisor and Round 2 repair must defer rather than overwrite
 that owner. A bounded ownership TTL prevents a lost MV3 release message from
 blocking recovery forever.
 
+Every provider may publish the same dispatch-stage contract:
+`composer_transaction_started`, `composer_ready`, `prompt_insertion_started`,
+`prompt_inserted`, `send_action_requested`, and `send_action_completed` or a
+stage-specific failure. These facts and the Round 1 focus boundary are retained
+in canonical evidence with exact dispatch identity.
+
 Trusted browser input has a single debugger owner per `tabId`. Native input,
 Enter, Send and attachment RPCs enqueue through the same manager; only that
 manager may attach or detach Chrome Debugger. Provider helpers operate inside
