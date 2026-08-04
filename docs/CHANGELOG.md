@@ -1,5 +1,22 @@
 # CHANGELOG — Project
 
+### 2026-08-04 — Sidebar sessions live in Downloads/Saved sessions, version 2.81.197
+
+- Экспорт сессий и заметок из левого sidebar теперь сохраняется в
+  `Downloads/Saved sessions` через `chrome.downloads` (`saveAs: false`,
+  `conflictAction: 'uniquify'`), а не в корень Downloads через `<a download>`.
+  Папка создаётся сама; при отказе downloads API остаётся прежний anchor-путь.
+- Оба импорта — `↓` (перезапись текущего набора) и `+` (добавление к текущему
+  набору) — открывают диалог сразу в этой папке. Handle папки берётся один раз
+  через `showDirectoryPicker({ startIn: 'downloads' })`, хранится в IndexedDB
+  `llm_sidebar_fs_handles_v1` и переиспользуется как `startIn` для
+  `showOpenFilePicker`. Где File System Access API нет, работает прежний
+  `<input type="file">`.
+- Подписи кнопок в sidebar теперь называют папку и явно различают импорт с
+  перезаписью и импорт с добавлением.
+- Регрессии: `tests/release-log-regressions.test.js` фиксирует путь загрузки в
+  подпапку, единый picker для обоих импортов, fallback-ветки и подписи кнопок.
+
 ### 2026-08-04 — Selection toolbar survives the favourite press, version 2.81.196
 
 - Нажатие звёздочки в тулбаре выделения больше не закрывает тулбар: и на главной

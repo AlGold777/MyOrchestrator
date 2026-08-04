@@ -711,4 +711,43 @@ describe('release log regression guards', () => {
     expect(source).toContain('sessionsState.sessions = [...sessionsState.sessions, ...addedSessions];');
     expect(source).toContain('attachBackupAction(notesHintSessionsAddBtn, addSavedSessions);');
   });
+
+  test('sidebar sessions are exported into Downloads/Saved sessions without a Save As dialog', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'results.js'), 'utf8');
+
+    expect(source).toContain("const SAVED_SESSIONS_FOLDER = 'Saved sessions';");
+    expect(source).toContain('const savedSessionsDownloadPath = (filename) => `${SAVED_SESSIONS_FOLDER}/${filename}`;');
+    expect(source).toContain('filename: savedSessionsDownloadPath(filename),');
+    expect(source).toContain("conflictAction: 'uniquify',");
+    expect(source).toContain('saveAs: false');
+    // The anchor path stays as a fallback for when the downloads API refuses.
+    expect(source).toContain('downloadJsonViaAnchor(url, filename);');
+    expect(source).toContain('const savedToFolder = await downloadJson(payload, filename);');
+  });
+
+  test('both session imports open in the Saved sessions folder by default', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'results.js'), 'utf8');
+
+    // Replace-import and add-import share one picker anchored to the folder.
+    expect(source.match(/const file = await pickSavedSessionsFile\(\);/g)).toHaveLength(2);
+    expect(source).not.toContain('const file = await pickBackupFile();');
+    expect(source).toContain('const pickSavedSessionsFile = async () => {');
+    expect(source).toContain("startIn: directory || 'downloads',");
+    expect(source).toContain('const ensureSavedSessionsDirectoryHandle = async () => {');
+    expect(source).toContain("await stored.requestPermission({ mode: 'read' });");
+    expect(source).toContain('await writeSavedSessionsDirectoryHandle(handle);');
+    // Browsers without the File System Access API keep the plain file input.
+    expect(source).toContain('if (!supportsFileSystemAccess()) return pickBackupFile();');
+  });
+
+  test('sidebar backup buttons name the Saved sessions folder and their overwrite behaviour', () => {
+    const resultHtml = fs.readFileSync(path.join(__dirname, '..', 'result_new.html'), 'utf8');
+    const pipelineHtml = fs.readFileSync(path.join(__dirname, '..', 'pipeline_panel.html'), 'utf8');
+
+    [resultHtml, pipelineHtml].forEach((html) => {
+      expect(html).toContain('title="Export backup to Downloads/Saved sessions"');
+      expect(html).toContain('title="Import backup from Downloads/Saved sessions (replaces current sessions)"');
+      expect(html).toContain('title="Add saved sessions from Downloads/Saved sessions (keeps current sessions)"');
+    });
+  });
 });

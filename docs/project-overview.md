@@ -66,6 +66,14 @@ The first item in the Sessions list is always `Current session`. It is the work 
 
 Use `Save` in Sessions mode to save the current card state. Use export/import as a backup or to move saved Sessions to another computer.
 
+The buttons at the bottom of the left sidebar work against one dedicated folder, `Downloads/Saved sessions`:
+
+- the download icon exports notes and saved Sessions straight into that folder — no Save As dialog, the app only asks for the file name, and a name clash gets a numeric suffix instead of overwriting;
+- `↓` imports a backup **replacing** the current notes and Session set;
+- `+` imports saved Sessions **without replacing** anything — they are appended to the current set, and colliding ids are reassigned.
+
+Both imports open the file dialog inside `Downloads/Saved sessions`. The first import asks you to select that folder once so the browser can grant read access to it; the choice is remembered, and later imports open there directly. If the browser does not support folder access, the import falls back to an ordinary file dialog.
+
 ## Attachments Behavior
 
 When you send a prompt with an attached file, the app tries to attach the file to each provider page automatically. Since 2.80.133 the behavior on failure is designed to leave you in a recoverable state instead of a dead end:

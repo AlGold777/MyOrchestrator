@@ -7826,9 +7826,13 @@ document.addEventListener('click', (event) => {
                 const name = cleaned || fallback;
                 return /\.json$/i.test(name) ? name : `${name}.json`;
             };
-            const downloadJson = (payload, filename) => {
-                const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-                const url = URL.createObjectURL(blob);
+            // Sidebar sessions live in one dedicated folder inside Downloads, so
+            // exports land there without a Save As dialog and both imports open
+            // there by default.
+            const SAVED_SESSIONS_FOLDER = 'Saved sessions';
+            const savedSessionsDownloadPath = (filename) => `${SAVED_SESSIONS_FOLDER}/${filename}`;
+
+            const downloadJsonViaAnchor = (url, filename) => {
                 const anchor = document.createElement('a');
                 anchor.href = url;
                 anchor.download = filename;
@@ -7836,9 +7840,53 @@ document.addEventListener('click', (event) => {
                 document.body.appendChild(anchor);
                 anchor.click();
                 setTimeout(() => {
-                    URL.revokeObjectURL(url);
                     anchor.remove();
                 }, 400);
+            };
+
+            // chrome.downloads is the only way to choose a subfolder of Downloads;
+            // a plain <a download> can only suggest a bare file name.
+            const downloadJsonViaDownloadsApi = (url, filename) => new Promise((resolve) => {
+                if (!chrome?.downloads?.download) {
+                    resolve(false);
+                    return;
+                }
+                try {
+                    chrome.downloads.download({
+                        url,
+                        filename: savedSessionsDownloadPath(filename),
+                        conflictAction: 'uniquify',
+                        saveAs: false
+                    }, (downloadId) => {
+                        const failure = chrome.runtime?.lastError;
+                        if (failure || !downloadId) {
+                            if (failure) console.warn('[results] downloads API rejected backup', failure.message || failure);
+                            resolve(false);
+                            return;
+                        }
+                        resolve(true);
+                    });
+                } catch (error) {
+                    console.warn('[results] downloads API unavailable', error);
+                    resolve(false);
+                }
+            });
+
+            const downloadJson = async (payload, filename) => {
+                const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                let savedToFolder = false;
+                try {
+                    savedToFolder = await downloadJsonViaDownloadsApi(url, filename);
+                    if (!savedToFolder) {
+                        downloadJsonViaAnchor(url, filename);
+                    }
+                } finally {
+                    // The download reads the blob asynchronously after the call
+                    // returns, so the URL cannot be revoked immediately.
+                    setTimeout(() => URL.revokeObjectURL(url), 60000);
+                }
+                return savedToFolder;
             };
             const readFileAsText = (file) => new Promise((resolve, reject) => {
                 if (!file) {
@@ -7884,6 +7932,134 @@ document.addEventListener('click', (event) => {
                 document.body.appendChild(input);
                 input.click();
             });
+
+            // A file input cannot be pointed at a directory, so the import pickers
+            // use the File System Access API. The directory handle for
+            // Downloads/Saved sessions is granted once and kept in IndexedDB, and
+            // every later import opens straight inside that folder.
+            const SAVED_SESSIONS_PICKER_ID = 'codexSavedSessionsFolder';
+            const FS_HANDLES_DB_NAME = 'llm_sidebar_fs_handles_v1';
+            const FS_HANDLES_DB_VERSION = 1;
+            const FS_HANDLES_STORE = 'handles';
+            const SAVED_SESSIONS_HANDLE_KEY = 'savedSessionsDirectory';
+            const SAVED_SESSIONS_FILE_TYPES = [{
+                description: 'Saved sessions',
+                accept: { 'application/json': ['.json'] }
+            }];
+
+            const supportsFileSystemAccess = () => typeof window.showOpenFilePicker === 'function'
+                && typeof window.showDirectoryPicker === 'function';
+
+            const openFsHandlesDb = () => new Promise((resolve, reject) => {
+                if (!globalThis.indexedDB) {
+                    reject(new Error('IndexedDB unavailable'));
+                    return;
+                }
+                const request = indexedDB.open(FS_HANDLES_DB_NAME, FS_HANDLES_DB_VERSION);
+                request.onupgradeneeded = () => {
+                    const db = request.result;
+                    if (!db.objectStoreNames.contains(FS_HANDLES_STORE)) {
+                        db.createObjectStore(FS_HANDLES_STORE);
+                    }
+                };
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error || new Error('Failed to open FS handles DB'));
+            });
+
+            const runFsHandlesTx = async (mode, handler) => {
+                const db = await openFsHandlesDb();
+                return new Promise((resolve, reject) => {
+                    const tx = db.transaction([FS_HANDLES_STORE], mode);
+                    const store = tx.objectStore(FS_HANDLES_STORE);
+                    let result;
+                    Promise.resolve()
+                        .then(() => handler(store))
+                        .then((value) => {
+                            result = value;
+                        })
+                        .catch((error) => {
+                            try { tx.abort(); } catch (_) {}
+                            reject(error);
+                        });
+                    tx.oncomplete = () => resolve(result);
+                    tx.onerror = () => reject(tx.error || new Error('FS handles transaction failed'));
+                    tx.onabort = () => reject(tx.error || new Error('FS handles transaction aborted'));
+                });
+            };
+
+            const readSavedSessionsDirectoryHandle = async () => {
+                try {
+                    const stored = await runFsHandlesTx('readonly', (store) =>
+                        idbRequestToPromise(store.get(SAVED_SESSIONS_HANDLE_KEY)));
+                    return stored || null;
+                } catch (error) {
+                    console.warn('[results] failed to read saved sessions folder handle', error);
+                    return null;
+                }
+            };
+
+            const writeSavedSessionsDirectoryHandle = async (handle) => {
+                try {
+                    await runFsHandlesTx('readwrite', (store) =>
+                        idbRequestToPromise(store.put(handle, SAVED_SESSIONS_HANDLE_KEY)));
+                    return true;
+                } catch (error) {
+                    console.warn('[results] failed to store saved sessions folder handle', error);
+                    return false;
+                }
+            };
+
+            const ensureSavedSessionsDirectoryHandle = async () => {
+                if (!supportsFileSystemAccess()) return null;
+                const stored = await readSavedSessionsDirectoryHandle();
+                if (stored?.queryPermission) {
+                    try {
+                        let permission = await stored.queryPermission({ mode: 'read' });
+                        if (permission === 'prompt') {
+                            permission = await stored.requestPermission({ mode: 'read' });
+                        }
+                        if (permission === 'granted') return stored;
+                    } catch (error) {
+                        console.warn('[results] saved sessions folder permission check failed', error);
+                    }
+                }
+                try {
+                    const handle = await window.showDirectoryPicker({
+                        id: SAVED_SESSIONS_PICKER_ID,
+                        mode: 'read',
+                        startIn: 'downloads'
+                    });
+                    if (!handle) return null;
+                    await writeSavedSessionsDirectoryHandle(handle);
+                    return handle;
+                } catch (error) {
+                    if (error?.name !== 'AbortError') {
+                        console.warn('[results] saved sessions folder selection failed', error);
+                    }
+                    return null;
+                }
+            };
+
+            // Returns the picked file, or null when the user cancelled. Falls back
+            // to the plain file input wherever the File System Access API is
+            // missing, so import keeps working without the folder grant.
+            const pickSavedSessionsFile = async () => {
+                if (!supportsFileSystemAccess()) return pickBackupFile();
+                const directory = await ensureSavedSessionsDirectoryHandle();
+                try {
+                    const [handle] = await window.showOpenFilePicker({
+                        id: SAVED_SESSIONS_PICKER_ID,
+                        startIn: directory || 'downloads',
+                        multiple: false,
+                        types: SAVED_SESSIONS_FILE_TYPES
+                    });
+                    return handle ? await handle.getFile() : null;
+                } catch (error) {
+                    if (error?.name === 'AbortError') return null;
+                    console.warn('[results] saved sessions file picker failed', error);
+                    return pickBackupFile();
+                }
+            };
 
             const SESSION_SNAPSHOTS_DB_NAME = 'llm_sidebar_sessions_v1';
             const SESSION_SNAPSHOTS_DB_VERSION = 1;
@@ -8044,8 +8220,10 @@ document.addEventListener('click', (event) => {
                         return;
                     }
                     const filename = normalizeBackupFilename(filenameInput);
-                    downloadJson(payload, filename);
-                    setStatus('Export ready', 2600);
+                    const savedToFolder = await downloadJson(payload, filename);
+                    setStatus(savedToFolder
+                        ? `Saved to Downloads/${SAVED_SESSIONS_FOLDER}`
+                        : 'Export ready', 2600);
                 } catch (error) {
                     console.warn('[results] backup export failed', error);
                     setStatus(formatStatusError('Export failed', error), 3600);
@@ -8063,7 +8241,7 @@ document.addEventListener('click', (event) => {
                 if (!confirmed) {
                     return;
                 }
-                const file = await pickBackupFile();
+                const file = await pickSavedSessionsFile();
                 if (!file) {
                     setStatus('Import cancelled');
                     return;
@@ -8132,7 +8310,7 @@ document.addEventListener('click', (event) => {
             };
 
             const addSavedSessions = async () => {
-                const file = await pickBackupFile();
+                const file = await pickSavedSessionsFile();
                 if (!file) {
                     setStatus('Add sessions cancelled');
                     return;
