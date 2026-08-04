@@ -760,6 +760,17 @@ describe('release log regression guards', () => {
     expect(source).toContain('const pickSavedSessionsFile = async () => {');
     // The picker opens inside the stored folder handle, not merely in Downloads.
     expect(source).toContain('startIn: handle,');
+    // A remembered directory for a picker id overrides startIn, so the file
+    // picker must not reuse the folder chooser's id.
+    const filePicker = source.slice(
+      source.indexOf('const [fileHandle] = await window.showOpenFilePicker({'),
+      source.indexOf('return fileHandle ? await fileHandle.getFile() : null;')
+    );
+    expect(filePicker).not.toContain('id:');
+    // Picking Downloads instead of the subfolder must resolve to the subfolder.
+    expect(source).toContain('const resolveSavedSessionsDirectory = async (handle) => {');
+    expect(source).toContain('return await handle.getDirectoryHandle(SAVED_SESSIONS_FOLDER);');
+    expect(source).toContain('if (resolved !== stored) await writeSavedSessionsDirectoryHandle(resolved);');
     expect(source).toContain('const readSavedSessionsDirectoryState = async () => {');
     expect(source).toContain('const linkSavedSessionsDirectory = async () => {');
     expect(source).toContain('await writeSavedSessionsDirectoryHandle(handle);');

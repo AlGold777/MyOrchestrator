@@ -8014,12 +8014,32 @@ document.addEventListener('click', (event) => {
                 }
             };
 
+            // The folder chooser opens in Downloads, so selecting Downloads itself
+            // instead of stepping into the subfolder is the natural mistake — and
+            // it used to be stored as-is, which then reopened Downloads on every
+            // import. Descend into the subfolder whenever the picked handle is a
+            // parent of it.
+            const resolveSavedSessionsDirectory = async (handle) => {
+                if (!handle) return null;
+                if (String(handle.name || '') === SAVED_SESSIONS_FOLDER) return handle;
+                try {
+                    return await handle.getDirectoryHandle(SAVED_SESSIONS_FOLDER);
+                } catch (_) {
+                    return null;
+                }
+            };
+
             const readSavedSessionsDirectoryState = async () => {
                 const stored = await readSavedSessionsDirectoryHandle();
                 if (!stored?.queryPermission) return { handle: null, state: 'missing' };
                 try {
                     const permission = await stored.queryPermission({ mode: 'read' });
-                    return { handle: stored, state: permission === 'granted' ? 'granted' : 'prompt' };
+                    if (permission !== 'granted') return { handle: stored, state: 'prompt' };
+                    // Heals a handle stored before the subfolder check existed.
+                    const resolved = await resolveSavedSessionsDirectory(stored);
+                    if (!resolved) return { handle: null, state: 'missing' };
+                    if (resolved !== stored) await writeSavedSessionsDirectoryHandle(resolved);
+                    return { handle: resolved, state: 'granted' };
                 } catch (error) {
                     console.warn('[results] saved sessions folder permission check failed', error);
                     return { handle: null, state: 'missing' };
@@ -8028,12 +8048,16 @@ document.addEventListener('click', (event) => {
 
             const linkSavedSessionsDirectory = async () => {
                 try {
-                    const handle = await window.showDirectoryPicker({
+                    const picked = await window.showDirectoryPicker({
                         id: SAVED_SESSIONS_PICKER_ID,
                         mode: 'read',
                         startIn: 'downloads'
                     });
-                    if (!handle) return false;
+                    const handle = await resolveSavedSessionsDirectory(picked);
+                    if (!handle) {
+                        setStatus(`Select the ${SAVED_SESSIONS_FOLDER} folder itself`, 6000);
+                        return false;
+                    }
                     await writeSavedSessionsDirectoryHandle(handle);
                     return true;
                 } catch (error) {
@@ -8081,8 +8105,12 @@ document.addEventListener('click', (event) => {
                     return null;
                 }
                 try {
+                    // No `id` here on purpose: when a picker id has a remembered
+                    // directory, the browser reopens that directory and ignores
+                    // `startIn`. The folder chooser above uses this same id and
+                    // remembered Downloads, which is exactly what reopened
+                    // Downloads instead of the folder handle below.
                     const [fileHandle] = await window.showOpenFilePicker({
-                        id: SAVED_SESSIONS_PICKER_ID,
                         startIn: handle,
                         multiple: false,
                         types: SAVED_SESSIONS_FILE_TYPES
