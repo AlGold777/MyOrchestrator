@@ -7938,213 +7938,57 @@ document.addEventListener('click', (event) => {
                 input.click();
             });
 
-            // A file input cannot be pointed at a folder, and the File System
-            // Access API (showOpenFilePicker/showDirectoryPicker) is not exposed on
-            // chrome-extension:// pages at all — an earlier attempt to use it here
-            // silently fell back to a plain file dialog on every press, which is
-            // why imports kept opening in Downloads.
+            // Both imports open the browser's own file dialog, already inside
+            // Downloads/Saved sessions. showOpenFilePicker IS available on a
+            // chrome-extension:// page (verified in a real Chromium with this
+            // extension loaded — 2.81.277 removed it on the wrong premise), and
+            // it is the only picker whose starting directory can be chosen.
             //
-            // What does work in an extension page is a directory input: the user
-            // selects Downloads/Saved sessions, the browser hands over its files,
-            // and the app lists them itself.
-            // The extension wrote these files itself, so chrome.downloads knows
-            // their absolute paths — no dialog is needed to find them. Reading the
-            // bytes back needs "Allow access to file URLs" for this extension;
-            // without it the fetch fails and the folder input below takes over.
-            const listSavedSessionsDownloads = () => new Promise((resolve) => {
-                if (!chrome?.downloads?.search) {
-                    resolve([]);
-                    return;
-                }
+            // `startIn: 'downloads'` covers the very first press, when the
+            // browser has nothing remembered for this picker id. From then on the
+            // directory remembered for the id wins over startIn per spec, so
+            // every later press reopens exactly where the last backup was picked
+            // — Downloads/Saved sessions.
+            //
+            // No in-app file list, no folder grant, no `file://` reading: the
+            // user gets the standard system window and picks a file in it.
+            const SAVED_SESSIONS_PICKER_ID = 'savedSessionsBackups';
+            const SAVED_SESSIONS_FILE_TYPES = [{
+                description: 'Saved sessions backup',
+                accept: { 'application/json': ['.json'] }
+            }];
+
+            const supportsFilePicker = () => typeof window.showOpenFilePicker === 'function';
+
+            // Returns the picked File, or null when the dialog was dismissed.
+            // Must be reached before any await in the press: the picker needs the
+            // click's transient activation, and awaiting first spends it.
+            const pickSavedSessionsFile = async () => {
+                if (!supportsFilePicker()) return pickBackupFile();
                 try {
-                    chrome.downloads.search({ orderBy: ['-startTime'], limit: 0 }, (items) => {
-                        if (chrome.runtime?.lastError) {
-                            resolve([]);
-                            return;
-                        }
-                        const seen = new Set();
-                        const inFolder = new RegExp(`[\\\\/]${SAVED_SESSIONS_FOLDER}[\\\\/][^\\\\/]+\\.json$`, 'i');
-                        const files = (items || [])
-                            .filter((item) => item?.state === 'complete'
-                                && item.exists !== false
-                                && inFolder.test(String(item.filename || '')))
-                            .filter((item) => {
-                                const path = String(item.filename);
-                                if (seen.has(path)) return false;
-                                seen.add(path);
-                                return true;
-                            })
-                            .map((item) => ({
-                                path: String(item.filename),
-                                name: String(item.filename).split(/[\\/]/).pop(),
-                                lastModified: Date.parse(item.endTime || item.startTime || '') || 0
-                            }));
-                        resolve(files);
+                    const [fileHandle] = await window.showOpenFilePicker({
+                        id: SAVED_SESSIONS_PICKER_ID,
+                        startIn: 'downloads',
+                        multiple: false,
+                        types: SAVED_SESSIONS_FILE_TYPES
                     });
-                } catch (_) {
-                    resolve([]);
+                    return fileHandle ? await fileHandle.getFile() : null;
+                } catch (error) {
+                    if (error?.name === 'AbortError') return null;
+                    console.warn('[results] saved sessions file picker failed', error);
+                    // Anything other than a dismissal still leaves a usable path.
+                    return pickBackupFile();
                 }
-            });
-
-            // Whether this extension may read file:// URLs at all. Probed once at
-            // startup rather than on click, because the answer decides which path
-            // a press takes and the press cannot afford to await anything before
-            // opening a dialog (see readSavedSessionsBackupText).
-            let fileSchemeAccessAllowed = null;
-            const probeFileSchemeAccess = () => new Promise((resolve) => {
-                const probe = chrome?.extension?.isAllowedFileSchemeAccess;
-                if (typeof probe !== 'function') {
-                    resolve(false);
-                    return;
-                }
-                try {
-                    probe.call(chrome.extension, (allowed) => resolve(!!allowed));
-                } catch (_) {
-                    resolve(false);
-                }
-            });
-            probeFileSchemeAccess().then((allowed) => {
-                fileSchemeAccessAllowed = allowed;
-            });
-
-            const readLocalFileText = async (path) => {
-                const url = `file://${String(path).split('/').map(encodeURIComponent).join('/')}`;
-                const response = await fetch(url);
-                if (!response.ok) throw new Error(`Cannot read ${path}`);
-                return response.text();
             };
 
-            const pickSavedSessionsFolderFiles = () => new Promise((resolve) => {
-                const input = document.createElement('input');
-                input.type = 'file';
-                input.webkitdirectory = true;
-                input.setAttribute('webkitdirectory', '');
-                input.setAttribute('directory', '');
-                input.style.position = 'fixed';
-                input.style.opacity = '0';
-                input.style.pointerEvents = 'none';
-                let settled = false;
-                const cleanup = () => {
-                    window.removeEventListener('focus', handleWindowFocus);
-                    if (input.parentNode) input.parentNode.removeChild(input);
-                };
-                const finalize = (files) => {
-                    if (settled) return;
-                    settled = true;
-                    cleanup();
-                    resolve(files);
-                };
-                const handleWindowFocus = () => {
-                    if (settled) return;
-                    setTimeout(() => {
-                        if (!settled && !input.files?.length) finalize([]);
-                    }, 500);
-                };
-                input.addEventListener('change', () => {
-                    const all = Array.from(input.files || []);
-                    // Only .json, and only the folder's own level: a directory input
-                    // reports every descendant, and nested folders are not backups.
-                    const jsonFiles = all.filter((file) => /\.json$/i.test(file.name)
-                        && String(file.webkitRelativePath || '').split('/').length <= 2);
-                    jsonFiles.sort((left, right) => (right.lastModified || 0) - (left.lastModified || 0));
-                    finalize(jsonFiles);
-                });
-                window.addEventListener('focus', handleWindowFocus);
-                document.body.appendChild(input);
-                input.click();
-            });
-
-            // Newest first, so the freshest backup is the top entry.
-            const chooseSavedSessionsFile = (files = []) => new Promise((resolve) => {
-                // Resolved on use: this runs on a click, long after the page is
-                // built, and the sidebar block does not own these elements.
-                const sessionFileModal = document.getElementById('session-file-modal');
-                const sessionFileList = document.getElementById('session-file-list');
-                const sessionFileMessage = document.getElementById('session-file-message');
-                const sessionFileCancelBtn = document.getElementById('session-file-cancel-btn');
-                if (!sessionFileModal || !sessionFileList) {
-                    resolve(files[0] || null);
-                    return;
-                }
-                sessionFileList.textContent = '';
-                if (sessionFileMessage) {
-                    sessionFileMessage.textContent = `Choose a file from ${SAVED_SESSIONS_FOLDER}`;
-                }
-                let settled = false;
-                const finish = (file) => {
-                    if (settled) return;
-                    settled = true;
-                    sessionFileList.removeEventListener('click', onListClick);
-                    sessionFileCancelBtn?.removeEventListener('click', onCancel);
-                    modalManager.hide(sessionFileModal);
-                    resolve(file);
-                };
-                const onCancel = () => finish(null);
-                const onListClick = (event) => {
-                    const row = event.target.closest('.session-file-row');
-                    if (!row) return;
-                    finish(files[Number(row.dataset.index)] || null);
-                };
-                files.forEach((file, index) => {
-                    const row = document.createElement('button');
-                    row.type = 'button';
-                    row.className = 'session-file-row';
-                    row.dataset.index = String(index);
-                    row.setAttribute('role', 'option');
-                    const name = document.createElement('span');
-                    name.className = 'session-file-name';
-                    name.textContent = file.name;
-                    const meta = document.createElement('span');
-                    meta.className = 'session-file-meta';
-                    meta.textContent = file.lastModified
-                        ? new Date(file.lastModified).toLocaleString()
-                        : '';
-                    row.append(name, meta);
-                    sessionFileList.appendChild(row);
-                });
-                sessionFileList.addEventListener('click', onListClick);
-                sessionFileCancelBtn?.addEventListener('click', onCancel);
-                modalManager.show(sessionFileModal);
-                sessionFileList.querySelector('.session-file-row')?.focus();
-            });
-
             // Returns the backup text, or null when nothing was chosen.
-            //
-            // With file access granted, pressing import opens the Saved sessions
-            // folder directly: chrome.downloads knows the paths, so no dialog is
-            // involved. Without it, the folder has to be asked for — and that
-            // dialog must be opened before anything is awaited, because a file
-            // input only opens while the click's transient activation is alive.
-            // Awaiting the downloads lookup first spent that activation and the
-            // dialog then silently refused to open.
             const readSavedSessionsBackupText = async () => {
-                if (fileSchemeAccessAllowed !== true) {
-                    // Called before any await, so the dialog still has the click.
-                    const files = await pickSavedSessionsFolderFiles();
-                    if (!files.length) return null;
-                    const file = files.length === 1 ? files[0] : await chooseSavedSessionsFile(files);
-                    if (!file) return null;
-                    try {
-                        return await readFileAsText(file);
-                    } catch (error) {
-                        console.warn('[results] cannot read the selected backup', error);
-                        setStatus(formatStatusError('Cannot read the backup file', error), 5200);
-                        return null;
-                    }
-                }
-                const downloads = await listSavedSessionsDownloads();
-                if (!downloads.length) {
-                    setStatus(`No backups found in Downloads/${SAVED_SESSIONS_FOLDER}`, 4200);
-                    return null;
-                }
-                const chosen = downloads.length === 1
-                    ? downloads[0]
-                    : await chooseSavedSessionsFile(downloads);
-                if (!chosen) return null;
+                const file = await pickSavedSessionsFile();
+                if (!file) return null;
                 try {
-                    return await readLocalFileText(chosen.path);
+                    return await readFileAsText(file);
                 } catch (error) {
-                    console.warn('[results] cannot read the saved sessions file directly', error);
+                    console.warn('[results] cannot read the selected backup', error);
                     setStatus(formatStatusError('Cannot read the backup file', error), 5200);
                     return null;
                 }

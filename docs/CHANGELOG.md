@@ -1,5 +1,35 @@
 # CHANGELOG — Project
 
+### 2026-08-04 — Import opens the standard file window in Saved sessions, version 2.81.280
+
+- Нажатие `↓` или `+` теперь открывает обычное системное окно выбора файла,
+  открытое в `Downloads/Saved sessions`. Внутриприложенческий список файлов
+  (`#session-file-modal`), чтение через `fetch('file://...')`, directory input и
+  требование галочки «Разрешить доступ к файлам по URL» удалены — пользователь
+  просил стандартное окно, а не собственный список.
+- Проверено фактом, а не рассуждением: расширение загружено в реальный Chromium
+  (Playwright, `--load-extension`), на `chrome-extension://<id>/result_new.html`
+  выполнено `typeof window.showOpenFilePicker` → `"function"` (то же для
+  `showDirectoryPicker`/`showSaveFilePicker`). То есть посылка 2.81.277 «Chrome
+  не выставляет File System Access на extension-страницах» была неверной, и
+  весь путь через `chrome.downloads` + `file://` строился на ней.
+- `pickSavedSessionsFile()` вызывает `showOpenFilePicker` с `id:
+  SAVED_SESSIONS_PICKER_ID` и `startIn: 'downloads'`. Первое нажатие открывает
+  `Downloads`, где папка `Saved sessions` лежит на виду; после первого выбора
+  браузер запоминает каталог для этого `id`, и по спецификации запомненный
+  каталог имеет приоритет над `startIn` — все следующие нажатия открываются
+  сразу внутри `Saved sessions`. Отдельного нажатия «привязать папку» больше нет.
+- Отмена диалога (`AbortError`) — это отмена, а не ошибка; любая другая ошибка
+  падает на обычный `<input type="file">`, чтобы нажатие не осталось без
+  результата.
+- Из `manifest.json` убран host permission `file:///*` — он был нужен только
+  прежнему пути чтения.
+- Регрессии: `tests/release-log-regressions.test.js` фиксирует вызов
+  `showOpenFilePicker` с `id`+`startIn`, порядок вызова до `await`, отсутствие
+  `chooseSavedSessionsFile`/`listSavedSessionsDownloads`/`readLocalFileText`/
+  `webkitdirectory`/`isAllowedFileSchemeAccess`, отсутствие `file:///*` в
+  манифесте и удаление модалки из обеих страниц.
+
 ### 2026-08-04 — Import press no longer does nothing, version 2.81.279
 
 - После 2.81.278 нажатие импорта не открывало вообще ничего. Причина: `<input

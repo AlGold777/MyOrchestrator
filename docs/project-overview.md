@@ -75,9 +75,7 @@ The buttons at the bottom of the left sidebar work against one dedicated folder,
 
 The TXT file groups answers by Session: a line with the Session name, then that Session's prompt, Favourite and model answers indented under it. `Current session` is not included — use the `txt` button on the main page for the work currently open. Saved answers carry no time/URL metadata line, because that metadata describes a live run and is not part of a stored Session.
 
-Both imports open `Downloads/Saved sessions` directly — no system dialog appears. The app wrote those backups itself, so `chrome.downloads` knows their exact paths; it lists the `.json` files it finds there, newest first with their dates, and a single backup is opened without a list.
-
-This needs one setting: open `chrome://extensions`, find this extension and switch on **Allow access to file URLs**. Without it the extension cannot read files off the disk; the import then says so and falls back to asking you for the folder, after which it lists that folder's contents the same way.
+Both imports open the browser's standard file window inside `Downloads/Saved sessions` — the same dialog any download or upload uses, no in-app file list. The first press after installing opens `Downloads`, where `Saved sessions` sits one folder down; once a backup has been picked there, Chrome remembers that folder for this dialog and every later press opens straight inside it. No extra permission is needed.
 
 ## Attachments Behavior
 

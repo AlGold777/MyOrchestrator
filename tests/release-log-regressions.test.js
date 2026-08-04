@@ -747,76 +747,64 @@ describe('release log regression guards', () => {
     expect(source).toContain('buildFavoriteExportText(snapshot?.favorites?.entries)');
   });
 
-  test('both session imports open the Saved sessions folder without a dialog', () => {
+  test('both session imports open the system file window in Saved sessions', () => {
     const source = fs.readFileSync(path.join(__dirname, '..', 'results.js'), 'utf8');
     const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'manifest.json'), 'utf8'));
 
-    // Replace-import and add-import share one reader, and it returns text: the
-    // folder path comes from chrome.downloads, so there is no File to read.
+    // Replace-import and add-import share one reader, and it returns text.
     expect(source.match(/const backupText = await readSavedSessionsBackupText\(\);/g)).toHaveLength(2);
-    expect(source).not.toContain('const file = await pickBackupFile();');
     expect(source).toContain('const readSavedSessionsBackupText = async () => {');
 
-    // The extension wrote the backups, so their absolute paths are known and no
-    // dialog is needed to reach the folder.
-    expect(source).toContain('const listSavedSessionsDownloads = () => new Promise((resolve) => {');
-    expect(source).toContain("chrome.downloads.search({ orderBy: ['-startTime'], limit: 0 }");
-    expect(source).toContain('const readLocalFileText = async (path) => {');
-    expect(manifest.host_permissions).toContain('file:///*');
+    // showOpenFilePicker is available on a chrome-extension:// page (checked in a
+    // real Chromium with this extension loaded) and is the only picker whose
+    // starting directory can be set. 2.81.277 dropped it on the wrong premise.
+    expect(source).toContain('await window.showOpenFilePicker({');
+    expect(source).toContain("const SAVED_SESSIONS_PICKER_ID = 'savedSessionsBackups';");
+    expect(source).toContain("startIn: 'downloads'");
+    expect(source).toContain('id: SAVED_SESSIONS_PICKER_ID,');
+    expect(source).toContain('types: SAVED_SESSIONS_FILE_TYPES');
+    expect(source).toContain('multiple: false,');
 
-    // The File System Access API is not exposed on chrome-extension:// pages, so
-    // relying on it silently fell back to a plain file dialog on every press and
-    // the import kept opening in Downloads. It must not come back here.
-    expect(source).not.toContain('showOpenFilePicker(');
+    // A dismissed dialog is not an error, and no other failure may leave the
+    // press without a way to choose a file.
+    expect(source).toContain("if (error?.name === 'AbortError') return null;");
+    expect(source).toContain('if (!supportsFilePicker()) return pickBackupFile();');
+
+    // Nothing in this path may show an in-app file list, read file:// URLs or
+    // ask for a folder again: the user asked for the plain system window.
+    expect(source).not.toContain('chooseSavedSessionsFile');
+    expect(source).not.toContain('listSavedSessionsDownloads');
+    expect(source).not.toContain('readLocalFileText');
+    expect(source).not.toContain('webkitdirectory');
+    expect(source).not.toContain('isAllowedFileSchemeAccess');
     expect(source).not.toContain('showDirectoryPicker(');
-    expect(source).not.toContain('supportsFileSystemAccess');
+    expect(manifest.host_permissions).not.toContain('file:///*');
 
-    // Only when the folder cannot be read directly does the user get asked.
-    expect(source).toContain("input.webkitdirectory = true;");
-    // One file needs no chooser; several are listed in-app.
-    expect(source).toContain('downloads.length === 1');
-    expect(source).toContain('await chooseSavedSessionsFile(downloads);');
-
-    // The file is chosen before the destructive confirm.
+    // The picker needs the click's transient activation, so it must be reached
+    // before the destructive confirm and before any other await.
     expect(source.indexOf('const backupText = await readSavedSessionsBackupText();'))
       .toBeLessThan(source.indexOf("'Import will replace stored notes and saved sessions. Continue?'"));
-    // A file input only opens while the click's transient activation is alive,
-    // so the folder dialog must be reached before anything is awaited. Awaiting
-    // the downloads lookup first spent the activation and the dialog silently
-    // refused to open — nothing happened on press at all.
     const reader = source.slice(
       source.indexOf('const readSavedSessionsBackupText = async () => {'),
-      source.indexOf('const downloads = await listSavedSessionsDownloads();')
+      source.indexOf('const SESSION_SNAPSHOTS_DB_NAME')
     );
-    expect(reader).toContain('if (fileSchemeAccessAllowed !== true) {');
-    expect(reader.indexOf('await pickSavedSessionsFolderFiles();'))
-      .toBeLessThan(reader.indexOf('await chooseSavedSessionsFile(files);'));
-    // File access is probed at startup, never on the press itself.
-    expect(source).toContain('const probeFileSchemeAccess = () => new Promise((resolve) => {');
-    expect(source).toContain('chrome?.extension?.isAllowedFileSchemeAccess;');
-    expect(source).toContain('fileSchemeAccessAllowed = allowed;');
-    // The directory input opens synchronously inside the promise executor.
-    const folderPicker = source.slice(
-      source.indexOf('const pickSavedSessionsFolderFiles = () => new Promise((resolve) => {'),
-      source.indexOf('input.click();', source.indexOf('const pickSavedSessionsFolderFiles'))
-    );
-    expect(folderPicker).not.toContain('await ');
-    // Every dead end reports itself instead of leaving the press silent.
-    expect(source).toContain('No backups found in Downloads/${SAVED_SESSIONS_FOLDER}');
+    expect(reader.indexOf('await pickSavedSessionsFile();'))
+      .toBeLessThan(reader.indexOf('await readFileAsText(file);'));
+    // A dead end still reports itself instead of leaving the press silent.
     expect(source).toContain("formatStatusError('Cannot read the backup file', error)");
   });
 
-  test('the folder file chooser exists in both pages', () => {
+  test('the in-app folder file chooser is gone from both pages', () => {
     const resultHtml = fs.readFileSync(path.join(__dirname, '..', 'result_new.html'), 'utf8');
     const pipelineHtml = fs.readFileSync(path.join(__dirname, '..', 'pipeline_panel.html'), 'utf8');
     const css = readResolvedCss();
 
     [resultHtml, pipelineHtml].forEach((html) => {
-      expect(html).toContain('id="session-file-modal"');
-      expect(html).toContain('id="session-file-list"');
-      expect(html).toContain('id="session-file-cancel-btn"');
+      expect(html).not.toContain('id="session-file-modal"');
+      expect(html).not.toContain('id="session-file-list"');
+      expect(html).not.toContain('id="session-file-cancel-btn"');
     });
-    expect(css).toContain('.session-file-row {');
+    expect(css).not.toContain('.session-file-row {');
   });
 
   test('sidebar backup buttons point their arrows the way the data moves', () => {
