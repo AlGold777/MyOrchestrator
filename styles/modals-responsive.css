@@ -691,6 +691,7 @@
 .response-content[contenteditable="true"] {
     outline: none;
     cursor: text;
+    background: #f0f1f3e8;
 }
 .llm-panel .output[contenteditable="true"]:focus,
 .response-content[contenteditable="true"]:focus {
