@@ -111,6 +111,7 @@ The results page protects against stale provider replies, premature finalization
 | DeepSeek | yes | DeepSeek API | stable / fragile | `chat.deepseek.com` |
 | Le Chat | yes | Mistral API | experimental | `chat.mistral.ai` |
 | Perplexity | yes | Perplexity API | stable | `perplexity.ai`, `www.perplexity.ai` |
+| Kimi | yes | no | experimental | `kimi.com`, `www.kimi.com`; answer selectors unverified (login wall) |
 
 ## Installation
 
@@ -261,6 +262,7 @@ Terminal states must be treated as final unless a new run/session explicitly sup
 | `content-scripts/content-deepseek.js` | DeepSeek adapter |
 | `content-scripts/content-perplexity.js` | Perplexity adapter |
 | `content-scripts/content-zai.js` | Z.ai adapter |
+| `content-scripts/content-kimi.js` | Kimi adapter |
 | `content-scripts/content-lechat.js` | Le Chat adapter |
 | `content-scripts/unified-answer-watcher.js` | Shared response extraction watcher |
 | `content-scripts/unified-answer-pipeline.js` | Shared answer lifecycle pipeline |

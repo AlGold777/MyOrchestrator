@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Kimi">
+  <rect width="64" height="64" rx="14" fill="#111827"/>
+  <path d="M17 15h8v14.5L38.5 15H49L34.5 31.2 49 49H38.6L25 32.6V49h-8z" fill="#fff"/>
+  <circle cx="47" cy="17" r="4" fill="#6366f1"/>
+</svg>

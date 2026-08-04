@@ -30,7 +30,8 @@ const SCRIPT_MAP = {
   'Qwen': 'content-scripts/content-qwen.js',
   'DeepSeek': 'content-scripts/content-deepseek.js',
   'Perplexity': 'content-scripts/content-perplexity.js',
-  'Z.ai': 'content-scripts/content-zai.js'
+  'Z.ai': 'content-scripts/content-zai.js',
+  'Kimi': 'content-scripts/content-kimi.js'
 };
 
 const healthSessionTimerManager = (() => {

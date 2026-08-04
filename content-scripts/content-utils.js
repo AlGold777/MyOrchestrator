@@ -70,7 +70,8 @@
     'Qwen': 'qwen',
     'DeepSeek': 'deepseek',
     'Perplexity': 'perplexity',
-    'Z.ai': 'zai'
+    'Z.ai': 'zai',
+    'Kimi': 'kimi'
   };
 
   const resolveCleanupHandler = (llmName) => {
@@ -926,6 +927,7 @@
     if (host.includes('chat.deepseek.com')) return 'DeepSeek';
     if (host.includes('perplexity.ai')) return 'Perplexity';
     if (host === 'chat.z.ai') return 'Z.ai';
+    if (host === 'kimi.com' || host.endsWith('.kimi.com')) return 'Kimi';
     return window.MODEL || null;
   };
 
@@ -1016,6 +1018,16 @@
       '[data-testid*="assistant"]',
       '[class*="assistant-message"]',
       '[class*="assistant"] [class*="markdown"]'
+    ],
+    Kimi: [
+      '.segment-assistant .markdown-container',
+      '.segment-assistant',
+      '.chat-content-item-assistant .markdown-container',
+      '[class*="segment-assistant" i]',
+      '[data-message-author-role="assistant"]',
+      '[data-role="assistant"]',
+      '[class*="assistant-message" i]',
+      '[class*="assistant" i] [class*="markdown" i]'
     ]
   };
 

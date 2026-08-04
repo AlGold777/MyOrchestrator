@@ -387,7 +387,9 @@ const LLM_NAME_ALIASES = {
   deepseek: 'DeepSeek',
   perplexity: 'Perplexity',
   'z.ai': 'Z.ai',
-  zai: 'Z.ai'
+  zai: 'Z.ai',
+  kimi: 'Kimi',
+  moonshot: 'Kimi'
 };
 
 function resolveLlmName(value) {

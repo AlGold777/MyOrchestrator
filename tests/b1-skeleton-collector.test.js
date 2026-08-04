@@ -67,17 +67,17 @@ describe('B1 sanitized live-skeleton collector', () => {
     const result = await B1SkeletonCollector.collectAll({ chromeApi });
     expect(result).toEqual(expect.objectContaining({
       success: true,
-      expectedCount: 9,
-      capturedCount: 9,
-      exactCount: 9,
+      expectedCount: 10,
+      capturedCount: 10,
+      exactCount: 10,
       complete: true,
       exactOnAllPlatforms: true
     }));
     expect(result.results.map((entry) => entry.platform)).toEqual([
-      'chatgpt', 'claude', 'gemini', 'grok', 'perplexity', 'qwen', 'deepseek', 'lechat', 'zai'
+      'chatgpt', 'claude', 'gemini', 'grok', 'perplexity', 'qwen', 'deepseek', 'lechat', 'zai', 'kimi'
     ]);
-    expect(chromeApi.scripting.executeScript).toHaveBeenCalledTimes(9);
-    expect(chromeApi.tabs.sendMessage).toHaveBeenCalledTimes(9);
+    expect(chromeApi.scripting.executeScript).toHaveBeenCalledTimes(10);
+    expect(chromeApi.tabs.sendMessage).toHaveBeenCalledTimes(10);
   });
 
   test('rejects a capture if conversation text survives the page privacy gate', () => {

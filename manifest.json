@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "A_Fable",
-  "version": "2.81.283",
+  "version": "2.81.284",
   "description": "Compares LLMs with stable Debate pipelines, structured state maps, and optional synthesis.",
   "permissions": [
     "storage",
@@ -31,6 +31,8 @@
     "*://perplexity.ai/*",
     "*://www.perplexity.ai/*",
     "*://chat.z.ai/*",
+    "*://kimi.com/*",
+    "*://www.kimi.com/*",
     "https://api.openai.com/*",
     "https://api.anthropic.com/*",
     "https://generativelanguage.googleapis.com/*",
@@ -68,7 +70,9 @@
         "*://chat.deepseek.com/*",
         "*://www.perplexity.ai/*",
         "*://perplexity.ai/*",
-        "*://chat.z.ai/*"
+        "*://chat.z.ai/*",
+        "*://kimi.com/*",
+        "*://www.kimi.com/*"
       ],
       "js": [
         "lib/purify.min.js",
@@ -111,6 +115,7 @@
         "content-scripts/pragmatist-runner.js",
         "selectors/config-bundle.js",
         "selectors/zai.config.js",
+        "selectors/kimi.config.js",
         "selectors-config.js",
         "content-scripts/element-picker.js",
         "content-scripts/notes-sidebar-inject.js"
@@ -232,6 +237,20 @@
         "content-scripts/content-zai.js"
       ],
       "run_at": "document_end"
+    },
+    {
+      "matches": [
+        "*://kimi.com/*",
+        "*://www.kimi.com/*"
+      ],
+      "js": [
+        "shared/selector-profile-lifecycle.js",
+        "shared/provider-submit-confirmation.js",
+        "content-utils/selector-resolver-v2.js",
+        "content-utils/response-lifecycle-detector.js",
+        "content-scripts/content-kimi.js"
+      ],
+      "run_at": "document_end"
     }
   ],
   "icons": {
@@ -316,7 +335,9 @@
         "*://chat.mistral.ai/*",
         "*://chat.deepseek.com/*",
         "*://perplexity.ai/*",
-        "*://www.perplexity.ai/*"
+        "*://www.perplexity.ai/*",
+        "*://kimi.com/*",
+        "*://www.kimi.com/*"
       ]
     }
   ]

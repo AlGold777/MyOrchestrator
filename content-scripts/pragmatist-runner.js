@@ -25,6 +25,7 @@
     if (h.includes('qwen')) return 'qwen';
     if (h.includes('mistral')) return 'lechat';
     if (h === 'chat.z.ai') return 'zai';
+    if (h === 'kimi.com' || h.endsWith('.kimi.com')) return 'kimi';
     return 'unknown';
   };
 
@@ -89,6 +90,14 @@
       '[data-testid*=\"message\"]',
       'div[data-message-source=\"assistant\"]',
       '[class*=\"assistant\"]'
+    ],
+    kimi: [
+      '.segment-assistant .markdown-container',
+      '.segment-assistant',
+      '.markdown-container',
+      '[data-message-author-role=\"assistant\"]',
+      '[data-role=\"assistant\"]',
+      '[class*=\"assistant\"] [class*=\"markdown\"]'
     ]
   };
 
@@ -101,7 +110,8 @@
     deepseek: 'DeepSeek',
     qwen: 'Qwen',
     lechat: 'LeChat',
-    zai: 'Z.ai'
+    zai: 'Z.ai',
+    kimi: 'Kimi'
   };
 
   const buildSelectors = () => {

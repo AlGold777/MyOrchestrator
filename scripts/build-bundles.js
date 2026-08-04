@@ -51,7 +51,8 @@ const PLATFORM_MAP = {
   qwen: ['selectors/qwen.config.js', 'content-scripts/content-qwen.js'],
   lechat: ['selectors/lechat.config.js', 'content-scripts/content-lechat.js'],
   deepseek: ['selectors/deepseek.config.js', 'content-scripts/content-deepseek.js'],
-  zai: ['selectors/zai.config.js', 'content-scripts/content-zai.js']
+  zai: ['selectors/zai.config.js', 'content-scripts/content-zai.js'],
+  kimi: ['selectors/kimi.config.js', 'content-scripts/content-kimi.js']
 };
 
 function readFileSafe(relPath) {

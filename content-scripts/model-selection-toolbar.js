@@ -17,6 +17,7 @@
     deepseek: 'DeepSeek',
     lechat: 'Le Chat',
     zai: 'Z.ai',
+    kimi: 'Kimi',
     generic: 'Model'
   };
 

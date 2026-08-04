@@ -209,6 +209,7 @@ importScripts(
   '../selectors/perplexity.config.js',
   '../selectors/qwen.config.js',
   '../selectors/zai.config.js',
+  '../selectors/kimi.config.js',
   '../selectors-config.js',
   '../shared/storage-budgets.js',
   '../notes/notes-constants.js',

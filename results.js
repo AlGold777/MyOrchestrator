@@ -1458,7 +1458,8 @@ document.addEventListener('click', (event) => {
         'qwen': 'Qwen',
         'deepseek': 'DeepSeek',
         'perplexity': 'Perplexity',
-        'zai': 'Z.ai'
+        'zai': 'Z.ai',
+        'kimi': 'Kimi'
     };
     const getHeaderModelButtonLimitEarly = () => {
         if (!isPipelinePage) return llmButtons.length || 999;

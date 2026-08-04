@@ -33,7 +33,8 @@ function startEvaluation(evalPrompt, evaluatorName = 'Claude', options = {}) {
     'Qwen': 'https://chat.qwen.ai/',
     'DeepSeek': 'https://chat.deepseek.com/',
     'Perplexity': 'https://www.perplexity.ai/',
-    'Z.ai': 'https://chat.z.ai/'
+    'Z.ai': 'https://chat.z.ai/',
+    'Kimi': 'https://www.kimi.com/'
   };
 
   const url = evaluatorUrls[evaluatorName];

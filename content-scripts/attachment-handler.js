@@ -376,6 +376,36 @@
         '[class*="upload" i] [role="progressbar"]',
         '[role="progressbar"]'
       ]
+    },
+    Kimi: {
+      // Kimi's composer is a Lexical contenteditable, so paste is the native
+      // attachment path; the "+" control next to the composer opens the file
+      // input used by the `input` fallback.
+      strategies: ['paste', 'input'],
+      dispatchIsEvidence: true,
+      dispatchEvidenceSettleMs: 1200,
+      pasteSelectors: [
+        '.chat-input-editor[contenteditable="true"]',
+        '.chat-input-editor',
+        '.chat-editor [contenteditable="true"]',
+        '[contenteditable="true"][role="textbox"]'
+      ],
+      inputSelectors: [
+        'input[type="file"][multiple]',
+        'input[type="file"]'
+      ],
+      confirmSelectors: [
+        '[class*="attachment" i]',
+        '[class*="file-chip" i]',
+        '[class*="upload" i]',
+        'img[src^="blob:"]',
+        'button[aria-label*="remove" i]'
+      ],
+      confirmGoneSelectors: [
+        '[class*="upload" i][aria-busy="true"]',
+        '[class*="upload" i] [role="progressbar"]',
+        '[role="progressbar"]'
+      ]
     }
   };
 

@@ -18,5 +18,8 @@
   ],
   "exactCount": 9,
   "structurallyCompleteCount": 9,
-  "ignoredRiskPlatforms": []
+  "ignoredRiskPlatforms": [],
+  "pendingCapturePlatforms": [
+    "kimi"
+  ]
 }

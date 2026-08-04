@@ -10,7 +10,8 @@
         { name: 'Qwen', defaultActive: false },
         { name: 'DeepSeek', defaultActive: false },
         { name: 'Perplexity', defaultActive: false },
-        { name: 'Z.ai', defaultActive: false }
+        { name: 'Z.ai', defaultActive: false },
+        { name: 'Kimi', defaultActive: false }
     ];
 
     const DEFAULT_MODEL_INDICES = MODELS.reduce((acc, model, index) => {

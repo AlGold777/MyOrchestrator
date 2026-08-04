@@ -31,7 +31,7 @@ const DISPATCH_RETRY_BACKOFF_MS = [500, 800, 3000, 8000];
 const CONSERVATIVE_RETRY_BACKOFF_MS = [2000, 2500, 5000, 9000];
 const CONNECTION_RETRY_DELAYS = [500, 1500, 3000];
 const CONSERVATIVE_CONNECTION_RETRY_DELAYS = [2000, 4000, 6000];
-const CONSERVATIVE_MODELS = ['Grok', 'Qwen', 'DeepSeek', 'Z.ai'];
+const CONSERVATIVE_MODELS = ['Grok', 'Qwen', 'DeepSeek', 'Z.ai', 'Kimi'];
 const DISPATCH_MAX_ATTEMPTS = 4;
 const DEFAULT_RETRY_DELAY_MS = 2000;
 // When a recovery (resend) intent is denied because answer-evidence is present,

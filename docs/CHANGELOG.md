@@ -1,5 +1,25 @@
 # CHANGELOG — Project
 
+### 2026-08-04 — Kimi added as a tenth provider, version 2.81.284
+
+- Kimi (`kimi.com`) is registered end to end: manifest host permissions and
+  content-script entry, `selectors/kimi.config.js`, `content-scripts/content-kimi.js`,
+  background targets/health/telemetry/skeleton-collector maps, the shared model
+  policy and platform resolvers, and the popup / results / pipeline UI.
+- Composer and send control were audited live on the page: the composer is a
+  Lexical `contenteditable` (`.chat-input-editor`), and Send is a `<div
+  class="send-button-container">` that carries `disabled` while the composer is
+  empty — not a `<button>`, so the adapter checks the class as well as the
+  property.
+- The answer-side selectors are **not** verified: kimi.com refuses a chat without
+  an account, so the config leads with Kimi-specific class names and falls back to
+  the generic assistant/markdown heuristics. `tests/fixtures/live-answer-skeletons/index.json`
+  declares `pendingCapturePlatforms: ["kimi"]` so the fixture matrix records the
+  gap instead of silently skipping the provider — no fabricated real-page capture.
+- Kimi joins the conservative-dispatch and false-success guard model sets
+  (early-terminal guard, deferred stream finalization, DOM-snapshot and
+  late-collect recovery), the default posture for an unproven provider.
+
 ### 2026-08-04 — Bound the deferral, report why acceptance never fires, version 2.81.283
 
 - Run 1785870408469 showed the deferral trading a definite outcome for none:

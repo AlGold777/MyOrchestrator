@@ -206,6 +206,7 @@
     if (normalized === 'gpt' || normalized === 'chatgpt') return 'chatgpt';
     if (normalized === 'le chat' || normalized === 'mistral') return 'lechat';
     if (normalized === 'z.ai' || normalized === 'zai') return 'zai';
+    if (normalized === 'kimi' || normalized === 'moonshot') return 'kimi';
     return normalized;
   }
 

@@ -28,7 +28,8 @@ const MODEL_TARGETS = {
   DeepSeek: 'https://chat.deepseek.com/',
   Perplexity: 'https://www.perplexity.ai/',
   'Le Chat': 'https://chat.mistral.ai/chat',
-  'Z.ai': 'https://chat.z.ai/'
+  'Z.ai': 'https://chat.z.ai/',
+  'Kimi': 'https://www.kimi.com/'
 };
 
 const MODEL_BUTTON_IDS = {
@@ -40,7 +41,8 @@ const MODEL_BUTTON_IDS = {
   DeepSeek: 'llm-deepseek',
   Perplexity: 'llm-perplexity',
   'Le Chat': 'llm-lechat',
-  'Z.ai': 'llm-zai'
+  'Z.ai': 'llm-zai',
+  'Kimi': 'llm-kimi'
 };
 
 const MODEL_OUTPUT_IDS = {
@@ -52,7 +54,8 @@ const MODEL_OUTPUT_IDS = {
   DeepSeek: 'output-deepseek',
   Perplexity: 'output-perplexity',
   'Le Chat': 'output-lechat',
-  'Z.ai': 'output-zai'
+  'Z.ai': 'output-zai',
+  'Kimi': 'output-kimi'
 };
 
 const COMPOSER_SELECTOR = [

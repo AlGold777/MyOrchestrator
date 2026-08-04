@@ -62,6 +62,12 @@
       conservativeDispatch: true,
       promptSubmitTimeoutMs: 20000,
       apiDirectAllowed: false
+    }),
+    Kimi: Object.freeze({
+      stableTextMs: 1800,
+      conservativeDispatch: true,
+      promptSubmitTimeoutMs: 20000,
+      apiDirectAllowed: false
     })
   });
 
@@ -73,6 +79,7 @@
     if (lower === 'chatgpt' || lower === 'openai') return 'GPT';
     if (lower === 'pplx') return 'Perplexity';
     if (lower === 'zai' || lower === 'z.ai') return 'Z.ai';
+    if (lower === 'kimi' || lower === 'moonshot') return 'Kimi';
     return value;
   }
 

@@ -21,12 +21,19 @@ const index = fixturesAvailable
     window.eval(SELECTOR_SOURCE);
   });
 
-  test('contains one canonical real-page fixture for every supported provider', () => {
-    expect(index.platforms).toEqual(B1SkeletonCollector.TARGETS.map((target) => target.platform));
+  // Every collector target must be accounted for: either it has a captured
+  // real-page fixture, or it is listed in `pendingCapturePlatforms` because its
+  // chat surface is not reachable without an account. A platform that appears in
+  // neither list is a silent gap and fails here.
+  test('accounts for every supported provider with a fixture or a declared pending capture', () => {
+    const pending = index.pendingCapturePlatforms || [];
+    expect([...index.platforms, ...pending].sort())
+      .toEqual(B1SkeletonCollector.TARGETS.map((target) => target.platform).sort());
+    expect(index.platforms.filter((platform) => pending.includes(platform))).toEqual([]);
     expect(index).toEqual(expect.objectContaining({
-      platformCount: 9,
-      exactCount: 9,
-      structurallyCompleteCount: 9,
+      platformCount: index.platforms.length,
+      exactCount: index.platforms.length,
+      structurallyCompleteCount: index.platforms.length,
       ignoredRiskPlatforms: []
     }));
   });

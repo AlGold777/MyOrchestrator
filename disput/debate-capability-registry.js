@@ -10,7 +10,8 @@
     ['google', /\b(?:gemini|bard)\b/i], ['xai', /\b(?:grok)\b/i],
     ['alibaba', /\b(?:qwen)\b/i], ['deepseek', /\b(?:deepseek)\b/i],
     ['mistral', /\b(?:mistral|mixtral)\b/i], ['perplexity', /\b(?:perplexity|sonar)\b/i],
-    ['zhipu', /\b(?:glm|z\.ai|zai)\b/i]
+    ['zhipu', /\b(?:glm|z\.ai|zai)\b/i],
+    ['moonshot', /\b(?:kimi|moonshot)\b/i]
   ]);
 
   function infer(model) {

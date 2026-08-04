@@ -208,6 +208,17 @@
       answerContainer: '#chat-messages, [role="log"], body',
       copyButton: COPY_BUTTON_SELECTORS
     },
+    kimi: {
+      streamStart: ['.segment-assistant', '.segment-assistant .markdown-container', '.markdown-container', '[data-message-author-role="assistant"]', '[data-role="assistant"]'],
+      streaming: ['[data-streaming="true"]', '[data-generating="true"]', '.animate-pulse'],
+      generatingIndicators: ['[data-streaming="true"]', '[data-generating="true"]', '.send-button-container.stop'],
+      completionIndicators: ['.send-button-container:not(.stop)'],
+      spinner: ['[aria-busy="true"]', '.animate-pulse'],
+      stopButton: '.send-button-container.stop, button[aria-label*="Stop" i], button[class*="stop" i]',
+      lastMessage: '.segment-assistant .markdown-container, .segment-assistant, .markdown-container, [data-message-author-role="assistant"], [data-role="assistant"]',
+      answerContainer: '.chat-content-list, [role="log"], body',
+      copyButton: COPY_BUTTON_SELECTORS
+    },
     generic: {
       streamStart: [
         '[role="article"]:last-child',
@@ -247,6 +258,7 @@
     if (hostname.includes('qwen.ai')) return 'qwen';
     if (hostname.includes('mistral.ai')) return 'lechat';
     if (hostname === 'chat.z.ai') return 'zai';
+    if (hostname === 'kimi.com' || hostname.endsWith('.kimi.com')) return 'kimi';
     return 'generic';
   }
 

@@ -112,6 +112,10 @@
                                     <img class="llm-button-icon" src="icons/models/perplexity.svg" alt="Perplexity icon">
                                     <span class="llm-button-label">Perplex</span>
                                 </button>
+                                <button class="llm-button" id="llm-kimi" title="Kimi">
+                                    <img class="llm-button-icon" src="icons/models/kimi.svg" alt="Kimi icon">
+                                    <span class="llm-button-label">Kimi</span>
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -447,6 +451,19 @@
 <div class="output" id="output-perplexity"></div>
 
 
+    </div>
+
+    <div class="llm-panel" id="panel-kimi">
+      <div class="llm-header">
+        <span class="llm-title">Kimi</span>
+        <div class="status-control-cluster"><span class="status-indicator" data-llm-name="Kimi"></span></div>
+        <div class="header-right">
+          <button class="copy-btn" data-target="output-kimi" title="Copy response"><i class="ti ti-copy" aria-hidden="true"></i></button>
+          <button class="panel-action-btn panel-export-html-btn" data-target="output-kimi" data-name="Kimi" data-label="⬆" title="Export this response as HTML"><i class="ti ti-download" aria-hidden="true"></i></button>
+          <button class="panel-action-btn panel-clear-response-btn" data-target="output-kimi" title="Clear response" aria-label="Clear response"><i class="ti ti-trash" aria-hidden="true"></i></button>
+        </div>
+      </div>
+      <div class="output" id="output-kimi"></div>
     </div>
 </div>
 

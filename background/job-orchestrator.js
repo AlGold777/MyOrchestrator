@@ -100,7 +100,7 @@ const HARD_STOP_DEFER_WINDOW_BY_MODEL_MS = Object.freeze({
   Grok: 18000
 });
 const HARD_STOP_ACTIVITY_GRACE_MS = 15000;
-const HARD_STOP_DEFER_RECOVERY_MODELS = new Set(['GPT', 'Gemini', 'Claude', 'Le Chat', 'Perplexity', 'Grok', 'Z.ai']);
+const HARD_STOP_DEFER_RECOVERY_MODELS = new Set(['GPT', 'Gemini', 'Claude', 'Le Chat', 'Perplexity', 'Grok', 'Z.ai', 'Kimi']);
 const HARD_STOP_DEFER_RECOVERY_VISIT_MIN_MS = 2000;
 const HARD_STOP_DEFER_RECOVERY_VISIT_MAX_MS = 3200;
 const PRE_TERMINAL_MATERIALIZE_STATUSES = new Set(['NO_SEND', 'EXTRACT_FAILED', 'ERROR']);
@@ -129,13 +129,13 @@ const TERMINAL_EXTRACTION_RECOVERY_REASONS = new Set([
   'extract_failed'
 ]);
 const MATERIALIZE_LATEST_RETRY_WAIT_MS = 1800;
-const MATERIALIZE_LATEST_RETRY_MODELS = new Set(['Qwen', 'Gemini', 'Le Chat', 'Perplexity', 'DeepSeek', 'Z.ai']);
+const MATERIALIZE_LATEST_RETRY_MODELS = new Set(['Qwen', 'Gemini', 'Le Chat', 'Perplexity', 'DeepSeek', 'Z.ai', 'Kimi']);
 const FAST_PING_RETRY_DELAYS_MS = Object.freeze([700, 1500, 2600]);
 const HARD_STOP_PING_RETRY_DELAYS_MS = Object.freeze([350, 900, 1700, 2800]);
 const MODEL_FINAL_DEDUP_WINDOW_MS = 20000;
 const RECOVERABLE_TERMINAL_MANUAL_PING_WINDOW_MS = 180000;
 const RECOVERABLE_TERMINAL_PING_STATUSES = new Set(['EXTRACT_FAILED', 'NO_SEND', 'ERROR']);
-const DOM_SNAPSHOT_RECOVERY_MODELS = new Set(['Gemini', 'Perplexity', 'Le Chat', 'Qwen', 'DeepSeek', 'Z.ai']);
+const DOM_SNAPSHOT_RECOVERY_MODELS = new Set(['Gemini', 'Perplexity', 'Le Chat', 'Qwen', 'DeepSeek', 'Z.ai', 'Kimi']);
 const DOM_SNAPSHOT_RECOVERY_MIN_CHARS = self.AnswerLengthPolicy?.DEFAULTS?.minTerminalChars || 80;
 const DOM_SNAPSHOT_RECOVERY_COOLDOWN_MS = 5000;
 // On a follow-up into an existing conversation tab (attach_existing), the previous
@@ -190,7 +190,7 @@ function withLateCollectExecutionLock(operation) {
   return run;
 }
 const LATE_COLLECT_SNAPSHOT_TTL_MS = 60 * 60 * 1000;
-const LATE_COLLECT_SLOW_MODELS = new Set(['Gemini', 'Claude', 'Qwen', 'DeepSeek', 'Le Chat', 'Perplexity', 'Z.ai']);
+const LATE_COLLECT_SLOW_MODELS = new Set(['Gemini', 'Claude', 'Qwen', 'DeepSeek', 'Le Chat', 'Perplexity', 'Z.ai', 'Kimi']);
 const RECOVERY_BUDGET_DEFAULT = Object.freeze({
   snapshotAttempts: 2,
   inlineDomAttempts: 2,
@@ -231,7 +231,7 @@ const MANUAL_RECOVERY_STRATEGIES = Object.freeze([
 // ─── Finalization timings (single config block) ───────────────────────────────
 // All deferred/stable-pending finalization thresholds live here so they can be
 // tuned in one place. Values unchanged from before consolidation.
-const DEFER_STREAM_FINAL_MODELS = new Set(['GPT', 'Gemini', 'Claude', 'Le Chat', 'Perplexity', 'Grok', 'Qwen', 'DeepSeek', 'Z.ai']);
+const DEFER_STREAM_FINAL_MODELS = new Set(['GPT', 'Gemini', 'Claude', 'Le Chat', 'Perplexity', 'Grok', 'Qwen', 'DeepSeek', 'Z.ai', 'Kimi']);
 const SUSPECT_SHORT_DEFER_MODELS = new Set(['Z.ai']);
 const DEFER_STREAM_FINAL_RECHECK_MS = 8000;        // base recheck interval while deferred
 const DEFER_STREAM_FINAL_RECHECK_MAX_MS = 32000;   // cap after backoff on unchanged text
@@ -263,7 +263,7 @@ function nextDeferRecheckDelay(entry, pendingAnswerLength) {
     Math.round(DEFER_STREAM_FINAL_RECHECK_MS * Math.pow(DEFER_STREAM_FINAL_RECHECK_BACKOFF, entry.deferRecheckUnchanged))
   );
 }
-const EARLY_TERMINAL_GUARD_MODELS = new Set(['GPT', 'Gemini', 'Claude', 'Le Chat', 'Perplexity', 'Grok', 'Qwen', 'DeepSeek', 'Z.ai']);
+const EARLY_TERMINAL_GUARD_MODELS = new Set(['GPT', 'Gemini', 'Claude', 'Le Chat', 'Perplexity', 'Grok', 'Qwen', 'DeepSeek', 'Z.ai', 'Kimi']);
 const EARLY_TERMINAL_GUARD_FORCE_SUCCESS_CHARS = self.AnswerLengthPolicy?.DEFAULTS?.earlyGuardForceSuccessChars || 1800;
 const EARLY_TERMINAL_GUARD_MAX_WAIT_MS = 20000;
 const EARLY_TERMINAL_GUARD_STABLE_MS = 2500;

@@ -14,7 +14,7 @@
     const telemetrySummary = document.getElementById('telemetry-summary');
     const telemetrySummaryStatus = document.getElementById('telemetry-summary-status');
     const telemetryRoundsList = document.getElementById('telemetry-rounds');
-    const TELEMETRY_PLATFORM_CATALOG = ['GPT', 'Gemini', 'Claude', 'Grok', 'Le Chat', 'Qwen', 'DeepSeek', 'Perplexity', 'Z.ai'];
+    const TELEMETRY_PLATFORM_CATALOG = ['GPT', 'Gemini', 'Claude', 'Grok', 'Le Chat', 'Qwen', 'DeepSeek', 'Perplexity', 'Z.ai', 'Kimi'];
     const escapeHtml = (window.ResultsShared && window.ResultsShared.escapeHtml) || ((s = '') => String(s));
     const flashButtonFeedback = window.ResultsShared?.flashButtonFeedback || null;
     const fallbackCopyViaTextarea = window.ResultsShared?.fallbackCopyViaTextarea || null;
@@ -49,7 +49,8 @@
             'llm-qwen': 'Qwen',
             'llm-deepseek': 'DeepSeek',
             'llm-perplexity': 'Perplexity',
-            'llm-zai': 'Z.ai'
+            'llm-zai': 'Z.ai',
+            'llm-kimi': 'Kimi'
         };
         return Array.from(document.querySelectorAll('.llm-button.active'))
             .map((btn) => idMap[btn.id] || btn.textContent.trim())

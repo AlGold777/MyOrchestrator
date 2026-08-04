@@ -732,6 +732,46 @@
         }
       ]
     }
+  },
+  "Kimi": {
+    "versions": [],
+    "emergencyFallbacks": {
+      "composer": [
+        ".chat-input-editor",
+        ".chat-editor [contenteditable=\"true\"]",
+        "div[contenteditable=\"true\"]"
+      ],
+      "sendButton": [
+        ".send-button-container:not(.disabled)",
+        ".send-button-container",
+        "button[class*=\"send\" i]"
+      ],
+      "response": [
+        ".segment-assistant .markdown-container",
+        ".segment-assistant",
+        ".markdown-container",
+        "[data-message-author-role=\"assistant\"]",
+        "[data-role=\"assistant\"]",
+        "[class*=\"assistant\" i] [class*=\"markdown\" i]"
+      ]
+    },
+    "observationDefaults": {
+      "rootSelector": "body",
+      "targetSelectors": [
+        ".chat-content-list",
+        ".segment-assistant",
+        ".markdown-container",
+        "[data-message-author-role=\"assistant\"]",
+        "[data-role=\"assistant\"]"
+      ],
+      "stabilizationDelayMs": 1800,
+      "endGenerationMarkers": [
+        {
+          "selector": ".send-button-container.stop, [class*=\"stop\" i][class*=\"button\" i], [data-generating=\"true\"], [data-streaming=\"true\"], [aria-busy=\"true\"]",
+          "type": "disappear"
+        }
+      ]
+    }
   }
 };
   const target = globalObject.SelectorConfigRegistry || {};

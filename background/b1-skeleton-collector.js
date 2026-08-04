@@ -12,7 +12,8 @@
     { platform: 'qwen', model: 'Qwen', patterns: ['https://chat.qwen.ai/*'] },
     { platform: 'deepseek', model: 'DeepSeek', patterns: ['https://chat.deepseek.com/*'] },
     { platform: 'lechat', model: 'Le Chat', patterns: ['https://chat.mistral.ai/*'] },
-    { platform: 'zai', model: 'Z.ai', patterns: ['https://chat.z.ai/*'] }
+    { platform: 'zai', model: 'Z.ai', patterns: ['https://chat.z.ai/*'] },
+    { platform: 'kimi', model: 'Kimi', patterns: ['https://kimi.com/*', 'https://www.kimi.com/*'] }
   ]);
   const CAPTURE_FILES = Object.freeze([
     'shared/secret-redaction.js',

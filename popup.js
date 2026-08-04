@@ -14,7 +14,8 @@ document.addEventListener('DOMContentLoaded', () => {
     qwen: document.querySelector('#qwen-response .response-content'),
     deepseek: document.querySelector('#deepseek-response .response-content'),
     perplexity: document.querySelector('#perplexity-response .response-content'),
-    zai: document.querySelector('#zai-response .response-content')
+    zai: document.querySelector('#zai-response .response-content'),
+    kimi: document.querySelector('#kimi-response .response-content')
   };
   const responseBlocks = Object.values(responseMap).filter(Boolean);
   const placeholderText = 'Click to add or edit response';
@@ -89,7 +90,9 @@ document.getElementById('get-it-button').addEventListener('click', async () => {
     "*://*.chat.mistral.ai/*",
     "*://*.chat.deepseek.com/*",
     "*://*.perplexity.ai/*",
-    "*://chat.z.ai/*"
+    "*://chat.z.ai/*",
+    "*://kimi.com/*",
+    "*://www.kimi.com/*"
   ];
 
   for (const url of urls) {

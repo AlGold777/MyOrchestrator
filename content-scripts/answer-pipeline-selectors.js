@@ -12,6 +12,7 @@
     if (h.includes('qwen')) return 'qwen';
     if (h.includes('mistral')) return 'lechat';
     if (h === 'chat.z.ai') return 'zai';
+    if (h === 'kimi.com' || h.endsWith('.kimi.com')) return 'kimi';
     return 'generic';
   };
 
@@ -339,6 +340,30 @@
       generatingIndicators: ['button[aria-label*="Stop" i]', '[data-generating="true"]', '[data-streaming="true"]', '[aria-busy="true"]', '.animate-pulse'],
       completionIndicators: ['#send-message-button:not([disabled])', 'textarea#chat-input:not([disabled])'],
       stopButton: 'button[aria-label*="Stop" i], button[class*="stop" i]',
+      copyButton: COPY_BUTTON_SELECTORS
+    },
+    kimi: {
+      messageRoot: [
+        '.segment-assistant',
+        '[class*="segment-assistant" i]',
+        '[data-message-author-role="assistant"]',
+        '[data-role="assistant"]',
+        '[class*="assistant-message" i]'
+      ],
+      answerContainer: '.chat-content-list, [role="log"], body',
+      lastMessage: [
+        '.segment-assistant .markdown-container',
+        '.segment-assistant',
+        '.chat-content-item-assistant .markdown-container',
+        '[class*="segment-assistant" i]',
+        '[data-message-author-role="assistant"]',
+        '[data-role="assistant"]',
+        '[class*="assistant" i] [class*="markdown" i]'
+      ].join(', '),
+      streamStart: ['.segment-assistant .markdown-container', '.segment-assistant', '.markdown-container', '[data-message-author-role="assistant"]', '[data-role="assistant"]'],
+      generatingIndicators: ['.send-button-container.stop', '[data-generating="true"]', '[data-streaming="true"]', '[aria-busy="true"]', '.animate-pulse'],
+      completionIndicators: ['.send-button-container:not(.stop)', '.chat-input-editor[contenteditable="true"]'],
+      stopButton: '.send-button-container.stop, button[aria-label*="Stop" i], button[class*="stop" i]',
       copyButton: COPY_BUTTON_SELECTORS
     },
     generic: {

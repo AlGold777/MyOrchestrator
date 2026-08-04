@@ -2290,7 +2290,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 const senderUrl = String(sender?.tab?.url || sender?.url || '');
                 const model = String(message.llmName || '');
                 const allowed = (model === 'Perplexity' && /^https:\/\/(?:www\.)?perplexity\.ai\//i.test(senderUrl))
-                    || (model === 'Z.ai' && /^https:\/\/chat\.z\.ai\//i.test(senderUrl));
+                    || (model === 'Z.ai' && /^https:\/\/chat\.z\.ai\//i.test(senderUrl))
+                    || (model === 'Kimi' && /^https:\/\/(?:www\.)?kimi\.com\//i.test(senderUrl));
                 if (!tabId || !allowed) {
                     sendResponse({ ok: false, reason: 'untrusted_sender' });
                     break;
@@ -3170,6 +3171,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     if (source.includes('qwen')) return 'Qwen';
                     if (source.includes('perplexity')) return 'Perplexity';
                     if (source.includes('zai') || source.includes('z.ai')) return 'Z.ai';
+                    if (source.includes('kimi')) return 'Kimi';
                     return null;
                 })();
 
