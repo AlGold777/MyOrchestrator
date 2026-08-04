@@ -6699,6 +6699,12 @@ async function runDispatchRounds(selectedLLMs, prompt, forceNewTabs, attachments
     }
     
     // Запускаем supervisor и human presence ПОСЛЕ всех rounds
+    //-- 5.0. Rounds больше не владеют фокусом вкладок: снимаем флаг до старта
+    // human presence, иначе цикл визитов будет отложен своим же охранником.
+    if (jobState?.session?.roundsInProgress) {
+      jobState.session.roundsInProgress = false;
+      saveJobState(jobState);
+    }
     schedulePromptDispatchSupervisor();
     if (hasPendingHumanVisits()) {
       scheduleHumanPresenceLoop(true);

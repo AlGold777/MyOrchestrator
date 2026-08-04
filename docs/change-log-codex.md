@@ -1,5 +1,16 @@
 # Codex phase change log
 
+## 2.81.263 — Human presence yields to a running dispatch
+
+- The visit loop reschedules itself, so the `promptDispatchInProgress` guard was
+  evaluated only once, at scheduling time. A loop restarted by a window focus
+  change or by job-state rehydration kept foregrounding model tabs while Round 0
+  was acquiring tabs and Round 1 was inserting the prompt.
+- The loop now yields while rounds are in progress or a dispatch is in flight,
+  re-checking on every cycle instead of only when scheduled.
+- Rounds release `roundsInProgress` before starting the post-round visit loop,
+  so the new guard cannot defer the loop the rounds themselves requested.
+
 ## 2.81.262 — The pre-send wait is attributable
 
 - A residual slow dispatch can now be attributed from the export alone: the

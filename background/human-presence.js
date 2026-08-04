@@ -183,8 +183,20 @@ function stopHumanPresenceLoop() {
   broadcastHumanVisitStatus();
 }
 
+// Reported 2026-08-04: a run with an attachment on existing pages never
+// inserted the prompt — the ledger shows only human_visit leases cycling over
+// the model tabs while no dispatch was in flight. `promptDispatchInProgress`
+// covers a single in-flight dispatch, but Round 0 and the gaps between models
+// leave it at zero, so any restart trigger (window focus regained, job state
+// rehydrated after a worker restart) let the loop foreground another model's
+// tab while the rounds were still acquiring tabs and inserting the prompt.
+// Rounds own tab focus for their whole duration.
+function dispatchOwnsTabFocus() {
+  return promptDispatchInProgress > 0 || jobState?.session?.roundsInProgress === true;
+}
+
 function scheduleHumanPresenceLoop(immediate = false) {
-  if (promptDispatchInProgress > 0) return;
+  if (dispatchOwnsTabFocus()) return;
   if (humanPresencePaused || humanPresenceManuallyStopped) return;
   if (!hasPendingHumanVisits()) {
     stopHumanPresenceLoop();
@@ -921,6 +933,19 @@ function endAutomationVisit(llmName, reason = 'automation_focus_end') {
 
 async function runHumanPresenceCycle() {
   if (!humanPresenceActive || !jobState?.llms) return;
+  // The cycle reschedules itself, so the guard in scheduleHumanPresenceLoop is
+  // only evaluated once. A loop that was already running has to yield as soon
+  // as a run starts instead of competing with it for tab focus.
+  if (dispatchOwnsTabFocus()) {
+    if (humanPresenceLoopTimeout) {
+      clearTimeout(humanPresenceLoopTimeout);
+    }
+    humanPresenceLoopTimeout = setTimeout(() => {
+      humanPresenceLoopTimeout = null;
+      runHumanPresenceCycle();
+    }, HUMAN_VISIT_INITIAL_DELAY_MS);
+    return;
+  }
   const modelNames = Array.isArray(jobState?.session?.selectedModels)
     ? jobState.session.selectedModels
     : Object.keys(jobState.llms);
