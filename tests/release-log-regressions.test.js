@@ -703,8 +703,9 @@ describe('release log regression guards', () => {
     const pipelineHtml = fs.readFileSync(path.join(__dirname, '..', 'pipeline_panel.html'), 'utf8');
 
     [resultHtml, pipelineHtml].forEach((html) => {
+      // Presence only: the sidebar row is hand-arranged and the two pages
+      // deliberately order it differently.
       expect(html.indexOf('id="notes-hint-sessions-add"')).toBeGreaterThan(-1);
-      expect(html.indexOf('id="notes-hint-sessions-add"')).toBeLessThan(html.indexOf('id="notes-hint-backup-export"'));
     });
     expect(source).toContain('const addSavedSessions = async () => {');
     expect(source).toContain('while (usedIds.has(normalized.id)) {');
@@ -732,11 +733,6 @@ describe('release log regression guards', () => {
 
     [resultHtml, pipelineHtml].forEach((html) => {
       expect(html).toContain('id="notes-hint-sessions-export-txt"');
-      // The txt button sits to the right of the add-sessions "+".
-      expect(html.indexOf('id="notes-hint-sessions-add"'))
-        .toBeLessThan(html.indexOf('id="notes-hint-sessions-export-txt"'));
-      expect(html.indexOf('id="notes-hint-sessions-export-txt"'))
-        .toBeLessThan(html.indexOf('id="notes-hint-backup-export"'));
     });
 
     expect(source).toContain('attachBackupAction(notesHintSessionsExportTxtBtn, exportSavedSessionsTxt);');
@@ -777,7 +773,6 @@ describe('release log regression guards', () => {
 
     // Only when the folder cannot be read directly does the user get asked.
     expect(source).toContain("input.webkitdirectory = true;");
-    expect(source).toContain('Enable "Allow access to file URLs"');
     // One file needs no chooser; several are listed in-app.
     expect(source).toContain('downloads.length === 1');
     expect(source).toContain('await chooseSavedSessionsFile(downloads);');
@@ -785,6 +780,30 @@ describe('release log regression guards', () => {
     // The file is chosen before the destructive confirm.
     expect(source.indexOf('const backupText = await readSavedSessionsBackupText();'))
       .toBeLessThan(source.indexOf("'Import will replace stored notes and saved sessions. Continue?'"));
+    // A file input only opens while the click's transient activation is alive,
+    // so the folder dialog must be reached before anything is awaited. Awaiting
+    // the downloads lookup first spent the activation and the dialog silently
+    // refused to open — nothing happened on press at all.
+    const reader = source.slice(
+      source.indexOf('const readSavedSessionsBackupText = async () => {'),
+      source.indexOf('const downloads = await listSavedSessionsDownloads();')
+    );
+    expect(reader).toContain('if (fileSchemeAccessAllowed !== true) {');
+    expect(reader.indexOf('await pickSavedSessionsFolderFiles();'))
+      .toBeLessThan(reader.indexOf('await chooseSavedSessionsFile(files);'));
+    // File access is probed at startup, never on the press itself.
+    expect(source).toContain('const probeFileSchemeAccess = () => new Promise((resolve) => {');
+    expect(source).toContain('chrome?.extension?.isAllowedFileSchemeAccess;');
+    expect(source).toContain('fileSchemeAccessAllowed = allowed;');
+    // The directory input opens synchronously inside the promise executor.
+    const folderPicker = source.slice(
+      source.indexOf('const pickSavedSessionsFolderFiles = () => new Promise((resolve) => {'),
+      source.indexOf('input.click();', source.indexOf('const pickSavedSessionsFolderFiles'))
+    );
+    expect(folderPicker).not.toContain('await ');
+    // Every dead end reports itself instead of leaving the press silent.
+    expect(source).toContain('No backups found in Downloads/${SAVED_SESSIONS_FOLDER}');
+    expect(source).toContain("formatStatusError('Cannot read the backup file', error)");
   });
 
   test('the folder file chooser exists in both pages', () => {

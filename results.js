@@ -7986,6 +7986,27 @@ document.addEventListener('click', (event) => {
                 }
             });
 
+            // Whether this extension may read file:// URLs at all. Probed once at
+            // startup rather than on click, because the answer decides which path
+            // a press takes and the press cannot afford to await anything before
+            // opening a dialog (see readSavedSessionsBackupText).
+            let fileSchemeAccessAllowed = null;
+            const probeFileSchemeAccess = () => new Promise((resolve) => {
+                const probe = chrome?.extension?.isAllowedFileSchemeAccess;
+                if (typeof probe !== 'function') {
+                    resolve(false);
+                    return;
+                }
+                try {
+                    probe.call(chrome.extension, (allowed) => resolve(!!allowed));
+                } catch (_) {
+                    resolve(false);
+                }
+            });
+            probeFileSchemeAccess().then((allowed) => {
+                fileSchemeAccessAllowed = allowed;
+            });
+
             const readLocalFileText = async (path) => {
                 const url = `file://${String(path).split('/').map(encodeURIComponent).join('/')}`;
                 const response = await fetch(url);
@@ -8089,29 +8110,44 @@ document.addEventListener('click', (event) => {
 
             // Returns the backup text, or null when nothing was chosen.
             //
-            // Pressing import opens the Saved sessions folder directly: the paths
-            // come from chrome.downloads, so no dialog is involved. Only when that
-            // folder is unknown or unreadable does the user get asked for it — a
-            // plain file dialog cannot be pointed at a folder from an extension
-            // page, and the File System Access API is not available there at all.
+            // With file access granted, pressing import opens the Saved sessions
+            // folder directly: chrome.downloads knows the paths, so no dialog is
+            // involved. Without it, the folder has to be asked for — and that
+            // dialog must be opened before anything is awaited, because a file
+            // input only opens while the click's transient activation is alive.
+            // Awaiting the downloads lookup first spent that activation and the
+            // dialog then silently refused to open.
             const readSavedSessionsBackupText = async () => {
-                const downloads = await listSavedSessionsDownloads();
-                if (downloads.length) {
-                    const chosen = downloads.length === 1
-                        ? downloads[0]
-                        : await chooseSavedSessionsFile(downloads);
-                    if (!chosen) return null;
+                if (fileSchemeAccessAllowed !== true) {
+                    // Called before any await, so the dialog still has the click.
+                    const files = await pickSavedSessionsFolderFiles();
+                    if (!files.length) return null;
+                    const file = files.length === 1 ? files[0] : await chooseSavedSessionsFile(files);
+                    if (!file) return null;
                     try {
-                        return await readLocalFileText(chosen.path);
+                        return await readFileAsText(file);
                     } catch (error) {
-                        console.warn('[results] cannot read the saved sessions file directly', error);
-                        setStatus('Enable "Allow access to file URLs" for this extension to open the folder directly', 8000);
+                        console.warn('[results] cannot read the selected backup', error);
+                        setStatus(formatStatusError('Cannot read the backup file', error), 5200);
+                        return null;
                     }
                 }
-                const files = await pickSavedSessionsFolderFiles();
-                if (!files.length) return null;
-                const file = files.length === 1 ? files[0] : await chooseSavedSessionsFile(files);
-                return file ? readFileAsText(file) : null;
+                const downloads = await listSavedSessionsDownloads();
+                if (!downloads.length) {
+                    setStatus(`No backups found in Downloads/${SAVED_SESSIONS_FOLDER}`, 4200);
+                    return null;
+                }
+                const chosen = downloads.length === 1
+                    ? downloads[0]
+                    : await chooseSavedSessionsFile(downloads);
+                if (!chosen) return null;
+                try {
+                    return await readLocalFileText(chosen.path);
+                } catch (error) {
+                    console.warn('[results] cannot read the saved sessions file directly', error);
+                    setStatus(formatStatusError('Cannot read the backup file', error), 5200);
+                    return null;
+                }
             };
 
             const SESSION_SNAPSHOTS_DB_NAME = 'llm_sidebar_sessions_v1';
