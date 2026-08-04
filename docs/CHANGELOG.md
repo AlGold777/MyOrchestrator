@@ -1,5 +1,26 @@
 # CHANGELOG — Project
 
+### 2026-08-04 — Universal recovery for dispatch and finalization, version 2.81.282
+
+- A dispatch that fails before the prompt reaches the composer no longer becomes
+  a terminal status within seconds. The model stays open once, so the Round 2
+  repair dispatch that exists for exactly this case can run. Blockers that need a
+  human (login, captcha, conversation limit) still terminate immediately, and the
+  automation deadline and Round 4 force-final are never deferred.
+- Round 2 repair lost its model allowlist. It excluded Perplexity and DeepSeek —
+  the providers whose send evidence is hardest to observe — and the mechanism
+  itself is provider-independent.
+- A submission inferred from fresh answer evidence now counts as automatic
+  confirmation, so providers whose Send click leaves no observable evidence can
+  reach SUCCESS instead of waiting out the automation deadline. Stale-baseline
+  and prompt-echo candidates stay disqualified.
+- A complete answer blocked only by the strict verifier's own signal is accepted
+  when generation is observed inactive, identity matches and the evidence policy
+  is satisfied. Identity, echo and stale-baseline blockers are never lifted.
+- `FINALIZATION_DECISION` now carries `decisionReasons` / `liftedDecisionReasons`
+  and `PRE_INSERTION_FAILURE_DEFERRED` reaches canonical exports, so a blocked
+  finalization states its reason instead of being diagnosed by guessing.
+
 ### 2026-08-04 — A failed file window says so, version 2.81.281
 
 - Если `showOpenFilePicker` падает не отменой пользователя, нажатие больше не

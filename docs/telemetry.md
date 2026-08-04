@@ -1637,6 +1637,8 @@ Purpose: complete trace from tab open to prompt confirmation.
 - `TAB_DISCARDED_RELOAD` - discarded tab recovery.
 - `DISPATCH_LOCK_ACQUIRE` / `DISPATCH_START` / `DISPATCH_SEND` - queue and send phase. `DISPATCH_SEND` carries the pre-send split: `readyWaitMs` total, of which `tabReadyMs` (tab load/reload), `ackWaitMs` (ready/ACK handshake) and `noFocusProbeMs` (no-focus probe).
 - `READY_REANNOUNCE_REQUESTED` - background asked an open page to replay `SCRIPT_READY` because worker memory held no correlated handshake.
+- `PRE_INSERTION_FAILURE_DEFERRED` - a dispatch failed before the prompt reached the composer; the terminal is deferred once so the Round 2 repair can re-dispatch. Meta: `reason`, `failureClass`, `deferredFinalStatus`, `attempt`.
+- `FINALIZATION_DECISION` - meta carries `decisionReasons` (why a finalization was blocked), `liftedDecisionReasons` and `acceptedOnStableEvidence` (strict-verification blocker lifted on stable, identity-matched evidence).
 - `PROMPT_SUBMITTED_ACCEPTED` / `PROMPT_SUBMITTED_REJECTED` / `PROMPT_SUBMITTED_STALE` - submit confirmation handling.
 - `PROMPT_SUBMITTED_TIMEOUT` - submit confirmation timeout (no signal received).
 - `PIPELINE_START` / `PREPARATION_*` / `STREAMING_*` / `FINALIZATION_*` / `PIPELINE_COMPLETE` / `PIPELINE_ERROR` - content pipeline phases.

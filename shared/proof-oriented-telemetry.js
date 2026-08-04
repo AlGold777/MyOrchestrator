@@ -18,7 +18,7 @@
   const SCHEMA_VERSION = '5.0';
   const CANONICAL_EVIDENCE_SCHEMA_VERSION = '1.0';
   const EVENT_SCHEMA_VERSION = Contracts?.EVENT_SCHEMA_VERSION || 6;
-  const GENERATOR_VERSION = 'proof-export@2.9.0';
+  const GENERATOR_VERSION = 'proof-export@2.10.0';
   const REPORT_VERSION = '3.6.0';
   const READER_GUIDANCE_VERSION = 'canonical-reader-guidance@1.0.0';
   const TRUSTED_READER_GUIDANCE = Object.freeze([
@@ -113,6 +113,7 @@
     PROVIDER_DISPATCH_STAGE_OBSERVED: 'DISPATCH_STAGE_OBSERVED',
     DISPATCH_POST_COMMAND_FOCUS_HOLD: 'DISPATCH_STAGE_OBSERVED',
     SEND_DEFERRED_TRANSIENT_BLOCKER: 'SUBMISSION_EVIDENCE_CHANGED',
+    PRE_INSERTION_FAILURE_DEFERRED: 'SUBMISSION_EVIDENCE_CHANGED',
     SEND_DEGRADED_AFTER_SUBMIT: 'SUBMISSION_EVIDENCE_CHANGED',
     GEMINI_STALE_BASELINE_REJECTED: 'CANDIDATE_SET_CHANGED',
     GROK_PROMPT_ECHO_REJECTED: 'CANDIDATE_SET_CHANGED',
@@ -138,6 +139,7 @@
     PROMPT_INSERTION_FAILED: { kind: 'prompt_insertion', state: 'failed' },
     PROMPT_INSERTION_CONFIRMED: { kind: 'prompt_insertion', state: 'inserted' },
     SEND_DEFERRED_TRANSIENT_BLOCKER: { kind: 'submission', state: 'deferred' },
+    PRE_INSERTION_FAILURE_DEFERRED: { kind: 'submission', state: 'deferred' },
     SEND_DEGRADED_AFTER_SUBMIT: { kind: 'submission', state: 'confirmed' },
     GEMINI_STALE_BASELINE_REJECTED: { kind: 'candidate_identity', state: 'stale' },
     GROK_PROMPT_ECHO_REJECTED: { kind: 'candidate_identity', state: 'rejected' },

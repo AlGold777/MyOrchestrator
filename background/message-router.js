@@ -1866,6 +1866,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 if (entry) {
                     const inserted = message.insertionState === 'inserted';
                     const dispatchId = incomingMeta.dispatchId;
+                    // Insertion was only ever resolved through a waiter, so nothing
+                    // outside the dispatch call could tell whether this dispatch got
+                    // as far as the composer. Finalization needs that distinction.
+                    if (inserted) {
+                        entry.promptInsertedAt = Date.now();
+                        entry.promptInsertedDispatchId = dispatchId || entry.lastDispatchMeta?.dispatchId || null;
+                    }
                     emitTelemetry(llmName, inserted ? 'PROMPT_INSERTION_CONFIRMED' : 'PROMPT_INSERTION_FAILED', {
                         level: inserted ? 'info' : 'error',
                         details: inserted ? (message.method || 'inserted') : (message.reason || 'not_inserted'),

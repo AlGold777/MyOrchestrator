@@ -40,7 +40,7 @@ describe('composer transaction contract', () => {
     const orchestrator = read('background/job-orchestrator.js');
     const activeBranch = orchestrator.slice(
       orchestrator.indexOf('if (!confirmedByContent && providerPipelineActive)'),
-      orchestrator.indexOf('if (!confirmedByContent && ROUND2_REPAIR_MODELS.has', orchestrator.indexOf('if (!confirmedByContent && providerPipelineActive)'))
+      orchestrator.indexOf('if (!confirmedByContent && canRepairDispatchInRound2(', orchestrator.indexOf('if (!confirmedByContent && providerPipelineActive)'))
     );
     expect(activeBranch).toContain("endMeta.outcome = 'deferred'");
     expect(activeBranch).not.toContain('triggerResponseCollectionPing');

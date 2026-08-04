@@ -1,5 +1,16 @@
 # Codex phase change log
 
+## 2.81.282 — Recovery paths stop being provider-specific
+
+- Run 1785853347152 lost three of four models to three different mechanisms with
+  one shape: a recovery path existed but did not apply. The pre-insertion failure
+  finalized the model before the repair round could see it, the repair round had
+  a model allowlist, and the finalization policy blocked a complete answer with a
+  reason that never reached the export.
+- The deferral is budgeted at one attempt per model and refuses to swallow a
+  last-resort terminal, so a model can no longer be lost silently, and cannot
+  loop either.
+
 ## 2.81.269 — Send recovery release gate
 
 - The background trusted-Send selector now uses the same exact full-prompt

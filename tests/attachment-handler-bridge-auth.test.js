@@ -352,7 +352,7 @@ describe('attachment bridge authentication', () => {
     expect(PROVIDER_SOURCES.Perplexity).toContain('reportProviderPipelineState');
     expect(ROUTER_SRC).toContain("case 'PROVIDER_DISPATCH_PIPELINE_STATE'");
     expect(orchestrator).toContain("reason: 'provider_pipeline_active'");
-    expect(orchestrator.indexOf('const providerPipelineActive')).toBeLessThan(orchestrator.indexOf("ROUND2_REPAIR_MODELS.has(llmName)"));
+    expect(orchestrator.indexOf('const providerPipelineActive')).toBeLessThan(orchestrator.indexOf("canRepairDispatchInRound2(llmName)"));
   });
 
   test('Le Chat and Perplexity use the only enabled sender-gated debugger routes', () => {

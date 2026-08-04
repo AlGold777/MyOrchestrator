@@ -55,7 +55,14 @@ const getRound4PendingWaitMaxMs = () => (self.isLongGenerationProfile?.()
 const ROUND4_PENDING_POLL_MS = 1500;
 const ROUND4_GATE_WAIT_TELEMETRY_MS = 15000;
 const NO_SEND_STALL_GRACE_MS = 45000;
-const ROUND2_REPAIR_MODELS = new Set(['GPT', 'Gemini', 'Claude', 'Grok', 'Le Chat', 'Qwen', 'Z.ai']);
+// Round 2 repairs a dispatch whose prompt was never confirmed. This used to be an
+// allowlist that predates stabilization and happened to exclude Perplexity and
+// DeepSeek - the two providers whose send evidence is hardest to observe, i.e.
+// exactly the ones that need the repair. The mechanism is provider-independent
+// and already guarded by RecoveryIntent.authorize and the provider-pipeline
+// ownership check, so it applies to every model unless explicitly opted out.
+const ROUND2_REPAIR_OPT_OUT_MODELS = new Set();
+const canRepairDispatchInRound2 = (llmName) => !!llmName && !ROUND2_REPAIR_OPT_OUT_MODELS.has(llmName);
 const POST_R2_AUTO_COLLECT_DELAY_MS = 8000;
 const POST_R2_AUTO_COLLECT_VISIT_COUNT = 1;
 const POST_R2_AUTO_COLLECT_VISIT_MIN_MS = 5000;
@@ -3362,6 +3369,10 @@ const buildInitialLlmEntry = (llmName, overrides = {}) => {
     preDispatchAnswerDispatchId: null,
     preDispatchAnswerCapturedAt: 0,
     promptSubmittedAt: null,
+    promptInsertedAt: null,
+    promptInsertedDispatchId: null,
+    preInsertionDeferralCount: 0,
+    preInsertionDeferral: null,
     submitSource: null,
     dispatchSource: null,
     adaptiveCollectActive: false,
@@ -4321,7 +4332,8 @@ const finalizeNoSendModelIfStalled = (llmName, sessionId, reason = 'round4_gate'
       runSessionId: sessionId || getActiveSessionId(),
       // The round gate already supplied the long observation window. Keep the
       // ordinary one-shot materialize probe, but do not start another 165s cycle.
-      skipExtendedSendObservation: true
+      skipExtendedSendObservation: true,
+      lastResortTerminal: true
     },
     ''
   );
@@ -4407,7 +4419,8 @@ async function waitForRound4Gate(modelNames, sessionId) {
             dispatchId: entry?.lastDispatchMeta?.dispatchId || null,
             sessionId: sessionId || getActiveSessionId(),
             runSessionId: sessionId || getActiveSessionId(),
-            skipExtendedSendObservation: true
+            skipExtendedSendObservation: true,
+            lastResortTerminal: true
           },
           ''
         );
@@ -6150,7 +6163,7 @@ async function dispatchRound2Verification(selectedLLMs, sessionId) {
         // PROMPT_SUBMITTED / terminal pipeline failure will resolve ownership.
         continue;
       }
-      if (!confirmedByContent && ROUND2_REPAIR_MODELS.has(llmName) && jobState?.prompt) {
+      if (!confirmedByContent && canRepairDispatchInRound2(llmName) && jobState?.prompt) {
         repairAttemptedBeforeVisit = true;
         const repairIntentDecision = self.RecoveryIntent?.authorize
           ? self.RecoveryIntent.authorize(entry, {
@@ -6353,7 +6366,7 @@ async function dispatchRound2Verification(selectedLLMs, sessionId) {
         await emitRound2CutoffFrom(index + 1, postVisitTiming);
         break;
       }
-      if (!confirmedByContent && !repairAttemptedBeforeVisit && ROUND2_REPAIR_MODELS.has(llmName) && jobState?.prompt) {
+      if (!confirmedByContent && !repairAttemptedBeforeVisit && canRepairDispatchInRound2(llmName) && jobState?.prompt) {
         const repairIntentDecision = self.RecoveryIntent?.authorize
           ? self.RecoveryIntent.authorize(entry, {
             intent: 'resend_prompt',
@@ -7407,12 +7420,24 @@ function buildFinalizationEvidence(llmName, entry, context = {}) {
     && verification?.lengthRegressionActive !== true
     && verificationLengthMatches;
   const confirmedDispatchId = entry?.confirmedDispatchId || null;
+  // A provider whose Send leaves no observable click evidence (Perplexity's
+  // trusted-send probe, Le Chat's confirmed-send handler) could never reach an
+  // automatic SUCCESS: submission was inferred from the answer itself, the
+  // inference was then disqualified here, so every finalization carried
+  // `automatic_finalization_before_submit_confirmation` and the model sat until
+  // the automation deadline. The inference counts when it is backed by fresh
+  // current-dispatch evidence - never when the text may predate the dispatch.
+  const submissionInferredFromAnswer = entry?.submitSource === 'inferred_answer_evidence';
+  const inferredSubmissionUsable = submissionInferredFromAnswer
+    && freshness?.fresh === true
+    && !staleBaseline
+    && !promptEcho;
   const automaticSubmissionConfirmed = Boolean(
     dispatchId
     && promptSubmittedAt
     && confirmedDispatchId
     && String(confirmedDispatchId) === String(dispatchId)
-    && entry?.submitSource !== 'inferred_answer_evidence'
+    && (!submissionInferredFromAnswer || inferredSubmissionUsable)
   );
   const answerVerified = Boolean(manualRecovery
     || (automaticSubmissionConfirmed && verificationIdentity.ok && strictAutomaticVerification));
@@ -7479,6 +7504,32 @@ function buildFinalizationEvidence(llmName, entry, context = {}) {
   }
   if (finalStatus === 'NO_SEND' && promptSubmittedAt) contradictions.push('no_send_after_prompt_submitted');
   if (finalStatus === 'EXTRACT_FAILED' && lifecycleReadyAt) contradictions.push('extract_failed_after_lifecycle_ready');
+  // Strict verification fails closed by design, but "unverified" was terminal for
+  // the whole run: a complete, generation-inactive answer stayed blocked until the
+  // 15-minute automation deadline and landed as PARTIAL, while a manual ping
+  // accepted the very same text as SUCCESS seconds later. When the only missing
+  // piece is the strict verifier's own signal - the answer belongs to this
+  // dispatch, is not an echo, is not the pre-dispatch baseline, generation is
+  // observed inactive and the evidence policy is satisfied - accept it and keep
+  // the lifted reason on the record instead of waiting out a deadline that
+  // changes nothing.
+  const liftedContradictions = [];
+  const strictnessOnlyBlockers = contradictions.length > 0
+    && contradictions.every((reason) => LIFTABLE_STRICTNESS_CONTRADICTIONS.has(reason));
+  if (
+    strictnessOnlyBlockers
+    && success
+    && !promptEcho
+    && !staleBaseline
+    && hasAcceptedAnswer
+    && verificationIdentity.ok
+    && automaticSubmissionConfirmed
+    && evidencePolicy?.ok === true
+    && verification?.generationActive === false
+    && verification?.lengthRegressionActive !== true
+  ) {
+    liftedContradictions.push(...contradictions.splice(0, contradictions.length));
+  }
   return {
     llmName,
     finalStatus,
@@ -7529,6 +7580,8 @@ function buildFinalizationEvidence(llmName, entry, context = {}) {
     terminalFailure,
     success,
     contradictions,
+    liftedContradictions,
+    acceptedOnStableEvidence: liftedContradictions.length > 0,
     accepted: contradictions.length === 0 || manualRecovery
   };
 }
@@ -7716,6 +7769,12 @@ function emitFinalizationDecision(llmName, evidence = {}) {
       finalStatus: evidence.finalStatus || null,
       finalReason: evidence.finalReason || null,
       decisionAccepted: evidence.accepted === true,
+      // `contradictions` is dropped by canonical metadata compaction, so the
+      // reason a finalization was blocked never reached an export and every
+      // blocked run had to be diagnosed by guessing. This key survives.
+      decisionReasons: Array.isArray(evidence.contradictions) ? evidence.contradictions.slice(0, 12) : [],
+      liftedDecisionReasons: Array.isArray(evidence.liftedContradictions) ? evidence.liftedContradictions.slice(0, 12) : [],
+      acceptedOnStableEvidence: evidence.acceptedOnStableEvidence === true,
       modelFinalStatus: evidence.modelFinalStatus || null,
       doneReason: evidence.doneReason || null,
       dispatchId: evidence.dispatchId || null,
@@ -7756,6 +7815,97 @@ function getTerminalRank(status) {
     return self.LLMStatusContract.getStatusRank(status);
   }
   return 0;
+}
+
+// One deferral per model per run: enough for the Round 2 repair to re-dispatch,
+// never enough to loop.
+// Blocked-finalization reasons that describe the verifier's own strictness, not a
+// doubt about which answer this is. Identity, echo and stale-baseline reasons are
+// never liftable.
+const LIFTABLE_STRICTNESS_CONTRADICTIONS = new Set(['answer_not_verified']);
+const PRE_INSERTION_DEFERRAL_LIMIT = 1;
+// Blockers a repeat dispatch cannot clear - only a human can. Everything else
+// (attachment upload not confirmed, unclassified adapter error, transport loss)
+// is worth exactly one more attempt before the model is written off.
+const USER_ACTION_BLOCKER_PATTERN = /auth_required|required_login|\blogin\b|captcha|conversation_limit|unsafe_prompt_modal|wrong_page|rate_limit|quota_exceeded/;
+
+function evaluatePreInsertionFailureDeferral(llmName, entry, context = {}) {
+  const decline = (reason) => ({ defer: false, reason });
+  if (!entry) return decline('missing_entry');
+  if (context.isSuccess || String(context.answerText || '').trim()) return decline('not_a_bare_failure');
+  // The automation deadline and the Round 4 force-final are the last resort by
+  // construction: they run when every earlier stage is already spent, so
+  // deferring them would leave the model open with nothing left to reopen it.
+  if (context.lastResortTerminal) return decline('last_resort_terminal');
+  if (isFinalizedEntry(entry)) return decline('already_finalized');
+  if (entry.promptSubmittedAt) return decline('prompt_already_submitted');
+  const dispatchId = context.dispatchId || null;
+  const insertedDispatchId = entry.promptInsertedDispatchId || null;
+  const insertedForThisDispatch = Boolean(entry.promptInsertedAt)
+    && (!dispatchId || !insertedDispatchId || String(insertedDispatchId) === String(dispatchId));
+  if (insertedForThisDispatch) return decline('prompt_already_inserted');
+  const haystack = [
+    context.error?.type,
+    context.error?.message,
+    context.failureClassification?.type,
+    context.failureClassification?.reason
+  ].filter(Boolean).join(' ').toLowerCase();
+  if (USER_ACTION_BLOCKER_PATTERN.test(haystack)) return decline('user_action_required');
+  const used = Number(entry.preInsertionDeferralCount || 0);
+  if (used >= PRE_INSERTION_DEFERRAL_LIMIT) return decline('deferral_budget_exhausted');
+  return {
+    defer: true,
+    reason: context.error?.type || context.failureClassification?.type || context.finalStatus || 'unknown',
+    failureClass: context.failureClassification?.class || 'unknown',
+    finalStatus: context.finalStatus || null,
+    dispatchId,
+    attempt: used + 1
+  };
+}
+
+function applyPreInsertionFailureDeferral(llmName, entry, decision = {}) {
+  if (!entry) return false;
+  entry.preInsertionDeferralCount = Number(entry.preInsertionDeferralCount || 0) + 1;
+  entry.preInsertionDeferral = {
+    reason: decision.reason || null,
+    failureClass: decision.failureClass || null,
+    deferredFinalStatus: decision.finalStatus || null,
+    dispatchId: decision.dispatchId || null,
+    at: Date.now()
+  };
+  // Leave the model dispatchable so the repair path is not blocked by the
+  // remains of the attempt that just failed.
+  entry.dispatchInFlight = false;
+  entry.messageSent = false;
+  entry.dispatchState = 'IDLE';
+  entry.csBusyUntil = 0;
+  const machine = self.DispatchStateManager?.get?.(llmName) || null;
+  if (machine && typeof machine.reset === 'function') machine.reset();
+  emitTelemetry(llmName, 'PRE_INSERTION_FAILURE_DEFERRED', {
+    level: 'warning',
+    details: `${decision.finalStatus || 'FAILURE'}:${decision.reason || 'unknown'}`,
+    meta: {
+      dispatchId: decision.dispatchId || null,
+      reason: decision.reason || null,
+      failureClass: decision.failureClass || null,
+      deferredFinalStatus: decision.finalStatus || null,
+      attempt: decision.attempt || 1,
+      phase: 'pre_insertion'
+    },
+    force: true
+  });
+  appendLogEntry(llmName, {
+    type: 'DISPATCH',
+    label: 'Terminal deferred (prompt never inserted)',
+    details: decision.reason || 'unknown',
+    level: 'warning',
+    meta: {
+      dispatchId: decision.dispatchId || null,
+      deferredFinalStatus: decision.finalStatus || null,
+      attempt: decision.attempt || 1
+    }
+  });
+  return true;
 }
 
 function handleLLMResponse(llmName, answer, error = null, meta = null, answerHtml = '') {
@@ -7872,6 +8022,31 @@ function handleLLMResponse(llmName, answer, error = null, meta = null, answerHtm
         dispatchId: metaObj?.dispatchId || entry?.lastDispatchMeta?.dispatchId || null
       }
     });
+    return;
+  }
+  // A dispatch that failed before the prompt reached the composer used to become
+  // a terminal status within seconds (attachment upload not confirmed ->
+  // USER_ACTION_REQUIRED, unclassified adapter error -> UNCERTAIN). A finalized
+  // model is skipped by every later stage, so the Round 2 repair dispatch that
+  // exists for exactly this case never ran, and the model was lost for the whole
+  // run while the run itself kept going for minutes. Keep the model open once so
+  // the repair can happen; genuine user-action blockers still terminate at once.
+  const preInsertionDeferral = evaluatePreInsertionFailureDeferral(llmName, entry, {
+    isSuccess: earlyIsSuccess,
+    answerText: earlyAnswerText,
+    error,
+    finalStatus: earlyFinalStatus,
+    failureClassification: earlyFailureClassification,
+    dispatchId: metaObj?.dispatchId || entry?.lastDispatchMeta?.dispatchId || null,
+    lastResortTerminal: Boolean(
+      metaObj?.automationDeadline
+      || metaObj?.lastResortTerminal
+      || earlyResponseMeta?.automationStopped
+      || earlyResponseMeta?.lateCollectFinal
+    )
+  });
+  if (preInsertionDeferral.defer) {
+    applyPreInsertionFailureDeferral(llmName, entry, preInsertionDeferral);
     return;
   }
   const pipelineControl = getActivePipelineControlState();
@@ -9876,6 +10051,10 @@ function sendCleanupCommand(llmName) {
   self.evaluateAnswerCandidate = evaluateAnswerCandidate;
   self.submitAnswerCandidate = submitAnswerCandidate;
   self.buildFinalizationEvidence = buildFinalizationEvidence;
+  self.evaluatePreInsertionFailureDeferral = evaluatePreInsertionFailureDeferral;
+  self.applyPreInsertionFailureDeferral = applyPreInsertionFailureDeferral;
+  self.canRepairDispatchInRound2 = canRepairDispatchInRound2;
+  self.emitFinalizationDecision = emitFinalizationDecision;
   self.summarizeFinalizationEvidenceForTelemetry = summarizeFinalizationEvidenceForTelemetry;
   self.hasRound2SubmitOrAnswerEvidence = hasRound2SubmitOrAnswerEvidence;
   self.getRound2SubmitConfirmationState = getRound2SubmitConfirmationState;
