@@ -935,17 +935,19 @@
   // trusted Send, Ctrl+Enter or a page-level fallback was the one that worked —
   // which made a failed send indistinguishable from a blind one.
   function reportSubmitMethod(method, evidence, attempts = []) {
+    const finalMethod = String(method || 'unknown');
+    const finalEvidence = String(evidence || 'none');
     try {
       chrome.runtime.sendMessage({
         type: 'TELEMETRY_EVENT',
         llmName: MODEL,
         event: {
           event: 'PROVIDER_SUBMIT_METHOD_OBSERVED',
-          level: evidence === 'direct' ? 'info' : 'warning',
-          reason: `${method || 'unknown'}/${evidence || 'none'}`,
+          level: finalEvidence === 'direct' ? 'info' : 'warning',
+          reason: `${finalMethod}/${finalEvidence}`,
           source: 'lechat:send',
-          submitMethod: method || 'unknown',
-          submitEvidence: evidence || 'none',
+          submitMethod: finalMethod,
+          submitEvidence: finalEvidence,
           attempts: (attempts || []).map((a) => `${a.method}:${a.outcome}`)
         }
       });
