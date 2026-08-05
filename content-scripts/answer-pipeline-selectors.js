@@ -342,6 +342,10 @@
       stopButton: 'button[aria-label*="Stop" i], button[class*="stop" i]',
       copyButton: COPY_BUTTON_SELECTORS
     },
+    // Kimi renders the reasoning trace as its own block inside the assistant
+    // turn, before the answer. Every answer selector here excludes thinking /
+    // reasoning containers, otherwise the resolver settles on the trace — it is
+    // the first thing that renders and the last thing that stops changing.
     kimi: {
       messageRoot: [
         '.segment-assistant',
@@ -352,15 +356,16 @@
       ],
       answerContainer: '.chat-content-list, [role="log"], body',
       lastMessage: [
-        '.segment-assistant .markdown-container',
+        `.segment-assistant .markdown-container:not([class*="think" i]):not([class*="thought" i]):not([class*="reason" i])`,
+        `.chat-content-item-assistant .markdown-container:not([class*="think" i]):not([class*="thought" i]):not([class*="reason" i])`,
+        `.segment-assistant [class*="markdown" i]:not([class*="think" i]):not([class*="thought" i]):not([class*="reason" i])`,
         '.segment-assistant',
-        '.chat-content-item-assistant .markdown-container',
         '[class*="segment-assistant" i]',
         '[data-message-author-role="assistant"]',
         '[data-role="assistant"]',
-        '[class*="assistant" i] [class*="markdown" i]'
+        `[class*="assistant" i] [class*="markdown" i]:not([class*="think" i]):not([class*="thought" i]):not([class*="reason" i])`
       ].join(', '),
-      streamStart: ['.segment-assistant .markdown-container', '.segment-assistant', '.markdown-container', '[data-message-author-role="assistant"]', '[data-role="assistant"]'],
+      streamStart: [`.segment-assistant .markdown-container:not([class*="think" i]):not([class*="thought" i]):not([class*="reason" i])`, '.segment-assistant', `.markdown-container:not([class*="think" i]):not([class*="thought" i]):not([class*="reason" i])`, '[data-message-author-role="assistant"]', '[data-role="assistant"]'],
       generatingIndicators: ['.send-button-container.stop', '[data-generating="true"]', '[data-streaming="true"]', '[aria-busy="true"]', '.animate-pulse'],
       completionIndicators: ['.send-button-container:not(.stop)', '.chat-input-editor[contenteditable="true"]'],
       stopButton: '.send-button-container.stop, button[aria-label*="Stop" i], button[class*="stop" i]',

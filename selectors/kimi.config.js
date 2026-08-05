@@ -35,25 +35,29 @@
           ],
           response: {
             primary: [
-              '.segment-assistant .markdown-container',
+              '.segment-assistant .markdown-container:not([class*="think" i]):not([class*="thought" i]):not([class*="reason" i])',
+              '.chat-content-item-assistant .markdown-container:not([class*="think" i]):not([class*="thought" i]):not([class*="reason" i])',
+              '.segment-assistant [class*="markdown" i]:not([class*="think" i]):not([class*="thought" i]):not([class*="reason" i])',
               '.segment-assistant',
-              '.chat-content-item-assistant .markdown-container',
               '[class*="segment-assistant" i]',
               '[data-message-author-role="assistant"]',
               '[data-role="assistant"]',
               '[class*="assistant-message" i]',
-              '[class*="assistant" i] [class*="markdown" i]'
+              '[class*="assistant" i] [class*="markdown" i]:not([class*="think" i]):not([class*="thought" i]):not([class*="reason" i])'
             ],
             fallback: [
-              '.markdown-container',
-              '[class*="markdown" i][class*="body" i]'
+              '.markdown-container:not([class*="think" i]):not([class*="thought" i]):not([class*="reason" i])',
+              '[class*="markdown" i][class*="body" i]:not([class*="think" i]):not([class*="thought" i]):not([class*="reason" i])'
             ],
             extraction: { method: 'innerText', cleanup: 'full' }
           }
         },
         constraints: {
           composer: { exclude: ['input[type="search"]', '[role="search"] [contenteditable="true"]'] },
-          sendButton: { exclude: ['.send-button-container.disabled', '[role="search"] button'] }
+          sendButton: { exclude: ['.send-button-container.disabled', '[role="search"] button'] },
+          // The reasoning trace is a sibling block inside the same assistant
+          // turn; without this it wins as "the answer that changed last".
+          response: { exclude: ['[class*="think" i]', '[class*="thought" i]', '[class*="reason" i]'] }
         },
         observation: {
           rootSelector: 'body',

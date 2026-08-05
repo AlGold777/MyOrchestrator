@@ -36,6 +36,16 @@
   ];
   const GENERATING_SELECTOR = '.send-button-container.stop, [class*="stop" i][class*="button" i], [data-generating="true"], [data-streaming="true"], [aria-busy="true"]';
   const USER_TURN_SELECTOR = '.segment-user, [class*="segment-user" i], [data-message-author-role="user"], [data-role="user"]';
+  // Kimi streams a reasoning trace inside the assistant turn, ahead of the
+  // answer. It renders first and keeps changing longest, so any "latest visible
+  // assistant text" rule picks the trace unless it is removed explicitly. The
+  // token set mirrors AnswerStructure.isIgnored, which the unified pipeline
+  // already applies — this is the same contract for the DOM fallback path.
+  const REASONING_SELECTOR = [
+    '[class*="think" i]', '[class*="thought" i]', '[class*="reason" i]',
+    '[data-testid*="think" i]', '[data-testid*="reason" i]',
+    '[data-type*="think" i]', '[data-type*="reason" i]'
+  ].join(',');
 
   const baseAdapter = window.BaseLLMAdapter ? new window.BaseLLMAdapter({
     model: MODEL,
@@ -120,14 +130,41 @@
     try { return !node.closest?.(USER_TURN_SELECTOR); } catch (_) { return true; }
   };
 
+  const isReasoningNode = (node) => {
+    if (!node?.nodeType) return false;
+    try { return !!(node.matches?.(REASONING_SELECTOR) || node.closest?.(REASONING_SELECTOR)); } catch (_) { return false; }
+  };
+
+  // A candidate may be the whole assistant turn, which carries the trace as a
+  // child. Read it through a detached clone with the reasoning subtrees removed
+  // so the answer survives and the trace never reaches the card.
+  const withoutReasoning = (node) => {
+    if (!node) return null;
+    let clone = null;
+    try { clone = node.cloneNode(true); } catch (_) { return node; }
+    try { clone.querySelectorAll?.(REASONING_SELECTOR).forEach((child) => child.remove()); } catch (_) {}
+    return clone;
+  };
+
+  const readAnswerParts = (node) => {
+    const clone = withoutReasoning(node);
+    if (!clone) return { text: '', html: '' };
+    const linearized = window.AnswerStructure?.linearizeText?.(clone);
+    const text = String(linearized || clone.innerText || clone.textContent || '').replace(/\s+/g, ' ').trim();
+    const html = window.ContentUtils?.buildInlineHtml
+      ? String(window.ContentUtils.buildInlineHtml(clone, { includeRoot: true }) || '')
+      : String(clone.outerHTML || '');
+    return { text, html };
+  };
+
   const responseCandidates = () => {
     const seen = new Set();
     const candidates = [];
     for (const selector of RESPONSE_SELECTORS) {
       try {
         document.querySelectorAll(selector).forEach((node) => {
-          if (seen.has(node)) return;
-          const text = String(node?.innerText || node?.textContent || '').replace(/\s+/g, ' ').trim();
+          if (seen.has(node) || isReasoningNode(node)) return;
+          const { text } = readAnswerParts(node);
           if (isVisible(node) && isAssistantNode(node) && !isRejectedResponseText(text)) {
             seen.add(node);
             candidates.push(node);
@@ -141,10 +178,7 @@
   const readLatestResponse = () => {
     const nodes = responseCandidates();
     const node = nodes[nodes.length - 1] || null;
-    const text = String(node?.innerText || node?.textContent || '').replace(/\s+/g, ' ').trim();
-    const html = node && window.ContentUtils?.buildInlineHtml
-      ? String(window.ContentUtils.buildInlineHtml(node, { includeRoot: true }) || '')
-      : String(node?.outerHTML || '');
+    const { text, html } = readAnswerParts(node);
     return { text, html, node };
   };
 

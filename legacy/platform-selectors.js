@@ -209,13 +209,13 @@
       copyButton: COPY_BUTTON_SELECTORS
     },
     kimi: {
-      streamStart: ['.segment-assistant', '.segment-assistant .markdown-container', '.markdown-container', '[data-message-author-role="assistant"]', '[data-role="assistant"]'],
+      streamStart: ['.segment-assistant', '.segment-assistant .markdown-container:not([class*="think" i]):not([class*="thought" i]):not([class*="reason" i])', '.markdown-container:not([class*="think" i]):not([class*="thought" i]):not([class*="reason" i])', '[data-message-author-role="assistant"]', '[data-role="assistant"]'],
       streaming: ['[data-streaming="true"]', '[data-generating="true"]', '.animate-pulse'],
       generatingIndicators: ['[data-streaming="true"]', '[data-generating="true"]', '.send-button-container.stop'],
       completionIndicators: ['.send-button-container:not(.stop)'],
       spinner: ['[aria-busy="true"]', '.animate-pulse'],
       stopButton: '.send-button-container.stop, button[aria-label*="Stop" i], button[class*="stop" i]',
-      lastMessage: '.segment-assistant .markdown-container, .segment-assistant, .markdown-container, [data-message-author-role="assistant"], [data-role="assistant"]',
+      lastMessage: '.segment-assistant .markdown-container:not([class*="think" i]):not([class*="thought" i]):not([class*="reason" i]), .segment-assistant, .markdown-container:not([class*="think" i]):not([class*="thought" i]):not([class*="reason" i]), [data-message-author-role="assistant"], [data-role="assistant"]',
       answerContainer: '.chat-content-list, [role="log"], body',
       copyButton: COPY_BUTTON_SELECTORS
     },

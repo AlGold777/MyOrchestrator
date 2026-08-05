@@ -1,5 +1,20 @@
 # CHANGELOG — Project
 
+### 2026-08-05 — Kimi answer, not the reasoning trace, version 2.81.291
+
+- Kimi renders its reasoning trace inside the assistant turn, ahead of the
+  answer: it appears first and keeps changing longest, so every "latest visible
+  assistant text" rule settled on it and the card received the thinking instead
+  of the reply.
+- Both extraction paths are closed. The unified pipeline's Kimi selectors
+  (`answer-pipeline-selectors.js`, `selectors/kimi.config.js`, the late-snapshot
+  and legacy maps) now exclude think/thought/reason containers, and the adapter's
+  own DOM fallback reads through a clone with those subtrees removed — so the
+  answer survives even when the only match is the whole assistant turn.
+- While only the trace has rendered, the adapter reports no answer at all rather
+  than finalizing the trace as a short reply.
+- `tests/kimi-extraction.test.js` covers all four cases.
+
 ### 2026-08-05 — Grok and Perplexity try Ctrl+Enter first, version 2.81.289
 
 Ported Le Chat's Ctrl+Enter-first contract to the other two providers that did
