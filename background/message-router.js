@@ -826,7 +826,11 @@ const buildProviderSendControlExpression = (expectedText = '') => `(() => {
     return Boolean(normalizedExpected) && actual === normalizedExpected;
   };
   const visible = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
-  const text = (el) => [el.getAttribute('aria-label'), el.getAttribute('title'), el.getAttribute('data-testid'), el.getAttribute('data-test-id'), el.textContent].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+  // Some providers (Kimi) render Send as a plain <div>, not a <button> and not
+  // role="button", with no aria-label — just an SVG icon. className and a
+  // descendant SVG's name attribute widen the label pool for those.
+  const hasDisabledClass = (el) => /(^|\s)(disabled|is-disabled)(\s|$)/i.test(el.className || '');
+  const text = (el) => [el.getAttribute('aria-label'), el.getAttribute('title'), el.getAttribute('data-testid'), el.getAttribute('data-test-id'), typeof el.className === 'string' ? el.className : '', el.querySelector?.('svg')?.getAttribute('name'), el.textContent].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
   const active = document.activeElement?.matches?.('textarea,[contenteditable="true"],[role="textbox"]')
     ? document.activeElement : null;
   const composer = (active && visible(active) && matchesPrompt(active.value || active.innerText || active.textContent || '') && active)
@@ -835,7 +839,7 @@ const buildProviderSendControlExpression = (expectedText = '') => `(() => {
   if (!composer) return null;
   const score = (el) => {
     const label = text(el);
-    if (!visible(el) || el.disabled || el.getAttribute('aria-disabled') === 'true') return -1;
+    if (!visible(el) || el.disabled || el.getAttribute('aria-disabled') === 'true' || hasDisabledClass(el)) return -1;
     if (/microphone|voice|record|attach|upload|file|stop|cancel|model|tool/i.test(label)) return -1;
     if (/send message|send|submit|ask|arrow-up|paper-plane|отправ|enviar/i.test(label)) return 100;
     if (el.type === 'submit') return 70;
@@ -850,7 +854,7 @@ const buildProviderSendControlExpression = (expectedText = '') => `(() => {
     ancestor = ancestor.parentElement;
   }
   for (const scope of scopes) {
-    const match = Array.from(scope.querySelectorAll('button,[role="button"]'))
+    const match = Array.from(scope.querySelectorAll('button,[role="button"],[class*="send-button" i],[class*="send_button" i]'))
       .map((el) => ({ el, score: score(el) }))
       .filter((entry) => entry.score >= 0)
       .sort((a, b) => b.score - a.score)[0]?.el;
@@ -1216,6 +1220,8 @@ const DIAG_PINNED_LABELS = new Set([
     'PROMPT_SUBMITTED_ACCEPTED',
     'PROMPT_SUBMITTED_INFERRED',
     'PROMPT_SUBMITTED_PENDING',
+    'PROMPT_SUBMITTED_UNCONFIRMED',
+    'PROVIDER_SUBMIT_METHOD_OBSERVED',
     'PAGE_READY_BLOCKED',
     'PROMPT_INSERTION_CONFIRMED',
     'PROMPT_INSERTION_FAILED',
@@ -2143,7 +2149,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 const senderUrl = String(sender?.tab?.url || sender?.url || '');
                 const model = String(message.llmName || '');
                 const allowed = (model === 'Le Chat' && /^https:\/\/chat\.mistral\.ai\//i.test(senderUrl))
-                    || (model === 'Perplexity' && /^https:\/\/(?:www\.)?perplexity\.ai\//i.test(senderUrl));
+                    || (model === 'Perplexity' && /^https:\/\/(?:www\.)?perplexity\.ai\//i.test(senderUrl))
+                    || (model === 'Kimi' && /^https:\/\/(?:www\.)?kimi\.com\//i.test(senderUrl));
                 if (!tabId || !allowed) {
                     sendResponse({ ok: false, reason: 'untrusted_sender' });
                     break;
@@ -2830,7 +2837,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                             meta: {
                                 dispatchId: incomingDispatchId || null,
                                 runSessionId: incomingRunSessionId || expectedRunSessionId || null,
-                                confirmed: false
+                                confirmed: false,
+                                submitMethod: normalizedMeta.submitMethod || null,
+                                submitEvidence: normalizedMeta.submitEvidence || null
                             }
                         });
                         broadcastDiagnostic(llmName, {
@@ -2918,7 +2927,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                                 runSessionId: incomingRunSessionId || expectedRunSessionId || null,
                                 generationEpoch: normalizedMeta.generationEpoch ?? entry?.generationEpoch ?? null,
                                 attemptId: normalizedMeta.attemptId || entry?.lastDispatchMeta?.attemptId || null,
-                                confirmed: confirmedFlag !== false
+                                confirmed: confirmedFlag !== false,
+                                submitMethod: normalizedMeta.submitMethod || null,
+                                submitEvidence: normalizedMeta.submitEvidence || null
                             }
                         });
                         broadcastDiagnostic(llmName, {

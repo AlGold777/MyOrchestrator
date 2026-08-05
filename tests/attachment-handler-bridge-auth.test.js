@@ -371,16 +371,25 @@ describe('attachment bridge authentication', () => {
     expect(ROUTER_SRC).toContain("reason: 'debugger_route_disabled'");
   });
 
-  test('Le Chat stops after the trusted donor transaction instead of entering slow fallbacks', () => {
+  // 2.81.286 amends the 2.81.195 contract. The point of that correction was to
+  // stop burning seconds in a long tail of synthetic click/form/keyboard
+  // attempts after a failed trusted transaction — not to make the debugger the
+  // only way to submit. Ctrl+Enter now runs first: it is a single ~3s attempt,
+  // it needs no debugger attach, and Le Chat accepts it for a pasted prompt.
+  // The slow fallbacks it replaced must stay gone.
+  test('Le Chat submits with at most Ctrl+Enter then the trusted donor transaction', () => {
     const source = PROVIDER_SOURCES['Le Chat'];
+    const ctrlEnterAt = source.indexOf("runStrategy('ctrl_enter'");
     const trustedAt = source.indexOf("type: 'PROVIDER_TRUSTED_SEND_REQUEST'");
-    const throwAt = source.indexOf('Le Chat trusted Send was not confirmed', trustedAt);
-    const nextFunctionAt = source.indexOf('\n  async function injectAndGetResponse', trustedAt);
+    const nextFunctionAt = source.indexOf('\n  function getProseNodes', trustedAt);
     const transaction = source.slice(trustedAt, nextFunctionAt);
-    expect(trustedAt).toBeGreaterThan(-1);
-    expect(throwAt).toBeGreaterThan(trustedAt);
+    expect(ctrlEnterAt).toBeGreaterThan(-1);
+    expect(trustedAt).toBeGreaterThan(ctrlEnterAt);
+    // A failed chain still ends in an explicit failure, never a silent success.
+    expect(transaction).toContain('Failed to confirm prompt submission.');
     expect(transaction).not.toContain('form.requestSubmit()');
     expect(transaction).not.toContain('dispatchEnter();');
+    expect(transaction).not.toContain('waitForSendEnabled(');
     expect(transaction).not.toContain('prompt\n');
   });
 

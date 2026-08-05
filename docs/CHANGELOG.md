@@ -1,5 +1,33 @@
 # CHANGELOG — Project
 
+### 2026-08-05 — Le Chat: Ctrl+Enter first, and provable submit, version 2.81.286
+
+Run 1785914453420: the prompt was inserted and visibly sent, yet the run ended
+`UNCERTAIN` with submission stuck at `evidence_partial`, and the export could
+not say which control had sent it.
+
+- Ctrl+Enter is now the first submit strategy, ahead of the debugger-backed
+  trusted Send. For a pasted prompt Le Chat accepts it regardless of the send
+  button's disabled state, and it needs no debugger attach. The 2.81.195
+  contract - no long tail of click/form/Enter fallbacks - still holds: the
+  chain is exactly these two attempts.
+- Submission is now confirmed from the rendered prompt itself, its exact text
+  appearing outside every editable surface. The previous check relied on
+  ChatGPT/Claude-shaped `data-role` user-turn attributes and an English-only
+  `aria-label*="Stop"`, none of which `chat.mistral.ai` emits here, so nothing
+  could ever confirm and `sendComposer` threw before `PROMPT_SUBMITTED` fired.
+- Generation evidence also matches structurally (`data-testid*="stop"`,
+  `animate-spin`) and in Russian, instead of English labels only.
+- Once the composer has been consumed, the remaining strategy is skipped rather
+  than firing a possible duplicate submission. Such a send is reported with
+  `confirmed: false`, producing `PROMPT_SUBMITTED_UNCONFIRMED` instead of an
+  unproven success.
+- `sendComposer` returns the control that worked. It is published as
+  `PROVIDER_SUBMIT_METHOD_OBSERVED` (also on total failure, with the
+  per-strategy attempt log) and carried on `PROMPT_SUBMITTED_ACCEPTED` /
+  `PROMPT_SUBMITTED_UNCONFIRMED` as `submitMethod` / `submitEvidence`. Both new
+  labels are pinned so they survive telemetry buffer trimming.
+
 ### 2026-08-05 — Fit ten providers in the header row, version 2.81.285
 
 - The model row in the results header is `flex-wrap: nowrap`, so the tenth

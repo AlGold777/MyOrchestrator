@@ -5,7 +5,7 @@
 // ============================== IIFE START ==============================
 //-- 2.1. Улучшенная защита от дублирования с версионированием --//
 (function () {
-  const SCRIPT_VERSION = 'v6.1.3'; // Bumped version for LeChat manual response metadata fix
+  const SCRIPT_VERSION = 'v6.1.4'; // Ctrl+Enter first + provider-real submit proof and method reporting
   const SCRIPT_NAME = 'content-lechat';
   const resolveExtensionVersion = () => {
     try {
@@ -930,9 +930,36 @@
     return lastBtn && !isSendButtonDisabled(lastBtn) ? lastBtn : null;
   }
 
+  // Publish *which* control submitted the prompt. Without this the proof
+  // export could only show that a submission was attempted, never whether the
+  // trusted Send, Ctrl+Enter or a page-level fallback was the one that worked —
+  // which made a failed send indistinguishable from a blind one.
+  function reportSubmitMethod(method, evidence, attempts = []) {
+    try {
+      chrome.runtime.sendMessage({
+        type: 'TELEMETRY_EVENT',
+        llmName: MODEL,
+        event: {
+          event: 'PROVIDER_SUBMIT_METHOD_OBSERVED',
+          level: evidence === 'direct' ? 'info' : 'warning',
+          reason: `${method || 'unknown'}/${evidence || 'none'}`,
+          source: 'lechat:send',
+          submitMethod: method || 'unknown',
+          submitEvidence: evidence || 'none',
+          attempts: (attempts || []).map((a) => `${a.method}:${a.outcome}`)
+        }
+      });
+    } catch (_) {}
+  }
+
   // Отправка промпта - рабочая версия из content-lechat
   async function sendComposer(composer, prompt) {
     const baselineResponseCount = document.querySelectorAll('main article, .prose, [data-testid*="assistant"]').length;
+    // Run 1785914453420: every attribute-based user-turn selector below is a
+    // ChatGPT/Claude convention that chat.mistral.ai does not emit, so
+    // `countUserTurns()` stayed at 0 through a send that visibly happened.
+    // Kept as cheap signals, but no longer the only ones — see
+    // `countRenderedPromptTurns` for the DOM-shape-independent proof.
     const userTurnSelectors = [
       '[data-message-author-role="user"]', '[data-role="user"]',
       '[data-testid*="user-message" i]', '[class*="user-message" i]'
@@ -941,10 +968,45 @@
       Array.from(document.querySelectorAll(selector))
     ))).size;
     const baselineUserTurns = countUserTurns();
+
+    // Direct, markup- and locale-independent proof that the prompt left the
+    // composer and became a conversation turn: its exact text is now rendered
+    // outside every editable surface. This is current-turn evidence, not a
+    // composer-clearing inference, so it is allowed to confirm a submission.
+    const normalizeTurnText = (value) => String(value || '')
+      .normalize('NFKC')
+      .replace(/[\u200B-\u200D\u2060\uFEFF]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const promptFingerprint = normalizeTurnText(prompt).slice(0, 80);
+    const PROMPT_TURN_SELECTORS = [
+      '[data-message-author-role]', '[data-role]', '[data-testid*="message" i]',
+      '[class*="message" i]', 'main article', 'main li', 'main p'
+    ].join(',');
+    const countRenderedPromptTurns = () => {
+      if (!promptFingerprint) return 0;
+      const root = document.querySelector('main') || document.body;
+      if (!root) return 0;
+      let matches = 0;
+      let scanned = 0;
+      for (const node of root.querySelectorAll(PROMPT_TURN_SELECTORS)) {
+        // Bounded scan: this runs every 120ms, it must never stall the page.
+        if (scanned++ > 1500) break;
+        if (node.isContentEditable || node.closest('[contenteditable="true"]')) continue;
+        if (normalizeTurnText(node.innerText || node.textContent).includes(promptFingerprint)) matches += 1;
+      }
+      return matches;
+    };
+    const baselinePromptTurns = countRenderedPromptTurns();
+
     const collectGenerationEvidence = () => Array.from(document.querySelectorAll([
-      '[class*="animate-pulse"]', '[class*="streaming"]',
+      '[class*="animate-pulse"]', '[class*="streaming"]', '[class*="animate-spin"]',
       '[data-testid="generation"]', '[data-testid="generation-in-progress"]',
-      'button[aria-label*="Stop" i]', '[aria-busy="true"]'
+      // Le Chat localizes its stop control, so match structurally and in the
+      // languages this deployment actually runs in, not just English.
+      'button[data-testid*="stop" i]', 'button[aria-label*="Stop" i]',
+      'button[aria-label*="Стоп" i]', 'button[aria-label*="Остан" i]',
+      '[aria-busy="true"]'
     ].join(',')));
     const baselineGenerationEvidence = new Set(collectGenerationEvidence());
     const hasFreshGenerationEvidence = () => collectGenerationEvidence()
@@ -956,11 +1018,16 @@
       composerTextLength: (composer.value || composer.textContent || '').trim().length,
       generationElements: baselineGenerationEvidence
     }) || null;
+    // Indirect evidence never confirms a send, but it does mean the composer
+    // was consumed — firing another strategy on top of it risks a duplicate
+    // submission, so the chain below stops when this flips.
+    let sawIndirectEvidence = false;
     const confirmLeChatSend = async (sendButtonCandidate, timeout = 3000, beforeTextLength = 0, trustedBrowserDispatch = false) => {
       const deadline = Date.now() + timeout;
       while (Date.now() < deadline) {
         const composerText = (composer.value || composer.textContent || '').trim();
         const currentResponseCount = document.querySelectorAll('main article, .prose, [data-testid*="assistant"]').length;
+        if (countRenderedPromptTurns() > baselinePromptTurns) return true;
         const proof = submitConfirmation?.evaluate?.(submitBaseline, {
           userTurnCount: countUserTurns(),
           responseCount: currentResponseCount,
@@ -969,13 +1036,15 @@
           trustedBrowserDispatch
         });
         if (proof?.confirmed === true) return true;
+        if (proof?.composerCleared || proof?.composerShrank) sawIndirectEvidence = true;
         // Fail closed if the shared evaluator is unavailable. Only direct
         // current-turn evidence may confirm; composer clearing/shrinking may not.
-        if (!submitConfirmation && (
-          countUserTurns() > baselineUserTurns
-          || hasFreshGenerationEvidence()
-          || currentResponseCount > baselineResponseCount
-        )) return true;
+        if (!submitConfirmation) {
+          if (countUserTurns() > baselineUserTurns
+            || hasFreshGenerationEvidence()
+            || currentResponseCount > baselineResponseCount) return true;
+          if (beforeTextLength > 0 && composerText.length === 0) sawIndirectEvidence = true;
+        }
         await sleep(120);
       }
       return false;
@@ -999,16 +1068,54 @@
       try { composer.dispatchEvent(new KeyboardEvent('keyup', init)); } catch (_) {}
     };
 
+    const composerLength = () => ((composer.value || composer.textContent || '').trim()).length;
+    // Every attempt is recorded so the export can answer "what actually sent
+    // this?" instead of only "a send was attempted" (run 1785914453420 could
+    // not distinguish the two).
+    const attemptLog = [];
+    const runStrategy = async (method, action, { confirmMs = 3000, trusted = false } = {}) => {
+      if (sawIndirectEvidence) {
+        // The composer was already consumed. Another strategy here would risk
+        // submitting the same prompt twice.
+        attemptLog.push({ method, outcome: 'skipped_composer_consumed' });
+        return false;
+      }
+      const beforeLen = composerLength();
+      try {
+        const started = await action(beforeLen);
+        if (started === false) {
+          attemptLog.push({ method, outcome: 'not_applicable' });
+          return false;
+        }
+      } catch (e) {
+        attemptLog.push({ method, outcome: 'threw', error: e?.message || String(e) });
+        console.warn(`[content-lechat] ${method} send failed`, e);
+        return false;
+      }
+      const confirmed = await confirmLeChatSend(null, confirmMs, beforeLen, trusted);
+      attemptLog.push({ method, outcome: confirmed ? 'confirmed' : (sawIndirectEvidence ? 'indirect' : 'unconfirmed') });
+      if (confirmed) console.log(`[content-lechat] ${method} send confirmed.`);
+      return confirmed;
+    };
+
     // Short settle time for React state sync before submit attempts.
     await sleep(240);
     try { composer.focus?.({ preventScroll: true }); } catch (_) { try { composer.focus?.(); } catch (_) {} }
 
-    // Donor 2.81.75 fast path: Le Chat ignores synthetic keyboard submission
-    // on some existing conversations, while a browser-level trusted Send is
-    // accepted immediately. The background handler validates the sender URL
-    // and tab before attaching the debugger.
-    try {
-      const beforeLen = ((composer.value || composer.textContent || '').trim()).length;
+    // Strategy 1: Ctrl+Enter. Once the prompt is pasted into the composer,
+    // Le Chat's own shortcut submits it without depending on the send button's
+    // disabled/enabled state, on React having re-rendered it, or on attaching
+    // Chrome's debugger — so it is both the cheapest and the least invasive
+    // first attempt for a freshly-pasted prompt.
+    if (await runStrategy('ctrl_enter', () => { dispatchEnter({ ctrlKey: true }); })) {
+      return { method: 'ctrl_enter', evidence: 'direct', attempts: attemptLog };
+    }
+
+    // Strategy 2 — donor 2.81.75 fast path: Le Chat ignores synthetic keyboard
+    // submission on some existing conversations, while a browser-level trusted
+    // Send is accepted immediately. The background handler validates the sender
+    // URL and tab before attaching the debugger.
+    if (await runStrategy('trusted_send', async () => {
       const trusted = await new Promise((resolve) => {
         chrome.runtime.sendMessage({
           type: 'PROVIDER_TRUSTED_SEND_REQUEST',
@@ -1018,15 +1125,28 @@
           else resolve(response || { ok: false, reason: 'empty_response' });
         });
       });
-      if (trusted?.ok && await confirmLeChatSend(null, 4000, beforeLen, true)) {
-        console.log('[content-lechat] Trusted Send control confirmed.');
-        return true;
-      }
-      throw new Error(`Le Chat trusted Send was not confirmed: ${trusted?.reason || 'no_send_evidence'}`);
-    } catch (e) {
-      console.warn('[content-lechat] Trusted Send failed.', e);
-      throw e;
+      if (!trusted?.ok) throw new Error(`trusted Send rejected: ${trusted?.reason || 'no_send_evidence'}`);
+    }, { confirmMs: 4000, trusted: true })) {
+      return { method: 'trusted_send', evidence: 'direct', attempts: attemptLog };
     }
+
+    // Final check: give a slow provider one more window to render the turn
+    // before deciding. A send that only ever produced indirect evidence is
+    // reported as such — it is not proof, but re-sending is worse.
+    const lastMethod = attemptLog.filter((a) => a.outcome === 'indirect').pop()?.method
+      || attemptLog.filter((a) => a.outcome === 'unconfirmed').pop()?.method
+      || null;
+    if (await confirmLeChatSend(null, sawIndirectEvidence ? 6000 : 900)) {
+      return { method: lastMethod || 'unknown', evidence: 'direct', attempts: attemptLog };
+    }
+    if (sawIndirectEvidence) {
+      console.warn('[content-lechat] Composer was consumed but no turn rendered; reporting unconfirmed send.');
+      return { method: lastMethod || 'unknown', evidence: 'indirect', attempts: attemptLog };
+    }
+    console.error('[content-lechat] All send methods failed to confirm.', attemptLog);
+    const failure = new Error('Failed to confirm prompt submission.');
+    failure.attempts = attemptLog;
+    throw failure;
   }
 
   // Извлечение ответа - адаптация под LeChat с логикой Grok
@@ -1456,9 +1576,29 @@ const hydrateAttachments = (raw = []) =>
           await window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, preDispatchBaseline);
         } catch (_) {}
         
-        await sendComposer(composer, prompt);
+        let submitOutcome;
+        try {
+          submitOutcome = await sendComposer(composer, prompt);
+        } catch (sendError) {
+          reportSubmitMethod('none', 'none', sendError?.attempts || []);
+          throw sendError;
+        }
+        reportSubmitMethod(submitOutcome?.method, submitOutcome?.evidence, submitOutcome?.attempts);
         activity.heartbeat(0.6, { phase: 'send-dispatched' });
-        try { chrome.runtime.sendMessage({ type: 'PROMPT_SUBMITTED', llmName: MODEL, ts: Date.now(), meta: dispatchMeta }); } catch (_) {}
+        try {
+          chrome.runtime.sendMessage({
+            type: 'PROMPT_SUBMITTED',
+            llmName: MODEL,
+            ts: Date.now(),
+            // `confirmed: false` routes the background to
+            // PROMPT_SUBMITTED_UNCONFIRMED instead of claiming a proven send.
+            meta: Object.assign({}, dispatchMeta, {
+              confirmed: submitOutcome?.evidence === 'direct',
+              submitMethod: submitOutcome?.method || 'unknown',
+              submitEvidence: submitOutcome?.evidence || 'none'
+            })
+          });
+        } catch (_) {}
         window.ContentUtils?.reportProviderPipelineState?.(MODEL, dispatchMeta, 'composer', false);
         window.ContentUtils?.reportProviderPipelineState?.(MODEL, dispatchMeta, 'answer_collection', true);
 
