@@ -61,9 +61,9 @@ describe('prompt-echo / suspect is not a green answer (preservation path)', () =
     expect(GROK_SRC).not.toContain('await humanoid.typeText(composer, prompt');
   });
 
-  test('the packaged extension scopes chrome.debugger to two provider submission RPCs', () => {
+  test('the packaged extension scopes chrome.debugger to named provider submission RPCs', () => {
     expect(MANIFEST.permissions).toContain('debugger');
-    expect(ROUTER_SRC).toContain("const ENABLED_DEBUGGER_RPC_TYPES = new Set([\n    'PROVIDER_TRUSTED_SEND_REQUEST',\n    'PERPLEXITY_TRUSTED_ENTER_REQUEST'");
+    expect(ROUTER_SRC).toContain("const ENABLED_DEBUGGER_RPC_TYPES = new Set([\n    'PROVIDER_TRUSTED_SEND_REQUEST',\n    'KIMI_TRUSTED_SEND_REQUEST',\n    'PERPLEXITY_TRUSTED_ENTER_REQUEST'");
     expect(ROUTER_SRC).toContain('DEBUGGER_RPC_TYPES.has(message?.type) && !ENABLED_DEBUGGER_RPC_TYPES.has(message.type)');
   });
 
@@ -78,12 +78,17 @@ describe('prompt-echo / suspect is not a green answer (preservation path)', () =
     expect(sendAt).toBeGreaterThan(commitAt);
   });
 
-  test('Grok uses the visible send button before keyboard submission fallbacks', () => {
+  // 2026-08-05: reordered to match Le Chat's contract (ports/lechat-pasted-request-send).
+  // Ctrl+Enter is now first — once the composer commit window above confirms
+  // the exact prompt is in place, Grok's own shortcut submits it without
+  // depending on a send-button selector lookup having found anything, or on
+  // that button's disabled state. The button click remains a fallback.
+  test('Grok tries Ctrl+Enter before the send button lookup', () => {
     const commitAt = GROK_SRC.indexOf('const committedComposer = await waitForGrokComposerCommit');
     const buttonAt = GROK_SRC.indexOf('dispatchSuccess = await attemptSendViaButton(sendBtn, composer)', commitAt);
     const ctrlEnterAt = GROK_SRC.indexOf('dispatchSuccess = await attemptSendViaCtrlEnter(composer)', commitAt);
-    expect(buttonAt).toBeGreaterThan(commitAt);
-    expect(ctrlEnterAt).toBeGreaterThan(buttonAt);
+    expect(ctrlEnterAt).toBeGreaterThan(commitAt);
+    expect(buttonAt).toBeGreaterThan(ctrlEnterAt);
   });
 
   test('Grok reports dispatch confirmation only after strict posted-turn verification', () => {

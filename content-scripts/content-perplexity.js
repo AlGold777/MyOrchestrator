@@ -1698,13 +1698,36 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
       return false;
     };
 
+    // Cheap synthetic Ctrl+Enter first, bounded short: the 2026-07-30 field
+    // regression documented that Perplexity's Lexical editor usually ignores
+    // synthetic keyboard events entirely, which is why the trusted CDP path
+    // below exists at all. This attempt is not expected to work on every
+    // build, but it costs under a second when it does not, and it lets a
+    // layout where Lexical does honor it skip the debugger attach — the
+    // confirmation oracle below is fail-closed, so a no-op keypress just
+    // times out into the proven trusted Send path unchanged.
+    activity.heartbeat(0.38, { phase: 'ctrl-enter-attempt' });
+    try { inputField.focus?.({ preventScroll: true }); } catch (_) { try { inputField.focus?.(); } catch (_) {} }
+    const ctrlEnterInit = {
+      key: 'Enter', code: 'Enter', keyCode: 13, which: 13,
+      bubbles: true, cancelable: true, ctrlKey: true, composed: true
+    };
+    try { inputField.dispatchEvent(new KeyboardEvent('keydown', ctrlEnterInit)); } catch (_) {}
+    try { inputField.dispatchEvent(new KeyboardEvent('keypress', ctrlEnterInit)); } catch (_) {}
+    try { inputField.dispatchEvent(new KeyboardEvent('keyup', ctrlEnterInit)); } catch (_) {}
+    let confirmedViaCtrlEnter = await confirmPerplexitySend(900, false);
+
     // Current Perplexity exposes a unique localized Send control only after the
     // Lexical editor has committed the draft. prepare() already proves that
     // control exists, so click it natively first. Enter is a bounded fallback
     // for layouts where the control disappears between preparation and CDP.
     activity.heartbeat(0.4, { phase: 'trusted-send-control' });
     reportStage('send_action_requested');
-    const trustedSend = await new Promise((resolve) => {
+    if (confirmedViaCtrlEnter) {
+      reportStage('send_action_completed', { outcome: 'confirmed', method: 'ctrl_enter' });
+      activity.heartbeat(0.55, { phase: 'send-dispatched' });
+    }
+    const trustedSend = confirmedViaCtrlEnter ? null : await new Promise((resolve) => {
       chrome.runtime.sendMessage({
         type: 'PROVIDER_TRUSTED_SEND_REQUEST',
         llmName: MODEL,
@@ -1714,7 +1737,7 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
         else resolve(response || { ok: false, reason: 'empty_response' });
       });
     });
-    let confirmed = trustedSend?.ok && await confirmPerplexitySend(6000, true);
+    let confirmed = confirmedViaCtrlEnter || (trustedSend?.ok && await confirmPerplexitySend(6000, true));
     let trustedEnter = null;
     if (!confirmed && findLivePromptComposer()) {
       activity.heartbeat(0.43, { phase: 'trusted-composer-enter-fallback' });
@@ -1738,11 +1761,13 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
       });
       throw {
         type: 'send_failed',
-        message: `Perplexity submit not confirmed: click=${trustedSend?.reason || 'no_send_evidence'}, enter=${trustedEnter?.reason || 'not_attempted'}`
+        message: `Perplexity submit not confirmed: ctrl_enter=unconfirmed, click=${trustedSend?.reason || 'no_send_evidence'}, enter=${trustedEnter?.reason || 'not_attempted'}`
       };
     }
-    reportStage('send_action_completed', { outcome: 'confirmed' });
-    activity.heartbeat(0.55, { phase: 'send-dispatched' });
+    if (!confirmedViaCtrlEnter) {
+      reportStage('send_action_completed', { outcome: 'confirmed' });
+      activity.heartbeat(0.55, { phase: 'send-dispatched' });
+    }
     try { chrome.runtime.sendMessage({ type: 'PROMPT_SUBMITTED', llmName: MODEL, ts: Date.now(), meta: dispatchMeta }); } catch (_) {}
     window.ContentUtils?.reportProviderPipelineState?.(MODEL, dispatchMeta, 'composer', false);
     window.ContentUtils?.reportProviderPipelineState?.(MODEL, dispatchMeta, 'answer_collection', true);

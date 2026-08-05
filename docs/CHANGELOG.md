@@ -1,5 +1,29 @@
 # CHANGELOG — Project
 
+### 2026-08-05 — Grok and Perplexity try Ctrl+Enter first, version 2.81.289
+
+Ported Le Chat's Ctrl+Enter-first contract to the other two providers that did
+not already have it — ChatGPT and Gemini already tried Ctrl+Enter before their
+other strategies and needed no change.
+
+- Grok: reordered from button → Ctrl+Enter → Enter to Ctrl+Enter → button →
+  Enter, on both the main dispatch path and the send-only recovery path. The
+  downstream posted-turn verification (`waitForGrokSubmittedPrompt`) is
+  unchanged and still runs regardless of which method dispatched.
+- Perplexity: added a bounded (900ms) synthetic Ctrl+Enter attempt ahead of
+  the debugger-backed trusted Send. The 2026-07-30 field regression found
+  Perplexity's Lexical editor usually ignores synthetic keyboard events
+  entirely — that is why the trusted CDP path exists — so this is not
+  expected to succeed on every build, but costs under a second when it does
+  not, and skips a debugger attach entirely on builds where Lexical does
+  honor it. The existing fail-closed confirmation oracle means a no-op
+  keypress cannot be mistaken for a send.
+- Fixed a bug hit during that Perplexity change: `trustedSend` becomes `null`
+  when Ctrl+Enter already confirmed, and `null?.ok` is falsy, so a naive
+  `confirmed = trustedSend?.ok && ...` would have silently discarded a real
+  Ctrl+Enter confirmation. `confirmed` now starts from
+  `confirmedViaCtrlEnter` explicitly.
+
 ### 2026-08-05 — submitMethod dropped by the ledger's own key-suffix allowlist, version 2.81.287
 
 Three straight exports carried `submitEvidence` but never `submitMethod` on

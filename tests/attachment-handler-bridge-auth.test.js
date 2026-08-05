@@ -355,7 +355,7 @@ describe('attachment bridge authentication', () => {
     expect(orchestrator.indexOf('const providerPipelineActive')).toBeLessThan(orchestrator.indexOf("canRepairDispatchInRound2(llmName)"));
   });
 
-  test('Le Chat and Perplexity use the only enabled sender-gated debugger routes', () => {
+  test('Le Chat, Perplexity and Kimi use the only enabled sender-gated debugger routes', () => {
     const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'manifest.json'), 'utf8'));
     expect(manifest.permissions).toContain('debugger');
     expect(PROVIDER_SOURCES['Le Chat']).toContain("type: 'PROVIDER_TRUSTED_SEND_REQUEST'");
@@ -364,10 +364,12 @@ describe('attachment bridge authentication', () => {
     expect(ROUTER_SRC).toContain("model === 'Le Chat' && /^https:\\/\\/chat\\.mistral\\.ai\\//i.test(senderUrl)");
     expect(ROUTER_SRC).toContain("model === 'Perplexity' && /^https:\\/\\/(?:www\\.)?perplexity\\.ai\\//i.test(senderUrl)");
     expect(ROUTER_SRC).toContain("case 'PERPLEXITY_TRUSTED_ENTER_REQUEST'");
+    expect(ROUTER_SRC).toContain("case 'KIMI_TRUSTED_SEND_REQUEST'");
+    expect(ROUTER_SRC).toContain("!/^https:\\/\\/(?:www\\.)?kimi\\.com\\//i.test(senderUrl)");
     expect(ROUTER_SRC).toContain("'PROVIDER_TRUSTED_SEND_FAILED'");
     expect(ROUTER_SRC).toContain("'PROVIDER_TRUSTED_ENTER_FAILED'");
     expect(ROUTER_SRC).toContain("debuggerApiAvailable: typeof chrome.debugger?.attach === 'function'");
-    expect(ROUTER_SRC).toContain("const ENABLED_DEBUGGER_RPC_TYPES = new Set([\n    'PROVIDER_TRUSTED_SEND_REQUEST',\n    'PERPLEXITY_TRUSTED_ENTER_REQUEST'");
+    expect(ROUTER_SRC).toContain("const ENABLED_DEBUGGER_RPC_TYPES = new Set([\n    'PROVIDER_TRUSTED_SEND_REQUEST',\n    'KIMI_TRUSTED_SEND_REQUEST',\n    'PERPLEXITY_TRUSTED_ENTER_REQUEST'");
     expect(ROUTER_SRC).toContain("reason: 'debugger_route_disabled'");
   });
 
@@ -403,6 +405,40 @@ describe('attachment bridge authentication', () => {
     expect(source).not.toContain('composerText.length <= Math.max(1, Math.floor(beforeTextLength * 0.1))');
     expect(source).toContain('trustedBrowserDispatch');
     expect(source).toContain('ProviderSubmitConfirmation');
+  });
+
+  // 2026-08-05: Grok and Perplexity ported to the same Ctrl+Enter-first
+  // contract as Le Chat, per user request. ChatGPT and Gemini already tried
+  // Ctrl+Enter first and needed no change.
+  test('Grok tries Ctrl+Enter before the send button on both the main dispatch and send-only recovery paths', () => {
+    const source = PROVIDER_SOURCES.Grok;
+    const mainCommitAt = source.indexOf('const committedComposer = await waitForGrokComposerCommit');
+    const mainCtrlEnterAt = source.indexOf("dispatchSuccess = await attemptSendViaCtrlEnter(composer)", mainCommitAt);
+    const mainButtonAt = source.indexOf("dispatchSuccess = await attemptSendViaButton(sendBtn, composer)", mainCommitAt);
+    expect(mainCtrlEnterAt).toBeGreaterThan(mainCommitAt);
+    expect(mainButtonAt).toBeGreaterThan(mainCtrlEnterAt);
+
+    const recoveryAt = source.indexOf('async function recoverGrokSendOnly');
+    const recoveryCtrlEnterAt = source.indexOf('dispatched = await attemptSendViaCtrlEnter(composer)', recoveryAt);
+    const recoveryButtonAt = source.indexOf('attemptSendViaButton(button, composer)', recoveryAt);
+    expect(recoveryAt).toBeGreaterThan(-1);
+    expect(recoveryCtrlEnterAt).toBeGreaterThan(recoveryAt);
+    expect(recoveryButtonAt).toBeGreaterThan(recoveryCtrlEnterAt);
+  });
+
+  test('Perplexity tries a bounded synthetic Ctrl+Enter before attaching the debugger for trusted Send', () => {
+    const source = PROVIDER_SOURCES.Perplexity;
+    const ctrlEnterAt = source.indexOf("let confirmedViaCtrlEnter = await confirmPerplexitySend(900, false)");
+    const trustedAt = source.indexOf("type: 'PROVIDER_TRUSTED_SEND_REQUEST'");
+    expect(ctrlEnterAt).toBeGreaterThan(-1);
+    expect(trustedAt).toBeGreaterThan(ctrlEnterAt);
+    // The debugger-backed request must be skipped entirely once Ctrl+Enter
+    // already confirmed the send, not merely raced against it.
+    expect(source).toContain('const trustedSend = confirmedViaCtrlEnter ? null : await new Promise');
+    // A ctrl_enter confirmation must not be discarded when trustedSend is null
+    // (this was a live bug during development: `trustedSend?.ok` on a null
+    // trustedSend evaluates falsy and silently overwrote a real confirmation).
+    expect(source).toContain('let confirmed = confirmedViaCtrlEnter || (trustedSend?.ok');
   });
 
   test('Gemini waits for the background CDP result and fails before UI confirmation when dispatch fails', () => {

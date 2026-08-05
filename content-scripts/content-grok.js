@@ -2268,10 +2268,15 @@
           }
         }
 
-        let sendMethod = 'button';
+        let sendMethod = 'ctrl_enter';
         let dispatchSuccess = false;
         reportStage('send_action_requested');
-        if (sendBtn && !sendBtn.disabled) {
+        // Ctrl+Enter first: once a prompt is committed to the composer, Grok's
+        // own shortcut submits it without depending on the send button's
+        // enabled state or on a selector lookup having found it at all.
+        dispatchSuccess = await attemptSendViaCtrlEnter(composer);
+
+        if (!dispatchSuccess && sendBtn && !sendBtn.disabled) {
           emitDiagnostic({
             type: 'SELECTOR',
             label: 'Send button found',
@@ -2287,7 +2292,8 @@
             }
           }
           dispatchSuccess = await attemptSendViaButton(sendBtn, composer);
-        } else {
+          if (dispatchSuccess) sendMethod = 'button';
+        } else if (!dispatchSuccess) {
           emitDiagnostic({
             type: 'SELECTOR',
             label: 'Send button not found; using keyboard fallback',
@@ -2295,10 +2301,6 @@
           });
         }
 
-        if (!dispatchSuccess) {
-          sendMethod = 'ctrl_enter';
-          dispatchSuccess = await attemptSendViaCtrlEnter(composer);
-        }
         if (!dispatchSuccess) {
           dispatchSuccess = await attemptSendViaEnter(composer);
           if (dispatchSuccess) {
@@ -2592,12 +2594,12 @@
     reportStage('send_only_recovery_started', { composerVisible: true, composerConnected: true });
     try {
       const baseline = grabLatestGrokUserMessage();
-      let method = 'button';
-      let button = await fallbackFindSendButton(composer, 1200);
-      let dispatched = Boolean(button && !button.disabled) && await attemptSendViaButton(button, composer);
+      let method = 'ctrl_enter';
+      let dispatched = await attemptSendViaCtrlEnter(composer);
       if (!dispatched && normalizeForComparison(readComposerValue(composer)) === expected) {
-        method = 'ctrl_enter';
-        dispatched = await attemptSendViaCtrlEnter(composer);
+        method = 'button';
+        const button = await fallbackFindSendButton(composer, 1200);
+        dispatched = Boolean(button && !button.disabled) && await attemptSendViaButton(button, composer);
       }
       if (!dispatched) {
         reportStage('send_only_recovery_failed', { outcome: 'failed', reason: method });
