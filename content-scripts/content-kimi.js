@@ -148,28 +148,63 @@
     return { text, html, node };
   };
 
-  // Lexical ignores a plain textContent assignment, so the fallback replays the
-  // insertText command on a focused, cleared composer.
+  const requestTrustedInput = (text) => new Promise((resolve) => {
+    const isMac = /mac/i.test(navigator.platform || navigator.userAgent || '');
+    try {
+      chrome.runtime.sendMessage({ type: 'KIMI_TRUSTED_INPUT_REQUEST', llmName: MODEL, text, isMac }, (response) => {
+        if (chrome.runtime.lastError) resolve({ ok: false, reason: chrome.runtime.lastError.message });
+        else resolve(response || { ok: false, reason: 'empty_response' });
+      });
+    } catch (err) {
+      resolve({ ok: false, reason: err?.message || String(err) });
+    }
+  });
+
+  // Confirmed against the live page: once Lexical already holds committed
+  // content, execCommand('selectAll')+('delete') is not reliable — it can
+  // silently no-op, leaving the next insertText to append rather than
+  // replace, which is how a retry duplicates the draft instead of fixing it.
+  // A CDP-dispatched Cmd/Ctrl+A + Input.insertText is a genuinely trusted
+  // select-and-replace (the same operation a real keystroke performs) and
+  // reliably clears whatever is there first, so it also cleans up any
+  // duplication pasteTextFirst's own attempts may have left behind.
   const insertPrompt = async (composer, prompt) => {
     composer.focus?.();
     const pasted = window.ContentUtils?.pasteTextFirst
       ? await window.ContentUtils.pasteTextFirst(composer, prompt)
       : false;
     if (pasted) return;
-    try {
-      const doc = composer.ownerDocument || document;
-      doc.execCommand?.('selectAll', false, null);
-      doc.execCommand?.('delete', false, null);
-      doc.execCommand?.('insertText', false, prompt);
-    } catch (_) {}
-    await sleep(150);
-    if (!readComposerText(composer)) {
-      composer.textContent = prompt;
-      composer.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, inputType: 'insertText', data: prompt }));
-    }
+    await requestTrustedInput(prompt);
   };
 
+  const waitForSendConfirmation = async (composer, beforeUserTurns, timeoutMs) => {
+    const deadline = Date.now() + timeoutMs;
+    while (!stopped && Date.now() < deadline) {
+      const value = readComposerText(composer);
+      const userTurns = document.querySelectorAll(USER_TURN_SELECTOR).length;
+      if (!value || userTurns > beforeUserTurns || isGenerating()) return true;
+      await sleep(120);
+    }
+    return false;
+  };
+
+  const requestTrustedSend = () => new Promise((resolve) => {
+    try {
+      chrome.runtime.sendMessage({ type: 'KIMI_TRUSTED_SEND_REQUEST', llmName: MODEL }, (response) => {
+        if (chrome.runtime.lastError) resolve({ ok: false, reason: chrome.runtime.lastError.message });
+        else resolve(response || { ok: false, reason: 'empty_response' });
+      });
+    } catch (err) {
+      resolve({ ok: false, reason: err?.message || String(err) });
+    }
+  });
+
   const sendPrompt = async (composer) => {
+    // Confirmed against the live page: neither Enter nor Ctrl+Enter submits
+    // this composer, trusted keystrokes included — Send only reacts to a
+    // click. A synthetic in-page click reaches the Vue handler in some
+    // states but not reliably once logged in, so try it first (cheap, no
+    // debugger banner) and fall through to a real CDP-dispatched click.
     const beforeUserTurns = document.querySelectorAll(USER_TURN_SELECTOR).length;
     let button = findFirst(SEND_SELECTORS);
     if (button?.classList?.contains('disabled') || button?.disabled) {
@@ -178,17 +213,11 @@
     }
     if (button && !button.disabled && !button.classList?.contains('disabled')) {
       button.click();
-    } else {
-      composer.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
-      composer.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
     }
-    const deadline = Date.now() + 5000;
-    while (!stopped && Date.now() < deadline) {
-      const value = readComposerText(composer);
-      const userTurns = document.querySelectorAll(USER_TURN_SELECTOR).length;
-      if (!value || userTurns > beforeUserTurns || isGenerating()) return true;
-      await sleep(120);
-    }
+    if (await waitForSendConfirmation(composer, beforeUserTurns, 1500)) return true;
+
+    const trusted = await requestTrustedSend();
+    if (trusted?.ok && await waitForSendConfirmation(composer, beforeUserTurns, 4000)) return true;
     return false;
   };
 

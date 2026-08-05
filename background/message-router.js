@@ -60,6 +60,8 @@ const DEBUGGER_RPC_TYPES = new Set([
     'GROK_TRUSTED_INPUT_REQUEST',
     'LECHAT_TRUSTED_SEND_REQUEST',
     'PROVIDER_TRUSTED_SEND_REQUEST',
+    'KIMI_TRUSTED_SEND_REQUEST',
+    'KIMI_TRUSTED_INPUT_REQUEST',
     'PERPLEXITY_TRUSTED_ENTER_REQUEST',
     'PERPLEXITY_TRUSTED_INPUT_REQUEST',
     'PROVIDER_TRUSTED_INPUT_REQUEST',
@@ -75,6 +77,8 @@ const DEBUGGER_RPC_TYPES = new Set([
 // cannot do when the editor ignores it.
 const ENABLED_DEBUGGER_RPC_TYPES = new Set([
     'PROVIDER_TRUSTED_SEND_REQUEST',
+    'KIMI_TRUSTED_SEND_REQUEST',
+    'KIMI_TRUSTED_INPUT_REQUEST',
     'PERPLEXITY_TRUSTED_ENTER_REQUEST',
     'PERPLEXITY_TRUSTED_INPUT_REQUEST'
 ]);
@@ -882,6 +886,46 @@ async function dispatchProviderTrustedSend(tabId, model, expectedText = '') {
             meta: { tabId, control: clicked.descriptor || null }
         });
         return { ok: true, method: 'cdp_send_control_click', control: clicked.descriptor || null };
+        } finally {
+            if (objectId) try { await callChromeDebugger('sendCommand', target, 'Runtime.releaseObject', { objectId }); } catch (_) {}
+        }
+    });
+}
+
+// Kimi's Send control is a plain <div class="send-button-container"> with no
+// role="button" and no text label, and neither Enter nor Ctrl+Enter submits
+// on this composer (confirmed against the live page: both are no-ops even as
+// genuine, OS-level trusted keystrokes) — the button click is the only send
+// path. buildProviderSendControlExpression's generic role/label scoring also
+// requires the composer's live text to exactly match expectedText, which is
+// one more thing to get wrong; querying Kimi's own known selector directly is
+// more reliable than routing through that generic matcher.
+async function dispatchKimiTrustedSend(tabId) {
+    if (!Number.isInteger(tabId) || tabId <= 0) throw new Error('invalid_tab');
+    return withManagedDebuggerSession(tabId, 'kimi_trusted_send', async (target) => {
+        let objectId = null;
+        try {
+            await callChromeDebugger('sendCommand', target, 'Runtime.enable');
+            await callChromeDebugger('sendCommand', target, 'DOM.enable');
+            await bringToFrontUnlessUserIsElsewhere(target);
+            const evaluated = await callChromeDebugger('sendCommand', target, 'Runtime.evaluate', {
+                expression: `(() => {
+                  const visible = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+                  const candidates = Array.from(document.querySelectorAll('.send-button-container'))
+                    .filter((el) => visible(el) && !/(^|\\s)(disabled|is-disabled|stop)(\\s|$)/i.test(el.className || ''));
+                  return candidates[0] || null;
+                })()`,
+                returnByValue: false, awaitPromise: false
+            });
+            objectId = evaluated?.result?.objectId || null;
+            if (!objectId) throw new Error('kimi_send_control_not_found');
+            const clicked = await trustedClickDebuggerObject(target, objectId);
+            if (!clicked?.clicked) throw new Error('kimi_trusted_send_click_failed');
+            emitTelemetry('Kimi', 'PROVIDER_TRUSTED_SEND_CLICKED', {
+                details: 'kimi send-button-container', force: true,
+                meta: { tabId, control: clicked.descriptor || null }
+            });
+            return { ok: true, method: 'cdp_kimi_send_click', control: clicked.descriptor || null };
         } finally {
             if (objectId) try { await callChromeDebugger('sendCommand', target, 'Runtime.releaseObject', { objectId }); } catch (_) {}
         }
@@ -2167,6 +2211,41 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                         });
                         sendResponse({ ok: false, reason });
                     });
+                return true;
+            }
+
+            case 'KIMI_TRUSTED_SEND_REQUEST': {
+                const tabId = sender?.tab?.id;
+                const senderUrl = String(sender?.tab?.url || sender?.url || '');
+                if (!tabId || !/^https:\/\/(?:www\.)?kimi\.com\//i.test(senderUrl)) {
+                    sendResponse({ ok: false, reason: 'untrusted_sender' });
+                    break;
+                }
+                dispatchKimiTrustedSend(tabId)
+                    .then(sendResponse)
+                    .catch((err) => {
+                        const reason = err?.message || 'trusted_send_failed';
+                        emitTelemetry('Kimi', 'PROVIDER_TRUSTED_SEND_FAILED', {
+                            level: 'error',
+                            details: reason,
+                            meta: { tabId, debuggerApiAvailable: typeof chrome.debugger?.attach === 'function' },
+                            force: true
+                        });
+                        sendResponse({ ok: false, reason });
+                    });
+                return true;
+            }
+
+            case 'KIMI_TRUSTED_INPUT_REQUEST': {
+                const tabId = sender?.tab?.id;
+                const senderUrl = String(sender?.tab?.url || sender?.url || '');
+                if (!tabId || !/^https:\/\/(?:www\.)?kimi\.com\//i.test(senderUrl)) {
+                    sendResponse({ ok: false, reason: 'untrusted_sender' });
+                    break;
+                }
+                dispatchProviderTrustedInput(tabId, 'Kimi', String(message.text || ''), message.isMac === true)
+                    .then(sendResponse)
+                    .catch((err) => sendResponse({ ok: false, reason: err?.message || 'trusted_input_failed' }));
                 return true;
             }
 

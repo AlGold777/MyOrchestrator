@@ -369,7 +369,7 @@ describe('attachment bridge authentication', () => {
     expect(ROUTER_SRC).toContain("'PROVIDER_TRUSTED_SEND_FAILED'");
     expect(ROUTER_SRC).toContain("'PROVIDER_TRUSTED_ENTER_FAILED'");
     expect(ROUTER_SRC).toContain("debuggerApiAvailable: typeof chrome.debugger?.attach === 'function'");
-    expect(ROUTER_SRC).toContain("const ENABLED_DEBUGGER_RPC_TYPES = new Set([\n    'PROVIDER_TRUSTED_SEND_REQUEST',\n    'KIMI_TRUSTED_SEND_REQUEST',\n    'PERPLEXITY_TRUSTED_ENTER_REQUEST'");
+    expect(ROUTER_SRC).toContain("const ENABLED_DEBUGGER_RPC_TYPES = new Set([\n    'PROVIDER_TRUSTED_SEND_REQUEST',\n    'KIMI_TRUSTED_SEND_REQUEST',\n    'KIMI_TRUSTED_INPUT_REQUEST',\n    'PERPLEXITY_TRUSTED_ENTER_REQUEST'");
     expect(ROUTER_SRC).toContain("reason: 'debugger_route_disabled'");
   });
 
