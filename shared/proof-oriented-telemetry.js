@@ -143,6 +143,9 @@
 
   const RUNTIME_TYPED_FACTS = Object.freeze({
     COMMAND_SEND_ERROR: { kind: 'submission', state: 'failed' },
+    // Partial by construction: the adapter observed its own send. Only
+    // PROMPT_SUBMITTED_ACCEPTED may state 'confirmed'.
+    PROVIDER_SUBMIT_METHOD_OBSERVED: { kind: 'submission', state: 'evidence_partial' },
     PROMPT_INSERTION_FAILED: { kind: 'prompt_insertion', state: 'failed' },
     PROMPT_INSERTION_CONFIRMED: { kind: 'prompt_insertion', state: 'inserted' },
     SEND_DEFERRED_TRANSIENT_BLOCKER: { kind: 'submission', state: 'deferred' },

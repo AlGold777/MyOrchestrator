@@ -27,6 +27,11 @@ not say which control had sent it.
   per-strategy attempt log) and carried on `PROMPT_SUBMITTED_ACCEPTED` /
   `PROMPT_SUBMITTED_UNCONFIRMED` as `submitMethod` / `submitEvidence`. Both new
   labels are pinned so they survive telemetry buffer trimming.
+- The method reaches every export format. Canonical evidence and Full forensic
+  embed the raw event; Digest reads the source label explicitly, since its
+  canonical type `SUBMISSION_EVIDENCE_CHANGED` is an ignored type there and the
+  method would otherwise be dropped. It renders as a `WHAT SUBMITTED THE PROMPT`
+  section with the per-strategy attempt chain.
 
 ### 2026-08-05 — Fit ten providers in the header row, version 2.81.285
 

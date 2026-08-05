@@ -18,6 +18,7 @@ const SECTIONS = Object.freeze({
   MODELS: 'models',
   STALE: 'stale',
   LEASES: 'leases',
+  SUBMIT: 'submit',
   BLOCKERS: 'blockers',
   TABS: 'tabs',
   EXCEPTIONS: 'exceptions',
@@ -82,6 +83,7 @@ function buildDigest(doc) {
   const terminals = [];
   const leases = [];
   const failedRules = new Map();
+  const submits = [];
   const tabEvents = [];
   const exceptions = [];
   const unknownTypes = new Map();
@@ -146,6 +148,19 @@ function buildDigest(doc) {
         break;
     }
     const label = String((event.payload && event.payload.sourceEventType) || '');
+    // Which control actually submitted the prompt. Its canonical type
+    // (SUBMISSION_EVIDENCE_CHANGED) is ignored wholesale above because most of
+    // its instances are routine, but "what sent this?" is a digest-level fact:
+    // it is the difference between a send that failed and one that was never
+    // made, and it is the first thing asked when a run ends UNCERTAIN.
+    if (label === 'PROVIDER_SUBMIT_METHOD_OBSERVED') {
+      submits.push({
+        model: event.modelId,
+        method: meta.submitMethod || null,
+        evidence: meta.submitEvidence || null,
+        attempts: Array.isArray(meta.attempts) ? meta.attempts : []
+      });
+    }
     if (/TAB_ISOLATION_FALLBACK_CREATE|SOFT_REUSE_BLOCKER_OVERRIDDEN|UNSAFE_REUSE_SKIPPED/.test(label)) {
       tabEvents.push({ model: event.modelId, label, reason: meta.reason ?? null, tabId: meta.tabId ?? null });
     }
@@ -174,6 +189,7 @@ function buildDigest(doc) {
     [SECTIONS.MODELS]: terminals,
     [SECTIONS.STALE]: stale,
     [SECTIONS.LEASES]: leases,
+    [SECTIONS.SUBMIT]: submits,
     [SECTIONS.BLOCKERS]: [...failedRules.entries()]
       .map(([ruleId, models]) => ({ ruleId, models: [...models].sort() }))
       .sort((a, b) => b.models.length - a.models.length),
@@ -206,7 +222,8 @@ function renderReaderContract(digest) {
   lines.push('');
   lines.push('It carries: run scope and session identity, per-model terminal status and');
   lines.push('reason, answers that match text already on the page, focus leases below');
-  lines.push('minUsefulMs, failed decision rules, tab-reuse events, and every exception');
+  lines.push('minUsefulMs, failed decision rules, the control that submitted each');
+  lines.push('prompt, tab-reuse events, and every exception');
   lines.push(`event (${coverage.exceptionsCarried} of ${coverage.totalEvents} events in this run).`);
   lines.push('');
   if (coverage.omittedTypes.length) {
@@ -266,6 +283,15 @@ function render(digest) {
   if (starved.length) {
     lines.push('FOCUS LEASES BELOW minUsefulMs');
     for (const l of starved) lines.push(`  ${l.model.padEnd(11)} ${l.durationMs}ms < ${l.minUsefulMs}ms (${l.reason})`);
+    lines.push('');
+  }
+
+  if (digest[SECTIONS.SUBMIT].length) {
+    lines.push('WHAT SUBMITTED THE PROMPT');
+    for (const s of digest[SECTIONS.SUBMIT]) {
+      const attempts = s.attempts.length ? ` · ${s.attempts.join(' → ')}` : '';
+      lines.push(`  ${String(s.model).padEnd(11)} ${String(s.method).padEnd(14)} evidence=${s.evidence}${attempts}`);
+    }
     lines.push('');
   }
 
