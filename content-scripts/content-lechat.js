@@ -1583,7 +1583,9 @@ const hydrateAttachments = (raw = []) =>
           reportSubmitMethod('none', 'none', sendError?.attempts || []);
           throw sendError;
         }
-        reportSubmitMethod(submitOutcome?.method, submitOutcome?.evidence, submitOutcome?.attempts);
+        const submitMethod = submitOutcome?.method || 'unknown';
+        const submitEvidence = submitOutcome?.evidence || 'none';
+        reportSubmitMethod(submitMethod, submitEvidence, submitOutcome?.attempts);
         activity.heartbeat(0.6, { phase: 'send-dispatched' });
         try {
           chrome.runtime.sendMessage({
@@ -1593,9 +1595,9 @@ const hydrateAttachments = (raw = []) =>
             // `confirmed: false` routes the background to
             // PROMPT_SUBMITTED_UNCONFIRMED instead of claiming a proven send.
             meta: Object.assign({}, dispatchMeta, {
-              confirmed: submitOutcome?.evidence === 'direct',
-              submitMethod: submitOutcome?.method || 'unknown',
-              submitEvidence: submitOutcome?.evidence || 'none'
+              confirmed: submitEvidence === 'direct',
+              submitMethod,
+              submitEvidence
             })
           });
         } catch (_) {}

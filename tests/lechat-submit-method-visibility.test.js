@@ -41,13 +41,15 @@ describe('Le Chat submit method visibility', () => {
     expect(LECHAT).toMatch(/if \(sawIndirectEvidence\) \{[\s\S]*?skipped_composer_consumed/);
     // Indirect evidence must never be upgraded to a confirmed submission.
     expect(LECHAT).toMatch(/evidence: 'indirect'/);
-    expect(LECHAT).toMatch(/confirmed: submitOutcome\?\.evidence === 'direct'/);
+    expect(LECHAT).toMatch(/confirmed: submitEvidence === 'direct'/);
   });
 
   test('the submitting control is reported to telemetry on success and failure', () => {
     expect(LECHAT).toContain("event: 'PROVIDER_SUBMIT_METHOD_OBSERVED'");
     expect(LECHAT).toMatch(/reportSubmitMethod\('none', 'none'/);
-    expect(LECHAT).toMatch(/reportSubmitMethod\(submitOutcome\?\.method/);
+    // After fix: submitMethod is pre-assigned to handle undefined case safely
+    expect(LECHAT).toMatch(/const submitMethod = submitOutcome\?\.method \|\| 'unknown'/);
+    expect(LECHAT).toMatch(/reportSubmitMethod\(submitMethod, submitEvidence/);
   });
 
   test('the submit method survives into the proof ledger', () => {
