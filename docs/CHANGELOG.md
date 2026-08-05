@@ -1,5 +1,23 @@
 # CHANGELOG — Project
 
+### 2026-08-05 — submitMethod dropped by the ledger's own key-suffix allowlist, version 2.81.287
+
+Three straight exports carried `submitEvidence` but never `submitMethod` on
+`PROVIDER_SUBMIT_METHOD_OBSERVED`, even after the adapter side was verified,
+patched twice, and re-verified. The field was never lost by the adapter —
+`background/proof-telemetry-ledger.js`'s `compactProofMetadata` strips any
+metadata key whose name does not end in one of a fixed set of suffixes
+(`hash`, `count`, `mode`, `evidence`, `source`, ... — deliberately restrictive,
+since this is the metadata-only privacy boundary). `submitEvidence` passed
+only because it happens to end in "evidence"; `submitMethod` ends in "Method",
+which was not on the list, so it was dropped before ever reaching a digest or
+export, regardless of what the content script sent.
+
+- Added `submitMethod` to the ledger's `proofIdentityKeys` allowlist.
+- Added a ledger-level regression test recording the same event shape and
+  asserting both fields survive — this is a chokepoint every metadata field
+  passes through, so the previous adapter-level tests could not catch it.
+
 ### 2026-08-05 — Le Chat: Ctrl+Enter first, and provable submit, version 2.81.286
 
 Run 1785914453420: the prompt was inserted and visibly sent, yet the run ended

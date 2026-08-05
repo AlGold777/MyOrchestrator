@@ -769,4 +769,32 @@ describe('native proof telemetry ledger', () => {
     expect(identity.payload.answerIdentity).toBe('ambiguous');
     expect(identity.evidenceRefs).toHaveLength(1);
   });
+
+  // 2026-08-05 field report: PROVIDER_SUBMIT_METHOD_OBSERVED carried
+  // submitEvidence into three exports in a row but never submitMethod. The
+  // adapter was sending it correctly the whole time — compactProofMetadata's
+  // key-suffix allowlist here in the ledger just had no suffix covering
+  // "...Method", so it was dropped before ever reaching the digest or export.
+  // submitEvidence survived only because it happens to end in "evidence".
+  test('submitMethod survives compaction alongside submitEvidence', async () => {
+    await global.ProofTelemetryLedger.beginRun(7, { wallTs: 1000, expectedModels: ['Le Chat'] });
+    await global.ProofTelemetryLedger.record({
+      ts: 1500,
+      label: 'PROVIDER_SUBMIT_METHOD_OBSERVED',
+      level: 'info',
+      meta: {
+        runSessionId: 7,
+        dispatchId: 'Le Chat:7:1',
+        llmName: 'Le Chat',
+        submitMethod: 'ctrl_enter',
+        submitEvidence: 'direct',
+        reason: 'ctrl_enter/direct',
+        source: 'lechat:send'
+      }
+    }, 'Le Chat');
+    const snapshot = await global.ProofTelemetryLedger.snapshot({ runSessionId: 7 });
+    const event = snapshot.events.find((e) => e.payload.sourceEventType === 'PROVIDER_SUBMIT_METHOD_OBSERVED');
+    expect(event.payload.metadata.submitMethod).toBe('ctrl_enter');
+    expect(event.payload.metadata.submitEvidence).toBe('direct');
+  });
 });

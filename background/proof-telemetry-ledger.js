@@ -232,7 +232,13 @@
     const structuredKeys = new Set(['checkedAtLocalMonoMs']);
     const proofIdentityKeys = new Set([
       'attemptId', 'payloadEvidenceId', 'expectedCardId', 'observedCardId',
-      'evaluationBoundaryId', 'sourceRevisionId', 'decisionId'
+      'evaluationBoundaryId', 'sourceRevisionId', 'decisionId',
+      // submitMethod ends in neither "evidence" nor any other proofKey suffix
+      // below, so it was silently dropped here before ever reaching the
+      // digest or export — 2026-08-05 field report: three round-trips of
+      // "still not in the telemetry" traced back to this allowlist, not to
+      // the adapter, which had been sending the field correctly the whole time.
+      'submitMethod'
     ]);
     const proofKey = /(?:hash|length|len|count|status|state|outcome|step|phase|reasons?|mode|tier|coverage|verified|visible|active|discarded|health|mutation|attempt|deadline|timeout|duration|delay|skew|growth|candidate|answerIdentity|finalStatus|terminalStatus|finishReason|decisionAccepted|promotedFromPending|promotedStagingIngestSeq|dispatchId|answerEvidenceDispatchId|priorIncidentRef|evidence|source|signal|version|ms)$/i;
     const compact = {};
