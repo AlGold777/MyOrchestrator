@@ -968,7 +968,7 @@
     // confirmation timeout, so the per-provider timeoutMs was really a per-vector
     // cost: Qwen's 45 s became 135 s across qwen-cdp → input:bridge → input:content,
     // and the caller sat through a two-minute stall before a hard attachment
-    // failure. Every vector now draws a slice of one shared deadline, and time a
+    // failure. Every vector now draws a slice of one budget, and time a
     // fast-failing vector leaves unused rolls forward to the vectors after it.
     // 'drop'/'paste'/'input' each expand to a bridge and a content vector.
     const cascadeVectorCount = strategies.reduce((count, name) => (
@@ -977,8 +977,27 @@
     const cascadeBudgetMs = config.scaleTimeoutByFileCount === false
       ? (config.timeoutMs || DEFAULT_TIMEOUT_MS)
       : (config.timeoutMs || DEFAULT_TIMEOUT_MS) * Math.max(1, expectedCount);
-    const cascadeDeadline = Date.now() + cascadeBudgetMs;
+    // The budget bounds how long we WAIT FOR EVIDENCE, not total elapsed time. A
+    // wall-clock deadline taken at entry also charged the dispatch itself, and a
+    // CDP dispatch materializes the file to disk, opens a debugger session and can
+    // probe for an upload trigger a dozen times. Run 1786138588032: Qwen inserted
+    // neither the file nor the prompt, because dispatch had eaten enough of the
+    // deadline that every remaining slice fell under Qwen's own 10 s
+    // inputEvidenceSettleMs — confirmation was arithmetically impossible, all three
+    // vectors failed, and the hard attachment gate then blocked prompt insertion.
+    let confirmSpentMs = 0;
     let vectorsRemaining = cascadeVectorCount;
+    // A slice shorter than the settle the provider demands can never confirm, so
+    // the floor has to clear it. Otherwise the budget guarantees the failure it is
+    // supposed to be bounding.
+    const requiredSettleMs = Math.max(
+      Number(config.settleMs || 0),
+      Number(config.inputEvidenceSettleMs || 0)
+    );
+    const minConfirmSliceMs = Math.max(
+      CASCADE_MIN_CONFIRM_SLICE_MS,
+      requiredSettleMs + 2 * (config.pollMs || DEFAULT_POLL_MS)
+    );
 
     // Run one delivery vector. A successful dispatch is confirmed first (clean
     // success when confirmSelectors match). When confirmOptional, a dispatch that
@@ -999,7 +1018,8 @@
         expectedCount,
         baselineState,
         cascadeBudgetMs,
-        cascadeRemainingMs: Math.max(0, cascadeDeadline - Date.now()),
+        cascadeRemainingMs: Math.max(0, cascadeBudgetMs - confirmSpentMs),
+        minConfirmSliceMs,
         vectorsLeftAfterThis
       });
       // A strategy that throws must not abort the remaining strategies: a missing
@@ -1049,18 +1069,20 @@
       if (config.dispatchEvidenceSettleMs && config.dispatchIsEvidence === true) {
         await sleep(Math.max(0, Number(config.dispatchEvidenceSettleMs)));
       }
-      // Share what is left of the cascade budget with the vectors still to come.
-      // The floor keeps a late vector from being handed an unusable few hundred
-      // milliseconds, and is itself capped by the remaining budget so the floor can
-      // never push the cascade past its shared deadline.
-      const cascadeRemainingMs = Math.max(0, cascadeDeadline - Date.now());
+      // Share what is left of the budget with the vectors still to come. The floor
+      // clears the provider's own settle requirement, so a slice is always long
+      // enough for confirmation to be possible at all, and unused time from a
+      // fast-failing vector rolls forward. Only confirmation waiting is charged.
+      const cascadeRemainingMs = Math.max(0, cascadeBudgetMs - confirmSpentMs);
       const confirmBudgetMs = Math.min(
         cascadeRemainingMs,
         vectorsLeftAfterThis > 0
-          ? Math.max(CASCADE_MIN_CONFIRM_SLICE_MS, Math.floor(cascadeRemainingMs / (vectorsLeftAfterThis + 1)))
+          ? Math.max(minConfirmSliceMs, Math.floor(cascadeRemainingMs / (vectorsLeftAfterThis + 1)))
           : cascadeRemainingMs
       );
+      const confirmStartedAt = Date.now();
       const confirmation = await waitForUploadConfirmation(config, expectedCount, baselineState, files, confirmBudgetMs);
+      confirmSpentMs += Date.now() - confirmStartedAt;
       if (confirmation?.confirmed) {
         emitAttachmentTelemetry(model, 'ATTACHMENT_CONFIRMED', strategy, 'success', {
           strategy,
@@ -1074,7 +1096,8 @@
         strategy,
         expectedCount,
         confirmBudgetMs,
-        cascadeRemainingMs: Math.max(0, cascadeDeadline - Date.now()),
+        minConfirmSliceMs,
+        cascadeRemainingMs: Math.max(0, cascadeBudgetMs - confirmSpentMs),
         ...confirmation
       });
       // Observation found nothing. Accept the dispatch only where the provider is
