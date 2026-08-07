@@ -17,6 +17,16 @@ const CLAUDE_TYPING_TIMEOUT_PER_CHAR_MS = 6;
 const CLAUDE_TYPING_TIMEOUT_MAX_MS = 180000;
 const CLAUDE_TYPING_TIMEOUT_MIN_MS = 30000;
 const SEND_PROMPT_DELAY_MS = TimingConfig.getTiming('sendPromptDelayMs', 3000);
+// Stage a content script reports while an attachment cascade is still delivering.
+// It is the one progress signal allowed to extend the post-command focus hold
+// repeatedly, because an upload can legitimately outlast a composer interaction
+// by an order of magnitude. Must match ATTACHMENT_PROGRESS_STAGE in
+// content-scripts/attachment-handler.js.
+const ATTACHMENT_PROGRESS_STAGE = 'attachment_upload_started';
+// Ceiling on that repeated extension. Covers the longest configured attachment
+// cascade (Qwen, 70 s) plus its dispatch, and bounds how long a single dispatch
+// can pin the tab even if progress keeps arriving.
+const ATTACHMENT_FOCUS_EXTENSION_CEILING_MS = TimingConfig.getTiming('attachmentFocusExtensionCeilingMs', 90000);
 const READY_ACK_TIMEOUT_MS = TimingConfig.getTiming('readyAckTimeoutMs', 6000);
 const SEND_PROMPT_DELAY_OVERRIDES = {
   'Perplexity': 1000,
@@ -1499,10 +1509,15 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
       const postCommandFocusHoldMs = Math.max(0, Number(options.postCommandFocusHoldMs || 0));
       const progressFocusExtensionMs = Math.max(0, Number(options.progressFocusExtensionMs || 0));
       if (postCommandFocusHoldMs > 0) {
+        // Sized for the longest hold that is actually reachable, otherwise the
+        // waiter expires while an attachment-extended hold is still running and
+        // the boundary can never resolve as an insertion.
         insertionWaiter = waitForPromptInsertion(
           llmName,
           dispatchId,
-          postCommandFocusHoldMs + progressFocusExtensionMs + 1000
+          postCommandFocusHoldMs
+            + Math.max(progressFocusExtensionMs, ATTACHMENT_FOCUS_EXTENSION_CEILING_MS)
+            + 1000
         );
       }
       const readyWaitMs = Math.max(0, Date.now() - lockAcquiredAt);
@@ -1581,23 +1596,49 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
               insertionWaiter,
               postCommandFocusHoldMs
             );
-            const progressStage = String(entry.providerDispatchStage || '');
-            const progressIsCurrent = entry.providerDispatchStageDispatchId === dispatchId
-              && Number(entry.providerDispatchStageAt || 0) >= holdStartedAt;
             const extendableStages = new Set([
               'composer_transaction_started',
               'composer_ready',
               'prompt_insertion_started',
               'send_action_requested'
             ]);
+            // An attachment cascade materializes the file, tries several delivery
+            // vectors and waits for observable upload evidence between them, so it
+            // outlasts a composer interaction by an order of magnitude. It reports
+            // this stage repeatedly while it works; each report buys one more
+            // extension step, up to the ceiling. The moment the reports stop the
+            // loop below sees a stale timestamp and releases focus immediately.
+            const attachmentCeilingMs = Math.max(
+              progressFocusExtensionMs,
+              ATTACHMENT_FOCUS_EXTENSION_CEILING_MS
+            );
             let extendedMs = 0;
-            if (boundary.reason === 'hold_elapsed' && progressFocusExtensionMs > 0
-              && progressIsCurrent && extendableStages.has(progressStage)) {
-              extendedMs = progressFocusExtensionMs;
+            let progressFloorAt = holdStartedAt;
+            let progressStage = String(entry.providerDispatchStage || '');
+            let progressIsCurrent = entry.providerDispatchStageDispatchId === dispatchId
+              && Number(entry.providerDispatchStageAt || 0) >= holdStartedAt;
+            while (progressFocusExtensionMs > 0
+              && (boundary.reason === 'hold_elapsed' || boundary.reason === 'progress_extension_elapsed')) {
+              progressStage = String(entry.providerDispatchStage || '');
+              const stageAt = Number(entry.providerDispatchStageAt || 0);
+              const stageIsCurrent = entry.providerDispatchStageDispatchId === dispatchId;
+              progressIsCurrent = stageIsCurrent && stageAt >= holdStartedAt;
+              // Stale or foreign progress ends the hold, so a stalled provider
+              // cannot keep the tab pinned on a report it filed once.
+              if (!stageIsCurrent || stageAt < progressFloorAt) break;
+              const attachmentInFlight = progressStage === ATTACHMENT_PROGRESS_STAGE;
+              if (!attachmentInFlight && !extendableStages.has(progressStage)) break;
+              // Everything except an in-flight attachment keeps the historical
+              // single extension: ceiling equals one step.
+              const ceilingMs = attachmentInFlight ? attachmentCeilingMs : progressFocusExtensionMs;
+              if (extendedMs >= ceilingMs) break;
+              const stepMs = Math.min(progressFocusExtensionMs, ceilingMs - extendedMs);
+              progressFloorAt = Date.now();
+              extendedMs += stepMs;
               const extendedBoundary = await waitForPromptFocusBoundary(
                 waiter,
                 insertionWaiter,
-                progressFocusExtensionMs
+                stepMs
               );
               boundary = {
                 ...extendedBoundary,

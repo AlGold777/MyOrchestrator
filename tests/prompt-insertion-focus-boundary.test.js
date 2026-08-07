@@ -53,11 +53,26 @@ describe('Round 1 prompt insertion focus boundary', () => {
   });
 
   test('focus extension is bounded and requires current correlated progress', () => {
-    expect(SOURCE).toContain('const progressIsCurrent = entry.providerDispatchStageDispatchId === dispatchId');
+    // Progress must belong to this dispatch, and must have arrived since the
+    // previous extension step -- a stalled provider cannot keep the tab pinned
+    // on a report it filed once.
+    expect(SOURCE).toContain('const stageIsCurrent = entry.providerDispatchStageDispatchId === dispatchId');
+    expect(SOURCE).toContain('if (!stageIsCurrent || stageAt < progressFloorAt) break;');
+    expect(SOURCE).toContain('progressFloorAt = Date.now();');
     expect(SOURCE).toContain("boundary.reason === 'hold_elapsed'");
     expect(SOURCE).toContain('extendableStages.has(progressStage)');
     expect(SOURCE).toContain("reason: extendedBoundary.reason === 'hold_elapsed'");
     expect(SOURCE).toContain("? 'progress_extension_elapsed'");
+    // Bounded: every path through the loop is capped, and only an in-flight
+    // attachment may extend repeatedly. Everything else keeps a single step,
+    // because its ceiling is one progressFocusExtensionMs.
+    expect(SOURCE).toContain('if (extendedMs >= ceilingMs) break;');
+    expect(SOURCE).toContain('const ceilingMs = attachmentInFlight ? attachmentCeilingMs : progressFocusExtensionMs;');
+    expect(SOURCE).toContain('const attachmentInFlight = progressStage === ATTACHMENT_PROGRESS_STAGE;');
+    expect(SOURCE).toContain('ATTACHMENT_FOCUS_EXTENSION_CEILING_MS');
+    // The waiter has to outlast the longest reachable hold, or an
+    // attachment-extended hold can never resolve as an insertion.
+    expect(SOURCE).toContain('Math.max(progressFocusExtensionMs, ATTACHMENT_FOCUS_EXTENSION_CEILING_MS)');
   });
 
   test('insertion waiters resolve only for the exact model and dispatch', async () => {

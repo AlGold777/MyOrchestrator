@@ -638,6 +638,27 @@
     } catch (_) {}
   };
 
+  // The background holds tab focus for a few seconds after dispatch and drops it
+  // unless the provider reports progress. An attachment cascade legitimately runs
+  // far longer than a composer interaction, so it has to keep saying it is alive
+  // or the hold dies mid-upload and the entire round is redone by a repair
+  // dispatch. Run 1786140702935: Qwen's round 1 ended hold_elapsed at 8 s with
+  // extendedMs 0 while the cascade was still working, and the prompt was only
+  // inserted at 17 s, by the repair round, then sent at 19 s.
+  const ATTACHMENT_PROGRESS_STAGE = 'attachment_upload_started';
+  const ATTACHMENT_PROGRESS_MIN_INTERVAL_MS = 2000;
+  let lastAttachmentProgressAt = 0;
+  const reportAttachmentProgress = (model, force = false) => {
+    const now = Date.now();
+    if (!force && now - lastAttachmentProgressAt < ATTACHMENT_PROGRESS_MIN_INTERVAL_MS) return;
+    lastAttachmentProgressAt = now;
+    try {
+      global.ContentUtils?.reportDispatchStage?.(model, {}, ATTACHMENT_PROGRESS_STAGE, {
+        outcome: 'in_flight'
+      });
+    } catch (_) {}
+  };
+
   const captureUploadBaseline = (config, files = []) => ({
     confirmCount: countSelectorMatches(config.confirmSelectors || []),
     progressCount: countSelectorMatches(config.confirmGoneSelectors || []),
@@ -645,7 +666,7 @@
     filenameEvidenceCount: countFilenameEvidence(files)
   });
 
-  const waitForUploadConfirmation = async (config, expectedCount = 1, baselineState = null, files = [], confirmTimeoutMs = null, allowInputFileCountEvidence = true) => {
+  const waitForUploadConfirmation = async (config, expectedCount = 1, baselineState = null, files = [], confirmTimeoutMs = null, allowInputFileCountEvidence = true, onPoll = null) => {
     const confirmSelectors = config.confirmSelectors || [];
     const confirmGoneSelectors = config.confirmGoneSelectors || [];
     if (!confirmSelectors.length && !confirmGoneSelectors.length) {
@@ -722,6 +743,9 @@
       }
       lastCount = currentCount;
       lastInputFileCount = inputFileCount;
+      // Waiting for evidence is still work in progress: keep the focus hold alive
+      // rather than letting it expire in the middle of a live upload.
+      try { onPoll?.(); } catch (_) {}
       await sleep(pollMs);
     }
     return {
@@ -1045,6 +1069,7 @@
       // slice arithmetic below always reflects vectors that have yet to start.
       const vectorsLeftAfterThis = Math.max(0, vectorsRemaining - 1);
       vectorsRemaining = vectorsLeftAfterThis;
+      reportAttachmentProgress(model, true);
       const baselineState = captureUploadBaseline(config);
       baselineState.filenameEvidenceCount = countFilenameEvidence(files);
       const startedAt = Date.now();
@@ -1127,7 +1152,8 @@
       const allowInputFileCountEvidence = !String(strategy).startsWith('input');
       const confirmStartedAt = Date.now();
       const confirmation = await waitForUploadConfirmation(
-        config, expectedCount, baselineState, files, confirmBudgetMs, allowInputFileCountEvidence
+        config, expectedCount, baselineState, files, confirmBudgetMs, allowInputFileCountEvidence,
+        () => reportAttachmentProgress(model)
       );
       confirmSpentMs += Date.now() - confirmStartedAt;
       if (confirmation?.confirmed) {
