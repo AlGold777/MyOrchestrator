@@ -254,7 +254,43 @@
     })[step] || null;
   }
 
+  // Attachment delivery is a stage of dispatch, and until now it had no route
+  // into the canonical ledger at all: the ATTACHMENT_* labels were absent from
+  // this file, so no allowlist downstream could have surfaced them. Export
+  // 1786139514606 therefore carried no attachment evidence whatsoever, while
+  // Gemini and Z.ai were sending prompts with no file attached -- the one thing
+  // the report needed to show. The vector and the outcome both live in the
+  // state, so a reader can tell "the file arrived" from "we only fired an event".
+  const ATTACHMENT_STAGE_LABELS = Object.freeze({
+    ATTACHMENT_STRATEGY_START: 'attempted',
+    ATTACHMENT_DISPATCHED: 'dispatched',
+    ATTACHMENT_DISPATCH_FAILED: 'dispatch_failed',
+    ATTACHMENT_CONFIRMED: 'confirmed',
+    ATTACHMENT_CONFIRM_TIMEOUT: 'unconfirmed',
+    ATTACHMENT_ACCEPTED_UNPROVEN: 'accepted_unproven',
+    ATTACHMENT_SEQUENCE_ITEM_START: 'attempted',
+    ATTACHMENT_SEQUENCE_ITEM_CONFIRMED: 'confirmed'
+  });
+
+  function attachmentStageMapping(event, label = normalizeLabel(event)) {
+    const outcome = ATTACHMENT_STAGE_LABELS[label];
+    if (!outcome) return null;
+    const vector = String(event?.meta?.strategy || event?.details || '')
+      .trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    return {
+      route: 'canonical',
+      label,
+      eventType: 'DISPATCH_STAGE_OBSERVED',
+      typed: {
+        kind: 'attachment_delivery',
+        state: vector ? `${outcome}:${vector}` : outcome
+      }
+    };
+  }
+
   function dispatchStageMapping(event, label = normalizeLabel(event)) {
+    const attachment = attachmentStageMapping(event, label);
+    if (attachment) return attachment;
     if (!['PROVIDER_DISPATCH_STAGE_OBSERVED', 'DISPATCH_POST_COMMAND_FOCUS_HOLD'].includes(label)) return null;
     const stage = String(event?.meta?.stage || event?.meta?.boundaryReason || event?.details || 'unknown')
       .trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'unknown';
