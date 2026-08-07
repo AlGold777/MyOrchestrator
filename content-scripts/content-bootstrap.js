@@ -166,10 +166,16 @@
   if (!root.LLMExtension.sendScriptReady) {
     const readyStateByModel = new Map();
     const MAX_READY_ATTEMPTS = 5;
-    const READY_RETRY_MS = (typeof TimingConfig?.getTiming === 'function')
+    // Bare `typeof X` only: `typeof X?.y` evaluates X and throws ReferenceError
+    // on an undeclared global instead of falling back to the literal. TimingConfig
+    // ships as its own manifest entry, so a load failure there must not take the
+    // handshake down with it.
+    const hasTimingConfig = typeof TimingConfig !== 'undefined'
+      && typeof TimingConfig?.getTiming === 'function';
+    const READY_RETRY_MS = hasTimingConfig
       ? TimingConfig.getTiming('handshakeRetryMs', 2000)
       : 2000;
-    const LOCATION_POLL_MS = (typeof TimingConfig?.getTiming === 'function')
+    const LOCATION_POLL_MS = hasTimingConfig
       ? TimingConfig.getTiming('handshakeLocationPollMs', 1000)
       : 1000;
 

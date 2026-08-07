@@ -3,10 +3,17 @@
   if (global.AttachmentHandler) return;
 
   const DEFAULT_MAX_FILES = 5;
-  const DEFAULT_TIMEOUT_MS = (typeof TimingConfig?.getTiming === 'function')
+  // `typeof X?.y` still evaluates X, so it throws ReferenceError on a global that
+  // was never declared -- it does not fall back to the literal below. TimingConfig
+  // comes from config/timing.js, a separate manifest entry: if that file ever
+  // fails to load, the guard itself would take this whole handler down and no
+  // attachment could be delivered at all. Only bare `typeof X` is safe here.
+  const hasTimingConfig = typeof TimingConfig !== 'undefined'
+    && typeof TimingConfig?.getTiming === 'function';
+  const DEFAULT_TIMEOUT_MS = hasTimingConfig
     ? TimingConfig.getTiming('attachmentTimeoutMs', 10000)
     : 10000;
-  const DEFAULT_POLL_MS = (typeof TimingConfig?.getTiming === 'function')
+  const DEFAULT_POLL_MS = hasTimingConfig
     ? TimingConfig.getTiming('attachmentPollMs', 200)
     : 200;
 
