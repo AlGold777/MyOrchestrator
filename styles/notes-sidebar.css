@@ -515,6 +515,19 @@ body.right-sidebar-reset .app-sidebar-right {
     color: #111827;
 }
 
+.sessions-item-run.is-delete-armed {
+    color: #dc2626;
+    font-weight: 700;
+}
+
+.sessions-item-run.is-delete-armed:hover {
+    color: #b91c1c;
+}
+
+.sessions-item.is-delete-armed {
+    background: rgba(220, 38, 38, 0.06);
+}
+
 .sessions-item-input {
     width: 100%;
     height: 20px;

@@ -7120,6 +7120,7 @@ document.addEventListener('click', (event) => {
                 dragId: null,
                 dragOverId: null,
                 dragPosition: null,
+                deleteArmedId: null,
                 isActive: false,
                 defaultTitle: 'Notes'
             };
@@ -9820,13 +9821,13 @@ document.addEventListener('click', (event) => {
             };
 
             const updateSessionsToolbarState = () => {
-                const hasSelection = sessionsState.sessions.some((session) => session.id === sessionsState.selectedId);
-                if (sessionsDeleteBtn) sessionsDeleteBtn.disabled = !hasSelection;
+                if (sessionsDeleteBtn) sessionsDeleteBtn.disabled = !sessionsState.sessions.length;
             };
 
             const buildSessionItem = (session, isSelected, count) => {
+                const isDeleteArmed = !session.isCurrent && session.id === sessionsState.deleteArmedId;
                 const item = document.createElement('div');
-                item.className = `sessions-item${session.isCurrent ? ' sessions-item-current' : ''}${isSelected ? ' is-selected' : ''}`;
+                item.className = `sessions-item${session.isCurrent ? ' sessions-item-current' : ''}${isSelected ? ' is-selected' : ''}${isDeleteArmed ? ' is-delete-armed' : ''}`;
                 item.dataset.sessionId = String(session.id || '');
                 item.draggable = !session.isCurrent;
                 item.setAttribute('role', 'option');
@@ -9836,9 +9837,9 @@ document.addEventListener('click', (event) => {
                 nameSpan.textContent = session.name || 'Session';
                 const runButton = document.createElement('button');
                 runButton.type = 'button';
-                runButton.className = 'sessions-item-run';
-                runButton.textContent = '►';
-                runButton.setAttribute('aria-label', 'Open session tabs');
+                runButton.className = `sessions-item-run${isDeleteArmed ? ' is-delete-armed' : ''}`;
+                runButton.textContent = isDeleteArmed ? '✕' : '►';
+                runButton.setAttribute('aria-label', isDeleteArmed ? 'Delete session' : 'Open session tabs');
                 runButton.dataset.sessionId = session.id;
                 runButton.hidden = !!session.isCurrent;
                 item.appendChild(nameSpan);
@@ -9860,7 +9861,7 @@ document.addEventListener('click', (event) => {
                 renderIncrementalList(sessionsList, sessions, {
                     getId: ({ session }) => String(session?.id || ''),
                     getHash: ({ session, count, cardCount, favoriteCount, promptLength, selectedModelCount, isSelected }) =>
-                        `${session?.name || ''}|${count}|${cardCount}|${favoriteCount}|${promptLength}|${selectedModelCount}|${session?.isCurrent ? '1' : '0'}|${isSelected ? '1' : '0'}`,
+                        `${session?.name || ''}|${count}|${cardCount}|${favoriteCount}|${promptLength}|${selectedModelCount}|${session?.isCurrent ? '1' : '0'}|${isSelected ? '1' : '0'}|${session?.id === sessionsState.deleteArmedId ? '1' : '0'}`,
                     renderItem: ({ session, count, isSelected }) =>
                         buildSessionItem(session, isSelected, count)
                 });
@@ -10093,26 +10094,63 @@ document.addEventListener('click', (event) => {
                 await runSessionById(session.id);
             };
 
-            const deleteSelectedSession = async () => {
-                const session = getSelectedSession();
+            const deleteSessionById = async (sessionId) => {
+                const session = sessionsState.sessions.find((entry) => entry.id === sessionId);
                 if (!session) {
-                    setStatus('Select a session');
+                    setStatus('Session missing');
                     return;
                 }
                 sessionsState.sessions = sessionsState.sessions.filter((entry) => entry.id !== session.id);
                 await deleteSessionSnapshotFromIdb(session.id);
+                if (sessionsState.deleteArmedId === session.id) {
+                    sessionsState.deleteArmedId = null;
+                }
                 if (sessionsState.activeViewId === session.id) {
                     const currentSnapshot = sessionsState.currentSnapshot || normalizeSessionPageSnapshot();
                     sessionsState.activeViewId = CURRENT_SESSION_ID;
                     sessionsState.selectedId = CURRENT_SESSION_ID;
                     await applySidebarSessionPageSnapshot(currentSnapshot);
                     restoreSessionPreview(currentSnapshot);
-                } else {
+                } else if (sessionsState.selectedId === session.id) {
                     sessionsState.selectedId = CURRENT_SESSION_ID;
                 }
                 await persistSessions();
                 renderSessionsList();
                 setStatus('Session deleted');
+            };
+
+            const deleteAllSessions = async () => {
+                if (!sessionsState.sessions.length) {
+                    setStatus('No sessions to delete');
+                    return;
+                }
+                const sessionIds = sessionsState.sessions.map((entry) => entry.id);
+                sessionsState.sessions = [];
+                sessionsState.deleteArmedId = null;
+                await Promise.all(sessionIds.map((sessionId) => deleteSessionSnapshotFromIdb(sessionId)));
+                if (sessionIds.includes(sessionsState.activeViewId)) {
+                    const currentSnapshot = sessionsState.currentSnapshot || normalizeSessionPageSnapshot();
+                    sessionsState.activeViewId = CURRENT_SESSION_ID;
+                    await applySidebarSessionPageSnapshot(currentSnapshot);
+                    restoreSessionPreview(currentSnapshot);
+                }
+                sessionsState.selectedId = CURRENT_SESSION_ID;
+                await persistSessions();
+                renderSessionsList();
+                setStatus('All sessions deleted');
+            };
+
+            const armSessionDelete = (sessionId) => {
+                if (!sessionId || sessionId === CURRENT_SESSION_ID) return;
+                if (sessionsState.deleteArmedId === sessionId) return;
+                sessionsState.deleteArmedId = sessionId;
+                renderSessionsList();
+            };
+
+            const disarmSessionDelete = () => {
+                if (!sessionsState.deleteArmedId) return;
+                sessionsState.deleteArmedId = null;
+                renderSessionsList();
             };
 
             const truncateText = (text, maxLength = 60) => {
@@ -11371,25 +11409,89 @@ document.addEventListener('click', (event) => {
             });
 
             sessionsDeleteBtn?.addEventListener('click', () => {
-                deleteSelectedSession();
+                deleteAllSessions();
             });
 
             const SESSION_DBLCLICK_DELAY = 320;
+            const SESSION_LONGPRESS_DELAY = 550;
+            const SESSION_LONGPRESS_MOVE_TOLERANCE = 8;
             let sessionsClickTimer = null;
             let sessionsClickTime = 0;
             let sessionsClickTargetId = null;
+            let sessionsLongPressTimer = null;
+            let sessionsLongPressSessionId = null;
+            let sessionsLongPressStart = null;
+            let sessionsLongPressFired = false;
+
+            const clearSessionLongPressTimer = () => {
+                if (sessionsLongPressTimer) {
+                    clearTimeout(sessionsLongPressTimer);
+                    sessionsLongPressTimer = null;
+                }
+                sessionsLongPressSessionId = null;
+                sessionsLongPressStart = null;
+            };
+
+            sessionsList?.addEventListener('pointerdown', (event) => {
+                if (event.button !== undefined && event.button !== 0) return;
+                const item = event.target.closest('.sessions-item');
+                if (!item || !sessionsList.contains(item)) return;
+                if (event.target.closest('input')) return;
+                if (event.target.closest('.sessions-item-run')) return;
+                const sessionId = item.dataset.sessionId;
+                if (!sessionId || sessionId === CURRENT_SESSION_ID) return;
+                clearSessionLongPressTimer();
+                sessionsLongPressSessionId = sessionId;
+                sessionsLongPressStart = { x: event.clientX, y: event.clientY };
+                sessionsLongPressFired = false;
+                sessionsLongPressTimer = setTimeout(() => {
+                    sessionsLongPressFired = true;
+                    armSessionDelete(sessionId);
+                    sessionsLongPressTimer = null;
+                }, SESSION_LONGPRESS_DELAY);
+            });
+
+            sessionsList?.addEventListener('pointermove', (event) => {
+                if (!sessionsLongPressTimer || !sessionsLongPressStart) return;
+                const dx = event.clientX - sessionsLongPressStart.x;
+                const dy = event.clientY - sessionsLongPressStart.y;
+                if (Math.sqrt(dx * dx + dy * dy) > SESSION_LONGPRESS_MOVE_TOLERANCE) {
+                    clearSessionLongPressTimer();
+                }
+            });
+
+            ['pointerup', 'pointercancel', 'pointerleave'].forEach((eventName) => {
+                sessionsList?.addEventListener(eventName, () => {
+                    clearSessionLongPressTimer();
+                });
+            });
+
+            document.addEventListener('pointerdown', (event) => {
+                if (!sessionsState.deleteArmedId) return;
+                const armedItem = sessionsList?.querySelector('.sessions-item.is-delete-armed');
+                if (armedItem && armedItem.contains(event.target)) return;
+                disarmSessionDelete();
+            });
 
             sessionsList?.addEventListener('click', async (event) => {
                 const runButton = event.target.closest('.sessions-item-run');
                 if (runButton && sessionsList.contains(runButton)) {
                     event.stopPropagation();
                     if (runButton.dataset.sessionId === CURRENT_SESSION_ID) return;
+                    if (runButton.classList.contains('is-delete-armed')) {
+                        await deleteSessionById(runButton.dataset.sessionId);
+                        return;
+                    }
                     await runSessionById(runButton.dataset.sessionId);
                     return;
                 }
                 const item = event.target.closest('.sessions-item');
                 if (!item || !sessionsList.contains(item)) return;
                 if (event.target.closest('input')) return;
+                if (sessionsLongPressFired) {
+                    sessionsLongPressFired = false;
+                    return;
+                }
                 const sessionId = item.dataset.sessionId;
                 const now = performance.now();
                 const withinDelay = sessionsClickTime > 0 && (now - sessionsClickTime) < SESSION_DBLCLICK_DELAY;
