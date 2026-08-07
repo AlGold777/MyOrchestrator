@@ -68,7 +68,17 @@ describe('attachment request regression 2026-07-10', () => {
   test('Gemini trusts successful CDP assignment and verifies prompt insertion before send', () => {
     const geminiConfig = handler.slice(handler.indexOf('Gemini: {'), handler.indexOf('Perplexity: {'));
     expect(geminiConfig).toContain('dispatchIsEvidence: true');
-    expect(handler).toContain("reason: 'TRUSTED_DISPATCH'");
+    // A successful CDP assignment is still accepted when nothing is observable,
+    // but it is no longer a short-circuit past confirmation, and it is recorded
+    // as unproven instead of as a clean success. Field run 1786111563648: Gemini
+    // and Z.ai both logged a confirmed attachment in 1.2-2.5 s and then sent the
+    // prompt with no file, because the old early return skipped every evidence
+    // check including the progress-bar gate in confirmGoneSelectors.
+    expect(handler).toContain("'ATTACHMENT_ACCEPTED_UNPROVEN'");
+    expect(handler).toContain("reason: 'TRUSTED_DISPATCH_WITHOUT_OBSERVED_EVIDENCE'");
+    expect(handler).toContain("residualRisk: 'attachment_delivery_not_proven'");
+    // Guards the early return itself from coming back.
+    expect(handler).not.toContain("reason: 'TRUSTED_DISPATCH',");
     expect(providers.Gemini).toContain('Gemini prompt injection failed');
     expect(providers.Gemini).toContain("type: 'prompt_injection_failed'");
     expect(providers.Gemini).toContain('scoreGeminiSendButtonCandidate(sendButton, inputField) < 8');

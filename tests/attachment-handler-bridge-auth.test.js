@@ -209,6 +209,56 @@ describe('attachment bridge authentication', () => {
     }));
   });
 
+  test('a paste delivery vector fires exactly one paste event', async () => {
+    // Field run 1786111563648: Kimi sent the prompt with the file attached twice.
+    // Both paste paths fired the same event a second time as a blind retry, and on
+    // a provider where paste genuinely works that is a second attachment, not a
+    // retry. Retrying belongs to the cascade, which observes whether the file
+    // landed and moves to the next vector if it did not.
+    const pasteTargets = [];
+    const composer = {
+      isConnected: true,
+      focus() {},
+      dispatchEvent(event) {
+        pasteTargets.push(event?.type);
+        return true;
+      }
+    };
+    const emptyList = { forEach() {}, length: 0 };
+    const sandbox = {
+      TimingConfig: undefined,
+      console: { warn() {}, log() {} },
+      setTimeout,
+      atob: (value) => Buffer.from(value, 'base64').toString('binary'),
+      File: class { constructor(parts, name, opts) { this.name = name; this.type = opts?.type; } },
+      DataTransfer: class { constructor() { this.items = { add() {}, length: 1, forEach() {} }; this.files = []; } },
+      ClipboardEvent: class { constructor(type) { this.type = type; this.clipboardData = null; } },
+      DragEvent: class { constructor(type) { this.type = type; } },
+      chrome: { runtime: { sendMessage() {}, lastError: null } },
+      document: {
+        body: { innerText: '' },
+        querySelectorAll: () => emptyList,
+        querySelector: (selector) => (String(selector).includes('chat-input-editor') ? composer : null)
+      }
+    };
+    sandbox.window = sandbox;
+    sandbox.self = sandbox;
+    vm.createContext(sandbox);
+    vm.runInContext(HANDLER_SRC, sandbox);
+
+    // No ContentUtils in this world, so the bridge vector cannot dispatch and the
+    // cascade reaches attachViaPaste — the content-script paste path.
+    const result = await sandbox.AttachmentHandler.attach(
+      'Kimi',
+      [{ name: 'evidence.txt', type: 'text/plain', base64: 'data:text/plain;base64,eA==' }],
+      { timeoutMs: 300, dispatchEvidenceSettleMs: 0, pollMs: 50 }
+    );
+
+    expect(result.success).toBe(true);
+    expect(pasteTargets.filter((type) => type === 'paste')).toHaveLength(1);
+    expect(BRIDGE_SRC).not.toContain('el.dispatchEvent(evPaste);\n            el.dispatchEvent(evPaste);');
+  });
+
   test('internal attachment materialization suppresses Chrome download UI and restores it', () => {
     const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'manifest.json'), 'utf8'));
     expect(manifest.permissions).toContain('downloads.ui');

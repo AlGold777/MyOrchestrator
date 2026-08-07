@@ -753,8 +753,8 @@
     };
     try {
       try { target.focus?.({ preventScroll: true }); } catch (_) { try { target.focus?.(); } catch (_) {} }
-      target.dispatchEvent(factory());
-      await sleep(120);
+      // Exactly one paste, for the same reason as the bridge path: a second
+      // blind dispatch attaches the file twice wherever paste genuinely works.
       target.dispatchEvent(factory());
       return true;
     } catch (err) {
@@ -1028,17 +1028,19 @@
         dispatchMethod: dispatchResult?.method || strategy,
         dispatchElapsedMs: Date.now() - startedAt
       });
-      if (config.dispatchIsEvidence === true) {
-        const settleMs = Math.max(0, Number(config.dispatchEvidenceSettleMs || 0));
-        if (settleMs) await sleep(settleMs);
-        emitAttachmentTelemetry(model, 'ATTACHMENT_CONFIRMED', strategy, 'success', {
-          strategy,
-          expectedCount,
-          reason: 'TRUSTED_DISPATCH',
-          dispatchMethod: dispatchResult?.method || strategy,
-          elapsedMs: Date.now() - startedAt
-        });
-        return true;
+      // dispatchIsEvidence used to return here, before any observation ran. That
+      // made "the event was fired" indistinguishable from "the file arrived" —
+      // and attachViaBridge returns true merely for firing, as its own comment
+      // says. Field run 1786111563648: Gemini and Z.ai reported the attachment
+      // confirmed in 1.2-2.5 s and then sent the prompt with no file at all,
+      // while the progress-bar gate in confirmGoneSelectors never ran once
+      // because this early return skipped it.
+      // Observation now always happens first and gets the real cascade budget.
+      // dispatchIsEvidence survives only as a last word after observation found
+      // nothing, for the case it was written for: a chip rendered in a shadow or
+      // Angular overlay the isolated content world cannot read.
+      if (config.dispatchEvidenceSettleMs && config.dispatchIsEvidence === true) {
+        await sleep(Math.max(0, Number(config.dispatchEvidenceSettleMs)));
       }
       // Share what is left of the cascade budget with the vectors still to come.
       // The floor keeps a late vector from being handed an unusable few hundred
@@ -1068,6 +1070,23 @@
         cascadeRemainingMs: Math.max(0, cascadeDeadline - Date.now()),
         ...confirmation
       });
+      // Observation found nothing. Accept the dispatch only where the provider is
+      // configured to allow it, and never silently: this is the state in which a
+      // prompt can still go out without its file, so it must be visible in the
+      // report rather than logged as a clean success.
+      if (config.dispatchIsEvidence === true) {
+        emitAttachmentTelemetry(model, 'ATTACHMENT_ACCEPTED_UNPROVEN', strategy, 'warning', {
+          strategy,
+          expectedCount,
+          reason: 'TRUSTED_DISPATCH_WITHOUT_OBSERVED_EVIDENCE',
+          residualRisk: 'attachment_delivery_not_proven',
+          dispatchMethod: dispatchResult?.method || strategy,
+          confirmBudgetMs,
+          elapsedMs: Date.now() - startedAt,
+          ...confirmation
+        });
+        return true;
+      }
       return confirmOptional;
     };
 
