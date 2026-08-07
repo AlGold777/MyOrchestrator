@@ -1259,6 +1259,9 @@ const DIAG_PINNED_LABELS = new Set([
     'ATTACHMENT_DISPATCH_FAILED',
     'ATTACHMENT_CONFIRMED',
     'ATTACHMENT_CONFIRM_TIMEOUT',
+    // The state in which a prompt can still go out without its file. Exactly the
+    // outcome a report has to show, so it must survive the allowlist.
+    'ATTACHMENT_ACCEPTED_UNPROVEN',
     // One-shot causal dispatch events (mirror of PINNED_LABELS rationale).
     'TRANSPORT_DECISION',
     'PROMPT_SUBMITTED_ACCEPTED',
