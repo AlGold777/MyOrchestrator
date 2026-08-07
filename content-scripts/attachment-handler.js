@@ -155,21 +155,38 @@
       // 2.81.195: the debugger permission exists only for the scoped Le Chat and
       // Perplexity submit routes. Attachment CDP RPCs remain policy-disabled, so
       // every strategy list must retain native input/drop fallbacks.
-      strategies: ['cdp-file-input', 'input', 'drop'],
-      timeoutMs: 12000,
+      // 2.81.304: `paste` added and `input` moved last. Gemini had no paste
+      // vector at all, though paste is what actually delivers on Kimi, and it
+      // had `input` -- the one the GPT note above calls out as making the chip
+      // appear while the upload never completes -- ahead of `drop`.
+      strategies: ['cdp-file-input', 'drop', 'paste', 'input'],
+      // Raised with the vector count and because confirmation is now real work
+      // rather than a formality; 12 s could not even cover this provider's own
+      // 15 s input-evidence settle.
+      timeoutMs: 45000,
       scaleTimeoutByFileCount: false,
       confirmationMode: 'batch',
       inputFileCountIsEvidence: true,
-      // DOM.setFileInputFiles returning successfully is trusted delivery
-      // evidence. Gemini may immediately clear the native input and render its
-      // file chip in an Angular overlay that the isolated content world cannot
-      // inspect, so requiring a second DOM selector produced a false timeout
-      // even while the file was visibly attached.
-      dispatchIsEvidence: true,
-      dispatchEvidenceSettleMs: 2500,
+      // dispatchIsEvidence removed in 2.81.304. It was here because Gemini can
+      // clear the native input and render its chip in an Angular overlay the
+      // isolated world cannot inspect, so a DOM selector alone false-timed-out.
+      // But it also let a dispatch that delivered nothing pass as delivered, and
+      // runs 1786111563648, 1786138588032 and 1786139514606 all ended with the
+      // prompt sent and no file on it. Failing closed is the lesser harm: an
+      // answer produced without the file is indistinguishable from a real one
+      // and silently corrupts the comparison. Non-selector evidence remains --
+      // input file count for the trusted CDP vector, and the filename search
+      // across open shadow roots -- so the overlay case is not left uncovered.
       settleMs: 2500,
       inputEvidenceSettleMs: 15000,
       dropSelectors: [
+        'div.ql-editor[contenteditable="true"]',
+        'rich-textarea div[contenteditable="true"]',
+        'div[contenteditable="true"][role="textbox"]',
+        'div[contenteditable="true"]',
+        '[role="textbox"]'
+      ],
+      pasteSelectors: [
         'div.ql-editor[contenteditable="true"]',
         'rich-textarea div[contenteditable="true"]',
         'div[contenteditable="true"][role="textbox"]',
@@ -391,15 +408,30 @@
       // 2.81.116: fallback added, see the Gemini note above. Paste is listed first
       // among the fallbacks because it is the native interaction this config was
       // originally written around.
-      strategies: ['provider-cdp-file-input', 'paste', 'input'],
-      dispatchIsEvidence: true,
-      dispatchEvidenceSettleMs: 1200,
+      // 2.81.304: `drop` added -- Z.ai had no drop vector, though drop is what
+      // DeepSeek and Le Chat deliver with. dispatchIsEvidence removed for the
+      // same reason as Gemini above: it turned a dispatch that delivered nothing
+      // into a delivery, and Z.ai kept sending the prompt with no file. settleMs
+      // is what the old dispatchEvidenceSettleMs was really buying -- a moment
+      // for the chip to render -- so it moves here as a real settle.
+      strategies: ['provider-cdp-file-input', 'paste', 'drop', 'input'],
+      timeoutMs: 40000,
+      settleMs: 1200,
       pasteSelectors: [
         '#chat-input',
         'textarea.input-scroll',
         'textarea[placeholder*="help you today" i]',
         'form textarea:not([type="search"])',
         '[contenteditable="true"][role="textbox"]'
+      ],
+      dropSelectors: [
+        '#chat-input',
+        'textarea.input-scroll',
+        'textarea[placeholder*="help you today" i]',
+        'form textarea:not([type="search"])',
+        '[contenteditable="true"][role="textbox"]',
+        'form',
+        'main'
       ],
       confirmSelectors: [
         '[data-testid*="attachment" i]',
@@ -1048,15 +1080,19 @@
     let vectorsRemaining = cascadeVectorCount;
     // A slice shorter than the settle the provider demands can never confirm, so
     // the floor has to clear it. Otherwise the budget guarantees the failure it is
-    // supposed to be bounding.
-    const requiredSettleMs = Math.max(
-      Number(config.settleMs || 0),
-      Number(config.inputEvidenceSettleMs || 0)
-    );
-    const minConfirmSliceMs = Math.max(
-      CASCADE_MIN_CONFIRM_SLICE_MS,
-      requiredSettleMs + 2 * (config.pollMs || DEFAULT_POLL_MS)
-    );
+    // supposed to be bounding. The longer inputEvidenceSettleMs only applies where
+    // input-file-count is admissible evidence, which is the trusted CDP vector
+    // alone -- charging every vector for it starved cascades that never rely on
+    // it (Gemini: a 15 s requirement against a 12 s budget).
+    const minConfirmSliceFor = (admitsInputFileCount) => {
+      const settleMs = admitsInputFileCount && config.inputFileCountIsEvidence === true
+        ? Math.max(Number(config.settleMs || 0), Number(config.inputEvidenceSettleMs || 0))
+        : Number(config.settleMs || 0);
+      return Math.max(
+        CASCADE_MIN_CONFIRM_SLICE_MS,
+        settleMs + 2 * (config.pollMs || DEFAULT_POLL_MS)
+      );
+    };
 
     // Run one delivery vector. A successful dispatch is confirmed first (clean
     // success when confirmSelectors match). When confirmOptional, a dispatch that
@@ -1079,7 +1115,6 @@
         baselineState,
         cascadeBudgetMs,
         cascadeRemainingMs: Math.max(0, cascadeBudgetMs - confirmSpentMs),
-        minConfirmSliceMs,
         vectorsLeftAfterThis
       });
       // A strategy that throws must not abort the remaining strategies: a missing
@@ -1129,17 +1164,6 @@
       if (config.dispatchEvidenceSettleMs && config.dispatchIsEvidence === true) {
         await sleep(Math.max(0, Number(config.dispatchEvidenceSettleMs)));
       }
-      // Share what is left of the budget with the vectors still to come. The floor
-      // clears the provider's own settle requirement, so a slice is always long
-      // enough for confirmation to be possible at all, and unused time from a
-      // fast-failing vector rolls forward. Only confirmation waiting is charged.
-      const cascadeRemainingMs = Math.max(0, cascadeBudgetMs - confirmSpentMs);
-      const confirmBudgetMs = Math.min(
-        cascadeRemainingMs,
-        vectorsLeftAfterThis > 0
-          ? Math.max(minConfirmSliceMs, Math.floor(cascadeRemainingMs / (vectorsLeftAfterThis + 1)))
-          : cascadeRemainingMs
-      );
       // An `input` vector sets input.files from JS itself, so reading that count
       // back proves only that our own assignment executed -- it says nothing
       // about whether the provider accepted or uploaded anything. The GPT config
@@ -1150,6 +1174,18 @@
       // is a real browser-level operation that drives the page's upload path --
       // so input-file-count stays admissible there.
       const allowInputFileCountEvidence = !String(strategy).startsWith('input');
+      // Share what is left of the budget with the vectors still to come. The floor
+      // clears this vector's own settle requirement, so a slice is always long
+      // enough for confirmation to be possible at all, and unused time from a
+      // fast-failing vector rolls forward. Only confirmation waiting is charged.
+      const minConfirmSliceMs = minConfirmSliceFor(allowInputFileCountEvidence);
+      const cascadeRemainingMs = Math.max(0, cascadeBudgetMs - confirmSpentMs);
+      const confirmBudgetMs = Math.min(
+        cascadeRemainingMs,
+        vectorsLeftAfterThis > 0
+          ? Math.max(minConfirmSliceMs, Math.floor(cascadeRemainingMs / (vectorsLeftAfterThis + 1)))
+          : cascadeRemainingMs
+      );
       const confirmStartedAt = Date.now();
       const confirmation = await waitForUploadConfirmation(
         config, expectedCount, baselineState, files, confirmBudgetMs, allowInputFileCountEvidence,

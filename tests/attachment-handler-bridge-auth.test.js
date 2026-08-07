@@ -86,12 +86,21 @@ describe('attachment bridge authentication', () => {
     // CDP first, but never CDP-only: see the note in attachment-handler.js (2.81.116).
     expect(geminiConfig).toMatch(/strategies: \['cdp-file-input',/);
     expect(geminiConfig).toContain("'input'");
-    expect(geminiConfig).toContain('timeoutMs: 12000');
+    // Both synthetic-event vectors are present, and `input` is last: it is the
+    // one the GPT note calls out as making the chip appear while the upload
+    // never completes, so it must never pre-empt drop or paste.
+    expect(geminiConfig).toContain("'drop'");
+    expect(geminiConfig).toContain("'paste'");
+    expect(geminiConfig).toMatch(/strategies: \[[^\]]*'input'\s*\]/);
+    expect(geminiConfig).toContain('timeoutMs: 45000');
     expect(geminiConfig).toContain("confirmationMode: 'batch'");
     expect(geminiConfig).toContain('inputFileCountIsEvidence: true');
-    expect(geminiConfig).toContain('dispatchIsEvidence: true');
-    expect(geminiConfig).toContain('dispatchEvidenceSettleMs: 2500');
     expect(geminiConfig).toContain('inputEvidenceSettleMs: 15000');
+    // Gemini must fail closed. dispatchIsEvidence let a dispatch that delivered
+    // nothing pass as a delivery, and the prompt then went out with no file on
+    // it in three consecutive field runs.
+    expect(geminiConfig).not.toContain('dispatchIsEvidence: true');
+    expect(geminiConfig).not.toContain('dispatchEvidenceSettleMs');
     expect(HANDLER_SRC).toContain("type: 'GEMINI_CDP_ATTACH_REQUEST'");
     expect(ROUTER_SRC).toContain("case 'GEMINI_CDP_ATTACH_REQUEST'");
     expect(ROUTER_SRC).toContain("'DOM.setFileInputFiles'");

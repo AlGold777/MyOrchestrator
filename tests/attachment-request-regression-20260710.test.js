@@ -67,13 +67,15 @@ describe('attachment request regression 2026-07-10', () => {
 
   test('Gemini trusts successful CDP assignment and verifies prompt insertion before send', () => {
     const geminiConfig = handler.slice(handler.indexOf('Gemini: {'), handler.indexOf('Perplexity: {'));
-    expect(geminiConfig).toContain('dispatchIsEvidence: true');
-    // A successful CDP assignment is still accepted when nothing is observable,
-    // but it is no longer a short-circuit past confirmation, and it is recorded
-    // as unproven instead of as a clean success. Field run 1786111563648: Gemini
-    // and Z.ai both logged a confirmed attachment in 1.2-2.5 s and then sent the
-    // prompt with no file, because the old early return skipped every evidence
-    // check including the progress-bar gate in confirmGoneSelectors.
+    // A CDP assignment is trusted as a delivery vector, but it no longer stands
+    // in for evidence that the file arrived. Field runs 1786111563648,
+    // 1786138588032 and 1786139514606 all ended with Gemini logging a confirmed
+    // attachment and then sending the prompt with no file on it, because
+    // dispatchIsEvidence returned before any observation ran -- skipping every
+    // evidence check including the progress-bar gate in confirmGoneSelectors.
+    expect(geminiConfig).not.toContain('dispatchIsEvidence: true');
+    // The unproven-acceptance path still exists for providers that opt into it,
+    // and stays a warning carrying residual risk rather than a clean success.
     expect(handler).toContain("'ATTACHMENT_ACCEPTED_UNPROVEN'");
     expect(handler).toContain("reason: 'TRUSTED_DISPATCH_WITHOUT_OBSERVED_EVIDENCE'");
     expect(handler).toContain("residualRisk: 'attachment_delivery_not_proven'");
