@@ -54,8 +54,8 @@ describe('release log regression guards', () => {
 
   test('model selectors and response cards use the canonical UI order', () => {
     const expectedButtonIds = [
-      'llm-gpt', 'llm-gemini', 'llm-claude', 'llm-grok', 'llm-zai',
-      'llm-qwen', 'llm-deepseek', 'llm-lechat', 'llm-perplexity'
+      'llm-gpt', 'llm-claude', 'llm-qwen', 'llm-zai', 'llm-kimi',
+      'llm-gemini', 'llm-grok', 'llm-deepseek', 'llm-lechat', 'llm-perplexity'
     ];
     const expectedPanelIds = expectedButtonIds.map((id) => id.replace('llm-', 'panel-'));
     const readOrder = (html, ids) => ids
