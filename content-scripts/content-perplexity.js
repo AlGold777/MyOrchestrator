@@ -33,6 +33,10 @@ const PERPLEXITY_BLOCKER_MARKER_VERSION = 2;
 const PERPLEXITY_BLOCKER_MARKER_TTL_MS = 120000;
 const PERPLEXITY_BLOCKER_MESSAGE_RETRY_DELAYS_MS = [0, 250, 750];
 const PERPLEXITY_HANDOFF_RETRY_DELAYS_MS = [500, 1500, 3000, 5000];
+// Budget for the second attachment attempt, the one that runs after a promotion
+// modal was closed mid-upload. Half of AttachmentHandler's 10 s default: enough
+// for a path that now works, too little to grind through a failing cascade twice.
+const PERPLEXITY_RETRY_ATTACH_TIMEOUT_MS = 5000;
 const PERPLEXITY_COMPOSER_SELECTORS = [
   'textarea[data-testid="search-input"]',
   'form[role="search"] textarea',
@@ -1491,7 +1495,7 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
       }
       let result = null;
       let promotionDismissed = false;
-      const runAttachmentAttempt = async (attemptMarker) => {
+      const runAttachmentAttempt = async (attemptMarker, attachOverrides = {}) => {
         let attemptResult = null;
         let promotionGuardBusy = false;
         const dismissPromotionDuringAttachment = async () => {
@@ -1507,7 +1511,7 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
           void dismissPromotionDuringAttachment();
         }, 120);
         try {
-          attemptResult = await attachmentHandler.attach(MODEL, attachments);
+          attemptResult = await attachmentHandler.attach(MODEL, attachments, attachOverrides);
           // A modal can be mounted just after AttachmentHandler's settle window;
           // perform one final close pass before deciding whether to retry.
           await dismissPromotionDuringAttachment();
@@ -1542,7 +1546,14 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
         if (!blockerMarker) {
           throw { type: 'attachment_failed', message: 'Perplexity retry handoff was not acknowledged' };
         }
-        result = await runAttachmentAttempt(blockerMarker);
+        // The retry runs the full cascade a second time, so without a reduced
+        // budget it doubles the wait before a hard attachment failure. Its job is
+        // narrower than the first attempt's: the promotion is already closed, so a
+        // working delivery path confirms promptly or does not exist. Give it half
+        // the budget rather than another full one.
+        result = await runAttachmentAttempt(blockerMarker, {
+          timeoutMs: PERPLEXITY_RETRY_ATTACH_TIMEOUT_MS
+        });
       }
       const attachmentsOk = result.success;
       const activeBlockerMarker = readPerplexityBlockerMarker();
