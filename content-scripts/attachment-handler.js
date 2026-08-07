@@ -248,14 +248,46 @@
       // 2.81.116: fallback added, see the Gemini note above. The same stable
       // native contract named in the comment is used directly by the `input`
       // strategy, which needs no debugger permission.
-      strategies: ['qwen-cdp-file-input', 'input'],
+      //
+      // 2.81.302: that left Qwen as the only provider with no synthetic-event
+      // vector at all, so its whole cascade was CDP plus `input` -- and `input`
+      // is documented in the GPT config above as the one that "makes the chip
+      // appear but the upload never completes". One real path, and a fallback
+      // known not to deliver. Runs 1786138588032 and 1786139514606 both ended
+      // with Qwen attaching nothing and, because the attachment gate is hard,
+      // inserting no prompt either.
+      // The two vectors added here are the ones with delivery evidence behind
+      // them: `paste` is what actually put the file into Kimi (twice, which is
+      // how the duplicate surfaced), and `drop` is what DeepSeek and Le Chat
+      // use and what the GPT note calls "the same vector that fixed Qwen".
+      // `input` stays last precisely because it is the least trustworthy.
+      strategies: ['qwen-cdp-file-input', 'drop', 'paste', 'input'],
+      dropSelectors: [
+        'textarea[placeholder*="Ask me anything" i]',
+        'textarea.ant-input',
+        'form textarea',
+        'textarea',
+        'div[contenteditable="true"]',
+        '[role="textbox"]',
+        'form'
+      ],
+      pasteSelectors: [
+        'textarea[placeholder*="Ask me anything" i]',
+        'textarea.ant-input',
+        'form textarea',
+        'textarea',
+        'div[contenteditable="true"]',
+        '[role="textbox"]'
+      ],
       inputSelectors: [
         'input#filesUpload[type="file"]',
         'input[id="filesUpload"]',
         'input[type="file"][multiple]',
         'input[type="file"]'
       ],
-      timeoutMs: 45000,
+      // Raised with the vector count: the per-vector floor has to clear Qwen's
+      // own 10 s inputEvidenceSettleMs, so 45 s funded only the first few.
+      timeoutMs: 70000,
       scaleTimeoutByFileCount: false,
       inputFileCountIsEvidence: true,
       settleMs: 3000,
@@ -613,7 +645,7 @@
     filenameEvidenceCount: countFilenameEvidence(files)
   });
 
-  const waitForUploadConfirmation = async (config, expectedCount = 1, baselineState = null, files = [], confirmTimeoutMs = null) => {
+  const waitForUploadConfirmation = async (config, expectedCount = 1, baselineState = null, files = [], confirmTimeoutMs = null, allowInputFileCountEvidence = true) => {
     const confirmSelectors = config.confirmSelectors || [];
     const confirmGoneSelectors = config.confirmGoneSelectors || [];
     if (!confirmSelectors.length && !confirmGoneSelectors.length) {
@@ -645,7 +677,10 @@
       const inputFileCount = countAttachedInputFiles();
       const filenameEvidenceCount = countFilenameEvidence(files);
       const selectorEvidence = currentCount >= baseline + requiredDelta;
-      const inputEvidence = config.inputFileCountIsEvidence === true
+      // Only admissible when this vector did not assign input.files itself --
+      // see the caller. Reading back our own write is not an observation.
+      const inputEvidence = allowInputFileCountEvidence
+        && config.inputFileCountIsEvidence === true
         && inputFileCount >= expectedCount;
       const filenameEvidence = filenameEvidenceCount >= baselineFilenameEvidence + expectedCount;
       const evidenceNow = selectorEvidence || inputEvidence || filenameEvidence;
@@ -1080,8 +1115,20 @@
           ? Math.max(minConfirmSliceMs, Math.floor(cascadeRemainingMs / (vectorsLeftAfterThis + 1)))
           : cascadeRemainingMs
       );
+      // An `input` vector sets input.files from JS itself, so reading that count
+      // back proves only that our own assignment executed -- it says nothing
+      // about whether the provider accepted or uploaded anything. The GPT config
+      // above records exactly this failure mode: setting input.files "makes the
+      // chip appear but the upload never completes". Run 1786138588032: Qwen sent
+      // the prompt with no file after input:content "confirmed" on that circular
+      // evidence. A trusted CDP assignment is different -- DOM.setFileInputFiles
+      // is a real browser-level operation that drives the page's upload path --
+      // so input-file-count stays admissible there.
+      const allowInputFileCountEvidence = !String(strategy).startsWith('input');
       const confirmStartedAt = Date.now();
-      const confirmation = await waitForUploadConfirmation(config, expectedCount, baselineState, files, confirmBudgetMs);
+      const confirmation = await waitForUploadConfirmation(
+        config, expectedCount, baselineState, files, confirmBudgetMs, allowInputFileCountEvidence
+      );
       confirmSpentMs += Date.now() - confirmStartedAt;
       if (confirmation?.confirmed) {
         emitAttachmentTelemetry(model, 'ATTACHMENT_CONFIRMED', strategy, 'success', {
