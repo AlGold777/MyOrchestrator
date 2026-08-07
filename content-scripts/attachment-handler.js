@@ -411,6 +411,12 @@
 
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+  // Smallest confirmation window worth handing a delivery vector. Below this a
+  // vector cannot realistically observe an upload chip, so slicing the cascade
+  // budget too thin would silently reduce a multi-vector cascade to its first
+  // vector. Always capped by the budget actually left (see tryVia).
+  const CASCADE_MIN_CONFIRM_SLICE_MS = 4000;
+
   const parseDataUrlToBytes = (dataUrl = '') => {
     try {
       const match = String(dataUrl || '').match(/^data:([^;]+);base64,(.*)$/);
@@ -600,15 +606,20 @@
     filenameEvidenceCount: countFilenameEvidence(files)
   });
 
-  const waitForUploadConfirmation = async (config, expectedCount = 1, baselineState = null, files = []) => {
+  const waitForUploadConfirmation = async (config, expectedCount = 1, baselineState = null, files = [], confirmTimeoutMs = null) => {
     const confirmSelectors = config.confirmSelectors || [];
     const confirmGoneSelectors = config.confirmGoneSelectors || [];
     if (!confirmSelectors.length && !confirmGoneSelectors.length) {
       return { confirmed: true, reason: 'NO_CONFIRMATION_SELECTORS', elapsedMs: 0 };
     }
-    const totalTimeoutMs = config.scaleTimeoutByFileCount === false
-      ? (config.timeoutMs || DEFAULT_TIMEOUT_MS)
-      : (config.timeoutMs || DEFAULT_TIMEOUT_MS) * Math.max(1, expectedCount);
+    // An explicit budget comes from the cascade in attach(): the caller owns one
+    // shared deadline for every delivery vector. Falling back to the per-provider
+    // timeout keeps direct callers working.
+    const totalTimeoutMs = Number.isFinite(confirmTimeoutMs)
+      ? Math.max(0, confirmTimeoutMs)
+      : (config.scaleTimeoutByFileCount === false
+        ? (config.timeoutMs || DEFAULT_TIMEOUT_MS)
+        : (config.timeoutMs || DEFAULT_TIMEOUT_MS) * Math.max(1, expectedCount));
     const pollMs = config.pollMs || DEFAULT_POLL_MS;
     const deadline = Date.now() + totalTimeoutMs;
     const baseline = Number.isFinite(baselineState?.confirmCount)
@@ -946,6 +957,22 @@
 
     const confirmOptional = config.confirmOptional === true;
 
+    // One budget for the whole cascade. Each strategy used to start its own full
+    // confirmation timeout, so the per-provider timeoutMs was really a per-vector
+    // cost: Qwen's 45 s became 135 s across qwen-cdp → input:bridge → input:content,
+    // and the caller sat through a two-minute stall before a hard attachment
+    // failure. Every vector now draws a slice of one shared deadline, and time a
+    // fast-failing vector leaves unused rolls forward to the vectors after it.
+    // 'drop'/'paste'/'input' each expand to a bridge and a content vector.
+    const cascadeVectorCount = strategies.reduce((count, name) => (
+      count + (name === 'drop' || name === 'paste' || name === 'input' ? 2 : 1)
+    ), 0);
+    const cascadeBudgetMs = config.scaleTimeoutByFileCount === false
+      ? (config.timeoutMs || DEFAULT_TIMEOUT_MS)
+      : (config.timeoutMs || DEFAULT_TIMEOUT_MS) * Math.max(1, expectedCount);
+    const cascadeDeadline = Date.now() + cascadeBudgetMs;
+    let vectorsRemaining = cascadeVectorCount;
+
     // Run one delivery vector. A successful dispatch is confirmed first (clean
     // success when confirmSelectors match). When confirmOptional, a dispatch that
     // didn't confirm still counts as delivered — this stops the cascade from
@@ -953,13 +980,20 @@
     // / "file already added" bug on ChatGPT). Returns 'delivered' to break the
     // loop, or false to fall through to the next vector.
     const tryVia = async (strategy, dispatchFn) => {
+      // This vector is consumed the moment it runs, whatever its outcome, so the
+      // slice arithmetic below always reflects vectors that have yet to start.
+      const vectorsLeftAfterThis = Math.max(0, vectorsRemaining - 1);
+      vectorsRemaining = vectorsLeftAfterThis;
       const baselineState = captureUploadBaseline(config);
       baselineState.filenameEvidenceCount = countFilenameEvidence(files);
       const startedAt = Date.now();
       emitAttachmentTelemetry(model, 'ATTACHMENT_STRATEGY_START', strategy, 'info', {
         strategy,
         expectedCount,
-        baselineState
+        baselineState,
+        cascadeBudgetMs,
+        cascadeRemainingMs: Math.max(0, cascadeDeadline - Date.now()),
+        vectorsLeftAfterThis
       });
       // A strategy that throws must not abort the remaining strategies: a missing
       // API (for example chrome.debugger after the permission was removed) surfaces
@@ -1006,11 +1040,23 @@
         });
         return true;
       }
-      const confirmation = await waitForUploadConfirmation(config, expectedCount, baselineState, files);
+      // Share what is left of the cascade budget with the vectors still to come.
+      // The floor keeps a late vector from being handed an unusable few hundred
+      // milliseconds, and is itself capped by the remaining budget so the floor can
+      // never push the cascade past its shared deadline.
+      const cascadeRemainingMs = Math.max(0, cascadeDeadline - Date.now());
+      const confirmBudgetMs = Math.min(
+        cascadeRemainingMs,
+        vectorsLeftAfterThis > 0
+          ? Math.max(CASCADE_MIN_CONFIRM_SLICE_MS, Math.floor(cascadeRemainingMs / (vectorsLeftAfterThis + 1)))
+          : cascadeRemainingMs
+      );
+      const confirmation = await waitForUploadConfirmation(config, expectedCount, baselineState, files, confirmBudgetMs);
       if (confirmation?.confirmed) {
         emitAttachmentTelemetry(model, 'ATTACHMENT_CONFIRMED', strategy, 'success', {
           strategy,
           expectedCount,
+          confirmBudgetMs,
           ...confirmation
         });
         return true;
@@ -1018,6 +1064,8 @@
       emitAttachmentTelemetry(model, 'ATTACHMENT_CONFIRM_TIMEOUT', strategy, 'warning', {
         strategy,
         expectedCount,
+        confirmBudgetMs,
+        cascadeRemainingMs: Math.max(0, cascadeDeadline - Date.now()),
         ...confirmation
       });
       return confirmOptional;
