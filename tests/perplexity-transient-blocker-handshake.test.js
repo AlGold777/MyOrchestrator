@@ -17,7 +17,7 @@ describe('Perplexity transient file-upload blocker handshake', () => {
     );
     expect(attachmentBlock).toContain('await armPerplexityFileUploadBlocker(dispatchMeta)');
     expect(attachmentBlock.indexOf('await armPerplexityFileUploadBlocker(dispatchMeta)'))
-      .toBeLessThan(attachmentBlock.indexOf('await attachmentHandler.attach(MODEL, attachments)'));
+      .toBeLessThan(attachmentBlock.indexOf('await attachmentHandler.attach(MODEL, attachments'));
     expect(CONTENT).toContain('runSessionId: marker.runSessionId');
     expect(CONTENT).toContain('dispatchId: marker.dispatchId');
     expect(CONTENT).toContain('PERPLEXITY_BLOCKER_MARKER_TTL_MS = 120000');

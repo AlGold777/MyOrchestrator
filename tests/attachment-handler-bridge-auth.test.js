@@ -234,7 +234,7 @@ describe('attachment bridge authentication', () => {
     );
     expect(attachmentBlock).toContain('const promotionGuardTimer = setInterval');
     expect(attachmentBlock.indexOf('const promotionGuardTimer = setInterval'))
-      .toBeLessThan(attachmentBlock.indexOf('await attachmentHandler.attach(MODEL, attachments)'));
+      .toBeLessThan(attachmentBlock.indexOf('await attachmentHandler.attach(MODEL, attachments'));
     expect(attachmentBlock).toContain('clearInterval(promotionGuardTimer)');
     expect(attachmentBlock).toContain('await dismissPromotionDuringAttachment()');
     expect(attachmentBlock).toContain('runAttachmentAttempt');
