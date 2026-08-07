@@ -80,25 +80,29 @@
                                     <img class="llm-button-icon" src="icons/models/openai.svg" alt="GPT icon">
                                     <span class="llm-button-label">GPT</span>
                                 </button>
-                                <button class="llm-button" id="llm-gemini" title="Gemini">
-                                    <img class="llm-button-icon" src="icons/models/gemini.svg" alt="Gemini icon">
-                                    <span class="llm-button-label">Gemini</span>
-                                </button>
                                 <button class="llm-button" id="llm-claude" title="Claude">
                                     <img class="llm-button-icon" src="icons/models/claude.svg" alt="Claude icon">
                                     <span class="llm-button-label">Claude</span>
                                 </button>
-                                <button class="llm-button" id="llm-grok" title="Grok">
-                                    <img class="llm-button-icon" src="icons/models/grok.svg" alt="Grok icon">
-                                    <span class="llm-button-label">Grok</span>
+                                <button class="llm-button" id="llm-qwen" title="Qwen">
+                                    <img class="llm-button-icon" src="icons/models/qwen.svg" alt="Qwen icon">
+                                    <span class="llm-button-label">Qwen</span>
                                 </button>
                                 <button class="llm-button" id="llm-zai" title="Z.ai">
                                     <img class="llm-button-icon" src="icons/models/zai.svg" alt="Z.ai icon">
                                     <span class="llm-button-label">Z.ai</span>
                                 </button>
-                                <button class="llm-button" id="llm-qwen" title="Qwen">
-                                    <img class="llm-button-icon" src="icons/models/qwen.svg" alt="Qwen icon">
-                                    <span class="llm-button-label">Qwen</span>
+                                <button class="llm-button" id="llm-kimi" title="Kimi">
+                                    <img class="llm-button-icon" src="icons/models/kimi.svg" alt="Kimi icon">
+                                    <span class="llm-button-label">Kimi</span>
+                                </button>
+                                <button class="llm-button" id="llm-gemini" title="Gemini">
+                                    <img class="llm-button-icon" src="icons/models/gemini.svg" alt="Gemini icon">
+                                    <span class="llm-button-label">Gemini</span>
+                                </button>
+                                <button class="llm-button" id="llm-grok" title="Grok">
+                                    <img class="llm-button-icon" src="icons/models/grok.svg" alt="Grok icon">
+                                    <span class="llm-button-label">Grok</span>
                                 </button>
                                 <button class="llm-button" id="llm-deepseek" title="DeepSeek">
                                     <img class="llm-button-icon" src="icons/models/deepseek.svg" alt="DeepSeek icon">
@@ -111,10 +115,6 @@
                                 <button class="llm-button" id="llm-perplexity" title="Perplexity">
                                     <img class="llm-button-icon" src="icons/models/perplexity.svg" alt="Perplexity icon">
                                     <span class="llm-button-label">Perplex</span>
-                                </button>
-                                <button class="llm-button" id="llm-kimi" title="Kimi">
-                                    <img class="llm-button-icon" src="icons/models/kimi.svg" alt="Kimi icon">
-                                    <span class="llm-button-label">Kimi</span>
                                 </button>
                             </div>
                         </div>
@@ -307,25 +307,6 @@
 <div class="output" id="output-gpt"></div>
     </div>
 
-    <div class="llm-panel" id="panel-gemini">
-        <!-- 1.2 — Переносим элементы внутрь панели Gemini -->
-    <div class="llm-header">
-      <span class="llm-title">Gemini</span>
-        <div class="status-control-cluster">
-            <span class="status-indicator" data-llm-name="Gemini"></span>
-        </div>
-  <div class="header-right">
-     <button class="copy-btn" data-target="output-gemini" title="Copy response"><i class="ti ti-copy" aria-hidden="true"></i></button>
-    <button class="panel-action-btn panel-export-html-btn" data-target="output-gemini" data-name="Gemini" data-label="⬆" title="Export this response as HTML"><i class="ti ti-download" aria-hidden="true"></i></button>
-     <button class="panel-action-btn panel-clear-response-btn" data-target="output-gemini" title="Clear response" aria-label="Clear response"><i class="ti ti-trash" aria-hidden="true"></i></button>
- 
-</div>
-</div>
-<div class="output" id="output-gemini"></div>
-
-
-    </div>
-
     <div class="llm-panel" id="panel-claude">
 <!-- 3.1 — Переносим элементы внутрь панели Claude -->
 <div class="llm-header">
@@ -345,21 +326,21 @@
 
     </div>
 
-    <div class="llm-panel" id="panel-grok">
-<!-- 4.1 — Переносим элементы внутрь панели Grok -->
-<div class="llm-header">
-  <span class="llm-title">Grok</span>
-    <div class="status-control-cluster">
-        <span class="status-indicator" data-llm-name="Grok"></span>
-    </div>
+    <div class="llm-panel" id="panel-qwen">
+<!-- 6.1 — Переносим элементы внутрь панели Qwen -->
+    <div class="llm-header">
+      <span class="llm-title">Qwen</span>
+        <div class="status-control-cluster">
+            <span class="status-indicator" data-llm-name="Qwen"></span>
+        </div>
   <div class="header-right">
-    <button class="copy-btn" data-target="output-grok" title="Copy response"><i class="ti ti-copy" aria-hidden="true"></i></button>
-    <button class="panel-action-btn panel-export-html-btn" data-target="output-grok" data-name="Grok" data-label="⬆" title="Export this response as HTML"><i class="ti ti-download" aria-hidden="true"></i></button>
-     <button class="panel-action-btn panel-clear-response-btn" data-target="output-grok" title="Clear response" aria-label="Clear response"><i class="ti ti-trash" aria-hidden="true"></i></button>
- 
+     <button class="copy-btn" data-target="output-qwen" title="Copy response"><i class="ti ti-copy" aria-hidden="true"></i></button>
+    <button class="panel-action-btn panel-export-html-btn" data-target="output-qwen" data-name="Qwen" data-label="⬆" title="Export this response as HTML"><i class="ti ti-download" aria-hidden="true"></i></button>
+     <button class="panel-action-btn panel-clear-response-btn" data-target="output-qwen" title="Clear response" aria-label="Clear response"><i class="ti ti-trash" aria-hidden="true"></i></button>
+
 </div>
 </div>
-<div class="output" id="output-grok"></div>
+<div class="output" id="output-qwen"></div>
 
 
     </div>
@@ -377,21 +358,53 @@
       <div class="output" id="output-zai"></div>
     </div>
 
-    <div class="llm-panel" id="panel-qwen">
-<!-- 6.1 — Переносим элементы внутрь панели Qwen -->
+    <div class="llm-panel" id="panel-kimi">
+      <div class="llm-header">
+        <span class="llm-title">Kimi</span>
+        <div class="status-control-cluster"><span class="status-indicator" data-llm-name="Kimi"></span></div>
+        <div class="header-right">
+          <button class="copy-btn" data-target="output-kimi" title="Copy response"><i class="ti ti-copy" aria-hidden="true"></i></button>
+          <button class="panel-action-btn panel-export-html-btn" data-target="output-kimi" data-name="Kimi" data-label="⬆" title="Export this response as HTML"><i class="ti ti-download" aria-hidden="true"></i></button>
+          <button class="panel-action-btn panel-clear-response-btn" data-target="output-kimi" title="Clear response" aria-label="Clear response"><i class="ti ti-trash" aria-hidden="true"></i></button>
+        </div>
+      </div>
+      <div class="output" id="output-kimi"></div>
+    </div>
+
+    <div class="llm-panel" id="panel-gemini">
+        <!-- 1.2 — Переносим элементы внутрь панели Gemini -->
     <div class="llm-header">
-      <span class="llm-title">Qwen</span>
+      <span class="llm-title">Gemini</span>
         <div class="status-control-cluster">
-            <span class="status-indicator" data-llm-name="Qwen"></span>
+            <span class="status-indicator" data-llm-name="Gemini"></span>
         </div>
   <div class="header-right">
-     <button class="copy-btn" data-target="output-qwen" title="Copy response"><i class="ti ti-copy" aria-hidden="true"></i></button>
-    <button class="panel-action-btn panel-export-html-btn" data-target="output-qwen" data-name="Qwen" data-label="⬆" title="Export this response as HTML"><i class="ti ti-download" aria-hidden="true"></i></button>
-     <button class="panel-action-btn panel-clear-response-btn" data-target="output-qwen" title="Clear response" aria-label="Clear response"><i class="ti ti-trash" aria-hidden="true"></i></button>
-  
+     <button class="copy-btn" data-target="output-gemini" title="Copy response"><i class="ti ti-copy" aria-hidden="true"></i></button>
+    <button class="panel-action-btn panel-export-html-btn" data-target="output-gemini" data-name="Gemini" data-label="⬆" title="Export this response as HTML"><i class="ti ti-download" aria-hidden="true"></i></button>
+     <button class="panel-action-btn panel-clear-response-btn" data-target="output-gemini" title="Clear response" aria-label="Clear response"><i class="ti ti-trash" aria-hidden="true"></i></button>
+
 </div>
 </div>
-<div class="output" id="output-qwen"></div>
+<div class="output" id="output-gemini"></div>
+
+
+    </div>
+
+    <div class="llm-panel" id="panel-grok">
+<!-- 4.1 — Переносим элементы внутрь панели Grok -->
+<div class="llm-header">
+  <span class="llm-title">Grok</span>
+    <div class="status-control-cluster">
+        <span class="status-indicator" data-llm-name="Grok"></span>
+    </div>
+  <div class="header-right">
+    <button class="copy-btn" data-target="output-grok" title="Copy response"><i class="ti ti-copy" aria-hidden="true"></i></button>
+    <button class="panel-action-btn panel-export-html-btn" data-target="output-grok" data-name="Grok" data-label="⬆" title="Export this response as HTML"><i class="ti ti-download" aria-hidden="true"></i></button>
+     <button class="panel-action-btn panel-clear-response-btn" data-target="output-grok" title="Clear response" aria-label="Clear response"><i class="ti ti-trash" aria-hidden="true"></i></button>
+
+</div>
+</div>
+<div class="output" id="output-grok"></div>
 
 
     </div>
@@ -407,7 +420,7 @@
      <button class="copy-btn" data-target="output-deepseek" title="Copy response"><i class="ti ti-copy" aria-hidden="true"></i></button>
     <button class="panel-action-btn panel-export-html-btn" data-target="output-deepseek" data-name="DeepSeek" data-label="⬆" title="Export this response as HTML"><i class="ti ti-download" aria-hidden="true"></i></button>
      <button class="panel-action-btn panel-clear-response-btn" data-target="output-deepseek" title="Clear response" aria-label="Clear response"><i class="ti ti-trash" aria-hidden="true"></i></button>
- 
+
 </div>
 </div>
 <div class="output" id="output-deepseek"></div>
@@ -445,25 +458,12 @@
      <button class="copy-btn" data-target="output-perplexity" title="Copy response"><i class="ti ti-copy" aria-hidden="true"></i></button>
     <button class="panel-action-btn panel-export-html-btn" data-target="output-perplexity" data-name="Perplexity" data-label="⬆" title="Export this response as HTML"><i class="ti ti-download" aria-hidden="true"></i></button>
      <button class="panel-action-btn panel-clear-response-btn" data-target="output-perplexity" title="Clear response" aria-label="Clear response"><i class="ti ti-trash" aria-hidden="true"></i></button>
- 
+
 </div>
 </div>
 <div class="output" id="output-perplexity"></div>
 
 
-    </div>
-
-    <div class="llm-panel" id="panel-kimi">
-      <div class="llm-header">
-        <span class="llm-title">Kimi</span>
-        <div class="status-control-cluster"><span class="status-indicator" data-llm-name="Kimi"></span></div>
-        <div class="header-right">
-          <button class="copy-btn" data-target="output-kimi" title="Copy response"><i class="ti ti-copy" aria-hidden="true"></i></button>
-          <button class="panel-action-btn panel-export-html-btn" data-target="output-kimi" data-name="Kimi" data-label="⬆" title="Export this response as HTML"><i class="ti ti-download" aria-hidden="true"></i></button>
-          <button class="panel-action-btn panel-clear-response-btn" data-target="output-kimi" title="Clear response" aria-label="Clear response"><i class="ti ti-trash" aria-hidden="true"></i></button>
-        </div>
-      </div>
-      <div class="output" id="output-kimi"></div>
     </div>
 </div>
 
