@@ -202,7 +202,12 @@
             if (!evPaste.clipboardData) {
               Object.defineProperty(evPaste, 'clipboardData', { value: dt });
             }
-            el.dispatchEvent(evPaste);
+            // Exactly one paste. This used to fire the same event twice as a
+            // blind retry, which on a provider where paste actually works
+            // (Kimi) attached the file twice and sent the prompt with two
+            // copies of it. Retrying is the cascade's job in
+            // attachment-handler.js: it observes whether the file landed and
+            // moves to the next delivery vector if it did not.
             el.dispatchEvent(evPaste);
             return true;
           } catch (_) {}
