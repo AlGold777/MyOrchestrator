@@ -317,6 +317,89 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     outputElements.forEach(decorateLinksForNewTab);
 
+    // Scroll-to-end jump button for response cards (and the Favourite card):
+    // once an answer overflows its fixed-height box, a translucent circular
+    // arrow appears on hover, letting the user jump to the bottom, then back
+    // to the top, without dragging the internal scrollbar.
+    const initOutputScrollJumpButtons = () => {
+        const trackedOutputs = new WeakSet();
+
+        const ensureScrollButton = (panel) => {
+            let btn = panel.querySelector(':scope > .output-scroll-jump-btn');
+            if (btn) return btn;
+            btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'output-scroll-jump-btn';
+            btn.setAttribute('aria-label', 'Scroll to bottom');
+            btn.innerHTML = '<i class="ti ti-chevron-down output-scroll-icon-down" aria-hidden="true"></i>'
+                + '<i class="ti ti-chevron-up output-scroll-icon-up" aria-hidden="true"></i>';
+            panel.appendChild(btn);
+            return btn;
+        };
+
+        const updateScrollPosition = (outputEl, panel) => {
+            const atBottom = outputEl.scrollTop + outputEl.clientHeight >= outputEl.scrollHeight - 2;
+            panel.classList.toggle('output-scroll-at-bottom', atBottom);
+            const header = panel.querySelector(':scope > .llm-header');
+            if (header) {
+                panel.style.setProperty('--output-scroll-btn-top', `${header.offsetHeight + 10}px`);
+            }
+            const btn = panel.querySelector(':scope > .output-scroll-jump-btn');
+            if (btn) btn.setAttribute('aria-label', atBottom ? 'Scroll to top' : 'Scroll to bottom');
+        };
+
+        const updateOverflowState = (outputEl) => {
+            const panel = outputEl.closest('.llm-panel');
+            if (!panel) return;
+            const hasOverflow = outputEl.scrollHeight > outputEl.clientHeight + 1;
+            panel.classList.toggle('has-scrollable-output', hasOverflow);
+            if (!hasOverflow) return;
+            ensureScrollButton(panel);
+            updateScrollPosition(outputEl, panel);
+        };
+
+        const attachOutput = (outputEl) => {
+            if (!(outputEl instanceof HTMLElement) || !outputEl.classList.contains('output') || trackedOutputs.has(outputEl)) return;
+            const panel = outputEl.closest('.llm-panel');
+            if (!panel) return;
+            trackedOutputs.add(outputEl);
+            const btn = ensureScrollButton(panel);
+            btn.addEventListener('click', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                const atBottom = panel.classList.contains('output-scroll-at-bottom');
+                outputEl.scrollTo({ top: atBottom ? 0 : outputEl.scrollHeight, behavior: 'smooth' });
+            });
+            const scheduleUpdate = () => requestAnimationFrame(() => updateOverflowState(outputEl));
+            outputEl.addEventListener('scroll', () => updateScrollPosition(outputEl, panel), { passive: true });
+            new MutationObserver(scheduleUpdate).observe(outputEl, { childList: true, subtree: true, characterData: true });
+            scheduleUpdate();
+        };
+
+        document.querySelectorAll('.llm-panel .output').forEach(attachOutput);
+
+        // The Favourite panel is created lazily and inserted as a sibling of
+        // .llm-results (not a descendant), so both containers' common parent
+        // must be watched for it — and any future .llm-panel — to appear.
+        const watchRoot = llmResultsContainer?.parentElement || llmResultsContainer;
+        if (watchRoot) {
+            new MutationObserver((mutations) => {
+                mutations.forEach((mutation) => {
+                    mutation.addedNodes.forEach((node) => {
+                        if (!(node instanceof HTMLElement)) return;
+                        if (node.matches?.('.llm-panel .output, .output')) attachOutput(node);
+                        node.querySelectorAll?.('.llm-panel .output').forEach(attachOutput);
+                    });
+                });
+            }).observe(watchRoot, { childList: true, subtree: true });
+        }
+
+        window.addEventListener('resize', () => {
+            document.querySelectorAll('.llm-panel .output').forEach(updateOverflowState);
+        });
+    };
+    initOutputScrollJumpButtons();
+
     document.addEventListener('click', (event) => {
         const anchor = event.target?.closest?.('a[href]');
         if (!anchor) return;

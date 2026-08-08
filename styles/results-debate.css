@@ -600,6 +600,7 @@
 /* -- 2. Переносим визуализацию внутрь блока, а не над ним -- */
 /* -- 2. Единый белый блок без видимого контура вокруг поля -- */
 .llm-panel {
+  position: relative;
   border: 1px solid #ccc;
   border-radius: 10px;
   background: none /* #eeeeeed1*/;
@@ -723,6 +724,66 @@ body.llm-stream-preview-open .llm-results .llm-panel.llm-panel-session-restored:
 .favorite-panel.llm-panel-expanded .output {
   min-height: 150px;
   max-height: none;
+}
+
+/* Scroll-to-end jump button: a translucent circular arrow that appears on
+   hover once a response overflows its fixed-height card, letting the user
+   jump to the bottom (then back to the top) without dragging the internal
+   scrollbar. Positioned relative to .llm-panel (not .output) so it stays
+   fixed on screen instead of scrolling away with the content. */
+.output-scroll-jump-btn {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  z-index: 5;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(17, 24, 39, 0.4);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.15s ease, background-color 0.15s ease;
+}
+
+.output-scroll-jump-btn:hover {
+  background: rgba(17, 24, 39, 0.65);
+}
+
+.output-scroll-jump-btn i {
+  font-size: 15px;
+  line-height: 1;
+}
+
+.output-scroll-jump-btn .output-scroll-icon-up {
+  display: none;
+}
+
+.llm-panel.output-scroll-at-bottom .output-scroll-jump-btn {
+  bottom: auto;
+  top: var(--output-scroll-btn-top, 44px);
+}
+
+.llm-panel.output-scroll-at-bottom .output-scroll-jump-btn .output-scroll-icon-down {
+  display: none;
+}
+
+.llm-panel.output-scroll-at-bottom .output-scroll-jump-btn .output-scroll-icon-up {
+  display: inline-flex;
+}
+
+.llm-panel.has-scrollable-output:hover .output-scroll-jump-btn {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
 }
 
 .favorite-entry {
