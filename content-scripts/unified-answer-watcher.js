@@ -223,6 +223,16 @@
       this.state = {
         lastChangeTime: Date.now()
       };
+      // Evidence layer. The watcher keeps returning the same `{completed,
+      // reason, confidence}` shape it always did; what is new is that every
+      // result now also carries a typed run result saying how strongly it was
+      // proven, and that a contradicting fact can veto a commit the DOM
+      // signals would otherwise have made.
+      this.transport = window.TransportEvidence?.forPlatform?.(this.platform, { llmName: this.llmName }) || null;
+      this.maxObservedTextLength = 0;
+      this.lastLadderVerdict = null;
+      this.lastWitnessSet = null;
+      this.runtimeIdAtStart = this.readRuntimeId();
     }
 
     async waitForCompletion(params = {}) {
@@ -234,6 +244,8 @@
       this.firstTokenLength = 0;
       this.firstStopSeenAt = 0;
       this.firstRegenerateSeenAt = 0;
+      this.maxObservedTextLength = 0;
+      this.transport?.beginRun?.({ startedAt: this.startTime, dispatchId: params?.dispatchId || this.options.dispatchId || null });
       const currentLength = this.getCurrentContentLength();
       const { soft, hard } = this.timeoutManager.calculateTimeout(currentLength, {
         expectedLength: this.expectedLength
@@ -315,6 +327,10 @@
               this.freshAnswerObserved = true;
             }
           this.latestContentLength = len;
+          // Within one turn text does not un-generate. A shorter observation
+          // than the maximum already seen means the current reading is not the
+          // final one, so it must not be committed on.
+          if (len > this.maxObservedTextLength) this.maxObservedTextLength = len;
           const delta = len - lastContentLength;
           this.lastContentDelta = delta;
           const absDelta = Math.abs(delta);
@@ -391,6 +407,25 @@
             && (!this.copyButtonRequiresStableText || this.criteria.criteria.contentStable?.met || this.fingerprintStable);
           this.criteria.mark('completionSignal', completionSignal);
           this.criteria.mark('copyButtonVisible', copyButtonStable);
+          const contentMutationStableNow = Boolean(this.criteria.criteria.contentStable?.met && this.criteria.criteria.mutationIdle?.met);
+          const evidence = this.evaluateEvidence({
+            stopVisible,
+            stopDisappeared,
+            regenerateVisible,
+            completionSignal,
+            copyButtonStable,
+            contentMutationStable: contentMutationStableNow,
+            scoreMet: this.scoringEnabled && this.calculateScore() > this.scoreThreshold,
+            // An observer is only expected to be saying something while output
+            // is believed to be in flight. Quiet sensors after the answer is
+            // written are correct behaviour, not a health problem.
+            outputExpected: Boolean(typingActive || stopVisible || this.transport?.isStreamOpen?.())
+          });
+          // A contradicting fact — the provider stream still delivering, the
+          // text shorter than its own maximum — forbids the commit that the
+          // DOM signals below would otherwise make. Waiting longer is the
+          // cheap error; committing an unfinished answer is the expensive one.
+          const vetoed = Boolean(evidence?.veto?.active);
           const expiration = this.timeoutManager.checkExpiration();
           if (stopVisible) {
             if (expiration.hardExpired) {
@@ -398,15 +433,27 @@
             }
             return;
           }
-          if (this.freshAnswerObserved && regenerateVisible) {
+          // The provider said the turn is over on its own protocol. Committing
+          // still waits for the renderer to catch up with the producer: the
+          // terminal fact is about the stream, the text comes from the page.
+          if (
+            this.freshAnswerObserved
+            && !vetoed
+            && evidence?.canCommit
+            && (this.criteria.criteria.contentStable?.met || this.fingerprintStable)
+          ) {
+            cleanup(this.buildResult('transport_terminal', 1, typingActive, getRecentGrowth(), true));
+            return;
+          }
+          if (this.freshAnswerObserved && !vetoed && regenerateVisible) {
             cleanup(this.buildResult('regenerate_visible', 1, typingActive, getRecentGrowth(), true));
             return;
           }
-          if (this.freshAnswerObserved && completionSignal && this.criteria.criteria.completionSignal?.enabled) {
+          if (this.freshAnswerObserved && !vetoed && completionSignal && this.criteria.criteria.completionSignal?.enabled) {
             cleanup(this.buildResult('completion_signal', 1, typingActive, getRecentGrowth(), true));
             return;
           }
-          if (this.freshAnswerObserved && copyButtonStable && this.criteria.criteria.copyButtonVisible?.enabled) {
+          if (this.freshAnswerObserved && !vetoed && copyButtonStable && this.criteria.criteria.copyButtonVisible?.enabled) {
             cleanup(this.buildResult('copy_button_stable', 0.92, typingActive, getRecentGrowth(), true));
             return;
           }
@@ -443,7 +490,14 @@
             timeToStopVisible: this.firstStopSeenAt ? (this.firstStopSeenAt - this.startTime) : null,
             timeToRegenerateVisible: this.firstRegenerateSeenAt ? (this.firstRegenerateSeenAt - this.startTime) : null,
             hidden: !!document.hidden,
-            hasFocus: typeof document.hasFocus === 'function' ? document.hasFocus() : null
+            hasFocus: typeof document.hasFocus === 'function' ? document.hasFocus() : null,
+            evidenceClass: evidence?.strongestClass || null,
+            evidenceTerminality: evidence?.terminality || null,
+            evidenceGuarantee: evidence?.guarantee || null,
+            evidenceVeto: vetoed ? (evidence?.veto?.kinds || []).join(',') : null,
+            transportAvailable: this.lastTransportSnapshot?.available ?? null,
+            transportStreamOpen: this.lastTransportSnapshot?.streamOpen ?? null,
+            maxObservedTextLength: this.maxObservedTextLength
           };
           this.lastDetectorSnapshot = snapshot;
           this.maybeEmitDetectorTick(snapshot);
@@ -457,18 +511,18 @@
             metCount,
             criteriaTotal
           });
-          const contentMutationStable = this.criteria.criteria.contentStable?.met && this.criteria.criteria.mutationIdle?.met;
-          if (this.freshAnswerObserved && contentMutationStable) {
+          const contentMutationStable = contentMutationStableNow;
+          if (this.freshAnswerObserved && !vetoed && contentMutationStable) {
             cleanup(this.buildResult('content_mutation_stable', 0.85, typingActive, getRecentGrowth(), true));
             return;
           }
           if (this.scoringEnabled) {
             const score = this.calculateScore();
-            if (this.freshAnswerObserved && score > this.scoreThreshold) {
+            if (this.freshAnswerObserved && !vetoed && score > this.scoreThreshold) {
               cleanup(this.buildResult('score_threshold', score, typingActive, getRecentGrowth(), true));
               return;
             }
-          } else if (this.freshAnswerObserved && metCount >= this.minMetCriteria) {
+          } else if (this.freshAnswerObserved && !vetoed && metCount >= this.minMetCriteria) {
             cleanup(this.buildResult('criteria_met', metCount / criteriaTotal, typingActive, getRecentGrowth(), true));
             return;
           }
@@ -486,6 +540,95 @@
           }
         }, this.checkInterval);
       });
+    }
+
+    // Builds the witness set for this tick. The DOM observer is only healthy
+    // while this document is the one it attached to and the page is not hidden
+    // behind a discard; anything else is reported as blindness, because a
+    // blinded observer's silence must not read as a finished model.
+    buildWitnessSet(observations = {}) {
+      const health = window.ObserverHealth;
+      if (!health) return null;
+      const now = Date.now();
+      const transportInput = this.transport?.snapshot?.({ expectSignals: observations.outputExpected === true })?.observerInput
+        || { installed: false };
+      const witnessSet = health.buildWitnessSet({
+        transport: transportInput,
+        application: { installed: false },
+        dom: {
+          installed: true,
+          lastSignalAt: this.lastContentChangeAt || this.startTime || now,
+          expectSignals: observations.outputExpected === true,
+          contextInvalidated: this.isRuntimeInvalidated(),
+          documentEpochChanged: false
+        },
+        lifecycle: {
+          installed: true,
+          lastSignalAt: now,
+          discarded: false
+        }
+      }, { now });
+      this.lastWitnessSet = witnessSet;
+      return witnessSet;
+    }
+
+    readRuntimeId() {
+      try {
+        if (typeof chrome === 'undefined' || !chrome || !chrome.runtime) return null;
+        return chrome.runtime.id || null;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    // Only a real teardown counts: an id that was there at the start of the run
+    // and is gone now. Never having had one (test harness, non-extension host)
+    // is no opinion about the observer, not blindness.
+    isRuntimeInvalidated() {
+      if (!this.runtimeIdAtStart) return false;
+      return this.readRuntimeId() !== this.runtimeIdAtStart;
+    }
+
+    // Everything the ladder needs for this tick: which completion signals are
+    // present, and which facts contradict a commit right now.
+    evaluateEvidence(observations = {}) {
+      const ladder = window.CompletionEvidenceLadder;
+      if (!ladder) return null;
+      const transportSnapshot = this.transport?.snapshot?.({ outputExpected: true }) || null;
+      const signals = [];
+      const contradictions = [];
+
+      if (transportSnapshot) {
+        signals.push(...(transportSnapshot.signals || []));
+        contradictions.push(...(transportSnapshot.contradictions || []));
+      }
+      if (observations.regenerateVisible) signals.push({ kind: 'regenerate_visible' });
+      if (observations.completionSignal) signals.push({ kind: 'completion_indicator' });
+      if (observations.copyButtonStable) signals.push({ kind: 'copy_button_stable' });
+      if (observations.contentMutationStable) signals.push({ kind: 'content_mutation_stable' });
+      if (observations.stopDisappeared) signals.push({ kind: 'stop_button_gone' });
+      if (observations.scoreMet) signals.push({ kind: 'score_threshold' });
+      if (observations.timeoutKind) signals.push({ kind: observations.timeoutKind });
+
+      if (observations.stopVisible) {
+        contradictions.push({ kind: 'stop_button_visible' });
+      }
+      if (this.maxObservedTextLength > 0 && this.latestContentLength < this.maxObservedTextLength) {
+        contradictions.push({
+          kind: 'text_shrunk',
+          detail: `observed ${this.latestContentLength} after a maximum of ${this.maxObservedTextLength}`
+        });
+      }
+
+      const verdict = ladder.evaluate({
+        signals,
+        contradictions,
+        witnessSet: this.buildWitnessSet({ outputExpected: observations.outputExpected !== false }),
+        transportOneToOne: window.ProviderStreamSemantics?.isOneToOne?.(this.platform) === true
+      });
+      this.lastLadderVerdict = verdict;
+      this.lastTransportSnapshot = transportSnapshot;
+      return verdict;
     }
 
     initAutoDiscoveredSelectors() {
@@ -1202,13 +1345,82 @@
       return score;
     }
 
+    // The decision record for this run: which type the evidence supports,
+    // under which guarantee, and on which axes. Text is not part of it — the
+    // answer is materialized later, and the proof of terminality and the
+    // source of the text are deliberately different components.
+    buildRunProof(reason, completed) {
+      const contract = window.RunResultContract;
+      if (!contract) return null;
+      const { RESULT_TYPES, AXIS_STATES } = contract;
+      const verdict = this.lastLadderVerdict || null;
+      const transport = this.lastTransportSnapshot || null;
+      const witnessSet = this.lastWitnessSet || null;
+      const observerAxis = window.ObserverHealth?.observerAxisState?.(witnessSet)
+        || verdict?.observerAxis
+        || AXIS_STATES.UNPROVEN;
+
+      const claimed = (() => {
+        if (reason === 'hard_stop') return RESULT_TYPES.CANCELLED;
+        if (!completed) {
+          return this.criteria.criteria.contentStable?.met
+            ? RESULT_TYPES.SUSPECTED_COMPLETE
+            : RESULT_TYPES.UNKNOWN;
+        }
+        return RESULT_TYPES.COMMITTED;
+      })();
+
+      return contract.buildRunResult({
+        type: claimed,
+        guarantee: verdict?.guarantee || contract.GUARANTEE.BLIND,
+        terminalReason: transport?.terminalReason || (completed ? null : 'UNKNOWN'),
+        axes: {
+          // The watcher's identity evidence is that the observed answer is not
+          // the pre-run one; anything weaker is not an identity proof.
+          identity: this.freshAnswerObserved ? AXIS_STATES.PROVEN : AXIS_STATES.UNPROVEN,
+          terminality: verdict?.terminality || AXIS_STATES.UNPROVEN,
+          // No cross-channel reconciliation happens in the watcher, so
+          // integrity stays honestly unproven here.
+          integrity: AXIS_STATES.UNPROVEN,
+          semantic: AXIS_STATES.UNPROVEN,
+          observer: observerAxis
+        },
+        strongestEvidenceClass: verdict?.strongestClass || null,
+        reasons: [`watcher:${reason}`, ...(verdict?.reasons || [])],
+        llmName: this.llmName,
+        text: ''
+      });
+    }
+
     buildResult(reason, confidence, typingActive, recentGrowth, completed = true) {
       const criteriaSnapshot = this.buildCriteriaSnapshot();
+      const runProof = this.buildRunProof(reason, completed);
+      this.lastRunProof = runProof;
       return {
         success: completed,
         completed,
         reason,
         confidence,
+        runProof: runProof ? runProof.serialize() : null,
+        evidence: this.lastLadderVerdict
+          ? {
+            terminality: this.lastLadderVerdict.terminality,
+            strongestClass: this.lastLadderVerdict.strongestClass,
+            guarantee: this.lastLadderVerdict.guarantee,
+            veto: this.lastLadderVerdict.veto,
+            reasons: this.lastLadderVerdict.reasons,
+            observerCeiling: this.lastLadderVerdict.observerCeiling,
+            transport: this.lastTransportSnapshot
+              ? {
+                available: this.lastTransportSnapshot.available,
+                streamOpen: this.lastTransportSnapshot.streamOpen,
+                streamCount: this.lastTransportSnapshot.streamCount,
+                bytes: this.lastTransportSnapshot.bytes,
+                terminalReason: this.lastTransportSnapshot.terminalReason
+              }
+              : null
+          }
+          : null,
         duration: Date.now() - this.startTime,
         indicators: { streaming: typingActive },
         scrollGrowthInLast2s: recentGrowth,
