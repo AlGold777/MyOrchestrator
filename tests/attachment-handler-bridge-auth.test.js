@@ -218,6 +218,24 @@ describe('attachment bridge authentication', () => {
     }));
   });
 
+  test('a progress node the page keeps mounted does not block confirmation', () => {
+    // captureUploadBaseline recorded progressCount and waitForUploadConfirmation
+    // compared the absolute count instead, so both success branches stayed shut
+    // for as long as any confirmGoneSelectors node existed. On Gemini -- Angular
+    // Material, with [role="progressbar"] and mat-progress-bar in that list --
+    // confirmation was impossible however much evidence appeared: the file was
+    // delivered and the chip visible, every vector still timed out, attach failed
+    // and the hard gate then blocked prompt insertion entirely.
+    expect(HANDLER_SRC).toContain('const activeProgress = Math.max(0, progressCount - baselineProgress);');
+    expect(HANDLER_SRC).toContain('if (activeProgress > 0) sawProgress = true;');
+    expect(HANDLER_SRC).toContain('const settled = activeProgress === 0');
+    expect(HANDLER_SRC).toContain('sawProgress && activeProgress === 0 && hasEvidence');
+    // The baseline must actually be read, which is the whole defect.
+    expect(HANDLER_SRC).toMatch(/baselineProgress\s*=\s*Number\.isFinite\(baselineState\?\.progressCount\)/);
+    // A genuinely new progress node must still gate: never compare to zero.
+    expect(HANDLER_SRC).not.toContain('const settled = progressCount === 0');
+  });
+
   test('a paste delivery vector fires exactly one paste event', async () => {
     // Field run 1786111563648: Kimi sent the prompt with the file attached twice.
     // Both paste paths fired the same event a second time as a blind retry, and on

@@ -717,6 +717,9 @@
     const baseline = Number.isFinite(baselineState?.confirmCount)
       ? baselineState.confirmCount
       : countSelectorMatches(confirmSelectors);
+    const baselineProgress = Number.isFinite(baselineState?.progressCount)
+      ? baselineState.progressCount
+      : countSelectorMatches(confirmGoneSelectors);
     let lastCount = baseline;
     let lastInputFileCount = Number(baselineState?.inputFileCount || 0);
     let sawProgress = false;
@@ -747,17 +750,30 @@
         : (config.inputEvidenceSettleMs || config.settleMs || 0);
       if (confirmGoneSelectors.length) {
         const progressCount = countSelectorMatches(confirmGoneSelectors);
-        if (progressCount > 0) sawProgress = true;
-        const settled = progressCount === 0
+        // Measured against the pre-dispatch baseline, exactly as confirmCount is.
+        // The absolute count was used here while captureUploadBaseline recorded a
+        // progress baseline that nothing ever read, so any progress node the page
+        // keeps mounted permanently held both success branches shut forever --
+        // confirmation became impossible no matter how much evidence appeared.
+        // That is Gemini: an Angular Material app whose confirmGoneSelectors
+        // include [role="progressbar"] and mat-progress-bar. It also explains the
+        // note that originally justified dispatchIsEvidence here, "a false
+        // timeout even while the file was visibly attached" -- the file was
+        // attached; the gate simply never opened.
+        const activeProgress = Math.max(0, progressCount - baselineProgress);
+        if (activeProgress > 0) sawProgress = true;
+        const settled = activeProgress === 0
           && hasEvidence
           && Date.now() - evidenceAt >= requiredSettleMs;
-        if (settled || (sawProgress && progressCount === 0 && hasEvidence)) {
+        if (settled || (sawProgress && activeProgress === 0 && hasEvidence)) {
           return {
             confirmed: true,
             baselineCount: baseline,
             currentCount,
             inputFileCount,
             filenameEvidenceCount,
+            baselineProgress,
+            progressCount,
             sawProgress,
             elapsedMs: totalTimeoutMs - Math.max(0, deadline - Date.now())
           };
@@ -786,6 +802,8 @@
       currentCount: lastCount,
       inputFileCount: lastInputFileCount,
       filenameEvidenceCount: countFilenameEvidence(files),
+      baselineProgress,
+      progressCount: countSelectorMatches(confirmGoneSelectors),
       sawProgress,
       elapsedMs: totalTimeoutMs
     };
