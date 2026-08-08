@@ -317,35 +317,48 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     outputElements.forEach(decorateLinksForNewTab);
 
-    // Scroll-to-end jump button for response cards (and the Favourite card):
-    // once an answer overflows its fixed-height box, a translucent circular
-    // arrow appears on hover, letting the user jump to the bottom, then back
-    // to the top, without dragging the internal scrollbar.
+    // Scroll-to-end jump buttons for response cards (and the Favourite card):
+    // once an answer overflows its fixed-height box, translucent circular
+    // arrows appear on hover, letting the user jump to the bottom and back
+    // to the top without dragging the internal scrollbar. The two buttons
+    // are independent — once scrolled past a small fragment of the top, the
+    // up arrow appears above the down arrow, so both can show at once while
+    // mid-scroll.
+    const OUTPUT_SCROLL_EDGE_THRESHOLD = 32;
     const initOutputScrollJumpButtons = () => {
         const trackedOutputs = new WeakSet();
 
-        const ensureScrollButton = (panel) => {
-            let btn = panel.querySelector(':scope > .output-scroll-jump-btn');
-            if (btn) return btn;
-            btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = 'output-scroll-jump-btn';
-            btn.setAttribute('aria-label', 'Scroll to bottom');
-            btn.innerHTML = '<i class="ti ti-chevron-down output-scroll-icon-down" aria-hidden="true"></i>'
-                + '<i class="ti ti-chevron-up output-scroll-icon-up" aria-hidden="true"></i>';
-            panel.appendChild(btn);
-            return btn;
+        const ensureScrollButtons = (panel) => {
+            let downBtn = panel.querySelector(':scope > .output-scroll-jump-btn-down');
+            if (!downBtn) {
+                downBtn = document.createElement('button');
+                downBtn.type = 'button';
+                downBtn.className = 'output-scroll-jump-btn output-scroll-jump-btn-down';
+                downBtn.setAttribute('aria-label', 'Scroll to bottom');
+                downBtn.innerHTML = '<i class="ti ti-chevron-down" aria-hidden="true"></i>';
+                panel.appendChild(downBtn);
+            }
+            let upBtn = panel.querySelector(':scope > .output-scroll-jump-btn-up');
+            if (!upBtn) {
+                upBtn = document.createElement('button');
+                upBtn.type = 'button';
+                upBtn.className = 'output-scroll-jump-btn output-scroll-jump-btn-up';
+                upBtn.setAttribute('aria-label', 'Scroll to top');
+                upBtn.innerHTML = '<i class="ti ti-chevron-up" aria-hidden="true"></i>';
+                panel.appendChild(upBtn);
+            }
+            return { downBtn, upBtn };
         };
 
         const updateScrollPosition = (outputEl, panel) => {
-            const atBottom = outputEl.scrollTop + outputEl.clientHeight >= outputEl.scrollHeight - 2;
-            panel.classList.toggle('output-scroll-at-bottom', atBottom);
+            const atTop = outputEl.scrollTop <= OUTPUT_SCROLL_EDGE_THRESHOLD;
+            const atBottom = outputEl.scrollTop + outputEl.clientHeight >= outputEl.scrollHeight - OUTPUT_SCROLL_EDGE_THRESHOLD;
+            panel.classList.toggle('output-scroll-can-down', !atBottom);
+            panel.classList.toggle('output-scroll-can-up', !atTop);
             const header = panel.querySelector(':scope > .llm-header');
             if (header) {
                 panel.style.setProperty('--output-scroll-btn-top', `${header.offsetHeight + 10}px`);
             }
-            const btn = panel.querySelector(':scope > .output-scroll-jump-btn');
-            if (btn) btn.setAttribute('aria-label', atBottom ? 'Scroll to top' : 'Scroll to bottom');
         };
 
         const updateOverflowState = (outputEl) => {
@@ -353,8 +366,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (!panel) return;
             const hasOverflow = outputEl.scrollHeight > outputEl.clientHeight + 1;
             panel.classList.toggle('has-scrollable-output', hasOverflow);
-            if (!hasOverflow) return;
-            ensureScrollButton(panel);
+            if (!hasOverflow) {
+                panel.classList.remove('output-scroll-can-down', 'output-scroll-can-up');
+                return;
+            }
+            ensureScrollButtons(panel);
             updateScrollPosition(outputEl, panel);
         };
 
@@ -363,12 +379,16 @@ document.addEventListener('DOMContentLoaded', async () => {
             const panel = outputEl.closest('.llm-panel');
             if (!panel) return;
             trackedOutputs.add(outputEl);
-            const btn = ensureScrollButton(panel);
-            btn.addEventListener('click', (event) => {
+            const { downBtn, upBtn } = ensureScrollButtons(panel);
+            downBtn.addEventListener('click', (event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                const atBottom = panel.classList.contains('output-scroll-at-bottom');
-                outputEl.scrollTo({ top: atBottom ? 0 : outputEl.scrollHeight, behavior: 'smooth' });
+                outputEl.scrollTo({ top: outputEl.scrollHeight, behavior: 'smooth' });
+            });
+            upBtn.addEventListener('click', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                outputEl.scrollTo({ top: 0, behavior: 'smooth' });
             });
             const scheduleUpdate = () => requestAnimationFrame(() => updateOverflowState(outputEl));
             outputEl.addEventListener('scroll', () => updateScrollPosition(outputEl, panel), { passive: true });

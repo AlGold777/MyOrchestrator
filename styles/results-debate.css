@@ -726,15 +726,17 @@ body.llm-stream-preview-open .llm-results .llm-panel.llm-panel-session-restored:
   max-height: none;
 }
 
-/* Scroll-to-end jump button: a translucent circular arrow that appears on
+/* Scroll-to-end jump buttons: translucent circular arrows that appear on
    hover once a response overflows its fixed-height card, letting the user
-   jump to the bottom (then back to the top) without dragging the internal
-   scrollbar. Positioned relative to .llm-panel (not .output) so it stays
-   fixed on screen instead of scrolling away with the content. */
+   jump to the bottom and back to the top without dragging the internal
+   scrollbar. Positioned relative to .llm-panel (not .output) so they stay
+   fixed on screen instead of scrolling away with the content. The down and
+   up buttons are independent — once scrolled past a small fragment of the
+   top, the up arrow appears above the down arrow, so both can be visible
+   at once while mid-scroll. */
 .output-scroll-jump-btn {
   position: absolute;
   left: 50%;
-  bottom: 10px;
   transform: translateX(-50%);
   z-index: 5;
   width: 28px;
@@ -763,24 +765,16 @@ body.llm-stream-preview-open .llm-results .llm-panel.llm-panel-session-restored:
   line-height: 1;
 }
 
-.output-scroll-jump-btn .output-scroll-icon-up {
-  display: none;
+.output-scroll-jump-btn-down {
+  bottom: 10px;
 }
 
-.llm-panel.output-scroll-at-bottom .output-scroll-jump-btn {
-  bottom: auto;
+.output-scroll-jump-btn-up {
   top: var(--output-scroll-btn-top, 44px);
 }
 
-.llm-panel.output-scroll-at-bottom .output-scroll-jump-btn .output-scroll-icon-down {
-  display: none;
-}
-
-.llm-panel.output-scroll-at-bottom .output-scroll-jump-btn .output-scroll-icon-up {
-  display: inline-flex;
-}
-
-.llm-panel.has-scrollable-output:hover .output-scroll-jump-btn {
+.llm-panel.has-scrollable-output.output-scroll-can-down:hover .output-scroll-jump-btn-down,
+.llm-panel.has-scrollable-output.output-scroll-can-up:hover .output-scroll-jump-btn-up {
   opacity: 1;
   visibility: visible;
   pointer-events: auto;
