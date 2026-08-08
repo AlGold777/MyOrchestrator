@@ -28517,2203 +28517,458 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
 })();
 
 
-/* ==== content-scripts/content-perplexity.js ==== */
-// content-perplexity.js
+/* ==== content-scripts/content-kimi.js ==== */
+(function initKimiContentScript() {
+  'use strict';
 
-//-- Защита от дублирования --//
-const resolveExtensionVersion = () => {
-  try {
-    return chrome?.runtime?.getManifest?.()?.version || 'unknown';
-  } catch (_) {
-    return 'unknown';
-  }
-};
-if (window.perplexityContentScriptLoaded) {
-  console.warn('[content-perplexity] Script already loaded, skipping duplicate initialization');
-  throw new Error('Duplicate script load prevented');
-}
-window.perplexityContentScriptLoaded = {
-  timestamp: Date.now(),
-  version: resolveExtensionVersion(),
-  source: 'content-perplexity'
-};
-console.log('[content-perplexity] First load, initializing...');
-//-- 2. Очистка кэша селекторов на старте -//
-chrome.storage.local.remove([
-  'selector_cache_Perplexity_inputField',
-  'selector_cache_Perplexity_sendButton'
-]);
+  if (window.kimiContentScriptLoaded) return;
+  window.kimiContentScriptLoaded = true;
 
-//-- Конец защиты --//
-
-const MODEL = "Perplexity";
-const PERPLEXITY_FILE_UPLOAD_BLOCKED_KEY = '__terra_perplexity_file_upload_blocked__';
-const PERPLEXITY_FILE_UPLOAD_BLOCKER = 'file_upload_paywall';
-const PERPLEXITY_BLOCKER_MARKER_VERSION = 2;
-const PERPLEXITY_BLOCKER_MARKER_TTL_MS = 120000;
-const PERPLEXITY_BLOCKER_MESSAGE_RETRY_DELAYS_MS = [0, 250, 750];
-const PERPLEXITY_HANDOFF_RETRY_DELAYS_MS = [500, 1500, 3000, 5000];
-// Budget for the second attachment attempt, the one that runs after a promotion
-// modal was closed mid-upload. Half of AttachmentHandler's 10 s default: enough
-// for a path that now works, too little to grind through a failing cascade twice.
-const PERPLEXITY_RETRY_ATTACH_TIMEOUT_MS = 5000;
-const PERPLEXITY_COMPOSER_SELECTORS = [
-  'textarea[data-testid="search-input"]',
-  'form[role="search"] textarea',
-  'form textarea[placeholder*="Ask" i]',
-  'div[contenteditable="true"][role="textbox"]',
-  '[contenteditable="plaintext-only"]',
-  'form [contenteditable="true"]',
-  '[data-testid*="composer" i] [contenteditable="true"]',
-  'textarea[placeholder*="question" i]',
-  'textarea[placeholder*="вопрос" i]',
-  'form textarea'
-];
-let perplexityRuntimeListenerRegistered = false;
-let perplexityTabSessionId = null;
-let perplexityResumeInFlight = null;
-let perplexityHandoffReconcileInFlight = null;
-let perplexityHandoffRetryTimer = null;
-let perplexityHandoffRetryAttempt = 0;
-const perplexityDispatchGate = window.PerplexityComposerTransaction?.createDispatchGate?.() || (() => {
-  let active = null;
-  return {
-    begin(meta = {}) {
-      if (active) return { accepted: false, duplicate: true, activeDispatchId: active.dispatchId || null };
-      active = { dispatchId: meta.dispatchId || null };
-      return { accepted: true, token: active };
-    },
-    finish(token) {
-      if (active !== token) return false;
-      active = null;
-      return true;
-    }
-  };
-})();
-
-const isPerplexityFileUploadPaywall = () => {
-  try {
-    const url = new URL(location.href);
-    return url.pathname.startsWith('/pro/payment') && url.searchParams.get('origin') === 'fileUpload';
-  } catch (_) { return false; }
-};
-
-const sendPerplexityRuntimeMessage = (payload) => new Promise((resolve) => {
-  try {
-    chrome.runtime.sendMessage(payload, (response) => {
-      const runtimeError = chrome.runtime.lastError;
-      if (runtimeError) {
-        resolve({ ok: false, reason: runtimeError.message || 'runtime_message_failed' });
-        return;
-      }
-      resolve(response || { ok: false, reason: 'empty_response' });
-    });
-  } catch (err) {
-    resolve({ ok: false, reason: err?.message || 'runtime_message_failed' });
-  }
-});
-
-const shouldRetryPerplexityBlockerMessage = (result) => {
-  if (result?.ok === true) return false;
-  const reason = String(result?.reason || '').toLowerCase();
-  return !/(?:untrusted|unsupported|invalid_|mismatch|different_transient|model_run_not_active|no_bound_tab|sender_tab)/.test(reason);
-};
-
-const sendPerplexityRuntimeMessageWithRetry = async (payload) => {
-  let lastResult = { ok: false, reason: 'not_sent' };
-  for (const delayMs of PERPLEXITY_BLOCKER_MESSAGE_RETRY_DELAYS_MS) {
-    if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
-    lastResult = await sendPerplexityRuntimeMessage(payload);
-    if (lastResult?.ok === true || !shouldRetryPerplexityBlockerMessage(lastResult)) return lastResult;
-  }
-  return lastResult;
-};
-
-const removePerplexityBlockerMarker = (expectedToken = null) => {
-  try {
-    if (expectedToken) {
-      const current = JSON.parse(sessionStorage.getItem(PERPLEXITY_FILE_UPLOAD_BLOCKED_KEY) || 'null');
-      if (current?.token && current.token !== expectedToken) return false;
-    }
-    sessionStorage.removeItem(PERPLEXITY_FILE_UPLOAD_BLOCKED_KEY);
-    return true;
-  } catch (_) {
-    try { sessionStorage.removeItem(PERPLEXITY_FILE_UPLOAD_BLOCKED_KEY); } catch (_) {}
-    return false;
-  }
-};
-
-const readPerplexityBlockerMarker = () => {
-  try {
-    const raw = sessionStorage.getItem(PERPLEXITY_FILE_UPLOAD_BLOCKED_KEY);
-    if (!raw) return null;
-    const marker = JSON.parse(raw);
-    const createdAt = Number(marker?.createdAt || 0);
-    const valid = marker?.version === PERPLEXITY_BLOCKER_MARKER_VERSION
-      && typeof marker?.token === 'string' && marker.token.length >= 8
-      && typeof marker?.dispatchId === 'string' && marker.dispatchId.length > 0
-      && Number(marker?.runSessionId || 0) > 0
-      && createdAt > 0
-      && Date.now() - createdAt <= PERPLEXITY_BLOCKER_MARKER_TTL_MS;
-    if (!valid) {
-      removePerplexityBlockerMarker();
-      return null;
-    }
-    return marker;
-  } catch (_) {
-    removePerplexityBlockerMarker();
-    return null;
-  }
-};
-
-const clearPerplexityHandoffRetry = () => {
-  if (perplexityHandoffRetryTimer) clearTimeout(perplexityHandoffRetryTimer);
-  perplexityHandoffRetryTimer = null;
-  perplexityHandoffRetryAttempt = 0;
-};
-
-const schedulePerplexityHandoffRetry = () => {
-  if (perplexityHandoffRetryTimer) return;
-  const marker = readPerplexityBlockerMarker();
-  if (!marker || !['armed', 'active', 'resume_pending'].includes(marker.state)) {
-    clearPerplexityHandoffRetry();
-    return;
-  }
-  const delayMs = PERPLEXITY_HANDOFF_RETRY_DELAYS_MS[
-    Math.min(perplexityHandoffRetryAttempt, PERPLEXITY_HANDOFF_RETRY_DELAYS_MS.length - 1)
+  const MODEL = 'Kimi';
+  const PLATFORM = 'kimi';
+  const KIMI_STABLE_TEXT_MS = 6000;
+  // kimi.com runs a Vue app with a Lexical contenteditable composer; the send
+  // control is a <div class="send-button-container"> that carries `disabled`
+  // while the composer is empty, not a real <button>.
+  const COMPOSER_SELECTORS = [
+    '.chat-input-editor[contenteditable="true"]',
+    '.chat-input-editor',
+    '.chat-editor [contenteditable="true"]',
+    '.chat-box [contenteditable="true"]',
+    'div[contenteditable="true"][data-lexical-editor="true"]'
   ];
-  perplexityHandoffRetryAttempt += 1;
-  perplexityHandoffRetryTimer = setTimeout(async () => {
-    perplexityHandoffRetryTimer = null;
-    const completed = await reconcilePerplexityFileUploadHandoff();
-    if (completed) clearPerplexityHandoffRetry();
-    else schedulePerplexityHandoffRetry();
-  }, delayMs);
-};
-
-const writePerplexityBlockerMarker = (marker) => {
-  try {
-    sessionStorage.setItem(PERPLEXITY_FILE_UPLOAD_BLOCKED_KEY, JSON.stringify(marker));
-    return true;
-  } catch (_) {
-    return false;
-  }
-};
-
-const markerOwnsPerplexityDispatch = (marker, meta = null) => Boolean(
-  marker
-  && ['armed', 'active', 'resume_pending'].includes(marker.state)
-  && marker.dispatchId === meta?.dispatchId
-  && Number(marker.runSessionId || 0) === Number(meta?.runSessionId || meta?.sessionId || 0)
-);
-
-const createPerplexityBlockerMarker = (meta = null) => {
-  const runSessionId = Number(meta?.runSessionId || meta?.sessionId || 0) || null;
-  const dispatchId = typeof meta?.dispatchId === 'string' ? meta.dispatchId : null;
-  if (!runSessionId || !dispatchId) return null;
-  const token = globalThis.crypto?.randomUUID?.()
-    || `pplx_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-  return {
-    version: PERPLEXITY_BLOCKER_MARKER_VERSION,
-    blocker: PERPLEXITY_FILE_UPLOAD_BLOCKER,
-    state: 'armed',
-    token,
-    createdAt: Date.now(),
-    runSessionId,
-    dispatchId,
-    tabSessionId: meta?.tabSessionId || perplexityTabSessionId || null
-  };
-};
-
-const buildPerplexityBlockerMessage = (type, marker, extra = {}) => ({
-  type,
-  llmName: MODEL,
-  blocker: PERPLEXITY_FILE_UPLOAD_BLOCKER,
-  token: marker.token,
-  phase: extra.phase || marker.state || null,
-  meta: {
-    runSessionId: marker.runSessionId,
-    sessionId: marker.runSessionId,
-    dispatchId: marker.dispatchId,
-    tabSessionId: marker.tabSessionId || perplexityTabSessionId || null
-  }
-});
-
-const armPerplexityFileUploadBlocker = async (dispatchMeta) => {
-  const marker = createPerplexityBlockerMarker(dispatchMeta);
-  if (!marker || !writePerplexityBlockerMarker(marker)) return null;
-  const ack = await sendPerplexityRuntimeMessageWithRetry(buildPerplexityBlockerMessage(
-    'PROVIDER_TRANSIENT_BLOCKER_STARTED',
-    marker,
-    { phase: 'armed' }
-  ));
-  if (ack?.ok !== true) {
-    removePerplexityBlockerMarker(marker.token);
-    clearPerplexityHandoffRetry();
-    return null;
-  }
-  return marker;
-};
-
-const cancelPerplexityFileUploadBlocker = async (marker, reason = 'attachment_attempt_finished') => {
-  if (!marker?.token) return false;
-  const cancelled = { ...marker, state: 'cancelled', cancelledAt: Date.now() };
-  writePerplexityBlockerMarker(cancelled);
-  const ack = await sendPerplexityRuntimeMessageWithRetry({
-    ...buildPerplexityBlockerMessage('PROVIDER_TRANSIENT_BLOCKER_CANCELLED', cancelled),
-    reason
-  });
-  if (ack?.ok === true) {
-    removePerplexityBlockerMarker(marker.token);
-    clearPerplexityHandoffRetry();
-  } else {
-    writePerplexityBlockerMarker(marker);
-  }
-  return ack?.ok === true;
-};
-
-const findVisiblePerplexityComposer = () => {
-  for (const selector of PERPLEXITY_COMPOSER_SELECTORS) {
-    const candidates = Array.from(document.querySelectorAll(selector));
-    const composer = candidates.find((candidate) => {
-      if (!candidate?.isConnected || candidate.disabled || candidate.getAttribute?.('aria-disabled') === 'true') return false;
-      const style = getComputedStyle(candidate);
-      if (style.display === 'none' || style.visibility === 'hidden') return false;
-      const rect = candidate.getBoundingClientRect?.();
-      return !rect || (rect.width > 0 && rect.height > 0);
-    });
-    if (composer) return composer;
-  }
-  return null;
-};
-
-const normalizePerplexityComposerText = (value) => String(value || '').normalize('NFKC')
-  .replace(/[\u200B-\u200D\u2060\uFEFF]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
-
-const findOwnedPerplexityPromptComposer = (prompt) => {
-  const composer = findVisiblePerplexityComposer();
-  if (!composer) return null;
-  const actual = normalizePerplexityComposerText(composer.value || composer.innerText || composer.textContent || '');
-  const expected = normalizePerplexityComposerText(prompt);
-  return expected && actual === expected ? composer : null;
-};
-
-const PERPLEXITY_USER_TURN_SELECTORS = [
-  '[data-message-author-role="user"]',
-  '[data-role="user"]',
-  '[data-testid*="user-message" i]',
-  '[class*="user-message" i]'
-];
-const countPerplexityUserTurns = () => new Set(PERPLEXITY_USER_TURN_SELECTORS.flatMap((selector) => (
-  Array.from(document.querySelectorAll(selector))
-))).size;
-const collectPerplexityGenerationEvidence = () => [
-  'button[aria-label*="stop" i]:not([disabled])',
-  'button[data-testid*="stop" i]:not([disabled])',
-  '[data-streaming="true"]',
-  '[data-generating="true"]'
-].flatMap((selector) => Array.from(document.querySelectorAll(selector)).filter((element) => {
-  const rect = element?.getBoundingClientRect?.();
-  const style = element ? getComputedStyle(element) : null;
-  return Boolean(rect && rect.width > 0 && rect.height > 0
-    && style?.display !== 'none' && style?.visibility !== 'hidden');
-}));
-const countPerplexityResponses = () => document.querySelectorAll(
-  '[data-message-author-role="assistant"], [data-role="assistant"], [data-testid*="answer" i], main article'
-).length;
-const capturePerplexitySubmitBaseline = (composer) => window.ProviderSubmitConfirmation?.capture?.({
-  userTurnCount: countPerplexityUserTurns(),
-  responseCount: countPerplexityResponses(),
-  composerTextLength: (composer?.value || composer?.textContent || '').trim().length,
-  generationElements: collectPerplexityGenerationEvidence()
-}) || null;
-const waitForPerplexitySubmitEvidence = async (baseline, timeoutMs = 6000) => {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const composer = findVisiblePerplexityComposer();
-    const proof = window.ProviderSubmitConfirmation?.evaluate?.(baseline, {
-      userTurnCount: countPerplexityUserTurns(),
-      responseCount: countPerplexityResponses(),
-      composerTextLength: (composer?.value || composer?.textContent || '').trim().length,
-      generationElements: collectPerplexityGenerationEvidence(),
-      trustedBrowserDispatch: true
-    });
-    if (proof?.confirmed === true) return proof;
-    await new Promise((resolve) => setTimeout(resolve, 120));
-  }
-  return null;
-};
-
-const waitForVisiblePerplexityComposer = (timeoutMs = 15000) => new Promise((resolve) => {
-  const immediate = findVisiblePerplexityComposer();
-  if (immediate) {
-    resolve(immediate);
-    return;
-  }
-  let settled = false;
-  let observer = null;
-  let timeoutId = null;
-  const finish = (value) => {
-    if (settled) return;
-    settled = true;
-    observer?.disconnect?.();
-    if (timeoutId) clearTimeout(timeoutId);
-    window.removeEventListener('pageshow', check);
-    resolve(value || null);
-  };
-  const check = () => {
-    if (isPerplexityFileUploadPaywall()) return;
-    const composer = findVisiblePerplexityComposer();
-    if (composer) finish(composer);
-  };
-  observer = new MutationObserver(check);
-  observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true });
-  window.addEventListener('pageshow', check, { once: true });
-  timeoutId = setTimeout(() => finish(null), timeoutMs);
-  check();
-});
-
-const closePerplexityFileUploadPaywall = async () => {
-  if (!isPerplexityFileUploadPaywall()) return false;
-  const marker = readPerplexityBlockerMarker();
-  if (!marker || !['armed', 'active', 'resume_pending'].includes(marker.state)) return false;
-  marker.tabSessionId = perplexityTabSessionId || marker.tabSessionId || null;
-  const startedAck = await sendPerplexityRuntimeMessageWithRetry(buildPerplexityBlockerMessage(
-    'PROVIDER_TRANSIENT_BLOCKER_STARTED',
-    marker,
-    { phase: 'active' }
-  ));
-  if (startedAck?.ok !== true) {
-    if (shouldRetryPerplexityBlockerMessage(startedAck)) schedulePerplexityHandoffRetry();
-    else {
-      removePerplexityBlockerMarker(marker.token);
-      clearPerplexityHandoffRetry();
-    }
-    return false;
-  }
-  marker.state = 'resume_pending';
-  marker.activatedAt = Date.now();
-  writePerplexityBlockerMarker(marker);
-  const deadline = Date.now() + 5000;
-  while (Date.now() < deadline) {
-    if (!isPerplexityFileUploadPaywall()) return true;
-    const close = Array.from(document.querySelectorAll('button,[role="button"]')).find((button) => {
-      const label = [button.getAttribute?.('aria-label'), button.getAttribute?.('title'), button.innerText, button.textContent]
-        .filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
-      return /^(close|dismiss|закрыть|×|✕)$/i.test(label);
-    });
-    if (close && !close.disabled && close.getAttribute?.('aria-disabled') !== 'true') {
-      close.click();
-      return true;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 120));
-  }
-  if (isPerplexityFileUploadPaywall()) history.back();
-  return true;
-};
-
-const resumePerplexityAfterPaywall = async () => {
-  if (perplexityResumeInFlight) return perplexityResumeInFlight;
-  perplexityResumeInFlight = (async () => {
-    if (isPerplexityFileUploadPaywall() || !perplexityRuntimeListenerRegistered) return false;
-    const marker = readPerplexityBlockerMarker();
-    if (!marker) return false;
-    if (marker.state === 'cancelled') {
-      removePerplexityBlockerMarker(marker.token);
-      clearPerplexityHandoffRetry();
-      return false;
-    }
-    if (!['active', 'resume_pending'].includes(marker.state)) return false;
-    const composer = await waitForVisiblePerplexityComposer();
-    if (!composer || isPerplexityFileUploadPaywall()) {
-      schedulePerplexityHandoffRetry();
-      return false;
-    }
-    marker.state = 'resume_pending';
-    marker.tabSessionId = perplexityTabSessionId || marker.tabSessionId || null;
-    writePerplexityBlockerMarker(marker);
-    const ack = await sendPerplexityRuntimeMessageWithRetry(buildPerplexityBlockerMessage(
-      'PROVIDER_TRANSIENT_BLOCKER_CLEARED',
-      marker,
-      { phase: 'resume_ready' }
-    ));
-    if (ack?.ok === true) {
-      removePerplexityBlockerMarker(marker.token);
-      clearPerplexityHandoffRetry();
-      return true;
-    }
-    if (shouldRetryPerplexityBlockerMessage(ack)) schedulePerplexityHandoffRetry();
-    else {
-      removePerplexityBlockerMarker(marker.token);
-      clearPerplexityHandoffRetry();
-    }
-    return false;
-  })();
-  try {
-    return await perplexityResumeInFlight;
-  } finally {
-    perplexityResumeInFlight = null;
-  }
-};
-
-const reconcilePerplexityFileUploadHandoff = async () => {
-  if (perplexityHandoffReconcileInFlight) return perplexityHandoffReconcileInFlight;
-  perplexityHandoffReconcileInFlight = (async () => {
-    if (isPerplexityFileUploadPaywall()) {
-      const closed = await closePerplexityFileUploadPaywall();
-      if (!closed || isPerplexityFileUploadPaywall()) {
-        schedulePerplexityHandoffRetry();
-        return false;
-      }
-    }
-    return resumePerplexityAfterPaywall();
-  })();
-  try {
-    return await perplexityHandoffReconcileInFlight;
-  } finally {
-    perplexityHandoffReconcileInFlight = null;
-  }
-};
-
-const baseAdapter = window.BaseLLMAdapter ? new window.BaseLLMAdapter({
-  model: MODEL,
-  isValidUrl: (url) => {
-    try {
-      const host = new URL(url).hostname;
-      return host.includes('perplexity.ai');
-    } catch (_) {
-      return true;
-    }
-  }
-}) : null;
-const attachmentHandler = window.AttachmentHandler || null;
-const PERPLEXITY_FALLBACK_LAST_MESSAGE_SELECTORS = [
-  '[data-testid="answer-card"]',
-  '[data-testid="answer-card"] .prose',
-  '[data-testid="answer"]',
-  '[data-testid="answer"] .prose',
-  '[data-testid="chat-message"] .prose',
-  '[data-testid="conversation-turn"] .prose',
-  '[class*="answer-container" i] .prose',
-  '.answer',
-  '.prose',
-  'article'
-];
-
-const buildInlineHtml = (node) => {
-  if (!node) return '';
-  const builder = window.ContentUtils?.buildInlineHtml;
-  if (typeof builder === 'function') {
-    return String(builder(node, { includeRoot: true }) || '').trim();
-  }
-  return String(node.innerHTML || '').trim();
-};
-
-const normalizeResponsePayload = (resp, fallbackHtml = '') => {
-  if (resp && typeof resp === 'object') {
-    return {
-      text: String(resp.text || resp.answer || ''),
-      html: String(resp.html || resp.answerHtml || fallbackHtml || ''),
-      meta: resp.meta && typeof resp.meta === 'object' ? resp.meta : null
-    };
-  }
-  return {
-    text: String(resp ?? ''),
-    html: String(fallbackHtml || ''),
-    meta: null
-  };
-};
-
-function grabLatestAssistantMarkup() {
-  try {
-    const selectorsFromBundle = (window.AnswerPipelineSelectors?.PLATFORM_SELECTORS?.perplexity?.lastMessage
-      ? [window.AnswerPipelineSelectors.PLATFORM_SELECTORS.perplexity.lastMessage]
-      : []).flat().filter(Boolean);
-    const candidates = selectorsFromBundle.length ? selectorsFromBundle : PERPLEXITY_FALLBACK_LAST_MESSAGE_SELECTORS;
-    for (const sel of candidates) {
-      const nodes = Array.from(document.querySelectorAll(sel));
-      for (let i = nodes.length - 1; i >= 0; i--) {
-        const node = nodes[i];
-        if (!node) continue;
-        const html = buildInlineHtml(node);
-        const text = (node.innerText || node.textContent || '').trim();
-        if (html || text) return { html, text, node };
-      }
-    }
-  } catch (err) {
-    console.warn('[content-perplexity] grabLatestAssistantMarkup failed', err);
-  }
-  return { html: '', text: '', node: null };
-}
-
-async function trySelectorFinderResponse(prompt, timeoutMs = 90000) {
-  // v2.72.00: Увеличен таймаут с 60s до 90s
-  // ПРОБЛЕМА: Perplexity изменил UI - программный scroll не работает (только ползунок)
-  // РЕШЕНИЕ: Даем больше времени на загрузку контента + пытаемся извлечь из DOM напрямую
-  const finder = window.SelectorFinder;
-  if (!finder?.waitForElement) return '';
-  try {
-    const res = await finder.waitForElement({
-      modelName: MODEL,
-      elementType: 'response',
-      timeout: timeoutMs,
-      prompt: prompt || '',
-      // Пытаемся извлечь весь DOM контент, даже если он вне viewport
-      extractFullContent: true
-    });
-    return (res?.text || '').trim();
-  } catch (err) {
-    console.warn('[content-perplexity] SelectorFinder response fallback failed', err);
-    // Fallback: пытаемся извлечь напрямую из DOM без ожидания
-    try {
-      const responseSelectors = [
-        'div[class*="answer"]',
-        'div[class*="response"]',
-        'div[data-testid*="answer"]',
-        'main article',
-        'main div[role="article"]'
-      ];
-      for (const selector of responseSelectors) {
-        const elem = document.querySelector(selector);
-        if (elem && elem.textContent.trim().length > 50) {
-          console.log(`[content-perplexity] Emergency fallback: found content via ${selector}`);
-          return elem.textContent.trim();
-        }
-      }
-    } catch (fallbackErr) {
-      console.warn('[content-perplexity] Emergency DOM fallback failed', fallbackErr);
-    }
-    return '';
-  }
-}
-
-window.setupHumanoidFetchMonitor?.(MODEL, ({ status, retryAfter }) => {
-  if (status !== 429) return;
-  const waitTime = retryAfter ? parseInt(retryAfter, 10) * 1000 || 60000 : 60000;
-  chrome.runtime.sendMessage({
-    type: 'LLM_RESPONSE',
-    llmName: MODEL,
-    answer: '',
-    error: {
-      type: 'rate_limit',
-      message: `HTTP 429 detected. Suggested wait time: ${waitTime}ms`,
-      waitTime
-    }
-  });
-});
-  const getLifecycleMode = () => {
-    if (typeof window !== 'undefined') {
-      if (window.__humanoidActivityMode) return window.__humanoidActivityMode;
-      if (document?.visibilityState === 'hidden') return 'background';
-    }
-    return 'interactive';
-  };
-  // Pragmatist integration
-  const prag = window.__PragmatistAdapter;
-  const getPragSessionId = () => prag?.sessionId;
-  const getPragPlatform = () => prag?.adapter?.name || 'perplexity';
-  const pipelineOverrides = prag
-    ? { sessionId: getPragSessionId(), platform: getPragPlatform(), llmName: MODEL }
-    : { llmName: MODEL };
-  let lastResponseHtml = '';
-const buildLifecycleContext = (prompt = '', extra = {}) => ({
-  promptLength: prompt?.length || 0,
-  evaluator: Boolean(extra.evaluator),
-  mode: extra.mode || getLifecycleMode()
-});
-const getForceStopRegistry = () => {
-  if (window.__humanoidForceStopRegistry) {
-    return window.__humanoidForceStopRegistry;
-  }
-  const handlers = new Set();
-  window.__humanoidForceStopRegistry = {
-    register(handler) {
-      if (typeof handler !== 'function') return () => {};
-      handlers.add(handler);
-      return () => handlers.delete(handler);
-    },
-    run(reason) {
-      handlers.forEach((fn) => {
-        try { fn(reason); } catch (_) {}
-      });
-    }
-  };
-  return window.__humanoidForceStopRegistry;
-};
-const registerForceStopHandler = (handler) => getForceStopRegistry().register(handler);
-const handleForceStopMessage = (traceId) => {
-  if (traceId && window.HumanoidEvents?.stop) {
-    try {
-      window.HumanoidEvents.stop(traceId, { status: 'forced', reason: 'background-force-stop' });
-    } catch (_) {}
-  }
-  getForceStopRegistry().run('background-force-stop');
-};
-
-const cleanupScope = window.HumanoidCleanup?.createScope?.(`${MODEL.toLowerCase()}-content`) || {
-  trackInterval: (id) => id,
-  trackTimeout: (id) => id,
-  trackObserver: (observer) => observer,
-  trackAbortController: (controller) => controller,
-  register: () => () => {},
-  addEventListener: () => () => {},
-  cleanup: () => {},
-  isCleaned: () => false,
-  getReason: () => null
-};
-let scriptStopped = false;
-const stopContentScript = (reason = 'manual-stop') => {
-  const marker = readPerplexityBlockerMarker();
-  const resumableSpaHandoff = String(reason || '').startsWith('spa_navigation:')
-    && marker
-    && ['armed', 'active', 'resume_pending'].includes(marker.state);
-  if (resumableSpaHandoff) return 'transient_handoff_preserved';
-  if (scriptStopped) return cleanupScope.getReason?.() || reason;
-  scriptStopped = true;
-  clearPerplexityHandoffRetry();
-  console.warn('[content-perplexity] Cleanup triggered:', reason);
-  try {
-    getForceStopRegistry().run(reason);
-  } catch (_) {}
-  try {
-    cleanupScope.cleanup?.(reason);
-  } catch (err) {
-    console.warn('[content-perplexity] Cleanup scope failed', err);
-  }
-  try {
-    window.perplexityContentScriptLoaded = null;
-  } catch (_) {}
-  return reason;
-};
-window.__cleanup_perplexity = stopContentScript;
-cleanupScope.addEventListener?.(window, 'pagehide', (event) => {
-  const marker = readPerplexityBlockerMarker();
-  const resumableBfcacheHandoff = event?.persisted === true
-    && marker
-    && ['armed', 'active', 'resume_pending'].includes(marker.state);
-  if (resumableBfcacheHandoff) return;
-  stopContentScript('pagehide');
-});
-cleanupScope.addEventListener?.(window, 'beforeunload', () => stopContentScript('beforeunload'));
-
-//-- V3.0 START: Advanced Content Cleaning System --//
-class ContentCleaner {
-  constructor() {
-    this.cleaningRules = this.initializeCleaningRules();
-    this.cleaningStats = { elementsRemoved: 0, charactersRemoved: 0, rulesApplied: 0 };
-  }
-
-  initializeCleaningRules() {
-    return {
-      // UI-элементы и фразы интерфейса
-      uiPhrases: [
-        /\b(Send|Menu|Settings|New chat|Clear|Like|Reply|Copy|Share|Follow|Subscribe)\b/gi,
-        /\b(Upload|Download|Save|Delete|Edit|Search|Filter|Sort)\b/gi,
-        /\b(Perplexity|PPLX|Pro Search)\b/gi
-      ],
-      // Временные метки и даты
-      timePatterns: [
-        /\b\d{1,2}:\d{2}\s*(?:AM|PM)?\b/gi,
-        /\b\d+\s*(?:hours?|minutes?|seconds?)\s*ago\b/gi,
-        /\b(?:Just now|Yesterday|Today|Tomorrow)\b/gi
-      ],
-      // Символы форматирования
-      formattingSymbols: [
-        /\xa0/g, /&nbsp;/g, /&[a-z]+;/gi
-      ],
-      // URL
-      urlPatterns: [
-        /\bhttps?:\/\/[^\s"]+?\b/gi, /\bwww\.[^\s"]+?\b/gi
-      ]
-    };
-  }
-
-  cleanContent(content, options = {}) {
-    const startTime = Date.now();
-    this.cleaningStats = { elementsRemoved: 0, charactersRemoved: 0, rulesApplied: 0 };
-    console.log('[ContentCleaner] Starting content cleaning, initial length:', content.length);
-
-    let textContent = content;
-    if (/<\/?[a-z][\s\S]*>/i.test(content)) {
-      try {
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(content, 'text/html');
-        doc.querySelectorAll('script,style,svg,canvas,noscript,header,footer,nav,aside,[aria-hidden="true"]').forEach(el => el.remove());
-        textContent = doc.body?.textContent || '';
-      } catch (err) {
-        console.warn('[ContentCleaner] DOMParser failed in Perplexity cleaner, falling back to textContent', err);
-        const fallbackDiv = document.createElement('div');
-        fallbackDiv.textContent = content;
-        textContent = fallbackDiv.textContent || '';
-      }
-    }
-
-    let cleanedContent = this.cleanTextContent(textContent, options);
-
-    if (options.maxLength && cleanedContent.length > options.maxLength) {
-      cleanedContent = this.applyLengthLimit(cleanedContent, options.maxLength);
-    }
-
-    const processingTime = Date.now() - startTime;
-    console.log(`[ContentCleaner] Cleaning completed in ${processingTime}ms. Final length: ${cleanedContent.length}`);
-    return cleanedContent;
-  }
-
-  cleanTextContent(textContent, options) {
-    let cleanedText = textContent;
-    const allRules = [
-      ...this.cleaningRules.uiPhrases,
-      ...this.cleaningRules.timePatterns,
-      ...this.cleaningRules.urlPatterns,
-      ...this.cleaningRules.formattingSymbols
-    ];
-
-    allRules.forEach(pattern => {
-      const originalLength = cleanedText.length;
-      cleanedText = cleanedText.replace(pattern, ' ');
-      this.recordRemoval(originalLength - cleanedText.length);
-    });
-
-    return this.finalNormalization(cleanedText);
-  }
-
-  recordRemoval(charactersRemoved) {
-    if (charactersRemoved > 0) {
-      this.cleaningStats.charactersRemoved += charactersRemoved;
-      this.cleaningStats.rulesApplied++;
-    }
-  }
-
-  applyLengthLimit(content, maxLength) {
-    if (content.length <= maxLength) return content;
-    const truncated = content.substring(0, maxLength);
-    const lastSentenceEnd = Math.max(
-      truncated.lastIndexOf('. '), truncated.lastIndexOf('! '),
-      truncated.lastIndexOf('? '), truncated.lastIndexOf('\n\n')
-    );
-    if (lastSentenceEnd > maxLength * 0.7) {
-      return truncated.substring(0, lastSentenceEnd + 1) + '\n\n[Content truncated]';
-    }
-    return truncated + '\n\n[Content truncated]';
-  }
-
-  finalNormalization(text) {
-    return text
-      .replace(/\n\s*\n\s*\n/g, '\n\n')
-      .replace(/[ \t]+/g, ' ')
-      .trim();
-  }
-
-  getCleaningStats() {
-    return { ...this.cleaningStats };
-  }
-}
-window.contentCleaner = new ContentCleaner();
-//-- V3.0 END: Advanced Content Cleaning System --//
-
-const sleep = (ms) => (window.ContentUtils?.sleep ? window.ContentUtils.sleep(ms) : new Promise((r) => setTimeout(r, ms)));
-const getHumanoid = () => (typeof window !== 'undefined' ? window.Humanoid : null);
-const isUserInteracting = () => {
-  if (document.hidden) return true;
-  const el = document.activeElement;
-  if (!el) return false;
-  const tag = el.tagName;
-  return tag === 'INPUT' || tag === 'TEXTAREA' || el.isContentEditable;
-};
-const keepAliveMutex = (() => {
-  const key = '__keepAliveMutex';
-  if (window[key]) return window[key];
-  let locked = false;
-  const queue = [];
-  const run = async (fn) => {
-    if (locked) await new Promise((res) => queue.push(res));
-    locked = true;
-    try { return await fn(); } finally {
-      locked = false;
-      const next = queue.shift();
-      if (next) next();
-    }
-  };
-  const mutex = { run };
-  window[key] = mutex;
-  return mutex;
-})();
-
-const runLifecycle = (source, context, executor) => {
-  if (typeof window.withHumanoidActivity === 'function') {
-    return window.withHumanoidActivity(source, context, executor);
-  }
-  return executor({
-    traceId: null,
-    heartbeat: () => {},
-    stop: () => {},
-    error: () => {}
-  });
-};
-
-const pipelineExpectedLength = (text = '') => {
-  const len = (text || '').length;
-  if (len > 4000) return 'veryLong';
-  if (len > 2000) return 'long';
-  if (len > 800) return 'medium';
-  return 'short';
-};
-
-  async function tryPerplexityPipeline(promptText = '', lifecycle = {}, baselineText = '') {
-    const { heartbeat, stop } = lifecycle || {};
-  if (!window.UnifiedAnswerPipeline) return null;
-  heartbeat?.({
-    stage: 'start',
-    expectedLength: pipelineExpectedLength(promptText),
-    pipeline: 'UnifiedAnswerPipeline'
-  });
-  try {
-    const pipeline = new window.UnifiedAnswerPipeline('perplexity', Object.assign({
-      expectedLength: pipelineExpectedLength(promptText),
-      baselineText: baselineText || ''
-    }, pipelineOverrides));
-    const result = await pipeline.execute();
-    console.log("[DIAGNOSTIC] Perplexity pipeline result:", { success: result?.success, hasAnswer: !!result?.answer, answerLength: result?.answer?.length, error: result?.error });
-    if (result?.success && result.answer) {
-      heartbeat?.({
-        stage: 'success',
-        answerLength: result.answer.length,
-        pipeline: 'UnifiedAnswerPipeline'
-      });
-      if (typeof stop === 'function') {
-        await stop({
-          status: 'success',
-          source: 'pipeline',
-          answer: result.answer,
-          answerHtml: result.answerHtml || '',
-          answerLength: result.answer.length,
-          metadata: result.metadata || null
-        });
-      }
-      return result;
-    }
-    heartbeat?.({
-      stage: 'empty',
-      status: 'no-answer',
-      pipeline: 'UnifiedAnswerPipeline'
-    });
-  } catch (err) {
-    heartbeat?.({
-      stage: 'error',
-      error: err?.message || String(err),
-      pipeline: 'UnifiedAnswerPipeline'
-    });
-    console.warn('[content-perplexity] UnifiedAnswerPipeline failed, falling back to legacy watcher', err);
-  }
-  return null;
-}
-
-const startDriftFallback = (intensity = 'soft') => {
-  const humanoid = getHumanoid();
-  if (humanoid?.startAntiSleepDrift) {
-    humanoid.startAntiSleepDrift(intensity);
-    return;
-  }
-  const delta = intensity === 'hard' ? 24 : intensity === 'medium' ? 16 : 10;
-  window.scrollBy({ top: (Math.random() > 0.5 ? 1 : -1) * delta, behavior: 'auto' });
-};
-
-const stopDriftFallback = () => {
-  const humanoid = getHumanoid();
-  humanoid?.stopAntiSleepDrift?.();
-};
-
-const createKeepAliveHeartbeat = (source) => {
-  let traceId = null;
-  let cleanupTimer = null;
-  return (meta = {}) => {
-    const lifecycle = window.HumanoidEvents;
-    if (!lifecycle?.start) return;
-    if (!traceId) {
-      try {
-        traceId = lifecycle.start(source, { mode: 'anti-sleep', source });
-      } catch (err) {
-        console.warn(`[${source}] keepalive trace failed`, err);
-        return;
-      }
-    }
-    try {
-      lifecycle.heartbeat(traceId, meta.progress || 0, Object.assign({ phase: 'keepalive-pulse' }, meta));
-    } catch (err) {
-      console.warn(`[${source}] keepalive heartbeat failed`, err);
-    }
-    if (cleanupTimer) clearTimeout(cleanupTimer);
-    cleanupTimer = setTimeout(() => {
-      try { lifecycle.stop(traceId, { status: 'idle' }); } catch (_) {}
-      traceId = null;
-    }, 8000);
-  };
-};
-const emitKeepAliveHeartbeat = createKeepAliveHeartbeat(`${MODEL.toLowerCase()}:keepalive`);
-
-async function perplexityHumanRead(duration = 480) {
-  const humanoid = getHumanoid();
-  if (humanoid?.readPage) {
-    try {
-      await humanoid.readPage(duration);
-    } catch (err) {
-      console.warn('[content-perplexity] Humanoid.readPage failed', err);
-    }
-  }
-}
-
-async function dismissPerplexityPromotion() {
-  const reportDismissed = (text) => {
-    try {
-      chrome.runtime.sendMessage({
-        type: 'LLM_DIAGNOSTIC_EVENT', llmName: MODEL,
-        event: { type: 'UI_GUARD', label: 'PERPLEXITY_PROMOTION_DISMISSED', details: String(text || '').slice(0, 180), level: 'info' }
-      });
-    } catch (_) {}
-  };
-  const owned = window.PerplexityComposerTransaction?.findOwnedPromotionClose?.(document) || null;
-  if (!owned?.button || !owned?.container) return false;
-  const text = String(owned.container.innerText || owned.container.textContent || '').replace(/\s+/g, ' ').trim();
-  owned.button.click();
-  reportDismissed(text);
-  await sleep(250);
-  return true;
-}
-
-const runAntiSleepPulse = (intensity = 'soft') => {
-  emitKeepAliveHeartbeat({ action: 'keep-alive-ping', intensity, model: MODEL });
-  const delta = intensity === 'hard' ? 28 : intensity === 'medium' ? 16 : 8;
-  try {
-    const Toolkit = window.__UniversalScrollToolkit;
-    if (Toolkit) {
-      const tk = new Toolkit({ idleThreshold: 800, driftStepMs: 40 });
-      tk.keepAliveTick?.((Math.random() > 0.5 ? 1 : -1) * delta);
-      return;
-    }
-  } catch (_) {}
-  startDriftFallback(intensity);
-};
-
-const perplexityScrollCoordinator = window.ScrollCoordinator
-  ? new window.ScrollCoordinator({
-      source: `${MODEL.toLowerCase()}-smart-scroll`,
-      getLifecycleMode,
-      registerForceStopHandler,
-      startDrift: () => startDriftFallback('soft'),
-      stopDrift: () => stopDriftFallback(),
-      logPrefix: `[${MODEL}] SmartScroll`
-    })
-  : null;
-
-async function withSmartScroll(asyncOperation, options = {}) {
-  if (window.ContentUtils?.withSmartScroll) {
-    return window.ContentUtils.withSmartScroll(asyncOperation, { coordinator: perplexityScrollCoordinator, ...options });
-  }
-  if (perplexityScrollCoordinator) {
-    return perplexityScrollCoordinator.run(asyncOperation, options);
-  }
-  return asyncOperation();
-}
-
-function perplexityTriggerEvents(element, data = '') {
-  element.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data }));
-  element.dispatchEvent(new Event('change', { bubbles: true }));
-}
-
-function setContentEditableParagraphs(element, text) {
-  if (!element) return;
-  const doc = element.ownerDocument || document;
-  while (element.firstChild) {
-    element.removeChild(element.firstChild);
-  }
-  const lines = String(text).split(/\n/);
-  if (!lines.length) {
-    const p = doc.createElement('p');
-    p.textContent = '\u200B';
-    element.appendChild(p);
-    return;
-  }
-  lines.forEach(line => {
-    const paragraph = doc.createElement('p');
-    paragraph.textContent = line || '\u200B';
-    element.appendChild(paragraph);
-  });
-}
-
-async function fallbackPerplexityType(element, text) {
-  const setNativeValue = (el, value) => {
-    try {
-      const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-      const desc = Object.getOwnPropertyDescriptor(proto, 'value');
-      const setter = desc && desc.set;
-      const ownSetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value')?.set;
-      (ownSetter || setter)?.call(el, value);
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-    } catch (_) {
-      el.value = value;
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-    }
-  };
-
-  try {
-    element.focus({ preventScroll: true });
-  } catch (_) {
-    element.focus?.();
-  }
-  await sleep(80);
-  if ('value' in element) {
-    setNativeValue(element, text);
-  } else {
-    setContentEditableParagraphs(element, text);
-  }
-  perplexityTriggerEvents(element, text);
-  await sleep(150);
-}
-
-async function perplexityHumanType(element, text, options = {}) {
-  const humanoid = getHumanoid();
-  if (humanoid?.typeText) {
-    try {
-      await humanoid.typeText(element, text, options);
-      return;
-    } catch (err) {
-      console.warn('[content-perplexity] Humanoid.typeText failed', err);
-    }
-  }
-  await fallbackPerplexityType(element, text);
-}
-
-// ---- Attachment helpers ---- //
-const parseDataUrlToBytes = (dataUrl = '') => {
-  try {
-    const match = dataUrl.match(/^data:([^;]+);base64,(.*)$/);
-    const base64Part = match ? match[2] : dataUrl;
-    const binary = atob(base64Part || '');
-    const len = binary.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
-    return bytes;
-  } catch (err) {
-    console.warn('[content-perplexity] Failed to parse data URL', err);
-    return null;
-  }
-};
-
-const hydrateAttachments = (raw = []) =>
-    raw
-        .map((item) => {
-            if (!item || !item.name || !item.base64) return null;
-            try {
-                const bytes = parseDataUrlToBytes(item.base64);
-                if (!bytes) return null;
-                return new File([bytes], item.name, { type: item.type || 'application/octet-stream' });
-            } catch (err) {
-                console.warn('[content-perplexity] Failed to hydrate attachment', item?.name, err);
-                return null;
-            }
-        })
-        .filter(Boolean);
-
-const notifyManualAttachmentRequired = (modelName, attachments = [], reason = '') => {
-  if (!attachments || !attachments.length) return;
-  const label = modelName || 'LLM';
-  const suffix = reason ? ` (${reason})` : '';
-  const message = `${label}: failed to attach files automatically. Please attach manually.${suffix}`;
-  try {
-    chrome.runtime.sendMessage({ type: 'ATTACHMENT_MANUAL_REQUIRED', llmName: label, message });
-  } catch (_) {}
-  try {
-    chrome.runtime.sendMessage({
-      type: 'LLM_DIAGNOSTIC_EVENT',
-      llmName: label,
-      event: { type: 'ATTACH', label: 'Manual attachment required', details: message, level: 'warning' }
-    });
-  } catch (_) {}
-};
-
-const waitForElement = async (selectors, timeoutMs = 3000, intervalMs = 150) => {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    for (const sel of selectors) {
-      const el = document.querySelector(sel);
-      if (el) return el;
-    }
-    await sleep(intervalMs);
-  }
-  return null;
-};
-
-// ---- Main world bridge (drop/text) ---- //
-async function ensureMainWorldBridge() {
-  if (window.__extMainBridgeInjected) return true;
-  const existing = document.querySelector('script[data-ext-main-bridge="1"]');
-  if (existing) {
-    window.__extMainBridgeInjected = true;
-    return true;
-  }
-  return new Promise((resolve) => {
-    try {
-      const script = document.createElement('script');
-      script.src = chrome.runtime.getURL('content-scripts/content-bridge.js');
-      script.async = true;
-      script.dataset.extMainBridge = '1';
-      script.onload = () => {
-        window.__extMainBridgeInjected = true;
-        resolve(true);
-      };
-      script.onerror = () => resolve(false);
-      (document.head || document.documentElement).appendChild(script);
-    } catch (_) {
-      resolve(false);
-    }
-  });
-}
-
-async function attachFilesToComposer(target, attachments = []) {
-  if (!attachments || !attachments.length) return false;
-  const files = hydrateAttachments(attachments).slice(0, 5);
-  if (!files.length) return false;
-
-  await ensureMainWorldBridge();
-  try {
-    window.dispatchEvent(new CustomEvent('EXT_ATTACH', {
-      detail: {
-        bridgeToken: window.ContentUtils?.getMainBridgeToken?.(),
-        bridgeSource: 'content-script',
-        attachments,
-        dropSelectors: [
-          'textarea[data-testid="search-input"]',
-          'form[role="search"] textarea',
-          'div[contenteditable="true"][role="textbox"]',
-          'div[contenteditable="true"]',
-          'textarea',
-          '[data-testid*="composer"]',
-          'main',
-          'form',
-          'body',
-          'html'
-        ],
-        attachSelectors: [
-          'button[aria-label*="Attach"]',
-          'button[aria-label*="Upload file"]',
-          'button[aria-label*="Add file"]',
-          'button[data-testid*="attach"]',
-          'button[data-testid*="upload"]',
-          'button[aria-label*="Upload"]',
-          'button[aria-label*="Add"]'
-        ],
-        inputSelectors: [
-          'input[type="file"][accept*="image"]',
-          'input[type="file"][accept*="pdf"]',
-          'input[type="file"][multiple]',
-          'input[type="file"]'
-        ]
-      }
-    }));
-  } catch (_) {}
-
-    const makeDataTransfer = () => {
-        const dt = new DataTransfer();
-        files.forEach((f) => {
-            try { dt.items.add(f); } catch (_) {}
-        });
-        dt.effectAllowed = 'copy';
-        return dt;
-    };
-
-    const dispatchPasteSequence = async (targets = []) => {
-        const dt = makeDataTransfer();
-        const factory = () => {
-            const ev = new ClipboardEvent('paste', { bubbles: true, cancelable: true });
-            if (!ev.clipboardData) {
-                try { Object.defineProperty(ev, 'clipboardData', { value: dt }); } catch (_) {}
-            } else if (dt.items?.length) {
-                dt.items.forEach((item) => ev.clipboardData.items.add(item.getAsFile()));
-            }
-            return ev;
-        };
-        for (const el of targets) {
-            if (!el) continue;
-            try {
-                el.dispatchEvent(factory());
-                await sleep(100);
-                el.dispatchEvent(factory());
-                await sleep(1200);
-                return true;
-            } catch (err) {
-                console.warn('[content-perplexity] paste dispatch failed', err);
-            }
-        }
-        return false;
-    };
-
-    const dispatchDropSequence = async (el) => {
-        if (!el) return false;
-        const dt = makeDataTransfer();
-        try {
-            for (const type of ['dragenter', 'dragover', 'drop']) {
-                const rect = el.getBoundingClientRect?.() || { left: 0, top: 0, width: 0, height: 0 };
-                const ev = new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: dt, clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2 });
-                el.dispatchEvent(ev);
-                await sleep(40);
-            }
-            await sleep(1400);
-            return true;
-    } catch (err) {
-      console.warn('[content-perplexity] drop dispatch failed', err);
-      return false;
-    }
-  };
-
-    const dropTargets = [
-        target,
-        target?.parentElement,
-        ...Array.from(document.querySelectorAll('[contenteditable="true"], textarea')),
-        document.querySelector('main'),
-        document.querySelector('form'),
-        document.body,
-        document.documentElement
-    ].filter(Boolean);
-    for (const el of dropTargets) {
-        if (await dispatchDropSequence(el)) return true;
-    }
-    if (await dispatchPasteSequence(dropTargets)) return true;
-
-  const attachButtonSelectors = [
-    'button[aria-label*="Attach"]',
-    'button[data-testid*="attach"]',
-    'button[data-testid*="upload"]',
-    'button[aria-label*="Upload"]'
+  const SEND_SELECTORS = [
+    '.send-button-container:not(.disabled)',
+    '.chat-box .send-button-container',
+    '.send-button-container',
+    'button[class*="send" i]:not([disabled])',
+    '[aria-label*="send" i]:not([disabled])'
   ];
-  const inputSelectors = [
-    'input[type="file"][accept*="image"]',
-    'input[type="file"][accept*="pdf"]',
-    'input[type="file"]'
+  const RESPONSE_SELECTORS = [
+    '.segment-assistant .markdown-container',
+    '.segment-assistant',
+    '.chat-content-item-assistant .markdown-container',
+    '[class*="segment-assistant" i]',
+    '[data-message-author-role="assistant"]',
+    '[data-role="assistant"]',
+    '[class*="assistant-message" i]',
+    '[class*="assistant" i] [class*="markdown" i]'
   ];
+  const GENERATING_SELECTOR = '.send-button-container.stop, [class*="stop" i][class*="button" i], [data-generating="true"], [data-streaming="true"], [aria-busy="true"]';
+  const USER_TURN_SELECTOR = '.segment-user, [class*="segment-user" i], [data-message-author-role="user"], [data-role="user"]';
+  // Kimi streams a reasoning trace inside the assistant turn, ahead of the
+  // answer. It renders first and keeps changing longest, so any "latest visible
+  // assistant text" rule picks the trace unless it is removed explicitly. The
+  // token set mirrors AnswerStructure.isIgnored, which the unified pipeline
+  // already applies — this is the same contract for the DOM fallback path.
+  const REASONING_SELECTOR = [
+    '[class*="think" i]', '[class*="thought" i]', '[class*="reason" i]',
+    '[data-testid*="think" i]', '[data-testid*="reason" i]',
+    '[data-type*="think" i]', '[data-type*="reason" i]'
+  ].join(',');
 
-  const attachButton = await waitForElement(attachButtonSelectors, 1200, 120);
-  if (attachButton) {
-    try { attachButton.click(); await sleep(300); } catch (_) {}
-  }
-
-    const allInputs = Array.from(document.querySelectorAll('input[type="file"]'));
-    const fileInput = await waitForElement(inputSelectors, 3000, 120) || allInputs[0];
-    if (!fileInput) {
-        console.warn('[content-perplexity] File input not found, skipping attachments');
-        return false;
-    }
-
-    const dt = makeDataTransfer();
-    try { fileInput.files = dt.files; } catch (err) { console.warn('[content-perplexity] set files failed', err); }
-    try {
-        fileInput.dispatchEvent(new Event('input', { bubbles: true }));
-        fileInput.dispatchEvent(new Event('change', { bubbles: true }));
-    } catch (err) {
-        console.warn('[content-perplexity] input/change dispatch failed', err);
-    }
-    try { fileInput.focus?.({ preventScroll: true }); } catch (_) { try { fileInput.focus?.(); } catch (_) {} }
-    await sleep(1800);
-    return true;
-}
-
-// --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
-function isElementInteractable(element) {
-  if (window.ContentUtils?.isElementInteractable) return window.ContentUtils.isElementInteractable(element);
-  //-- 4. Нативная установка значения для React-контролируемых textarea -//
-function setNativeValue(el, value) {
-  const proto = Object.getPrototypeOf(el);
-  const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set
-              || Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set
-              || Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
-  if (setter) setter.call(el, value);
-  el.dispatchEvent(new Event('input', { bubbles: true }));
-}
-
-  if (!element) return false;
-  if (element.offsetParent === null) return false;
-  if (element.getAttribute('disabled') !== null) return false;
-  if (element.style.display === 'none') return false;
-  if (element.style.visibility === 'hidden') return false;
-  const rect = element.getBoundingClientRect();
-  return rect.top >= 0 && rect.left >= 0 &&
-    rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
-    rect.right <= (window.innerWidth || document.documentElement.clientWidth);
-}
-
-// --- Self-Healing Selector Logic ---
-async function findAndCacheElement(selectorKey, selectorArray, timeout = 30000) {
-  if (window.ContentUtils?.findAndCacheElement) {
-    const found = await window.ContentUtils.findAndCacheElement(selectorKey, selectorArray, { timeout, model: MODEL });
-    if (found) return found;
-    throw new Error(`Element not found for '${selectorKey}'`);
-  }
-  const storageKey = `selector_cache_${MODEL}_${selectorKey}`;
-  try {
-    const result = await chrome.storage.local.get(storageKey);
-    const cachedSelector = result[storageKey];
-    if (cachedSelector) {
-      const el = document.querySelector(cachedSelector);
-      if (el && isElementInteractable(el)) {
-        console.log(`[Self-Healing] Found element using cached selector for '${selectorKey}'`);
-        return el;
-      }
-    }
-  } catch (e) { console.warn('[content-perplexity] Storage access failed, continuing without cache'); }
-
-  const start = Date.now();
-  while (Date.now() - start < timeout) {
-    for (const selector of selectorArray) {
+  const baseAdapter = window.BaseLLMAdapter ? new window.BaseLLMAdapter({
+    model: MODEL,
+    isValidUrl: (url) => {
       try {
-        const el = document.querySelector(selector);
-        if (el && isElementInteractable(el)) {
-          console.log(`[Self-Healing] Found element with '${selector}'. Caching for '${selectorKey}'.`);
-          try { await chrome.storage.local.set({ [storageKey]: selector }); } catch (e) {}
-          return el;
-        }
-      } catch (error) { console.warn(`[content-perplexity] Selector error for ${selector}:`, error); }
+        const host = new URL(url).hostname.toLowerCase();
+        return host === 'kimi.com' || host.endsWith('.kimi.com');
+      } catch (_) { return false; }
     }
-    await sleep(1000);
-  }
-  throw new Error(`Element not found for '${selectorKey}' with any selector`);
-}
+  }) : null;
+  const sleep = window.ContentUtils?.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const attachmentHandler = window.AttachmentHandler || null;
+  let stopped = false;
+  let lastResponse = { text: '', html: '' };
 
-const emitPerplexityComposerTelemetry = (label, details = '', meta = {}) => {
-  try {
-    chrome.runtime.sendMessage({
-      type: 'LLM_DIAGNOSTIC_EVENT',
-      llmName: MODEL,
-      event: { type: 'COMPOSER_TRANSACTION', label, details, level: meta.ok === false ? 'warning' : 'info', meta }
-    });
-  } catch (_) {}
-};
+  const isVisible = (element) => {
+    if (!element?.isConnected) return false;
+    const style = window.getComputedStyle?.(element);
+    if (style?.display === 'none' || style?.visibility === 'hidden') return false;
+    return element.getClientRects?.().length > 0;
+  };
 
-async function waitForPerplexityComposer(selectors, timeoutMs = 30000) {
-  const transaction = window.PerplexityComposerTransaction;
-  if (!transaction?.resolveComposer) return findAndCacheElement('inputField', selectors, timeoutMs);
-  const deadline = Date.now() + timeoutMs;
-  let lastResolution = null;
-  while (Date.now() < deadline) {
-    lastResolution = transaction.resolveComposer(document, selectors);
-    if (lastResolution.element) {
-      emitPerplexityComposerTelemetry('PERPLEXITY_COMPOSER_SELECTED', `score=${lastResolution.score}`, {
-        ok: true, selected: transaction.describe(lastResolution.element, lastResolution.score), candidates: lastResolution.diagnostics
-      });
-      return lastResolution.element;
+  const findFirst = (selectors) => {
+    for (const selector of selectors) {
+      try {
+        const element = document.querySelector(selector);
+        if (element && isVisible(element)) return element;
+      } catch (_) {}
     }
-    await sleep(150);
-  }
-  emitPerplexityComposerTelemetry('PERPLEXITY_COMPOSER_NOT_FOUND', 'no_owned_visible_composer', {
-    ok: false, candidates: lastResolution?.diagnostics || []
-  });
-  throw new Error('Perplexity owned composer not found');
-}
+    return null;
+  };
 
-async function insertPerplexityDraft(composer, prompt, options = {}) {
-  const transaction = window.PerplexityComposerTransaction;
-  if (!transaction?.insert) return fallbackPerplexityType(composer, prompt).then(() => ({
-    ok: window.ContentUtils?.promptMatchesComposer
-      ? window.ContentUtils.promptMatchesComposer(composer.value || composer.textContent || '', prompt)
-      : String(composer.value || composer.textContent || '').includes(prompt),
-    method: 'legacy_fallback'
-  }));
-  const token = `pplx_comp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  const attr = 'data-llm-perplexity-composer-token';
-  try {
-    composer.setAttribute(attr, token);
-    const bridgeReady = await ensureMainWorldBridge();
-    if (bridgeReady) {
-      window.dispatchEvent(new CustomEvent('EXT_SET_TEXT', {
-        detail: {
-          bridgeToken: window.ContentUtils?.getMainBridgeToken?.(),
-          bridgeSource: 'content-script',
-          text: prompt,
-          selectors: [`[${attr}="${token}"]`]
-        }
-      }));
-      await sleep(Number(options.settleMs || 180));
-      if (transaction.promptMatches(transaction.read(composer), prompt)) {
-        return { ok: true, method: 'main_world_editor_transaction', value: transaction.read(composer) };
-      }
+  const waitForFirst = async (selectors, timeoutMs = 20000) => {
+    const deadline = Date.now() + timeoutMs;
+    while (!stopped && Date.now() < deadline) {
+      const element = findFirst(selectors);
+      if (element) return element;
+      await sleep(120);
     }
-  } finally {
-    try { composer.removeAttribute(attr); } catch (_) {}
-  }
-  return transaction.insert(composer, prompt, { sleep, settleMs: options.settleMs || 180 });
-}
+    throw new Error(`Kimi element not found: ${selectors.join(' | ')}`);
+  };
 
-// --- ОСНОВНАЯ ФУНКЦИЯ ОБРАБОТКИ ---
-async function injectAndGetResponse(prompt, attachments = [], meta = null) {
-  const dispatchMeta = window.ContentUtils?.ensureDispatchMeta
-    ? window.ContentUtils.ensureDispatchMeta(meta, MODEL)
-    : (meta && typeof meta === 'object' ? meta : null);
-  const stageStartedAt = Date.now();
-  const reportStage = (stage, outcome = {}) => window.ContentUtils?.reportDispatchStage?.(
-    MODEL,
-    dispatchMeta,
-    stage,
-    { ...outcome, elapsedMs: Date.now() - stageStartedAt }
-  );
-  reportStage('composer_transaction_started');
-  return runLifecycle('perplexity:inject', buildLifecycleContext(prompt), async (activity) => {
-    console.log('[content-perplexity] Starting Perplexity injection process');
+  const readComposerText = (composer) => String(composer?.innerText ?? composer?.value ?? composer?.textContent ?? '').trim();
+
+  const isGenerating = () => {
+    try { return !!document.querySelector(GENERATING_SELECTOR); } catch (_) { return false; }
+  };
+
+  const isRejectedResponseText = (text) => {
+    const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!normalized) return true;
+    if (/^(Terms of Service|Privacy Policy|Sign in|Войти|Новый чат|New chat)$/i.test(normalized)) return true;
+    const classifier = window.AnswerContentClassifier;
+    if (classifier?.classify) {
+      const classification = classifier.classify(normalized, { minValid: 20 });
+      if ([
+        classifier.CLASSES?.EMPTY,
+        classifier.CLASSES?.PROMPT_ECHO,
+        classifier.CLASSES?.UI_NOISE,
+        classifier.CLASSES?.TECHNICAL_MESSAGE
+      ].includes(classification.contentClass)) return true;
+    }
+    return false;
+  };
+
+  const compareDocumentOrder = (a, b) => {
+    if (a === b) return 0;
     try {
-    await sleep(120);
-
-    // Ввод: Perplexity может использовать textarea или contenteditable
-    const inputSelectors = [
-      'textarea[data-testid="search-input"]',
-      'form[role="search"] textarea',
-      'form textarea[placeholder*="Ask"]',
-      'div[contenteditable="true"][role="textbox"]',
-      '[contenteditable="plaintext-only"]',
-      'form [contenteditable="true"]',
-      '[data-testid*="composer" i] [contenteditable="true"]',
-      'textarea[placeholder*="question" i]',
-      'textarea[placeholder*="вопрос" i]',
-      'textarea'
-    ];
-
-    console.log('[content-perplexity] Looking for input field...');
-    activity.heartbeat(0.2, { phase: 'composer-search' });
-    let inputField = await waitForPerplexityComposer(inputSelectors, 8000).catch(() => null);
-    // Never click speculative page controls while a usable composer already
-    // exists. Only a strictly-owned compact promotion overlay may be dismissed.
-    if (!inputField) {
-      const dismissed = await dismissPerplexityPromotion();
-      emitPerplexityComposerTelemetry('PERPLEXITY_PROMOTION_GUARD_RESULT', dismissed ? 'owned_overlay_dismissed' : 'no_owned_overlay', {
-        ok: dismissed, composerWasAvailable: false
-      });
-      inputField = await waitForPerplexityComposer(inputSelectors, 10000).catch(() => null);
-    }
-    if (!inputField) {
-      reportStage('composer_unavailable', { outcome: 'failed', reason: 'owned_composer_not_found' });
-      throw { type: 'selector_not_found', message: 'Perplexity owned input field not found' };
-    }
-    reportStage('composer_ready', {
-      composerConnected: inputField?.isConnected === true,
-      composerVisible: Boolean(inputField?.getBoundingClientRect?.().width && inputField?.getBoundingClientRect?.().height)
-    });
-
-    // Capture the prior on-page answer before submitting a follow-up, so the background
-    // rejects it as stale until the new answer renders (avoids finalizing the old answer).
-    const preDispatchBaseline = grabLatestAssistantMarkup().text || '';
-    try {
-      await window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, preDispatchBaseline);
+      const NodeCtor = a?.ownerDocument?.defaultView?.Node || Node;
+      const pos = a.compareDocumentPosition(b);
+      if (pos & NodeCtor.DOCUMENT_POSITION_FOLLOWING) return -1;
+      if (pos & NodeCtor.DOCUMENT_POSITION_PRECEDING) return 1;
     } catch (_) {}
+    return 0;
+  };
 
-    if (Array.isArray(attachments) && attachments.length) {
-      if (!attachmentHandler?.attach) {
-        throw { type: 'attachment_failed', message: 'Perplexity confirmed attachment handler unavailable' };
-      }
-      // Arm the navigation handoff before the trusted upload control can move
-      // this tab to /pro/payment. The marker and the background state share the
-      // original run/dispatch identity, so an unrelated/manual Perplexity tab
-      // cannot resume this request.
-      let blockerMarker = await armPerplexityFileUploadBlocker(dispatchMeta);
-      if (!blockerMarker) {
-        throw { type: 'attachment_failed', message: 'Perplexity file-upload handoff was not acknowledged' };
-      }
-      let result = null;
-      let promotionDismissed = false;
-      const runAttachmentAttempt = async (attemptMarker, attachOverrides = {}) => {
-        let attemptResult = null;
-        let promotionGuardBusy = false;
-        const dismissPromotionDuringAttachment = async () => {
-          if (promotionGuardBusy) return false;
-          promotionGuardBusy = true;
-          try {
-            const closed = await dismissPerplexityPromotion();
-            if (closed) promotionDismissed = true;
-            return closed;
-          } finally { promotionGuardBusy = false; }
-        };
-        const promotionGuardTimer = setInterval(() => {
-          void dismissPromotionDuringAttachment();
-        }, 120);
-        try {
-          attemptResult = await attachmentHandler.attach(MODEL, attachments, attachOverrides);
-          // A modal can be mounted just after AttachmentHandler's settle window;
-          // perform one final close pass before deciding whether to retry.
-          await dismissPromotionDuringAttachment();
-          return attemptResult;
-        } finally {
-          clearInterval(promotionGuardTimer);
-          await dismissPromotionDuringAttachment();
-          // A real navigation destroys this document and therefore never reaches
-          // this branch. If the attachment attempt finished in the chat document,
-          // the anticipated blocker did not occur and must be cancelled.
-          const liveBlockerMarker = readPerplexityBlockerMarker();
-          if (!isPerplexityFileUploadPaywall()
-            && liveBlockerMarker?.token === attemptMarker.token
-            && liveBlockerMarker.state === 'armed') {
-            const cancelled = await cancelPerplexityFileUploadBlocker(attemptMarker);
-            if (!cancelled) {
-              throw {
-                type: 'attachment_failed',
-                message: 'Perplexity file-upload blocker cancellation was not acknowledged'
-              };
-            }
+  const isAssistantNode = (node) => {
+    const role = String(node.getAttribute?.('data-role') || node.getAttribute?.('data-message-author-role') || '').toLowerCase();
+    const identity = `${node.id || ''} ${node.className || ''}`.toLowerCase();
+    if (role === 'user') return false;
+    if (/(^|[\s_-])user([\s_-]|$)/.test(identity)) return false;
+    try { return !node.closest?.(USER_TURN_SELECTOR); } catch (_) { return true; }
+  };
+
+  const isReasoningNode = (node) => {
+    if (!node?.nodeType) return false;
+    try { return !!(node.matches?.(REASONING_SELECTOR) || node.closest?.(REASONING_SELECTOR)); } catch (_) { return false; }
+  };
+
+  // A candidate may be the whole assistant turn, which carries the trace as a
+  // child. Read it through a detached clone with the reasoning subtrees removed
+  // so the answer survives and the trace never reaches the card.
+  const withoutReasoning = (node) => {
+    if (!node) return null;
+    let clone = null;
+    try { clone = node.cloneNode(true); } catch (_) { return node; }
+    try { clone.querySelectorAll?.(REASONING_SELECTOR).forEach((child) => child.remove()); } catch (_) {}
+    return clone;
+  };
+
+  const readAnswerParts = (node) => {
+    const clone = withoutReasoning(node);
+    if (!clone) return { text: '', html: '' };
+    const linearized = window.AnswerStructure?.linearizeText?.(clone);
+    const text = String(linearized || clone.innerText || clone.textContent || '').replace(/\s+/g, ' ').trim();
+    const html = window.ContentUtils?.buildInlineHtml
+      ? String(window.ContentUtils.buildInlineHtml(clone, { includeRoot: true }) || '')
+      : String(clone.outerHTML || '');
+    return { text, html };
+  };
+
+  const responseCandidates = () => {
+    const seen = new Set();
+    const candidates = [];
+    for (const selector of RESPONSE_SELECTORS) {
+      try {
+        document.querySelectorAll(selector).forEach((node) => {
+          if (seen.has(node) || isReasoningNode(node)) return;
+          const { text } = readAnswerParts(node);
+          if (isVisible(node) && isAssistantNode(node) && !isRejectedResponseText(text)) {
+            seen.add(node);
+            candidates.push(node);
           }
-        }
-      };
-      result = await runAttachmentAttempt(blockerMarker);
-      if (!result?.success && promotionDismissed && !isPerplexityFileUploadPaywall()) {
-        // The first native assignment opened a same-page promotion. Once it is
-        // closed, restart the attachment transaction exactly once; prompt
-        // preparation remains blocked until this retry has real file evidence.
-        promotionDismissed = false;
-        blockerMarker = await armPerplexityFileUploadBlocker(dispatchMeta);
-        if (!blockerMarker) {
-          throw { type: 'attachment_failed', message: 'Perplexity retry handoff was not acknowledged' };
-        }
-        // The retry runs the full cascade a second time, so without a reduced
-        // budget it doubles the wait before a hard attachment failure. Its job is
-        // narrower than the first attempt's: the promotion is already closed, so a
-        // working delivery path confirms promptly or does not exist. Give it half
-        // the budget rather than another full one.
-        result = await runAttachmentAttempt(blockerMarker, {
-          timeoutMs: PERPLEXITY_RETRY_ATTACH_TIMEOUT_MS
         });
-      }
-      const attachmentsOk = result.success;
-      const activeBlockerMarker = readPerplexityBlockerMarker();
-      if (!attachmentsOk && markerOwnsPerplexityDispatch(activeBlockerMarker, dispatchMeta)) {
-        throw {
-          type: 'transient_blocker_suspended',
-          message: 'Perplexity attachment pipeline suspended for file-upload paywall handoff'
-        };
-      }
-      if (!attachmentsOk) {
-        attachmentHandler.notifyManualAttachmentRequired?.(MODEL, attachments, result.reason);
-      }
-      if (!attachmentsOk) {
-        throw { type: 'attachment_failed', message: 'Perplexity attachment upload not confirmed' };
-      }
-      inputField = await waitForPerplexityComposer(inputSelectors, 10000).catch(() => null);
-      if (!inputField?.isConnected) {
-        throw { type: 'selector_not_found', message: 'Perplexity input field disappeared after attachment upload' };
-      }
+      } catch (_) {}
     }
+    return candidates.sort(compareDocumentOrder);
+  };
 
-    console.log('[content-perplexity] Input field found. Injecting prompt...');
-    const findLivePromptComposer = () => findOwnedPerplexityPromptComposer(prompt);
-    reportStage('prompt_insertion_started');
-    let prepared = window.PerplexityComposerTransaction?.prepare
-      ? await window.PerplexityComposerTransaction.prepare({
-          doc: document,
-          prompt,
-          selectors: inputSelectors,
-          attempts: 3,
-          settleMs: 180,
-          sleep,
-          insertStrategy: (composer, text, options) => insertPerplexityDraft(composer, text, options)
-        })
-      : (window.ContentUtils?.ensurePromptPrepared
-        ? await window.ContentUtils.ensurePromptPrepared(inputField, prompt, {
-            fallback: (input, text) => fallbackPerplexityType(input, text),
-            attempts: 2,
-            settleMs: 150
-          })
-        : { ok: false, reason: 'composer_transaction_unavailable' });
-    emitPerplexityComposerTelemetry(
-      prepared.ok ? 'PERPLEXITY_DRAFT_ACCEPTED' : 'PERPLEXITY_DRAFT_REJECTED',
-      prepared.ok ? `method=${prepared.method}` : String(prepared.reason || 'unknown'),
-      { ok: prepared.ok === true, method: prepared.method || null, reason: prepared.reason || null, history: prepared.history || [] }
-    );
-    if (prepared.ok && prepared.composer) inputField = prepared.composer;
-    if (!prepared.ok) {
-      // Donor 2.81.75 path, restored in 2.81.199. Every in-page insertion runs
-      // through execCommand or a synthetic InputEvent, and Perplexity's editor
-      // can accept neither — field evidence 2.81.196/198: three prepare()
-      // attempts, `prompt_injection_failed`, the draft visibly stacked in the
-      // composer and leftover text never cleared. Re-enter through a native
-      // browser input transaction instead: dispatchProviderTrustedInput focuses
-      // the composer, issues a native SelectAll (this is the clear that
-      // execCommand could not perform) and a native Input.insertText. Then
-      // reacquire the live editor, because React may swap the node.
-      activity.heartbeat(0.28, { phase: 'trusted-composer-input' });
-      try { inputField.focus?.({ preventScroll: true }); } catch (_) { try { inputField.focus?.(); } catch (_) {} }
-      const isMac = /mac|iphone|ipad|ipod/i.test(
-        navigator.userAgentData?.platform || navigator.platform || navigator.userAgent || ''
-      );
-      const trustedInput = await new Promise((resolve) => {
-        try {
-          chrome.runtime.sendMessage({
-            type: 'PERPLEXITY_TRUSTED_INPUT_REQUEST',
-            llmName: MODEL,
-            text: prompt,
-            isMac
-          }, (response) => {
-            if (chrome.runtime.lastError) resolve({ ok: false, reason: chrome.runtime.lastError.message });
-            else resolve(response || { ok: false, reason: 'empty_response' });
-          });
-        } catch (err) {
-          resolve({ ok: false, reason: err?.message || 'send_message_failed' });
-        }
-      });
-      await sleep(250);
-      const liveComposer = findLivePromptComposer();
-      if (trustedInput?.ok && liveComposer) {
-        inputField = liveComposer;
-        prepared = { ok: true, method: trustedInput.method || 'trusted_native_input' };
-      } else if (liveComposer) {
-        // The native transaction reported failure but the prompt is on the page
-        // under this dispatch's fingerprint, so the draft is usable either way.
-        inputField = liveComposer;
-        prepared = { ok: true, method: 'reacquired_prompt_fingerprint' };
-      } else {
-        prepared = {
-          ok: false,
-          reason: `${prepared.reason};trusted_input=${trustedInput?.reason || 'not_confirmed'}`
-        };
-      }
-      emitPerplexityComposerTelemetry(
-        prepared.ok ? 'PERPLEXITY_DRAFT_ACCEPTED' : 'PERPLEXITY_DRAFT_REJECTED',
-        prepared.ok ? `method=${prepared.method}` : String(prepared.reason || 'unknown'),
-        { ok: prepared.ok === true, method: prepared.method || null, reason: prepared.reason || null, stage: 'trusted_native_input' }
-      );
-    }
-    const reportInsertion = (state, reason, observedLength) => window.ContentUtils?.reportPromptInsertion?.(MODEL, dispatchMeta, {
-      state,
-      method: prepared.method || null,
-      reason,
-      promptLength: String(prompt || '').length,
-      composerLength: observedLength,
-      attempt: prepared.attempt ?? null
-    });
-    if (!prepared.ok) {
-      reportInsertion('failed', prepared.reason || 'prompt_not_present', String(prepared.value || '').length);
-      reportStage('prompt_insertion_failed', { outcome: 'failed', reason: prepared.reason || 'prompt_not_present' });
-      throw { type: 'prompt_injection_failed', message: `Perplexity prompt preparation failed: ${prepared.reason}` };
-    }
-    activity.heartbeat(0.3, { phase: 'typing' });
-    await sleep(100);
-    const ownedPromptComposer = findLivePromptComposer();
-    const __val = (ownedPromptComposer?.value ?? ownedPromptComposer?.textContent ?? '').trim();
-    if (!ownedPromptComposer) {
-      reportInsertion('failed', 'visible_current_composer_prompt_mismatch', __val.length);
-      reportStage('prompt_insertion_failed', {
-        outcome: 'failed',
-        reason: 'visible_current_composer_prompt_mismatch',
-        composerVisible: false,
-        composerConnected: false
-      });
-      throw {
-        type: 'injection_failed',
-        message: 'Perplexity visible current composer does not exactly match the dispatched prompt.'
-      };
-    }
-    inputField = ownedPromptComposer;
-    reportInsertion('inserted', null, __val.length);
-    reportStage('prompt_inserted', {
-      outcome: 'confirmed',
-      composerConnected: true,
-      composerVisible: true
-    });
-    const submitBaseline = capturePerplexitySubmitBaseline(inputField);
+  const readLatestResponse = () => {
+    const nodes = responseCandidates();
+    const node = nodes[nodes.length - 1] || null;
+    const { text, html } = readAnswerParts(node);
+    return { text, html, node };
+  };
 
-    const confirmPerplexitySend = async (timeout = 6000, trustedBrowserDispatch = false) => {
-      const deadline = Date.now() + timeout;
-      while (Date.now() < deadline) {
-        const liveComposer = findLivePromptComposer();
-        const proof = window.ProviderSubmitConfirmation?.evaluate?.(submitBaseline, {
-          userTurnCount: countPerplexityUserTurns(),
-          responseCount: countPerplexityResponses(),
-          composerTextLength: (liveComposer?.value || liveComposer?.textContent || '').trim().length,
-          generationElements: collectPerplexityGenerationEvidence(),
-          trustedBrowserDispatch
-        });
-        if (proof?.confirmed === true) return true;
-        await sleep(120);
-      }
-      return false;
-    };
-
-    // Cheap synthetic Ctrl+Enter first, bounded short: the 2026-07-30 field
-    // regression documented that Perplexity's Lexical editor usually ignores
-    // synthetic keyboard events entirely, which is why the trusted CDP path
-    // below exists at all. This attempt is not expected to work on every
-    // build, but it costs under a second when it does not, and it lets a
-    // layout where Lexical does honor it skip the debugger attach — the
-    // confirmation oracle below is fail-closed, so a no-op keypress just
-    // times out into the proven trusted Send path unchanged.
-    activity.heartbeat(0.38, { phase: 'ctrl-enter-attempt' });
-    try { inputField.focus?.({ preventScroll: true }); } catch (_) { try { inputField.focus?.(); } catch (_) {} }
-    const ctrlEnterInit = {
-      key: 'Enter', code: 'Enter', keyCode: 13, which: 13,
-      bubbles: true, cancelable: true, ctrlKey: true, composed: true
-    };
-    try { inputField.dispatchEvent(new KeyboardEvent('keydown', ctrlEnterInit)); } catch (_) {}
-    try { inputField.dispatchEvent(new KeyboardEvent('keypress', ctrlEnterInit)); } catch (_) {}
-    try { inputField.dispatchEvent(new KeyboardEvent('keyup', ctrlEnterInit)); } catch (_) {}
-    let confirmedViaCtrlEnter = await confirmPerplexitySend(900, false);
-
-    // Current Perplexity exposes a unique localized Send control only after the
-    // Lexical editor has committed the draft. prepare() already proves that
-    // control exists, so click it natively first. Enter is a bounded fallback
-    // for layouts where the control disappears between preparation and CDP.
-    activity.heartbeat(0.4, { phase: 'trusted-send-control' });
-    reportStage('send_action_requested');
-    if (confirmedViaCtrlEnter) {
-      reportStage('send_action_completed', { outcome: 'confirmed', method: 'ctrl_enter' });
-      activity.heartbeat(0.55, { phase: 'send-dispatched' });
-    }
-    const trustedSend = confirmedViaCtrlEnter ? null : await new Promise((resolve) => {
-      chrome.runtime.sendMessage({
-        type: 'PROVIDER_TRUSTED_SEND_REQUEST',
-        llmName: MODEL,
-        prompt
-      }, (response) => {
+  const requestTrustedInput = (text) => new Promise((resolve) => {
+    const isMac = /mac/i.test(navigator.platform || navigator.userAgent || '');
+    try {
+      chrome.runtime.sendMessage({ type: 'KIMI_TRUSTED_INPUT_REQUEST', llmName: MODEL, text, isMac }, (response) => {
         if (chrome.runtime.lastError) resolve({ ok: false, reason: chrome.runtime.lastError.message });
         else resolve(response || { ok: false, reason: 'empty_response' });
       });
-    });
-    let confirmed = confirmedViaCtrlEnter || (trustedSend?.ok && await confirmPerplexitySend(6000, true));
-    let trustedEnter = null;
-    if (!confirmed && findLivePromptComposer()) {
-      activity.heartbeat(0.43, { phase: 'trusted-composer-enter-fallback' });
-      trustedEnter = await new Promise((resolve) => {
-        chrome.runtime.sendMessage({
-          type: 'PERPLEXITY_TRUSTED_ENTER_REQUEST',
-          llmName: MODEL,
-          prompt
-        }, (response) => {
-          if (chrome.runtime.lastError) resolve({ ok: false, reason: chrome.runtime.lastError.message });
-          else resolve(response || { ok: false, reason: 'empty_response' });
-        });
-      });
-      confirmed = trustedEnter?.ok && await confirmPerplexitySend(6000, true);
+    } catch (err) {
+      resolve({ ok: false, reason: err?.message || String(err) });
     }
-
-    if (!confirmed) {
-      reportStage('send_action_failed', {
-        outcome: 'failed',
-        reason: trustedSend?.reason || trustedEnter?.reason || 'no_send_evidence'
-      });
-      throw {
-        type: 'send_failed',
-        message: `Perplexity submit not confirmed: ctrl_enter=unconfirmed, click=${trustedSend?.reason || 'no_send_evidence'}, enter=${trustedEnter?.reason || 'not_attempted'}`
-      };
-    }
-    if (!confirmedViaCtrlEnter) {
-      reportStage('send_action_completed', { outcome: 'confirmed' });
-      activity.heartbeat(0.55, { phase: 'send-dispatched' });
-    }
-    try { chrome.runtime.sendMessage({ type: 'PROMPT_SUBMITTED', llmName: MODEL, ts: Date.now(), meta: dispatchMeta }); } catch (_) {}
-    window.ContentUtils?.reportProviderPipelineState?.(MODEL, dispatchMeta, 'composer', false);
-    window.ContentUtils?.reportProviderPipelineState?.(MODEL, dispatchMeta, 'answer_collection', true);
-
-    console.log('[content-perplexity] Message sent, waiting for response...');
-    activity.heartbeat(0.6, { phase: 'waiting-response' });
-
-    let pipelineAnswer = null;
-    await tryPerplexityPipeline(prompt, {
-      heartbeat: (meta = {}) => activity.heartbeat(0.8, Object.assign({ phase: 'pipeline' }, meta)),
-      stop: async ({ answer, answerHtml, metadata }) => {
-        console.log('[content-perplexity] UnifiedAnswerPipeline captured response, skipping legacy watcher');
-        const cleanedPipelineResponse = window.contentCleaner.cleanContent(answer, {
-          maxLength: 50000
-        });
-        if (window.ContentUtils?.isBaselineEquivalent?.(cleanedPipelineResponse, preDispatchBaseline)) {
-          throw new Error('stale_baseline_answer');
-        }
-        const html = String(answerHtml || '').trim();
-        if (html) lastResponseHtml = html;
-        pipelineAnswer = {
-          text: cleanedPipelineResponse,
-          html,
-          meta: window.ContentUtils?.buildResponseMeta?.(metadata, { source: 'pipeline' }) || null
-        };
-        activity.stop({ status: 'success', answerLength: cleanedPipelineResponse.length, source: 'pipeline' });
-        return pipelineAnswer;
-      }
-    }, preDispatchBaseline);
-    if (pipelineAnswer) {
-      return pipelineAnswer;
-    }
-
-    // Fallback: extract latest assistant text if pipeline missed it
-    try {
-      const latestMarkup = grabLatestAssistantMarkup();
-      const cleanedFallback = window.contentCleaner.cleanContent(latestMarkup.html || latestMarkup.text || '', { maxLength: 50000 });
-      if (window.ContentUtils?.isBaselineEquivalent?.(cleanedFallback, preDispatchBaseline)) {
-        console.warn('[content-perplexity] DOM fallback matched pre-dispatch baseline, ignoring stale answer');
-        throw new Error('stale_baseline_answer');
-      }
-      if (cleanedFallback) {
-        console.warn('[content-perplexity] Pipeline empty, using DOM fallback');
-        if (latestMarkup.html) lastResponseHtml = latestMarkup.html;
-        activity.stop({ status: 'success', answerLength: cleanedFallback.length, source: 'dom-fallback' });
-        return {
-          text: cleanedFallback,
-          html: latestMarkup.html || '',
-          meta: window.ContentUtils?.buildResponseMeta?.(null, { source: 'dom_fallback' }) || null
-        };
-      }
-    } catch (fallbackErr) {
-      console.warn('[content-perplexity] DOM fallback failed', fallbackErr);
-    }
-
-    // Last resort: SelectorFinder observation-based extraction (can traverse shadow DOM).
-    try {
-      const finderText = await trySelectorFinderResponse(prompt, 60000);
-      const cleanedFinder = window.contentCleaner.cleanContent(finderText || '', { maxLength: 50000 });
-      if (cleanedFinder) {
-        console.warn('[content-perplexity] DOM fallback empty, using SelectorFinder response');
-        activity.stop({ status: 'success', answerLength: cleanedFinder.length, source: 'selector-finder' });
-        return {
-          text: cleanedFinder,
-          html: '',
-          meta: window.ContentUtils?.buildResponseMeta?.(null, { source: 'selector_finder_fallback' }) || null
-        };
-      }
-    } catch (finderErr) {
-      console.warn('[content-perplexity] SelectorFinder fallback crashed', finderErr);
-    }
-
-    throw new Error('Pipeline did not return answer');
-
-  } catch (error) {
-    const liveBlockerMarker = readPerplexityBlockerMarker();
-    if (markerOwnsPerplexityDispatch(liveBlockerMarker, dispatchMeta)) {
-      activity.stop({ status: 'suspended', reason: 'file_upload_paywall_handoff' });
-      throw error;
-    }
-    if (error?.code === 'background-force-stop') {
-      activity.error(error, false);
-      throw error;
-    }
-    console.error('[content-perplexity] Error in injectAndGetResponse:', error);
-    activity.error(error, true);
-    throw error;
-  }
   });
-}
 
-let perplexitySendOnlyRecoveryActive = false;
-async function recoverPerplexitySendOnly(prompt, meta) {
-  if (perplexitySendOnlyRecoveryActive) {
-    return { ok: false, status: 'recovery_busy', reason: 'send_only_recovery_active' };
-  }
-  const composer = findOwnedPerplexityPromptComposer(prompt);
-  if (!composer) {
-    return { ok: false, status: 'send_only_rejected', reason: 'visible_current_composer_prompt_mismatch' };
-  }
-  perplexitySendOnlyRecoveryActive = true;
-  const startedAt = Date.now();
-  const reportStage = (stage, outcome = {}) => window.ContentUtils?.reportDispatchStage?.(
-    MODEL, meta, stage, { ...outcome, elapsedMs: Date.now() - startedAt }
-  );
-  reportStage('send_only_recovery_started', { composerVisible: true, composerConnected: true });
-  try {
-    const baseline = capturePerplexitySubmitBaseline(composer);
-    let method = 'trusted_send';
-    let action = await sendPerplexityRuntimeMessage({
-      type: 'PROVIDER_TRUSTED_SEND_REQUEST', llmName: MODEL, prompt
-    });
-    let proof = action?.ok ? await waitForPerplexitySubmitEvidence(baseline, 5000) : null;
-    if (!proof && findOwnedPerplexityPromptComposer(prompt)) {
-      method = 'trusted_enter';
-      action = await sendPerplexityRuntimeMessage({
-        type: 'PERPLEXITY_TRUSTED_ENTER_REQUEST', llmName: MODEL, prompt
-      });
-      proof = action?.ok ? await waitForPerplexitySubmitEvidence(baseline, 5000) : null;
-    }
-    if (!proof) {
-      reportStage('send_only_recovery_failed', {
-        outcome: 'failed', reason: action?.reason || 'no_page_submit_evidence'
-      });
-      return { ok: false, status: 'send_only_failed', reason: action?.reason || 'no_page_submit_evidence' };
-    }
-    const submissionMeta = Object.assign({}, meta || {}, {
-      confirmed: true,
-      method: `send_only_${method}`,
-      payloadVerified: true,
-      promptTurnVerified: proof.newUserTurn === true
-    });
-    reportStage('send_only_recovery_completed', {
-      outcome: 'confirmed', reason: proof.directSignals?.join(',') || method
-    });
-    chrome.runtime.sendMessage({ type: 'PROMPT_SUBMITTED', llmName: MODEL, ts: Date.now(), meta: submissionMeta });
-    return { ok: true, status: 'send_only_confirmed', method, evidence: proof.directSignals || [] };
-  } finally {
-    perplexitySendOnlyRecoveryActive = false;
-  }
-}
+  // Confirmed against the live page: once Lexical already holds committed
+  // content, execCommand('selectAll')+('delete') is not reliable — it can
+  // silently no-op, leaving the next insertText to append rather than
+  // replace, which is how a retry duplicates the draft instead of fixing it.
+  // A CDP-dispatched Cmd/Ctrl+A + Input.insertText is a genuinely trusted
+  // select-and-replace (the same operation a real keystroke performs) and
+  // reliably clears whatever is there first, so it also cleans up any
+  // duplication pasteTextFirst's own attempts may have left behind.
+  const insertPrompt = async (composer, prompt) => {
+    composer.focus?.();
+    const pasted = window.ContentUtils?.pasteTextFirst
+      ? await window.ContentUtils.pasteTextFirst(composer, prompt)
+      : false;
+    if (pasted) return;
+    await requestTrustedInput(prompt);
+  };
 
-// --- ОБРАБОТЧИК СООБЩЕНИЙ ---
-const onRuntimeMessage = (message, sender, sendResponse) => {
-  if (!message) return false;
-  if (baseAdapter?.handleMessage(message, sender, sendResponse)) return true;
-  console.log('[content-perplexity] Received:', message.type);
-
-  if (message?.type === 'STOP_AND_CLEANUP') {
-    handleForceStopMessage(message.payload?.traceId);
-    stopContentScript('manual-toggle');
-    if (typeof sendResponse === 'function') {
-      sendResponse({ status: 'cleaned', llmName: MODEL });
-    }
-    return false;
-  }
-
-  if (message?.type === 'HUMANOID_FORCE_STOP') {
-    handleForceStopMessage(message.payload?.traceId);
-    if (typeof sendResponse === 'function') {
-      sendResponse({ status: 'force_stop_ack' });
-    }
-    return false;
-  }
-
-  if (message?.type === 'HEALTH_CHECK_PING') {
-    sendResponse({ type: 'HEALTH_CHECK_PONG', pingId: message.pingId, llmName: MODEL });
-    return true;
-  }
-
-  if (message?.type === 'RECOVER_PROVIDER_SEND') {
-    recoverPerplexitySendOnly(String(message.prompt || ''), message.meta || null)
-      .then(sendResponse)
-      .catch((error) => sendResponse({ ok: false, status: 'send_only_failed', reason: error?.message || 'unknown_error' }));
-    return true;
-  }
-
-  if (message?.type === 'ANTI_SLEEP_PING') {
-    if (window.__LLMScrollHardStop) return false;
-    if (isUserInteracting()) {
-      stopDriftFallback();
-      return false;
-    }
-    keepAliveMutex.run(async () => {
-      runAntiSleepPulse(message.intensity || 'soft');
-    });
-    return false;
-  }
-
-  if (message?.type === 'GET_ANSWER_NO_FOCUS') {
-    const activeEl = document.activeElement;
-    const hasActiveInput = activeEl && (activeEl.isContentEditable || ['TEXTAREA', 'INPUT'].includes(activeEl.tagName));
-    const hasComposer = !!document.querySelector('textarea, [contenteditable="true"], input[type="text"]');
-    const hasFocus = typeof document.hasFocus === 'function' ? document.hasFocus() : true;
-    const canInteract = !document.hidden && hasFocus && (hasActiveInput || hasComposer);
-    sendResponse({ status: canInteract ? 'ready_no_focus' : 'requires_focus', requiresFocus: !canInteract });
-    return false;
-  }
-
-  if (message?.type === 'PROVIDER_TRANSIENT_BLOCKER_RESUME_PROBE') {
-    const marker = readPerplexityBlockerMarker();
-    const tokenMatches = Boolean(marker?.token && marker.token === message.token);
-    const composerReady = Boolean(findVisiblePerplexityComposer());
-    const ready = tokenMatches
-      && marker?.state === 'resume_pending'
-      && !isPerplexityFileUploadPaywall()
-      && perplexityRuntimeListenerRegistered
-      && composerReady;
-    sendResponse?.({
-      ok: ready,
-      ready,
-      token: marker?.token || null,
-      dispatchId: marker?.dispatchId || null,
-      tabSessionId: perplexityTabSessionId || marker?.tabSessionId || null,
-      composerReady
-    });
-    return false;
-  }
-
-  if (message.type === 'GET_ANSWER' || message.type === 'GET_FINAL_ANSWER') {
-    const acceptedMeta = window.ContentUtils?.ensureDispatchMeta
-      ? window.ContentUtils.ensureDispatchMeta(message.meta || null, MODEL)
-      : (message.meta || null);
-    if (!String(message.prompt || '').trim()) {
-      sendResponse?.({
-        ok: false,
-        accepted: false,
-        status: 'rejected',
-        reason: 'empty_prompt',
-        dispatchId: acceptedMeta?.dispatchId || null
-      });
-      return false;
-    }
-    const gateResult = perplexityDispatchGate.begin({
-      dispatchId: acceptedMeta?.dispatchId || null,
-      prompt: message.prompt
-    });
-    if (!gateResult.accepted) {
-      const duplicate = gateResult.duplicate === true;
-      emitPerplexityComposerTelemetry(
-        duplicate ? 'PERPLEXITY_DUPLICATE_DISPATCH_SUPPRESSED' : 'PERPLEXITY_CONCURRENT_DISPATCH_REJECTED',
-        duplicate ? 'same prompt already active' : 'different request while provider transaction active',
-        {
-          ok: duplicate,
-          dispatchId: acceptedMeta?.dispatchId || null,
-          activeDispatchId: gateResult.activeDispatchId || null,
-          activeStartedAt: gateResult.activeStartedAt || null
-        }
-      );
-      sendResponse?.({
-        ok: duplicate,
-        accepted: duplicate,
-        status: duplicate ? 'duplicate_suppressed' : 'busy',
-        reason: duplicate ? 'same_dispatch_in_progress' : 'provider_transaction_busy',
-        dispatchId: acceptedMeta?.dispatchId || null,
-        activeDispatchId: gateResult.activeDispatchId || null
-      });
-      return false;
-    }
-    const dispatchGateToken = gateResult.token;
-    // GET_ANSWER is a command, not a response stream. Acknowledge ownership
-    // immediately; PROMPT_SUBMITTED and LLM_RESPONSE carry the later lifecycle.
-    // Holding this port until generation ends turns a provider navigation into
-    // a false "Could not establish connection" transport failure.
-    sendResponse?.({
-      ok: true,
-      accepted: true,
-      status: 'accepted',
-      dispatchId: acceptedMeta?.dispatchId || null,
-      tabSessionId: perplexityTabSessionId || acceptedMeta?.tabSessionId || null
-    });
-    const releaseActive = () => window.ContentUtils?.stopActiveRequest?.();
-    window.ContentUtils?.startActiveRequest?.();
-    window.ContentUtils?.reportProviderPipelineState?.(MODEL, message.meta || null, 'composer', true);
-    injectAndGetResponse(message.prompt, message.attachments, message.meta || null)
-      .then(result => {
-        if (message.isFireAndForget) {
-          return;
-        }
-        const responseType = message.type === 'GET_ANSWER' ? 'LLM_RESPONSE' : 'FINAL_LLM_RESPONSE';
-
-        const stats = window.contentCleaner.getCleaningStats();
-        chrome.runtime.sendMessage({
-          type: 'CONTENT_CLEANING_STATS', llmName: MODEL, stats: stats, timestamp: Date.now()
-        });
-
-        const payload = normalizeResponsePayload(result, lastResponseHtml);
-        chrome.runtime.sendMessage({
-          type: responseType,
-          llmName: MODEL,
-          answer: payload.text,
-          answerHtml: payload.html,
-          meta: payload.meta
-            ? Object.assign({}, message.meta || {}, { responseMeta: payload.meta })
-            : (message.meta || null)
-        });
-      })
-      .catch((err) => {
-        const errorMessage = err?.message || 'Unknown error in Perplexity injector';
-        const liveBlockerMarker = readPerplexityBlockerMarker();
-        if (markerOwnsPerplexityDispatch(liveBlockerMarker, acceptedMeta)) {
-          try {
-            chrome.runtime.sendMessage({
-              type: 'LLM_DIAGNOSTIC_EVENT',
-              llmName: MODEL,
-              event: {
-                type: 'TRANSIENT_BLOCKER',
-                label: 'Original pipeline suspended for paywall handoff',
-                details: errorMessage,
-                level: 'info',
-                meta: acceptedMeta || null
-              }
-            });
-          } catch (_) {}
-          return;
-        }
-        const responseType = message.type === 'GET_ANSWER' ? 'LLM_RESPONSE' : 'FINAL_LLM_RESPONSE';
-        chrome.runtime.sendMessage({
-          type: responseType, llmName: MODEL, answer: '',
-          error: { type: err?.type || 'generic_error', message: errorMessage },
-          meta: message.meta || null
-        });
-      })
-      .finally(() => {
-        const liveBlockerMarker = readPerplexityBlockerMarker();
-        if (!markerOwnsPerplexityDispatch(liveBlockerMarker, acceptedMeta)) {
-          window.ContentUtils?.reportProviderPipelineState?.(MODEL, message.meta || null, 'composer', false);
-          window.ContentUtils?.reportProviderPipelineState?.(MODEL, message.meta || null, 'answer_collection', false);
-        }
-        releaseActive();
-        perplexityDispatchGate.finish(dispatchGateToken);
-      });
-    return false;
-  }
-
-  return false;
-};
-
-chrome.runtime.onMessage.addListener(onRuntimeMessage);
-perplexityRuntimeListenerRegistered = true;
-const resumeAfterSameDocumentNavigation = () => {
-  queueMicrotask(() => {
-    try {
-      const currentTabSessionId = window.LLMExtension?.sendScriptReady?.(MODEL, {
-        version: (typeof SCRIPT_VERSION !== 'undefined' ? SCRIPT_VERSION : undefined)
-      });
-      if (currentTabSessionId) perplexityTabSessionId = currentTabSessionId;
-    } catch (_) {}
-    void reconcilePerplexityFileUploadHandoff();
-  });
-};
-window.addEventListener('popstate', resumeAfterSameDocumentNavigation, { passive: true });
-window.addEventListener('pageshow', resumeAfterSameDocumentNavigation, { passive: true });
-window.addEventListener('LLM_CODEX_SPA_NAVIGATION', resumeAfterSameDocumentNavigation, { passive: true });
-cleanupScope.register?.(() => {
-  try {
-    perplexityRuntimeListenerRegistered = false;
-    chrome.runtime.onMessage.removeListener(onRuntimeMessage);
-    window.removeEventListener('popstate', resumeAfterSameDocumentNavigation);
-    window.removeEventListener('pageshow', resumeAfterSameDocumentNavigation);
-    window.removeEventListener('LLM_CODEX_SPA_NAVIGATION', resumeAfterSameDocumentNavigation);
-  } catch (_) {}
-});
-
-function startBasicHeartbeat() { return; }
-
-console.log('[content-perplexity] Initialization complete');
-try {
-  if (window.LLMExtension?.sendScriptReady) {
-    perplexityTabSessionId = window.LLMExtension.sendScriptReady(MODEL, {
-      version: (typeof SCRIPT_VERSION !== 'undefined' ? SCRIPT_VERSION : undefined)
-    });
-  } else {
-    chrome.runtime.sendMessage({ type: 'SCRIPT_READY', llmName: MODEL });
-  }
-} catch (err) {
-  console.warn('[content-perplexity] Failed to send ready signal:', err);
-}
-// The navigation handoff is valid only after this document has registered its
-// runtime listener and announced readiness; otherwise the resumed dispatch is
-// sent into a page that cannot receive it yet.
-void reconcilePerplexityFileUploadHandoff();
-
-// v2.54.1 (2025-12-19 19:50): КРИТИЧЕСКОЕ - Early ready signal для Perplexity
-// Perplexity ждал 30+ секунд без этого сигнала - теперь отправка за 0.5-1.5s
-(async () => {
-  const checkReady = async () => {
-    if (document.readyState !== 'loading') {
-      const textarea = document.querySelector('textarea[data-testid="search-input"]')
-                    || document.querySelector('form[role="search"] textarea')
-                    || document.querySelector('form textarea[placeholder*="Ask"]');
-      const sendButton = document.querySelector('button[type="submit"]');
-
-      if (textarea && sendButton) {
-        try {
-          chrome.runtime.sendMessage({
-            type: 'SCRIPT_READY_EARLY',
-            llmName: MODEL
-          });
-          console.log('[content-perplexity] ⚡ Early ready signal sent');
-          return true;
-        } catch (err) {
-          console.warn('[content-perplexity] Failed to send early ready signal:', err);
-        }
-      }
+  const waitForSendConfirmation = async (composer, beforeUserTurns, timeoutMs) => {
+    const deadline = Date.now() + timeoutMs;
+    while (!stopped && Date.now() < deadline) {
+      const value = readComposerText(composer);
+      const userTurns = document.querySelectorAll(USER_TURN_SELECTOR).length;
+      if (!value || userTurns > beforeUserTurns || isGenerating()) return true;
+      await sleep(120);
     }
     return false;
   };
 
-  if (await checkReady()) return;
+  const requestTrustedSend = () => new Promise((resolve) => {
+    try {
+      chrome.runtime.sendMessage({ type: 'KIMI_TRUSTED_SEND_REQUEST', llmName: MODEL }, (response) => {
+        if (chrome.runtime.lastError) resolve({ ok: false, reason: chrome.runtime.lastError.message });
+        else resolve(response || { ok: false, reason: 'empty_response' });
+      });
+    } catch (err) {
+      resolve({ ok: false, reason: err?.message || String(err) });
+    }
+  });
 
-  const deadline = Date.now() + 2000;
-  while (Date.now() < deadline) {
-    await sleep(250);
-    if (await checkReady()) return;
+  const sendPrompt = async (composer) => {
+    // Confirmed against the live page: neither Enter nor Ctrl+Enter submits
+    // this composer, trusted keystrokes included — Send only reacts to a
+    // click. A synthetic in-page click reaches the Vue handler in some
+    // states but not reliably once logged in, so try it first (cheap, no
+    // debugger banner) and fall through to a real CDP-dispatched click.
+    const beforeUserTurns = document.querySelectorAll(USER_TURN_SELECTOR).length;
+    let button = findFirst(SEND_SELECTORS);
+    if (button?.classList?.contains('disabled') || button?.disabled) {
+      await sleep(250);
+      button = findFirst(SEND_SELECTORS);
+    }
+    if (button && !button.disabled && !button.classList?.contains('disabled')) {
+      button.click();
+    }
+    if (await waitForSendConfirmation(composer, beforeUserTurns, 1500)) return true;
+
+    const trusted = await requestTrustedSend();
+    if (trusted?.ok && await waitForSendConfirmation(composer, beforeUserTurns, 4000)) return true;
+    return false;
+  };
+
+  const waitForStableResponse = async (baseline, timeoutMs = 180000) => {
+    const deadline = Date.now() + timeoutMs;
+    let previous = '';
+    let stableSince = 0;
+    const isBaseline = (text) => window.ContentUtils?.isBaselineEquivalent
+      ? window.ContentUtils.isBaselineEquivalent(text, baseline)
+      : String(text || '').replace(/\s+/g, ' ').trim() === String(baseline || '').replace(/\s+/g, ' ').trim();
+    while (!stopped && Date.now() < deadline) {
+      const latest = readLatestResponse();
+      if (latest.text && !isBaseline(latest.text)) {
+        if (latest.text === previous) {
+          stableSince ||= Date.now();
+          if (!isGenerating() && Date.now() - stableSince >= KIMI_STABLE_TEXT_MS) return latest;
+        } else {
+          previous = latest.text;
+          stableSince = Date.now();
+        }
+      }
+      await sleep(500);
+    }
+    const latest = readLatestResponse();
+    if (latest.text && !isBaseline(latest.text)) return latest;
+    throw new Error('Timed out waiting for a Kimi response');
+  };
+
+  const runPipeline = async (baseline) => {
+    if (!window.UnifiedAnswerPipeline) return null;
+    try {
+      const pipeline = new window.UnifiedAnswerPipeline(PLATFORM, {
+        llmName: MODEL,
+        baselineText: baseline,
+        stableTextMs: KIMI_STABLE_TEXT_MS
+      });
+      const result = await pipeline.execute();
+      if (result?.success && result.answer) {
+        return {
+          text: String(result.answer),
+          html: String(result.answerHtml || ''),
+          meta: window.ContentUtils?.buildResponseMeta?.(result.metadata, { source: 'pipeline' }) || null
+        };
+      }
+    } catch (err) {
+      console.warn('[Kimi] Unified pipeline fallback:', err?.message || err);
+    }
+    return null;
+  };
+
+  const injectAndGetResponse = async (prompt, options = {}) => {
+    if (!prompt?.trim()) throw new Error('Prompt is empty');
+    const meta = window.ContentUtils?.ensureDispatchMeta
+      ? window.ContentUtils.ensureDispatchMeta(options.meta || null, MODEL)
+      : (options.meta || null);
+    const baseline = readLatestResponse().text;
+    await window.ContentUtils?.reportDispatchBaseline?.(MODEL, meta, baseline);
+    let composer = await waitForFirst(COMPOSER_SELECTORS);
+    if (options.attachments?.length) {
+      if (!attachmentHandler?.attach) {
+        throw { type: 'attachment_failed', message: 'Kimi confirmed attachment handler unavailable' };
+      }
+      const attachmentResult = await attachmentHandler.attach(MODEL, options.attachments);
+      if (!attachmentResult?.success) {
+        attachmentHandler.notifyManualAttachmentRequired?.(MODEL, options.attachments, attachmentResult?.reason);
+        throw { type: 'attachment_failed', message: 'Kimi attachment upload not confirmed' };
+      }
+      composer = await waitForFirst(COMPOSER_SELECTORS);
+    }
+    const prepared = window.ContentUtils?.ensurePromptPrepared
+      ? await window.ContentUtils.ensurePromptPrepared(composer, prompt, {
+          fallback: (input, text) => insertPrompt(input, text),
+          attempts: 2,
+          settleMs: 150
+        })
+      : { ok: false, reason: 'composer_transaction_unavailable' };
+    window.ContentUtils?.reportPromptInsertion?.(MODEL, meta, {
+      state: prepared.ok ? 'inserted' : 'failed',
+      method: prepared.method || null,
+      reason: prepared.reason || null,
+      promptLength: String(prompt || '').length,
+      composerLength: String(prepared.value || '').length,
+      attempt: prepared.attempt ?? null
+    });
+    if (!prepared.ok) {
+      throw { type: 'prompt_injection_failed', message: `Kimi prompt preparation failed: ${prepared.reason}` };
+    }
+    const sendConfirmed = await sendPrompt(composer);
+    if (!sendConfirmed) throw { type: 'send_failed', message: 'Kimi send not confirmed' };
+    try { chrome.runtime.sendMessage({ type: 'PROMPT_SUBMITTED', llmName: MODEL, ts: Date.now(), meta }); } catch (_) {}
+    const pipelineResult = await runPipeline(baseline);
+    if (pipelineResult) {
+      lastResponse = pipelineResult;
+    } else {
+      const fallback = await waitForStableResponse(baseline);
+      lastResponse = {
+        text: fallback.text,
+        html: fallback.html || '',
+        meta: window.ContentUtils?.buildResponseMeta?.(null, { source: 'dom_fallback' }) || null
+      };
+    }
+    return lastResponse;
+  };
+
+  const emitAnswer = (type, payload, meta) => {
+    chrome.runtime.sendMessage({
+      type,
+      llmName: MODEL,
+      answer: payload.text,
+      answerHtml: payload.html || '',
+      error: payload.error || null,
+      meta: payload.meta
+        ? Object.assign({}, meta || {}, { responseMeta: payload.meta })
+        : (meta || null)
+    });
+  };
+
+  const cleanup = (reason = 'cleanup') => {
+    stopped = true;
+    try { baseAdapter?._cleanup?.(reason); } catch (_) {}
+    window.kimiContentScriptLoaded = false;
+  };
+  window.__cleanup_kimi = cleanup;
+
+  const onMessage = (message, _sender, sendResponse) => {
+    if (!message) return false;
+    if (message.type === 'CHECK_READINESS') {
+      const composer = findFirst(COMPOSER_SELECTORS);
+      sendResponse?.({ ready: !!composer, status: composer ? 'ready' : 'not_ready', llmName: MODEL });
+      return false;
+    }
+    if (message.type === 'HEALTH_CHECK_PING') {
+      sendResponse?.({ type: 'HEALTH_CHECK_PONG', pingId: message.pingId, llmName: MODEL });
+      return false;
+    }
+    if (message.type === 'ANTI_SLEEP_PING') {
+      sendResponse?.({ status: 'awake', llmName: MODEL });
+      return false;
+    }
+    if (message.type === 'STOP_AND_CLEANUP' || message.type === 'HUMANOID_FORCE_STOP') {
+      cleanup(message.reason || message.type);
+      sendResponse?.({ status: 'stopped', llmName: MODEL });
+      return false;
+    }
+    if (message.type === 'GET_ANSWER_NO_FOCUS') {
+      const ready = !!findFirst(COMPOSER_SELECTORS);
+      sendResponse?.({ status: ready ? 'ready_no_focus' : 'requires_focus', requiresFocus: !ready });
+      return false;
+    }
+    if (message.type === 'GET_ANSWER' || message.type === 'GET_FINAL_ANSWER') {
+      const responseType = message.type === 'GET_FINAL_ANSWER' ? 'FINAL_LLM_RESPONSE' : 'LLM_RESPONSE';
+      injectAndGetResponse(message.prompt, { attachments: message.attachments || [], meta: message.meta || null })
+        .then((payload) => {
+          if (!message.isFireAndForget) emitAnswer(responseType, payload, message.meta);
+          sendResponse?.({ status: message.isFireAndForget ? 'success_fire_and_forget' : 'success' });
+        })
+        .catch((err) => {
+          const errorMessage = err?.message || String(err);
+          emitAnswer(responseType, {
+            text: '',
+            html: '',
+            error: { type: err?.type || 'generic_error', message: errorMessage }
+          }, message.meta);
+          sendResponse?.({ status: 'error', message: errorMessage });
+        });
+      return true;
+    }
+    if (message.action === 'getResponses') {
+      const latest = readLatestResponse();
+      if (latest.text) {
+        lastResponse = latest;
+        emitAnswer('LLM_RESPONSE', latest, message.meta);
+        sendResponse?.({ status: 'success' });
+      } else {
+        sendResponse?.({ status: 'error', message: 'No Kimi response found' });
+      }
+      return false;
+    }
+    if (message.action === 'injectPrompt' || message.action === 'sendPrompt' || message.action === 'REQUEST_LLM_RESPONSE') {
+      injectAndGetResponse(message.prompt, { attachments: message.attachments || [], meta: message.meta || null }).then((payload) => emitAnswer('LLM_RESPONSE', payload, message.meta)).catch(() => {});
+      return false;
+    }
+    return baseAdapter?.handleMessage?.(message, _sender, sendResponse) || false;
+  };
+
+  chrome.runtime.onMessage.addListener(onMessage);
+  window.__kimiAdapter = {
+    readLatestResponse,
+    responseCandidates,
+    isRejectedResponseText
+  };
+  try {
+    if (window.LLMExtension?.sendScriptReady) window.LLMExtension.sendScriptReady(MODEL);
+    else chrome.runtime.sendMessage({ type: 'SCRIPT_READY', llmName: MODEL });
+    chrome.runtime.sendMessage({ type: 'SCRIPT_LOADED', llmName: MODEL, platform: PLATFORM });
+  } catch (err) {
+    console.warn('[Kimi] Ready signal failed:', err?.message || err);
   }
 })();
 

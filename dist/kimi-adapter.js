@@ -2,136 +2,162 @@
 (function () {
   const globalObject = typeof window !== 'undefined' ? window : self;
   globalObject.SelectorConfigRegistry = globalObject.SelectorConfigRegistry || {};
-  globalObject.SelectorConfigRegistry['Z.ai'] = {
+  globalObject.SelectorConfigRegistry['Kimi'] = {
     versions: [
       {
-        version: 'zai-2026-q2',
-        uiRevision: '2026.2',
-        expiresAt: '2026-09-30T00:00:00Z',
-        dateCreated: '2026-06-22T00:00:00Z',
-        description: 'Z.ai GLM chat UI audited on chat.z.ai.',
+        version: 'kimi-2026-q3',
+        uiRevision: '2026.3',
+        expiresAt: '2026-12-31T00:00:00Z',
+        dateCreated: '2026-08-04T00:00:00Z',
+        // Composer and send button audited live on kimi.com (Vue app, Lexical
+        // contenteditable composer, send control is a <div>, not a <button>).
+        // The answer selectors below are unverified: the chat surface is behind
+        // a login wall, so they lead with the Kimi-specific class names and fall
+        // back to the generic assistant/markdown heuristics.
+        description: 'Kimi (Moonshot) chat UI audited on kimi.com.',
         markers: [
-          { selector: '#chat-input' },
-          { selector: '#send-message-button' }
+          { selector: '.chat-input-editor' },
+          { selector: '.send-button-container' }
         ],
         selectors: {
           composer: [
-            '#chat-input',
-            'textarea[placeholder*="help you today" i]',
-            'textarea.input-scroll',
-            'form textarea:not([type="search"])'
+            '.chat-input-editor[contenteditable="true"]',
+            '.chat-input-editor',
+            '.chat-editor [contenteditable="true"]',
+            '.chat-box [contenteditable="true"]',
+            'div[contenteditable="true"][data-lexical-editor="true"]'
           ],
           sendButton: [
-            '#send-message-button',
-            'button.sendMessageButton[type="submit"]',
-            'form button[type="submit"]',
-            'button[aria-label*="send" i]'
+            '.send-button-container:not(.disabled)',
+            '.chat-box .send-button-container',
+            '.send-button-container',
+            'button[class*="send" i]:not([disabled])',
+            '[aria-label*="send" i]:not([disabled])'
           ],
           response: {
             primary: [
-              '[id^="message-"][id$="-start"].chat-assistant.markdown-prose',
-              '[id^="message-"][id$="-start"]:not(.chat-user):not([data-role="user"]):not([data-message-author-role="user"])',
-              '[id^="message-"].chat-assistant.markdown-prose',
-              '[id^="message-"] .chat-assistant.markdown-prose',
-              '.chat-assistant.markdown-prose',
+              '.segment-assistant .markdown-container:not([class*="think" i]):not([class*="thought" i]):not([class*="reason" i])',
+              '.chat-content-item-assistant .markdown-container:not([class*="think" i]):not([class*="thought" i]):not([class*="reason" i])',
+              '.segment-assistant [class*="markdown" i]:not([class*="think" i]):not([class*="thought" i]):not([class*="reason" i])',
+              '.segment-assistant',
+              '[class*="segment-assistant" i]',
               '[data-message-author-role="assistant"]',
               '[data-role="assistant"]',
-              '[data-testid*="assistant"]',
-              '[class*="assistant-message"]',
-              '[class*="assistant"] [class*="markdown"]'
+              '[class*="assistant-message" i]',
+              '[class*="assistant" i] [class*="markdown" i]:not([class*="think" i]):not([class*="thought" i]):not([class*="reason" i])'
             ],
             fallback: [
-              '[id^="message-"] [class*="assistant-message"]',
-              '[id^="message-"] [data-role="assistant"]'
+              '.markdown-container:not([class*="think" i]):not([class*="thought" i]):not([class*="reason" i])',
+              '[class*="markdown" i][class*="body" i]:not([class*="think" i]):not([class*="thought" i]):not([class*="reason" i])'
             ],
             extraction: { method: 'innerText', cleanup: 'full' }
           }
         },
         constraints: {
-          composer: { exclude: ['input[type="search"]', '[role="search"] textarea'] },
-          sendButton: { exclude: ['button[aria-label*="search" i]', '[role="search"] button'] }
+          composer: { exclude: ['input[type="search"]', '[role="search"] [contenteditable="true"]'] },
+          sendButton: { exclude: ['.send-button-container.disabled', '[role="search"] button'] },
+          // The reasoning trace is a sibling block inside the same assistant
+          // turn; without this it wins as "the answer that changed last".
+          response: { exclude: ['[class*="think" i]', '[class*="thought" i]', '[class*="reason" i]'] }
         },
         observation: {
           rootSelector: 'body',
           targetSelectors: [
-            '#chat-messages',
-            '.chat-assistant.markdown-prose',
+            '.chat-content-list',
+            '.segment-assistant',
+            '.markdown-container',
             '[data-message-author-role="assistant"]',
             '[data-role="assistant"]',
-            '[class*="assistant-message"]',
-            '[class*="assistant"] [class*="markdown"]',
-            '[class*="assistant"] [class*="markdown"]'
+            '[class*="assistant" i] [class*="markdown" i]'
           ],
           stabilizationDelayMs: 1800,
           endGenerationMarkers: [
             {
-              selector: 'button[aria-label*="stop" i], [data-generating="true"], [data-streaming="true"], [aria-busy="true"], .animate-pulse',
+              selector: '.send-button-container.stop, [class*="stop" i][class*="button" i], [data-generating="true"], [data-streaming="true"], [aria-busy="true"]',
               type: 'disappear'
             }
           ]
         },
         anchors: {
-          composer: ['How can I help you today?'],
-          sendButton: ['Send Message', 'Send'],
-          response: ['GLM', 'Z.ai']
+          composer: ['Спросить Kimi', 'Ask Kimi', 'Kimi'],
+          sendButton: ['Send', 'Отправить'],
+          response: ['Kimi', 'K3']
         }
       }
     ],
     emergencyFallbacks: {
-      composer: ['#chat-input', 'textarea[placeholder*="help you today" i]', 'textarea.input-scroll', 'textarea'],
-      sendButton: ['#send-message-button', 'button.sendMessageButton', 'form button[type="submit"]', 'button[aria-label*="send" i]'],
-      response: ['.chat-assistant.markdown-prose', '[id^="message-"] .chat-assistant.markdown-prose', '[data-message-author-role="assistant"]', '[data-role="assistant"]', '[class*="assistant-message"]', '[class*="assistant"] [class*="markdown"]']
+      composer: ['.chat-input-editor', '.chat-editor [contenteditable="true"]', 'div[contenteditable="true"]'],
+      sendButton: ['.send-button-container:not(.disabled)', '.send-button-container', 'button[class*="send" i]'],
+      response: ['.segment-assistant', '.markdown-container', '[data-message-author-role="assistant"]', '[data-role="assistant"]', '[class*="assistant" i] [class*="markdown" i]']
     },
     observationDefaults: {
       rootSelector: 'body',
-      targetSelectors: ['#chat-messages', '.chat-assistant.markdown-prose', '[data-message-author-role="assistant"]', '[data-role="assistant"]', '[class*="assistant-message"]'],
+      targetSelectors: ['.chat-content-list', '.segment-assistant', '.markdown-container', '[data-message-author-role="assistant"]', '[data-role="assistant"]'],
       stabilizationDelayMs: 1800,
       endGenerationMarkers: [
-        { selector: 'button[aria-label*="stop" i], [data-generating="true"], [data-streaming="true"], [aria-busy="true"], .animate-pulse', type: 'disappear' }
+        { selector: '.send-button-container.stop, [class*="stop" i][class*="button" i], [data-generating="true"], [data-streaming="true"], [aria-busy="true"]', type: 'disappear' }
       ]
     }
   };
 })();
 
 ;
-(function initZaiContentScript() {
+(function initKimiContentScript() {
   'use strict';
 
-  if (window.zaiContentScriptLoaded) return;
-  window.zaiContentScriptLoaded = true;
+  if (window.kimiContentScriptLoaded) return;
+  window.kimiContentScriptLoaded = true;
 
-  const MODEL = 'Z.ai';
-  const PLATFORM = 'zai';
-  const ZAI_STABLE_TEXT_MS = 6000;
+  const MODEL = 'Kimi';
+  const PLATFORM = 'kimi';
+  const KIMI_STABLE_TEXT_MS = 6000;
+  // kimi.com runs a Vue app with a Lexical contenteditable composer; the send
+  // control is a <div class="send-button-container"> that carries `disabled`
+  // while the composer is empty, not a real <button>.
   const COMPOSER_SELECTORS = [
-    '#chat-input',
-    'textarea[placeholder*="help you today" i]',
-    'textarea.input-scroll',
-    'form textarea:not([type="search"])'
+    '.chat-input-editor[contenteditable="true"]',
+    '.chat-input-editor',
+    '.chat-editor [contenteditable="true"]',
+    '.chat-box [contenteditable="true"]',
+    'div[contenteditable="true"][data-lexical-editor="true"]'
   ];
   const SEND_SELECTORS = [
-    '#send-message-button',
-    'button.sendMessageButton[type="submit"]',
-    'form button[type="submit"]',
-    'button[aria-label*="send" i]'
+    '.send-button-container:not(.disabled)',
+    '.chat-box .send-button-container',
+    '.send-button-container',
+    'button[class*="send" i]:not([disabled])',
+    '[aria-label*="send" i]:not([disabled])'
   ];
   const RESPONSE_SELECTORS = [
-    '[id^="message-"][id$="-start"].chat-assistant.markdown-prose',
-    '[id^="message-"][id$="-start"]:not(.chat-user):not([data-role="user"]):not([data-message-author-role="user"])',
-    '[id^="message-"].chat-assistant.markdown-prose',
-    '[id^="message-"] .chat-assistant.markdown-prose',
-    '.chat-assistant.markdown-prose',
+    '.segment-assistant .markdown-container',
+    '.segment-assistant',
+    '.chat-content-item-assistant .markdown-container',
+    '[class*="segment-assistant" i]',
     '[data-message-author-role="assistant"]',
     '[data-role="assistant"]',
-    '[data-testid*="assistant"]',
-    '[class*="assistant-message"]',
-    '[class*="assistant"] [class*="markdown"]'
+    '[class*="assistant-message" i]',
+    '[class*="assistant" i] [class*="markdown" i]'
   ];
+  const GENERATING_SELECTOR = '.send-button-container.stop, [class*="stop" i][class*="button" i], [data-generating="true"], [data-streaming="true"], [aria-busy="true"]';
+  const USER_TURN_SELECTOR = '.segment-user, [class*="segment-user" i], [data-message-author-role="user"], [data-role="user"]';
+  // Kimi streams a reasoning trace inside the assistant turn, ahead of the
+  // answer. It renders first and keeps changing longest, so any "latest visible
+  // assistant text" rule picks the trace unless it is removed explicitly. The
+  // token set mirrors AnswerStructure.isIgnored, which the unified pipeline
+  // already applies — this is the same contract for the DOM fallback path.
+  const REASONING_SELECTOR = [
+    '[class*="think" i]', '[class*="thought" i]', '[class*="reason" i]',
+    '[data-testid*="think" i]', '[data-testid*="reason" i]',
+    '[data-type*="think" i]', '[data-type*="reason" i]'
+  ].join(',');
 
   const baseAdapter = window.BaseLLMAdapter ? new window.BaseLLMAdapter({
     model: MODEL,
     isValidUrl: (url) => {
-      try { return new URL(url).hostname === 'chat.z.ai'; } catch (_) { return false; }
+      try {
+        const host = new URL(url).hostname.toLowerCase();
+        return host === 'kimi.com' || host.endsWith('.kimi.com');
+      } catch (_) { return false; }
     }
   }) : null;
   const sleep = window.ContentUtils?.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
@@ -163,14 +189,19 @@
       if (element) return element;
       await sleep(120);
     }
-    throw new Error(`Z.ai element not found: ${selectors.join(' | ')}`);
+    throw new Error(`Kimi element not found: ${selectors.join(' | ')}`);
+  };
+
+  const readComposerText = (composer) => String(composer?.innerText ?? composer?.value ?? composer?.textContent ?? '').trim();
+
+  const isGenerating = () => {
+    try { return !!document.querySelector(GENERATING_SELECTOR); } catch (_) { return false; }
   };
 
   const isRejectedResponseText = (text) => {
     const normalized = String(text || '').replace(/\s+/g, ' ').trim();
     if (!normalized) return true;
-    if (/^Generated by AI\.?\s*(For reference only\.?)?$/i.test(normalized)) return true;
-    if (/^(Terms of Service|Privacy Policy|Sign in|API)$/i.test(normalized)) return true;
+    if (/^(Terms of Service|Privacy Policy|Sign in|Войти|Новый чат|New chat)$/i.test(normalized)) return true;
     const classifier = window.AnswerContentClassifier;
     if (classifier?.classify) {
       const classification = classifier.classify(normalized, { minValid: 20 });
@@ -198,7 +229,36 @@
   const isAssistantNode = (node) => {
     const role = String(node.getAttribute?.('data-role') || node.getAttribute?.('data-message-author-role') || '').toLowerCase();
     const identity = `${node.id || ''} ${node.className || ''}`.toLowerCase();
-    return role !== 'user' && !/(^|[\s_-])user([\s_-]|$)/.test(identity);
+    if (role === 'user') return false;
+    if (/(^|[\s_-])user([\s_-]|$)/.test(identity)) return false;
+    try { return !node.closest?.(USER_TURN_SELECTOR); } catch (_) { return true; }
+  };
+
+  const isReasoningNode = (node) => {
+    if (!node?.nodeType) return false;
+    try { return !!(node.matches?.(REASONING_SELECTOR) || node.closest?.(REASONING_SELECTOR)); } catch (_) { return false; }
+  };
+
+  // A candidate may be the whole assistant turn, which carries the trace as a
+  // child. Read it through a detached clone with the reasoning subtrees removed
+  // so the answer survives and the trace never reaches the card.
+  const withoutReasoning = (node) => {
+    if (!node) return null;
+    let clone = null;
+    try { clone = node.cloneNode(true); } catch (_) { return node; }
+    try { clone.querySelectorAll?.(REASONING_SELECTOR).forEach((child) => child.remove()); } catch (_) {}
+    return clone;
+  };
+
+  const readAnswerParts = (node) => {
+    const clone = withoutReasoning(node);
+    if (!clone) return { text: '', html: '' };
+    const linearized = window.AnswerStructure?.linearizeText?.(clone);
+    const text = String(linearized || clone.innerText || clone.textContent || '').replace(/\s+/g, ' ').trim();
+    const html = window.ContentUtils?.buildInlineHtml
+      ? String(window.ContentUtils.buildInlineHtml(clone, { includeRoot: true }) || '')
+      : String(clone.outerHTML || '');
+    return { text, html };
   };
 
   const responseCandidates = () => {
@@ -207,8 +267,8 @@
     for (const selector of RESPONSE_SELECTORS) {
       try {
         document.querySelectorAll(selector).forEach((node) => {
-          if (seen.has(node)) return;
-          const text = String(node?.innerText || node?.textContent || '').replace(/\s+/g, ' ').trim();
+          if (seen.has(node) || isReasoningNode(node)) return;
+          const { text } = readAnswerParts(node);
           if (isVisible(node) && isAssistantNode(node) && !isRejectedResponseText(text)) {
             seen.add(node);
             candidates.push(node);
@@ -222,58 +282,80 @@
   const readLatestResponse = () => {
     const nodes = responseCandidates();
     const node = nodes[nodes.length - 1] || null;
-    const text = String(node?.innerText || node?.textContent || '').replace(/\s+/g, ' ').trim();
-    const html = node && window.ContentUtils?.buildInlineHtml
-      ? String(window.ContentUtils.buildInlineHtml(node, { includeRoot: true }) || '')
-      : String(node?.outerHTML || '');
+    const { text, html } = readAnswerParts(node);
     return { text, html, node };
   };
 
-  const setNativeValue = (element, value) => {
-    const proto = element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-    const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
-    if (setter) setter.call(element, value);
-    else element.value = value;
-    element.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
-    element.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
-  };
+  const requestTrustedInput = (text) => new Promise((resolve) => {
+    const isMac = /mac/i.test(navigator.platform || navigator.userAgent || '');
+    try {
+      chrome.runtime.sendMessage({ type: 'KIMI_TRUSTED_INPUT_REQUEST', llmName: MODEL, text, isMac }, (response) => {
+        if (chrome.runtime.lastError) resolve({ ok: false, reason: chrome.runtime.lastError.message });
+        else resolve(response || { ok: false, reason: 'empty_response' });
+      });
+    } catch (err) {
+      resolve({ ok: false, reason: err?.message || String(err) });
+    }
+  });
 
+  // Confirmed against the live page: once Lexical already holds committed
+  // content, execCommand('selectAll')+('delete') is not reliable — it can
+  // silently no-op, leaving the next insertText to append rather than
+  // replace, which is how a retry duplicates the draft instead of fixing it.
+  // A CDP-dispatched Cmd/Ctrl+A + Input.insertText is a genuinely trusted
+  // select-and-replace (the same operation a real keystroke performs) and
+  // reliably clears whatever is there first, so it also cleans up any
+  // duplication pasteTextFirst's own attempts may have left behind.
   const insertPrompt = async (composer, prompt) => {
     composer.focus?.();
     const pasted = window.ContentUtils?.pasteTextFirst
       ? await window.ContentUtils.pasteTextFirst(composer, prompt)
       : false;
-    if (!pasted) setNativeValue(composer, prompt);
-    await sleep(150);
-    if (!String(composer.value || composer.textContent || '').trim()) {
-      setNativeValue(composer, prompt);
-    }
+    if (pasted) return;
+    await requestTrustedInput(prompt);
   };
 
+  const waitForSendConfirmation = async (composer, beforeUserTurns, timeoutMs) => {
+    const deadline = Date.now() + timeoutMs;
+    while (!stopped && Date.now() < deadline) {
+      const value = readComposerText(composer);
+      const userTurns = document.querySelectorAll(USER_TURN_SELECTOR).length;
+      if (!value || userTurns > beforeUserTurns || isGenerating()) return true;
+      await sleep(120);
+    }
+    return false;
+  };
+
+  const requestTrustedSend = () => new Promise((resolve) => {
+    try {
+      chrome.runtime.sendMessage({ type: 'KIMI_TRUSTED_SEND_REQUEST', llmName: MODEL }, (response) => {
+        if (chrome.runtime.lastError) resolve({ ok: false, reason: chrome.runtime.lastError.message });
+        else resolve(response || { ok: false, reason: 'empty_response' });
+      });
+    } catch (err) {
+      resolve({ ok: false, reason: err?.message || String(err) });
+    }
+  });
+
   const sendPrompt = async (composer) => {
-    const beforeUserTurns = document.querySelectorAll('[data-message-author-role="user"], [data-role="user"], .chat-user').length;
-    const form = composer.closest?.('form');
+    // Confirmed against the live page: neither Enter nor Ctrl+Enter submits
+    // this composer, trusted keystrokes included — Send only reacts to a
+    // click. A synthetic in-page click reaches the Vue handler in some
+    // states but not reliably once logged in, so try it first (cheap, no
+    // debugger banner) and fall through to a real CDP-dispatched click.
+    const beforeUserTurns = document.querySelectorAll(USER_TURN_SELECTOR).length;
     let button = findFirst(SEND_SELECTORS);
-    if (button?.disabled) {
+    if (button?.classList?.contains('disabled') || button?.disabled) {
       await sleep(250);
       button = findFirst(SEND_SELECTORS);
     }
-    if (button && !button.disabled) {
+    if (button && !button.disabled && !button.classList?.contains('disabled')) {
       button.click();
-    } else if (form?.requestSubmit) {
-      form.requestSubmit();
-    } else {
-      composer.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
-      composer.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
     }
-    const deadline = Date.now() + 5000;
-    while (!stopped && Date.now() < deadline) {
-      const value = String(composer?.value || composer?.textContent || '').trim();
-      const userTurns = document.querySelectorAll('[data-message-author-role="user"], [data-role="user"], .chat-user').length;
-      const generating = !!document.querySelector('button[aria-label*="stop" i], [data-generating="true"], [data-streaming="true"], [aria-busy="true"]');
-      if (!value || userTurns > beforeUserTurns || generating) return true;
-      await sleep(120);
-    }
+    if (await waitForSendConfirmation(composer, beforeUserTurns, 1500)) return true;
+
+    const trusted = await requestTrustedSend();
+    if (trusted?.ok && await waitForSendConfirmation(composer, beforeUserTurns, 4000)) return true;
     return false;
   };
 
@@ -289,8 +371,7 @@
       if (latest.text && !isBaseline(latest.text)) {
         if (latest.text === previous) {
           stableSince ||= Date.now();
-          const generating = !!document.querySelector('button[aria-label*="stop" i], [data-generating="true"], [data-streaming="true"], [aria-busy="true"]');
-          if (!generating && Date.now() - stableSince >= ZAI_STABLE_TEXT_MS) return latest;
+          if (!isGenerating() && Date.now() - stableSince >= KIMI_STABLE_TEXT_MS) return latest;
         } else {
           previous = latest.text;
           stableSince = Date.now();
@@ -300,7 +381,7 @@
     }
     const latest = readLatestResponse();
     if (latest.text && !isBaseline(latest.text)) return latest;
-    throw new Error('Timed out waiting for a Z.ai response');
+    throw new Error('Timed out waiting for a Kimi response');
   };
 
   const runPipeline = async (baseline) => {
@@ -309,7 +390,7 @@
       const pipeline = new window.UnifiedAnswerPipeline(PLATFORM, {
         llmName: MODEL,
         baselineText: baseline,
-        stableTextMs: ZAI_STABLE_TEXT_MS
+        stableTextMs: KIMI_STABLE_TEXT_MS
       });
       const result = await pipeline.execute();
       if (result?.success && result.answer) {
@@ -320,7 +401,7 @@
         };
       }
     } catch (err) {
-      console.warn('[Z.ai] Unified pipeline fallback:', err?.message || err);
+      console.warn('[Kimi] Unified pipeline fallback:', err?.message || err);
     }
     return null;
   };
@@ -335,12 +416,12 @@
     let composer = await waitForFirst(COMPOSER_SELECTORS);
     if (options.attachments?.length) {
       if (!attachmentHandler?.attach) {
-        throw { type: 'attachment_failed', message: 'Z.ai confirmed attachment handler unavailable' };
+        throw { type: 'attachment_failed', message: 'Kimi confirmed attachment handler unavailable' };
       }
       const attachmentResult = await attachmentHandler.attach(MODEL, options.attachments);
       if (!attachmentResult?.success) {
         attachmentHandler.notifyManualAttachmentRequired?.(MODEL, options.attachments, attachmentResult?.reason);
-        throw { type: 'attachment_failed', message: 'Z.ai attachment upload not confirmed' };
+        throw { type: 'attachment_failed', message: 'Kimi attachment upload not confirmed' };
       }
       composer = await waitForFirst(COMPOSER_SELECTORS);
     }
@@ -360,10 +441,10 @@
       attempt: prepared.attempt ?? null
     });
     if (!prepared.ok) {
-      throw { type: 'prompt_injection_failed', message: `Z.ai prompt preparation failed: ${prepared.reason}` };
+      throw { type: 'prompt_injection_failed', message: `Kimi prompt preparation failed: ${prepared.reason}` };
     }
     const sendConfirmed = await sendPrompt(composer);
-    if (!sendConfirmed) throw { type: 'send_failed', message: 'Z.ai send not confirmed' };
+    if (!sendConfirmed) throw { type: 'send_failed', message: 'Kimi send not confirmed' };
     try { chrome.runtime.sendMessage({ type: 'PROMPT_SUBMITTED', llmName: MODEL, ts: Date.now(), meta }); } catch (_) {}
     const pipelineResult = await runPipeline(baseline);
     if (pipelineResult) {
@@ -395,9 +476,9 @@
   const cleanup = (reason = 'cleanup') => {
     stopped = true;
     try { baseAdapter?._cleanup?.(reason); } catch (_) {}
-    window.zaiContentScriptLoaded = false;
+    window.kimiContentScriptLoaded = false;
   };
-  window.__cleanup_zai = cleanup;
+  window.__cleanup_kimi = cleanup;
 
   const onMessage = (message, _sender, sendResponse) => {
     if (!message) return false;
@@ -449,7 +530,7 @@
         emitAnswer('LLM_RESPONSE', latest, message.meta);
         sendResponse?.({ status: 'success' });
       } else {
-        sendResponse?.({ status: 'error', message: 'No Z.ai response found' });
+        sendResponse?.({ status: 'error', message: 'No Kimi response found' });
       }
       return false;
     }
@@ -461,7 +542,7 @@
   };
 
   chrome.runtime.onMessage.addListener(onMessage);
-  window.__zaiAdapter = {
+  window.__kimiAdapter = {
     readLatestResponse,
     responseCandidates,
     isRejectedResponseText
@@ -471,6 +552,6 @@
     else chrome.runtime.sendMessage({ type: 'SCRIPT_READY', llmName: MODEL });
     chrome.runtime.sendMessage({ type: 'SCRIPT_LOADED', llmName: MODEL, platform: PLATFORM });
   } catch (err) {
-    console.warn('[Z.ai] Ready signal failed:', err?.message || err);
+    console.warn('[Kimi] Ready signal failed:', err?.message || err);
   }
 })();
