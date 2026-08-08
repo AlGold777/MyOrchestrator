@@ -1,5 +1,42 @@
 # CHANGELOG — Project
 
+### 2026-08-08 — proven commit instead of an end detector, version 2.81.311–2.81.317
+
+- Результат run перестал быть `{success, confidence}` и стал типом:
+  `COMMITTED / COMMITTED_TRUNCATED / SUSPECTED_COMPLETE / UNKNOWN /
+  OBSERVER_LOST / FAILED / CANCELLED`. Identity, terminality, integrity,
+  semantic completeness и observer health — пять независимых осей: run с
+  `finish_reason=length` терминален и содержательно неполон одновременно.
+- Ниже `COMMITTED` обращение к `.text` бросает исключение; текст доступен через
+  `readUncertainText(acknowledgement)`, и факт чтения записывается. Заявка на
+  commit, не подкреплённая осями, понижается внутри контракта, а не на стороне
+  вызывающего.
+- Сигналы завершения ранжированы P0–P4 и **не складываются**: пять согласных
+  DOM-признаков остаются утверждением о проекции. Один противоречащий факт —
+  открытый поток, видимый Stop, сократившийся текст, ослепший наблюдатель —
+  ветирует commit при любом объёме согласия.
+- Потолок гарантии задаёт witness set, а не число голосов: transport `STRICT`,
+  application `DEGRADED`, DOM `HEURISTIC`. Потеря сильного наблюдателя опускает
+  потолок, а не убирает голос.
+- **Найденный дефект:** main-world мост `fetch-monitor-bridge.js` читал init из
+  `window.__HFM_INIT__`, куда content script пишет в изолированном мире. Хук
+  выходил на первой строке на всех платформах всё время — «перехват fetch уже
+  работает» из `answers-detection-alternativa.md` не соответствовало коду. Init
+  передаётся на внедряемом элементе, и мост сообщает жизненный цикл потока
+  генерации, читая тело через `response.clone()`; наружу идут счётчики и
+  маркеры, не текст.
+- На боевом пути: открытый поток или текст короче собственного максимума
+  блокируют DOM-завершение; терминальный маркер провайдера завершает run сам,
+  дождавшись, пока renderer догонит producer; DOM-завершение типизируется как
+  `SUSPECTED_COMPLETE` под `HEURISTIC`.
+- Граница зелёного намеренно не сдвинута: `PARTIAL` получают только `UNKNOWN /
+  OBSERVER_LOST / FAILED / CANCELLED`. `oneToOne` не выставлен ни одному
+  провайдеру до измерения. Подробности и план проверки —
+  `docs/run-result-contract.md`.
+- `resultType`, `resultGuarantee`, `evidenceClass` внесены в allowlist
+  `compactProofMetadata` — иначе их постигла бы судьба `submitMethod`.
+- 44 новых теста; полный набор — 239 наборов / 1791 тест.
+
 ### 2026-08-08 — the digest can diagnose again, version 2.81.308
 
 - Дайджест знал 20 из 34 типов событий, на которых стоят семь пресетов: восемь
