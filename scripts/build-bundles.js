@@ -23,6 +23,13 @@ const COMMON_FILES = [
   'humanoid.js',
   'scroll-toolkit.js',
   'content-scripts/pipeline-config.js',
+  // Result contract, witness set and evidence ladder load before the watcher
+  // that decides with them; the stream semantics load before the fetch monitor
+  // that serializes them into the main world.
+  'shared/run-result-contract.js',
+  'shared/observer-health.js',
+  'shared/completion-evidence-ladder.js',
+  'shared/provider-stream-semantics.js',
   'shared/answer-verification.js',
   'shared/provider-submit-confirmation.js',
   // answer-pipeline-selectors.js is the selector contract the unified pipeline
@@ -39,7 +46,8 @@ const COMMON_FILES = [
   'content-scripts/unified-answer-watcher.js',
   'content-scripts/sanity-check.js',
   'content-scripts/unified-answer-pipeline.js',
-  'content-scripts/fetch-monitor.js'
+  'content-scripts/fetch-monitor.js',
+  'content-scripts/transport-evidence.js'
 ];
 
 const PLATFORM_MAP = {
