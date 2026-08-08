@@ -111,15 +111,31 @@ describe('CompletionEvidenceLadder', () => {
     }));
   });
 
-  test('correlation by causal ordering alone cannot carry a strict guarantee', () => {
+  test('a terminal fact correlated only by causal ordering stays suspicion', () => {
+    // The fact is real; its attribution is not. A service request on the same
+    // endpoint satisfies "started after this run did" just as well.
     const verdict = Ladder.evaluate({
       signals: [{ kind: 'stream_done_token', correlationMethod: 'causal_order' }],
       witnessSet: healthyTransportWitness()
     });
 
+    expect(verdict.strongestClass).toBe(CLASSES.P0);
+    expect(verdict.terminality).toBe(AXIS_STATES.SUSPECTED);
     expect(verdict.guarantee).toBe(GUARANTEE.DEGRADED);
     expect(verdict.reasons).toContain('correlation_without_provider_id');
+    expect(verdict.reasons).toContain('terminal_fact_not_attributed_to_this_run');
+    expect(verdict.canCommit).toBe(false);
+  });
+
+  test('the same fact with a provider-issued identity does commit', () => {
+    const verdict = Ladder.evaluate({
+      signals: [{ kind: 'stream_done_token', correlationMethod: 'provider_id' }],
+      witnessSet: healthyTransportWitness()
+    });
+
+    expect(verdict.terminality).toBe(AXIS_STATES.PROVEN);
     expect(verdict.canCommit).toBe(true);
+    expect(verdict.reasons).not.toContain('terminal_fact_not_attributed_to_this_run');
   });
 
   test('a blind witness set turns into a veto of its own', () => {

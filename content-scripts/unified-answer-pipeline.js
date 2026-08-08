@@ -1019,6 +1019,7 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
         strongestEvidenceClass: proof.strongestEvidenceClass,
         reasons: proof.reasons,
         llmName: this.llmName || this.platform,
+        dispatchId: proof.dispatchId || null,
         text: answer
       });
     }

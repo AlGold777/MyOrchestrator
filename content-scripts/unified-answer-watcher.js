@@ -245,7 +245,8 @@
       this.firstStopSeenAt = 0;
       this.firstRegenerateSeenAt = 0;
       this.maxObservedTextLength = 0;
-      this.transport?.beginRun?.({ startedAt: this.startTime, dispatchId: params?.dispatchId || this.options.dispatchId || null });
+      this.runDispatchId = params?.dispatchId || this.options.dispatchId || null;
+      this.transport?.beginRun?.({ startedAt: this.startTime, dispatchId: this.runDispatchId });
       const currentLength = this.getCurrentContentLength();
       const { soft, hard } = this.timeoutManager.calculateTimeout(currentLength, {
         expectedLength: this.expectedLength
@@ -1388,6 +1389,9 @@
         strongestEvidenceClass: verdict?.strongestClass || null,
         reasons: [`watcher:${reason}`, ...(verdict?.reasons || [])],
         llmName: this.llmName,
+        // The proof names the dispatch it claims to be about; a proof that
+        // cannot say which run it belongs to is not a proof of that run.
+        dispatchId: this.runDispatchId || null,
         text: ''
       });
     }

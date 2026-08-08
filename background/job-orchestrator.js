@@ -7506,6 +7506,15 @@ function buildFinalizationEvidence(llmName, entry, context = {}) {
       ? 'failure_with_answer_evidence_after_prefinal_recovery'
       : 'failure_with_answer_evidence_without_prefinal_recovery');
   }
+  // The run's own typed proof is a first-class contradiction: a success whose
+  // result came out UNKNOWN or OBSERVER_LOST is claiming more than the run
+  // proved, regardless of how the strict verifier scored the extraction.
+  const runResultType = String(
+    responseMeta?.runResult?.type || context.answerEvidence?.resultType || ''
+  ).toUpperCase();
+  if (success && ['UNKNOWN', 'OBSERVER_LOST', 'FAILED', 'CANCELLED'].includes(runResultType)) {
+    contradictions.push(`unproven_run_result_${runResultType.toLowerCase()}`);
+  }
   if (finalStatus === 'NO_SEND' && promptSubmittedAt) contradictions.push('no_send_after_prompt_submitted');
   if (finalStatus === 'EXTRACT_FAILED' && lifecycleReadyAt) contradictions.push('extract_failed_after_lifecycle_ready');
   // Strict verification fails closed by design, but "unverified" was terminal for
@@ -8573,10 +8582,17 @@ function handleLLMResponse(llmName, answer, error = null, meta = null, answerHtm
     completionReason,
     responseSource
   );
+  // A run whose own proof came out unproven must not land as SUCCESS. The
+  // clause below it only reads partialAllowed when the policy accepted the
+  // evidence, and an unproven result is exactly the case the policy rejects —
+  // so without this term the rejection had no effect on the status at all.
+  const unprovenRunResult = ['UNKNOWN', 'OBSERVER_LOST', 'FAILED', 'CANCELLED']
+    .includes(String(answerEvidence?.resultType || '').toUpperCase());
   const isPartial = Boolean(
     (responseMeta?.partial && !fullSnapshotCompletionEvidence)
     || responseMeta?.degraded
     || (completionSuggestsPartial && (shortAnswer || trimmedAnswer.length >= DOM_SNAPSHOT_RECOVERY_MIN_CHARS))
+    || unprovenRunResult
     || (answerEvidencePolicy.ok && answerEvidence?.partialAllowed)
     || hasPartialWarnings
     || (typeof sanityConfidence === 'number' && sanityConfidence < 0.7)

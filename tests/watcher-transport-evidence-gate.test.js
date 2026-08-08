@@ -96,7 +96,7 @@ describe('watcher: transport evidence gates the commit', () => {
     expect(watcher.lastLadderVerdict.veto.kinds).toContain('stream_open');
   });
 
-  test('the provider terminal marker commits once the renderer has caught up', async () => {
+  test('a terminal marker correlated only by time does not commit the run', async () => {
     settledAnswerDom();
     const watcher = new window.AnswerPipeline.UnifiedAnswerCompletionWatcher('chatgpt', { llmName: 'GPT' });
 
@@ -114,11 +114,32 @@ describe('watcher: transport evidence gates the commit', () => {
 
     await tick(20);
 
+    // The marker is recorded as P0 and lifts the guarantee above DOM-only, but
+    // causal ordering cannot say the stream was this run's, so the run does not
+    // commit on it — it finishes through the DOM path, typed as suspicion.
     expect(settled).not.toBeNull();
-    expect(settled.reason).toBe('transport_terminal');
-    expect(settled.completed).toBe(true);
+    expect(settled.reason).not.toBe('transport_terminal');
     expect(settled.evidence.strongestClass).toBe('P0');
     expect(settled.evidence.transport.streamOpen).toBe(false);
+    expect(settled.evidence.guarantee).toBe('DEGRADED');
+    expect(settled.evidence.reasons).toContain('terminal_fact_not_attributed_to_this_run');
+    expect(settled.runProof.type).toBe('SUSPECTED_COMPLETE');
+  });
+
+  test('the run proof names the dispatch it claims to be about', async () => {
+    settledAnswerDom();
+    const watcher = new window.AnswerPipeline.UnifiedAnswerCompletionWatcher('chatgpt', { llmName: 'GPT' });
+
+    let settled = null;
+    watcher.waitForCompletion({
+      container: document.querySelector('main'),
+      dispatchId: 'GPT:1781159284885:3'
+    }).then((r) => { settled = r; });
+
+    await tick(40);
+
+    expect(settled).not.toBeNull();
+    expect(settled.runProof.dispatchId).toBe('GPT:1781159284885:3');
   });
 
   test('a DOM-only completion is typed as suspected, never as a proven commit', async () => {

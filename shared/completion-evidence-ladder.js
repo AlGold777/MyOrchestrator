@@ -129,9 +129,20 @@
   // one turn, so its end is the turn's end. Over a persistent multiplexed
   // socket that is false, and stream closure only raises suspicion.
   function terminalityFromClass(evidenceClass, options = {}) {
-    if (evidenceClass === CLASSES.P0) return AXIS_STATES.PROVEN;
+    // A terminal fact proves the terminality of *this* run only if it is known
+    // to belong to it. Causal ordering says the stream started after the run
+    // did — which a service request on the same endpoint also satisfies, and
+    // which says nothing at all about a stream that ended before the observer
+    // subscribed. Without a provider-issued identity the fact is real but its
+    // attribution is not, so it stays suspicion.
+    const attributed = options.correlationMethod === 'provider_id';
+    if (evidenceClass === CLASSES.P0) {
+      return attributed ? AXIS_STATES.PROVEN : AXIS_STATES.SUSPECTED;
+    }
     if (evidenceClass === CLASSES.P1) {
-      return options.transportOneToOne === true ? AXIS_STATES.PROVEN : AXIS_STATES.SUSPECTED;
+      return attributed && options.transportOneToOne === true
+        ? AXIS_STATES.PROVEN
+        : AXIS_STATES.SUSPECTED;
     }
     if (evidenceClass === CLASSES.P2 || evidenceClass === CLASSES.P3 || evidenceClass === CLASSES.P4) {
       return AXIS_STATES.SUSPECTED;
@@ -194,10 +205,22 @@
       reasons.push('correlation_without_provider_id');
     }
 
+    // The correlation that matters is the one carried by the signal that set
+    // the strongest class, not the best correlation present anywhere.
+    const strongestSignal = accepted.reduce((best, signal) => (
+      !best || rankOf(signal.evidenceClass) > rankOf(best.evidenceClass) ? signal : best
+    ), null);
     const veto = contradictions.length > 0;
     let terminality = strongest
-      ? terminalityFromClass(strongest, { transportOneToOne: input.transportOneToOne === true })
+      ? terminalityFromClass(strongest, {
+        transportOneToOne: input.transportOneToOne === true,
+        correlationMethod: strongestSignal?.correlationMethod || null
+      })
       : AXIS_STATES.UNPROVEN;
+    if (strongest && rankOf(strongest) >= rankOf(CLASSES.P1) && terminality !== AXIS_STATES.PROVEN
+      && strongestSignal?.correlationMethod !== 'provider_id') {
+      reasons.push('terminal_fact_not_attributed_to_this_run');
+    }
     if (veto) {
       terminality = AXIS_STATES.CONTRADICTED;
       guarantee = minGuarantee(guarantee, GUARANTEE.HEURISTIC);
