@@ -1,5 +1,20 @@
 # CHANGELOG — Project
 
+### 2026-08-08 — the model is back in the telemetry filename, version 2.81.307
+
+- Слаг модели получали только одиночные incident-отчёты; полный экспорт при
+  `Tasks = All` всегда назывался `telemetry-all-presets-<ts>.json`, и выгрузки
+  разных моделей были неотличимы. Теперь имя несёт модель:
+  `telemetry-all-presets-<model>-<ts>.json` и
+  `telemetry-canonical-evidence-<model>-<ts>.json`.
+- Модель берётся из фильтра, а при `All platforms` выводится из самих событий:
+  одна модель в леджере — её имя, несколько — `all-models`. Run-level события
+  `SYSTEM` в подсчёт не идут, иначе однопользовательский прогон назывался бы
+  `all-models`.
+- `tests/telemetry-export-filename.test.js` кликает по настоящей кнопке
+  экспорта в jsdom и перехватывает имя на точке скачивания; 5 из 6 проверок
+  падают на прежней реализации.
+
 ### 2026-08-08 — the telemetry model filter actually filters, version 2.81.306
 
 - Выпадающий список моделей в окне Telemetry пересекался (AND) со скрытыми

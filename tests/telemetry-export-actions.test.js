@@ -160,7 +160,8 @@ describe('Telemetry export actions', () => {
       expect(page).toContain('src="shared/telemetry-export-runtime.js"');
     }
     expect(devtoolsSource).toContain("const telemetryExportFormat = () => exportFormatSelect?.value || 'digest'");
-    expect(devtoolsSource).toContain("telemetry-canonical-evidence-${Date.now()}.json");
+    // Имя файла несёт модель — поведение закрыто tests/telemetry-export-filename.test.js.
+    expect(devtoolsSource).toContain("telemetry-canonical-evidence-${modelSlug}-${Date.now()}.json");
   });
 
   test('JSON snapshot has a short queue wait and exports a marked committed fallback', () => {

@@ -1245,6 +1245,26 @@
         const selection = window.ProofTelemetryIncidents.selectIncident(snapshot.events, { platform: modelId, task });
         if (telemetryStatus) telemetryStatus.textContent = describeSelectedIncident(selection);
     };
+    const slugifyModelName = (value) => String(value || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '') || 'unknown';
+    // Модель в имени файла. Раньше её получали только одиночные incident-отчёты,
+    // а полный экспорт всегда назывался одинаково, и по имени было нельзя понять,
+    // чей это прогон. Берём выбранное в фильтре значение, а при `All platforms`
+    // выводим модель из самих событий: одна модель в леджере — её имя,
+    // несколько — `all-models`.
+    const exportModelSlug = (events = []) => {
+        const explicit = selectedTelemetryModel();
+        if (explicit !== 'all') return slugifyModelName(explicit);
+        const names = Array.from(new Set(
+            (Array.isArray(events) ? events : [])
+                .map(telemetryEventModelName)
+                .filter((name) => name && !TELEMETRY_PSEUDO_MODELS.has(name))
+        ));
+        if (names.length === 1) return slugifyModelName(names[0]);
+        return names.length ? 'all-models' : 'unknown';
+    };
     const exportTelemetryJson = async () => {
         const exportRequestedAt = performance.now();
         const exportButton = telemetryExportJsonBtn;
@@ -1287,9 +1307,10 @@
             };
             if (task === 'all') {
                 const exportFormat = telemetryExportFormat();
+                const modelSlug = exportModelSlug(canonicalEvents);
                 const filename = exportFormat === 'canonical-evidence'
-                    ? `telemetry-canonical-evidence-${Date.now()}.json`
-                    : `telemetry-all-presets-${Date.now()}.json`;
+                    ? `telemetry-canonical-evidence-${modelSlug}-${Date.now()}.json`
+                    : `telemetry-all-presets-${modelSlug}-${Date.now()}.json`;
                 const boundary = proofSnapshot.barrierTimedOut ? ' from the latest committed boundary' : '';
                 if (digestExportEnabled()) {
                     const digest = downloadTelemetryDigest(
@@ -1360,7 +1381,7 @@
             }
             if (telemetryStatus) telemetryStatus.textContent = `${targets.length} incident report(s) selected for ${task}`;
             for (const target of targets) {
-                const safeModel = String(target.modelId).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'unknown';
+                const safeModel = slugifyModelName(target.modelId);
                 const payload = await window.ProofOrientedTelemetry.buildStandaloneReport(canonicalEvents, {
                     ...buildOptions,
                     reportType: task,
