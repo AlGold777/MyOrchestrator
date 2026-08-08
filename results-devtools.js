@@ -14,7 +14,6 @@
     const telemetrySummary = document.getElementById('telemetry-summary');
     const telemetrySummaryStatus = document.getElementById('telemetry-summary-status');
     const telemetryRoundsList = document.getElementById('telemetry-rounds');
-    const TELEMETRY_PLATFORM_CATALOG = ['GPT', 'Gemini', 'Claude', 'Grok', 'Le Chat', 'Qwen', 'DeepSeek', 'Perplexity', 'Z.ai', 'Kimi'];
     const escapeHtml = (window.ResultsShared && window.ResultsShared.escapeHtml) || ((s = '') => String(s));
     const flashButtonFeedback = window.ResultsShared?.flashButtonFeedback || null;
     const fallbackCopyViaTextarea = window.ResultsShared?.fallbackCopyViaTextarea || null;
@@ -34,29 +33,28 @@
         node.replaceChildren(range.createContextualFragment(source));
     };
     const normalizePlatformName = (value = '') => String(value || '').trim().toLowerCase();
-    const resolveSelectedLlmNames = () => {
-        const shared = window.ResultsShared?.getSelectedLLMs;
-        if (typeof shared === 'function') {
-            const names = shared();
-            if (Array.isArray(names)) return names;
-        }
-        const idMap = {
-            'llm-gpt': 'GPT',
-            'llm-gemini': 'Gemini',
-            'llm-claude': 'Claude',
-            'llm-grok': 'Grok',
-            'llm-lechat': 'Le Chat',
-            'llm-qwen': 'Qwen',
-            'llm-deepseek': 'DeepSeek',
-            'llm-perplexity': 'Perplexity',
-            'llm-zai': 'Z.ai',
-            'llm-kimi': 'Kimi'
-        };
-        return Array.from(document.querySelectorAll('.llm-button.active'))
-            .map((btn) => idMap[btn.id] || btn.textContent.trim())
-            .filter(Boolean);
+    // Выпадающий список моделей — единственный источник истины для фильтра
+    // телеметрии. Раньше окно дополнительно пересекало результат с кнопками LLM
+    // в шапке страницы: «All platforms» означало не «все», а «выбранные в
+    // шапке», список умел только сужаться внутри шапки и никогда не расширялся.
+    // При прогоне одной модели все допустимые значения давали одинаковый
+    // результат, а остальные — пустой, и фильтр выглядел неработающим.
+    const TELEMETRY_PSEUDO_MODELS = new Set(['', 'system', 'unknown']);
+    const telemetryEventModelName = (event) => normalizePlatformName(
+        event?.modelId || event?.platform || event?.llmName
+        || event?.meta?.llmName || event?.meta?.platform || ''
+    );
+    // keepSystem: канонический экспорт обязан сохранять run-level события
+    // (SYSTEM), иначе отчёт остаётся без конфигурации запуска. Окно таймлайна
+    // сужает строго по модели.
+    const matchesTelemetryModel = (event, platformFilter, { keepSystem = false } = {}) => {
+        if (!platformFilter || platformFilter === 'all') return true;
+        const modelId = telemetryEventModelName(event);
+        if (keepSystem && (!modelId || modelId === 'system')) return true;
+        return modelId === platformFilter;
     };
-    const getSelectedLlmSet = () => new Set(resolveSelectedLlmNames().map(normalizePlatformName));
+    const selectedTelemetryModel = () => normalizePlatformName(telemetryPlatformSelect?.value || 'all') || 'all';
+    const selectedTelemetryTask = () => (telemetryTaskSelect?.value || 'all').toLowerCase().trim() || 'all';
     const matchesProofTask = (event, taskFilter) => {
         if (!taskFilter || taskFilter === 'all') return true;
         const allowed = window.ProofOrientedTelemetry?.REPORT_EVENT_TYPES?.[taskFilter];
@@ -669,20 +667,21 @@
         replaceChildrenFromHtml(telemetrySummary, summaryHtml);
     };
 
+    // Список строится только из моделей, которые реально есть в леджере. Раньше
+    // сюда подмешивался захардкоженный каталог из десяти платформ, и окно
+    // предлагало выбрать модели, по которым событий нет в принципе: любой такой
+    // выбор давал пустой таймлайн.
     const buildTelemetryPlatformOptions = (events = []) => {
-        const selectedNames = resolveSelectedLlmNames();
         const options = [];
         const seen = new Set();
         const pushOption = (name) => {
             const label = String(name || '').trim();
             if (!label) return;
             const value = normalizePlatformName(label);
-            if (!value || seen.has(value)) return;
+            if (!value || seen.has(value) || TELEMETRY_PSEUDO_MODELS.has(value)) return;
             seen.add(value);
             options.push({ value, label });
         };
-        TELEMETRY_PLATFORM_CATALOG.forEach(pushOption);
-        selectedNames.forEach(pushOption);
         (Array.isArray(events) ? events : []).forEach((event) => {
             pushOption(event?.modelId || event?.platform || event?.llmName);
         });
@@ -690,31 +689,16 @@
     };
 
     const getTelemetryFilteredEvents = (events = []) => {
-        const selectedSet = getSelectedLlmSet();
-        const hasSelection = Boolean(selectedSet.size);
-        const platformFilter = normalizePlatformName(telemetryPlatformSelect?.value || 'all');
-        const taskFilter = (telemetryTaskSelect?.value || 'all').toLowerCase().trim();
-        const hasCustomFilters = platformFilter !== 'all' || (taskFilter && taskFilter !== 'all');
-        if (!hasSelection && !hasCustomFilters) {
-            return { filtered: [], hasSelection: false };
-        }
+        const platformFilter = selectedTelemetryModel();
+        const taskFilter = selectedTelemetryTask();
         let filtered = Array.isArray(events) ? events.slice() : [];
-        if (hasSelection) {
-            filtered = filtered.filter((event) => selectedSet.has(
-                normalizePlatformName(event?.platform || event?.llmName)
-            ));
-        }
         if (platformFilter !== 'all') {
-            filtered = filtered.filter((event) => (
-                normalizePlatformName(event?.platform || event?.llmName) === platformFilter
-            ));
+            filtered = filtered.filter((event) => matchesTelemetryModel(event, platformFilter));
         }
-        if (taskFilter && taskFilter !== 'all') {
+        if (taskFilter !== 'all') {
             filtered = filtered.filter((event) => matchesProofTask(event, taskFilter));
         }
-        filtered = filtered.slice(-250);
-        const effectiveSelection = hasSelection || Boolean(filtered.length);
-        return { filtered, hasSelection: effectiveSelection };
+        return { filtered: filtered.slice(-250) };
     };
 
     const isTelemetryProblem = (event) => {
@@ -757,57 +741,39 @@
         return source.filter((_, index) => keep.has(index));
     }
 
-    // Активные критерии фильтра (модель + платформа/задача). В отличие от
-    // getTelemetryFilteredEvents — без UI-капа в 250 и без пустышки при «нет
-    // фильтра»: когда фильтр не задан, возвращаем все события. Используется
-    // экспортами (JSON/MD), чтобы они уважали выбранную в окне модель/фильтр.
-    const isTelemetryFilterActive = () => {
-        const platformFilter = normalizePlatformName(telemetryPlatformSelect?.value || 'all');
-        const taskFilter = (telemetryTaskSelect?.value || 'all').toLowerCase().trim();
-        return Boolean(getSelectedLlmSet().size)
-            || platformFilter !== 'all'
-            || (taskFilter && taskFilter !== 'all');
-    };
+    // Активные критерии фильтра (модель + задача) для экспортов (JSON/MD),
+    // чтобы выгрузка уважала выбранное в окне. Тот же предикат, что и у
+    // таймлайна, отличие одно — без UI-капа в 250 событий.
+    const isTelemetryFilterActive = () => selectedTelemetryModel() !== 'all' || selectedTelemetryTask() !== 'all';
     const applyActiveTelemetryFilter = (events = []) => {
         const list = Array.isArray(events) ? events.slice() : [];
         if (!isTelemetryFilterActive()) return list;
-        const selectedSet = getSelectedLlmSet();
-        const platformFilter = normalizePlatformName(telemetryPlatformSelect?.value || 'all');
-        const taskFilter = (telemetryTaskSelect?.value || 'all').toLowerCase().trim();
+        const platformFilter = selectedTelemetryModel();
+        const taskFilter = selectedTelemetryTask();
         let filtered = list;
-        if (platformFilter === 'all' && selectedSet.size) {
-            filtered = filtered.filter((event) => selectedSet.has(
-                normalizePlatformName(event?.platform || event?.llmName)
-            ));
-        }
         if (platformFilter !== 'all') {
-            filtered = filtered.filter((event) => (
-                normalizePlatformName(event?.platform || event?.llmName) === platformFilter
-            ));
+            filtered = filtered.filter((event) => matchesTelemetryModel(event, platformFilter));
         }
-        if (taskFilter && taskFilter !== 'all') {
+        if (taskFilter !== 'all') {
             filtered = filtered.filter((event) => matchesProofTask(event, taskFilter));
         }
         return filtered;
     };
     const applyActiveProofFilter = (events = [], { includeTask = true } = {}) => {
-        const platformFilter = normalizePlatformName(telemetryPlatformSelect?.value || 'all');
-        const taskFilter = (telemetryTaskSelect?.value || 'all').toLowerCase().trim();
+        const platformFilter = selectedTelemetryModel();
+        const taskFilter = selectedTelemetryTask();
         return (Array.isArray(events) ? events : []).filter((event) => {
-            const modelId = normalizePlatformName(event?.modelId || 'SYSTEM');
-            if (platformFilter !== 'all' && modelId !== 'system' && modelId !== platformFilter) return false;
+            if (!matchesTelemetryModel(event, platformFilter, { keepSystem: true })) return false;
             if (includeTask && !matchesProofTask(event, taskFilter)) return false;
             return true;
         });
     };
-    // Набор нормализованных имён платформ, к которым сейчас сведён экспорт
-    // (выбранные модели и/или фильтр по платформе). Пустой массив = «все».
-    // Нужен для фильтрации секций диагностических логов в MD-экспорте.
+    // Набор нормализованных имён платформ, к которым сейчас сведён экспорт.
+    // Пустой массив = «все». Нужен для фильтрации секций диагностических логов
+    // в MD-экспорте.
     const getActiveTelemetryPlatformNames = () => {
-        const platformFilter = normalizePlatformName(telemetryPlatformSelect?.value || 'all');
-        if (platformFilter !== 'all') return [platformFilter];
-        const selectedSet = getSelectedLlmSet();
-        return selectedSet.size ? Array.from(selectedSet) : [];
+        const platformFilter = selectedTelemetryModel();
+        return platformFilter !== 'all' ? [platformFilter] : [];
     };
 
     // Совпадают ли уже существующие <option> у select'а с желаемым набором value.
@@ -876,7 +842,7 @@
         const scoped = filterEventsToCurrentRun(events);
         const scopedEvents = scoped.events;
         telemetryScopedCache = scopedEvents.slice();
-        const { filtered, hasSelection } = getTelemetryFilteredEvents(scopedEvents);
+        const { filtered } = getTelemetryFilteredEvents(scopedEvents);
         const visibleEvents = filtered;
         telemetryFilteredCache = visibleEvents;
         scheduleProofTimelineShadow(visibleEvents);

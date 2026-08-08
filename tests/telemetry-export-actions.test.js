@@ -46,10 +46,25 @@ describe('Telemetry export actions', () => {
     });
   });
 
-  test('Platform options are not restricted to currently selected models', () => {
-    expect(devtoolsSource).toContain('TELEMETRY_PLATFORM_CATALOG.forEach(pushOption)');
+  test('Platform options come from the ledger, not from a catalog or the header selection', () => {
     expect(devtoolsSource).toContain('event?.modelId || event?.platform || event?.llmName');
-    expect(devtoolsSource).not.toContain('if (selectedNames.length) {\n            selectedNames.forEach(pushOption);');
+    expect(devtoolsSource).toContain('TELEMETRY_PSEUDO_MODELS.has(value)');
+    // Захардкоженный каталог предлагал модели, по которым событий нет, а
+    // подмешивание кнопок LLM из шапки делало «All platforms» неотличимым от
+    // выбора в шапке — фильтр не работал ни в одну сторону.
+    expect(devtoolsSource).not.toContain('TELEMETRY_PLATFORM_CATALOG');
+    expect(devtoolsSource).not.toContain('resolveSelectedLlmNames');
+    expect(devtoolsSource).not.toContain('getSelectedLlmSet');
+  });
+
+  test('the model dropdown is the only authority for the telemetry filter', () => {
+    // Окно и оба экспорта обязаны сводиться к одному предикату, иначе таймлайн
+    // и выгрузка расходятся при одном и том же значении фильтра.
+    expect(devtoolsSource).toContain('const matchesTelemetryModel = (event, platformFilter');
+    expect(devtoolsSource).toContain("if (!platformFilter || platformFilter === 'all') return true;");
+    const usages = devtoolsSource.match(/matchesTelemetryModel\(event, platformFilter/g) || [];
+    expect(usages.length).toBe(3);
+    expect(devtoolsSource).toContain("const isTelemetryFilterActive = () => selectedTelemetryModel() !== 'all'");
   });
 
   test('JSON download icon precedes the textual MD export without changing action ids', () => {
@@ -75,11 +90,12 @@ describe('Telemetry export actions', () => {
     expect(devtoolsSource).toContain("type: 'GET_PROOF_TELEMETRY_SNAPSHOT'");
     expect(devtoolsSource).toContain('canonicalLedger: true');
     expect(devtoolsSource).not.toContain('nativeLedgerAvailable ? proofSnapshot.events : grouped');
-    expect(devtoolsSource).toContain("modelId !== 'system' && modelId !== platformFilter");
+    // Канонический экспорт сужается по модели тем же предикатом, что и окно, но
+    // сохраняет run-level события (SYSTEM): без них отчёт остаётся без конфигурации запуска.
+    expect(devtoolsSource).toContain('matchesTelemetryModel(event, platformFilter, { keepSystem: true })');
     expect(devtoolsSource).not.toContain("Select a platform for a standalone task report");
     expect(devtoolsSource).toContain('selectIncidentReports?.(canonicalEvents');
     expect(devtoolsSource).toContain('platform: selectedModelId');
-    expect(devtoolsSource).not.toContain("platformFilter === 'all' && selectedSet.size && modelId !== 'system'");
     expect(devtoolsSource).toContain('describeSelectedIncident(selection)');
     expect(devtoolsSource).toContain('targets.length');
     expect(devtoolsSource).toContain('incident-${target.rank + 1}');
