@@ -139,6 +139,13 @@
   // A commit claim that the axes do not support is downgraded here rather than
   // at the call site, so a caller cannot construct a COMMITTED result out of
   // DOM stability alone.
+  //
+  // `contradicted` on identity, terminality, integrity or observer health
+  // blocks a readable commit. `unproven` on integrity and semantic does not,
+  // and that is a deliberate line: there is no independent reconciliation
+  // source in the tree yet, so every run would be unproven on those two axes
+  // and nothing would ever commit. Terminality and identity are different —
+  // they have real sources today, so `unproven` there does downgrade.
   function reconcileType(type, axes, guarantee) {
     const requested = normalizeType(type);
     const reasons = [];
@@ -151,7 +158,14 @@
       }
     }
     if (isTextReadable(resolved)) {
-      if (axes.identity !== AXIS_STATES.PROVEN) {
+      // A payload its own integrity axis calls damaged must not be readable,
+      // however strongly terminality was proven. Terminality is a claim about
+      // the stream having ended; integrity is a claim about what arrived, and
+      // the second one failing is not cured by the first one holding.
+      if (axes.integrity === AXIS_STATES.CONTRADICTED) {
+        resolved = RESULT_TYPES.UNKNOWN;
+        reasons.push('integrity_contradicted');
+      } else if (axes.identity !== AXIS_STATES.PROVEN) {
         resolved = RESULT_TYPES.UNKNOWN;
         reasons.push('identity_not_proven');
       } else if (axes.terminality === AXIS_STATES.CONTRADICTED) {

@@ -89,6 +89,22 @@ describe('pipeline: binding the answer to the proof behind it', () => {
     expect(result.readUncertainText('pipeline_finalization')).toBe('a plausible answer');
   });
 
+  test('the dispatch identity reaches the watcher, so transport evidence is run-scoped', async () => {
+    const pipeline = createPipeline();
+    const seen = [];
+    class RecordingWatcher {
+      constructor() {}
+      async waitForCompletion(params) { seen.push(params); return { success: true, reason: 'stub' }; }
+    }
+    pipeline.answerWatcherClass = RecordingWatcher;
+    pipeline.runIdentity = { dispatchId: 'dispatch-77' };
+
+    await pipeline.runAnswerCompletion({ element: null, type: 'window' });
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0].dispatchId).toBe('dispatch-77');
+  });
+
   test('without a watcher proof the pipeline claims nothing rather than assuming success', () => {
     const pipeline = createPipeline();
     pipeline.state.answerResult = {};

@@ -175,26 +175,37 @@
       const signals = [];
       const contradictions = [];
 
+      // Causal ordering identifies the turn's stream only while there is one
+      // generation request in the window. With two or more, this observer
+      // cannot say which stream produced the text on the page, and a terminal
+      // marker from the wrong one would prove the wrong answer complete. So
+      // the evidence is dropped rather than attributed to the likelier stream:
+      // an ambiguous witness is not a weak witness.
+      const ambiguous = streams.length > 1;
+      const correlated = !ambiguous;
+      const correlationMethod = ambiguous ? 'ambiguous' : CORRELATION_METHOD;
+
       if (this.terminal) {
         signals.push({
           kind: this.terminal.kind,
-          correlated: true,
-          correlationMethod: CORRELATION_METHOD,
+          correlated,
+          correlationMethod,
           at: this.terminal.at,
           meta: {
             finishReason: this.terminal.finishReason,
             terminalReason: this.terminal.terminalReason,
-            streamId: this.terminal.streamId
+            streamId: this.terminal.streamId,
+            dispatchId: this.dispatchId
           }
         });
       }
       if (!open && ended.length) {
         signals.push({
           kind: 'stream_closed',
-          correlated: true,
-          correlationMethod: CORRELATION_METHOD,
+          correlated,
+          correlationMethod,
           at: ended[ended.length - 1].endedAt,
-          meta: { streamCount: ended.length }
+          meta: { streamCount: ended.length, dispatchId: this.dispatchId }
         });
       }
       if (open) {
@@ -207,7 +218,9 @@
       return {
         schemaVersion: 1,
         platform: this.platform,
+        dispatchId: this.dispatchId,
         available: this.installed && this.hasGenerationContract,
+        ambiguousCorrelation: ambiguous,
         streamOpen: open,
         streamCount: streams.length,
         endedStreamCount: ended.length,
@@ -215,8 +228,8 @@
         bytes: streams.reduce((sum, record) => sum + (record.bytes || 0), 0),
         chunkCount: streams.reduce((sum, record) => sum + (record.chunkCount || 0), 0),
         terminal: this.terminal ? Object.assign({}, this.terminal) : null,
-        terminalReason: this.terminal?.terminalReason || null,
-        correlationMethod: CORRELATION_METHOD,
+        terminalReason: ambiguous ? null : (this.terminal?.terminalReason || null),
+        correlationMethod,
         lastError: this.lastError,
         signals,
         contradictions,

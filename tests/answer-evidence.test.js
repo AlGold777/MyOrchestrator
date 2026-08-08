@@ -136,7 +136,38 @@ describe('AnswerEvidence with a typed run result', () => {
     expect(evidence.resultType).toBe('OBSERVER_LOST');
     expect(evidence.reason).toBe('unproven_run_result_observer_lost');
     expect(evidence.partialAllowed).toBe(true);
+    // The refusal names the run result: an unproven run is not finalized from
+    // this path at all, rather than quietly downgraded to PARTIAL.
+    expect(AnswerEvidence.shouldFinalizeWithEvidence(evidence)).toEqual({
+      ok: false,
+      reason: 'unproven_run_result_observer_lost'
+    });
+  });
+
+  test('a committed run result is terminal evidence in its own right', () => {
+    const evidence = AnswerEvidence.buildAnswerEvidence({
+      llmName: 'GPT',
+      text: 'Proven answer text. '.repeat(20),
+      responseMeta: { source: 'pipeline' },
+      runResult: { type: 'COMMITTED', guarantee: 'STRICT', strongestEvidenceClass: 'P0' }
+    });
+
+    expect(evidence.reason).toBe('proven_run_result_committed');
+    expect(evidence.terminalEligible).toBe(true);
+  });
+
+  test('a truncated commit is terminal but never a plain success', () => {
+    const evidence = AnswerEvidence.buildAnswerEvidence({
+      llmName: 'GPT',
+      text: 'Answer cut off at the limit. '.repeat(20),
+      responseMeta: { source: 'pipeline' },
+      runResult: { type: 'COMMITTED_TRUNCATED', guarantee: 'STRICT', strongestEvidenceClass: 'P0' }
+    });
+
+    expect(evidence.terminalEligible).toBe(true);
+    expect(evidence.partialAllowed).toBe(true);
     expect(AnswerEvidence.shouldFinalizeWithEvidence(evidence)).toEqual(expect.objectContaining({
+      ok: true,
       finalStatus: 'PARTIAL'
     }));
   });

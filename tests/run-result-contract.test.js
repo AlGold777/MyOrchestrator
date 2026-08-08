@@ -167,6 +167,34 @@ describe('RunResultContract', () => {
     expect(Object.keys(result)).not.toContain('text');
   });
 
+  test('contradicted integrity blocks the text however proven the terminality', () => {
+    const result = RunResultContract.buildRunResult({
+      type: RESULT_TYPES.COMMITTED,
+      guarantee: GUARANTEE.STRICT,
+      terminalReason: TERMINAL_REASONS.STOP,
+      axes: provenAxes({ integrity: AXIS_STATES.CONTRADICTED }),
+      text: 'payload the reconciliation says is damaged'
+    });
+
+    expect(result.type).toBe(RESULT_TYPES.UNKNOWN);
+    expect(result.reasons).toContain('integrity_contradicted');
+    expect(result.textReadable).toBe(false);
+    expect(() => result.text).toThrow();
+  });
+
+  test('unproven integrity does not block, and the reason says so was deliberate', () => {
+    const result = RunResultContract.buildRunResult({
+      type: RESULT_TYPES.COMMITTED,
+      guarantee: GUARANTEE.STRICT,
+      terminalReason: TERMINAL_REASONS.STOP,
+      axes: provenAxes({ integrity: AXIS_STATES.UNPROVEN, semantic: AXIS_STATES.UNPROVEN }),
+      text: 'no independent source to reconcile against yet'
+    });
+
+    expect(result.type).toBe(RESULT_TYPES.COMMITTED);
+    expect(result.text).toBe('no independent source to reconcile against yet');
+  });
+
   test('guarantee comparison orders the levels', () => {
     expect(RunResultContract.minGuarantee(GUARANTEE.STRICT, GUARANTEE.DEGRADED)).toBe(GUARANTEE.DEGRADED);
     expect(RunResultContract.compareGuarantee(GUARANTEE.HEURISTIC, GUARANTEE.BLIND)).toBeGreaterThan(0);

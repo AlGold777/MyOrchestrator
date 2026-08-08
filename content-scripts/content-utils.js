@@ -37,6 +37,14 @@
       answerVerification: options.answerVerification
         || finalization.answerVerification
         || pipelineMeta.answerVerification
+        || null,
+      // The typed run result has to survive the trip to the background, or the
+      // strength of the claim is lost exactly where the answer is accepted:
+      // AnswerEvidence reads responseMeta.runResult, and without this line it
+      // would see an UNKNOWN run as an ordinary success.
+      runResult: options.runResult
+        || finalization.runResult
+        || pipelineMeta.runResult
         || null
     };
   };

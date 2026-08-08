@@ -32,13 +32,14 @@ describe('adapter response metadata contract', () => {
 
   test('pipeline metadata exposes the fields consumed by background finalization', () => {
     const answerVerification = { verified: true, generationActive: false };
+    const runResult = { type: 'SUSPECTED_COMPLETE', guarantee: 'HEURISTIC', strongestEvidenceClass: 'P3' };
     const responseMeta = window.ContentUtils.buildResponseMeta({
       completionReason: 'content_mutation_stable',
       sanityCheck: {
         warnings: [{ type: 'streaming_active' }],
         overallConfidence: 0.45
       },
-      finalization: { answerVerification }
+      finalization: { answerVerification, runResult }
     }, { source: 'pipeline' });
 
     expect(responseMeta).toEqual({
@@ -46,7 +47,11 @@ describe('adapter response metadata contract', () => {
       completionReason: 'content_mutation_stable',
       sanityWarnings: [{ type: 'streaming_active' }],
       sanityConfidence: 0.45,
-      answerVerification
+      answerVerification,
+      // The typed run result is part of this contract: the background gate
+      // reads responseMeta.runResult, so dropping it here silently turns an
+      // unproven run back into an ordinary success.
+      runResult
     });
   });
 
@@ -56,7 +61,8 @@ describe('adapter response metadata contract', () => {
       completionReason: 'pipeline_failed',
       sanityWarnings: ['unverified_fallback'],
       sanityConfidence: null,
-      answerVerification: null
+      answerVerification: null,
+      runResult: null
     });
   });
 

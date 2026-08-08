@@ -103,6 +103,12 @@
     const runResult = input.runResult || responseMeta.runResult || null;
     const resultType = runResult?.type ? String(runResult.type).toUpperCase() : null;
     const unprovenResultType = Boolean(resultType && ['UNKNOWN', 'OBSERVER_LOST', 'FAILED', 'CANCELLED'].includes(resultType));
+    // A run the contract committed is terminal evidence in its own right, and
+    // the strongest one available: it already required proven identity, proven
+    // terminality and a guarantee above heuristic. Without this the best proof
+    // in the system would fall through to the source/reason heuristics below
+    // and land on `text_without_terminal_signal`.
+    const committedResultType = Boolean(resultType && ['COMMITTED', 'COMMITTED_TRUNCATED'].includes(resultType));
 
     const snapshot = isSnapshotSource(normalizedSource);
     const materialize = isMaterializeSource(normalizedSource);
@@ -131,8 +137,10 @@
     const stableTerminalEligible = Boolean(stable && length >= stableMinChars && stopButtonVisible !== true);
     const terminalEligible = Boolean(
       validText
+      && !unprovenResultType
       && (
-        snapshotTerminalEligible
+        committedResultType
+        || snapshotTerminalEligible
         || materializeTerminalEligible
         || panel
         || api
@@ -146,6 +154,7 @@
     const reason = (() => {
       if (!validText) return length ? 'text_too_short_or_error' : 'empty_text';
       if (unprovenResultType) return `unproven_run_result_${resultType.toLowerCase()}`;
+      if (committedResultType) return `proven_run_result_${resultType.toLowerCase()}`;
       if (timeout) return 'timeout_with_text';
       if (hardStop) return 'hardstop_with_text';
       if (snapshot && !snapshotTerminalEligible) return 'snapshot_text_too_short_without_terminal_signal';
@@ -192,7 +201,14 @@
       resultGuarantee: runResult?.guarantee || null,
       evidenceClass: runResult?.strongestEvidenceClass || null,
       terminalEligible,
-      partialAllowed: Boolean(timeout || hardStop || unprovenResultType || responseMeta.partial || responseMeta.degraded),
+      partialAllowed: Boolean(
+        timeout
+        || hardStop
+        || unprovenResultType
+        || resultType === 'COMMITTED_TRUNCATED'
+        || responseMeta.partial
+        || responseMeta.degraded
+      ),
       reason,
       rejectReason: terminalEligible ? null : reason,
       createdAt: Number(input.createdAt || Date.now())

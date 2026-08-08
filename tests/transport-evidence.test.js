@@ -183,3 +183,76 @@ describe('TransportEvidence', () => {
     expect(snapshot.observerInput.installed).toBe(false);
   });
 });
+
+describe('TransportEvidence correlation', () => {
+  let TransportEvidence;
+  let emit;
+
+  beforeEach(() => {
+    const listeners = new Set();
+    emit = (event) => listeners.forEach((listener) => listener(event));
+    window.onHumanoidStreamEvent = (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    };
+    window.humanoidFetchMonitorState = () => ({ injected: true, hasGenerationContract: true, platform: 'chatgpt' });
+    jest.resetModules();
+    TransportEvidence = require('../content-scripts/transport-evidence');
+    TransportEvidence.reset();
+  });
+
+  test('two generation streams in one run make the evidence ambiguous and unusable', () => {
+    const observer = TransportEvidence.forPlatform('chatgpt').beginRun({ startedAt: 1000, dispatchId: 'd-1' });
+    emit({ kind: 'stream', phase: 'request', at: 1100, streamId: 's1', url: '/backend-api/conversation' });
+    emit({ kind: 'stream', phase: 'request', at: 1150, streamId: 's2', url: '/backend-api/conversation' });
+    emit({
+      kind: 'stream', phase: 'terminal_marker', at: 1300, streamId: 's2',
+      markerKind: 'stream_done_token', terminalReason: 'STOP'
+    });
+    emit({ kind: 'stream', phase: 'end', at: 1310, streamId: 's2', terminalMarkerSeen: true });
+    emit({ kind: 'stream', phase: 'end', at: 1320, streamId: 's1', terminalMarkerSeen: false });
+
+    const snapshot = observer.snapshot();
+    expect(snapshot.ambiguousCorrelation).toBe(true);
+    expect(snapshot.terminalReason).toBeNull();
+    snapshot.signals.forEach((signal) => {
+      expect(signal.correlated).toBe(false);
+      expect(signal.correlationMethod).toBe('ambiguous');
+    });
+  });
+
+  test('ambiguous transport signals are dropped by the ladder rather than counted', () => {
+    const Ladder = require('../shared/completion-evidence-ladder');
+    const ObserverHealth = require('../shared/observer-health');
+    const observer = TransportEvidence.forPlatform('chatgpt').beginRun({ startedAt: 1000, dispatchId: 'd-1' });
+    emit({ kind: 'stream', phase: 'request', at: 1100, streamId: 's1' });
+    emit({ kind: 'stream', phase: 'request', at: 1150, streamId: 's2' });
+    emit({ kind: 'stream', phase: 'terminal_marker', at: 1300, streamId: 's2', markerKind: 'stream_done_token', terminalReason: 'STOP' });
+    emit({ kind: 'stream', phase: 'end', at: 1310, streamId: 's2', terminalMarkerSeen: true });
+    emit({ kind: 'stream', phase: 'end', at: 1320, streamId: 's1' });
+
+    const snapshot = observer.snapshot();
+    const verdict = Ladder.evaluate({
+      signals: snapshot.signals,
+      contradictions: snapshot.contradictions,
+      witnessSet: ObserverHealth.buildWitnessSet({
+        transport: { installed: true, lastSignalAt: Date.now() },
+        dom: { installed: true, lastSignalAt: Date.now() }
+      })
+    });
+
+    expect(verdict.strongestClass).toBeNull();
+    expect(verdict.canCommit).toBe(false);
+    expect(verdict.rejectedSignals.every((signal) => signal.rejectReason === 'uncorrelated_signal')).toBe(true);
+  });
+
+  test('the run dispatch travels with the evidence', () => {
+    const observer = TransportEvidence.forPlatform('chatgpt').beginRun({ startedAt: 1000, dispatchId: 'dispatch-42' });
+    emit({ kind: 'stream', phase: 'request', at: 1100, streamId: 's1' });
+    emit({ kind: 'stream', phase: 'end', at: 1200, streamId: 's1', terminalMarkerSeen: true, markerKind: 'stream_done_token', terminalReason: 'STOP' });
+
+    const snapshot = observer.snapshot();
+    expect(snapshot.dispatchId).toBe('dispatch-42');
+    expect(snapshot.signals[0].meta.dispatchId).toBe('dispatch-42');
+  });
+});

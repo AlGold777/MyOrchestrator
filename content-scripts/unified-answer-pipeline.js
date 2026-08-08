@@ -877,7 +877,16 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
         anchorAnswerCount: this.anchorAnswerCount
         , answerSelectors: this.config.answerSelectors
       });
-      const result = await watcher.waitForCompletion({ container: containerInfo });
+      const dispatchIdentity = window.ContentUtils?.ensureDispatchMeta?.({}, this.llmName) || {};
+      const result = await watcher.waitForCompletion({
+        container: containerInfo,
+        // Scopes the transport evidence to this dispatch: without it the
+        // observer can only say "some stream started after this run began".
+        dispatchId: this.runIdentity?.dispatchId
+          || this.config.dispatchId
+          || dispatchIdentity.dispatchId
+          || null
+      });
       // v2.54.24 (2025-12-22 23:14 UTC): Stop-disappeared signal (Purpose: detect completion when stop hides).
       if (result?.reason === 'stop_disappeared') {
         this.emitPipelineTelemetry('STOP_DISAPPEARED', {
