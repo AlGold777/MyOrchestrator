@@ -421,7 +421,13 @@
           meta: {
             duration: report.totalDuration,
             completionReason: report.completionReason,
-            answerLength: finalization.answer?.length || 0
+            answerLength: finalization.answer?.length || 0,
+            // Carried into telemetry so the calibration can ask how often a
+            // green result was actually proven, not merely returned.
+            resultType: finalization.runResult?.type || null,
+            resultGuarantee: finalization.runResult?.guarantee || null,
+            evidenceClass: finalization.runResult?.strongestEvidenceClass || null,
+            terminalReason: finalization.runResult?.terminalReason || null
           }
         });
         this.transitionState('DONE', { phase: 'complete' });
@@ -456,7 +462,8 @@
             maintenance: this.state.maintenanceResult,
             finalization: finalization,
             sanityCheck: finalization.sanityCheck,
-            answerHtml: finalization.answerHtml
+            answerHtml: finalization.answerHtml,
+            runResult: finalization.runResult || null
           }
         };
       } catch (error) {
@@ -955,10 +962,12 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
       const duration = Date.now() - phaseStart;
       this.state.phaseTimings.finalization = duration;
       const selectorTier = this.lastAnswerSelectorTier || 'unknown';
+      const runResult = this.buildFinalRunResult(answer);
       this.state.finalizationResult = {
         success: true, duration, answer, answerHtml, sanityCheck, stable,
         selectorTier, selectorUsed: this.lastAnswerSelector || null,
-        answerVerification: this.lastAnswerVerification || null
+        answerVerification: this.lastAnswerVerification || null,
+        runResult: runResult ? runResult.serialize() : null
       };
       this.telemetry.logPhase('finalization_done', { duration, sanityCheck, selectorTier });
       this.emitPipelineStep('finalization_done', {
@@ -973,6 +982,36 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
       }
 
       return this.state.finalizationResult;
+    }
+
+    // Binds the watcher's decision record to the text that was actually
+    // extracted. The watcher proves terminality; this phase materializes the
+    // answer — separate components, joined here into one typed result so that
+    // whoever consumes the text also gets the strength of the claim behind it.
+    buildFinalRunResult(answer) {
+      const contract = window.RunResultContract;
+      const proof = this.state.answerResult?.runProof || null;
+      if (!contract || !proof) return null;
+      const verification = this.lastAnswerVerification || null;
+      const structuralComplete = verification?.structuralComplete;
+      const semantic = structuralComplete === true
+        ? contract.AXIS_STATES.PROVEN
+        : (structuralComplete === false ? contract.AXIS_STATES.CONTRADICTED : contract.AXIS_STATES.UNPROVEN);
+      // Two independent readings of the same answer agreeing across the
+      // verification snapshots is the integrity evidence available here.
+      const integrity = verification?.verified === true
+        ? contract.AXIS_STATES.PROVEN
+        : contract.AXIS_STATES.UNPROVEN;
+      return contract.buildRunResult({
+        type: proof.declaredType,
+        guarantee: proof.guarantee,
+        terminalReason: proof.terminalReason,
+        axes: Object.assign({}, proof.axes, { semantic, integrity }),
+        strongestEvidenceClass: proof.strongestEvidenceClass,
+        reasons: proof.reasons,
+        llmName: this.llmName || this.platform,
+        text: answer
+      });
     }
 
     async runMaintenanceScroll(containerInfo) {

@@ -123,3 +123,38 @@ describe('AnswerEvidence Lite', () => {
     expect(evidence.reason).toBe('prefinal_materialize_without_completion_evidence');
   });
 });
+
+describe('AnswerEvidence with a typed run result', () => {
+  test('an unproven run result cannot reach the caller as a plain success', () => {
+    const evidence = AnswerEvidence.buildAnswerEvidence({
+      llmName: 'Qwen',
+      text: 'Answer text that is long enough to pass the length bar. '.repeat(8),
+      responseMeta: { source: 'panel_extraction' },
+      runResult: { type: 'OBSERVER_LOST', guarantee: 'BLIND', strongestEvidenceClass: 'P3' }
+    });
+
+    expect(evidence.resultType).toBe('OBSERVER_LOST');
+    expect(evidence.reason).toBe('unproven_run_result_observer_lost');
+    expect(evidence.partialAllowed).toBe(true);
+    expect(AnswerEvidence.shouldFinalizeWithEvidence(evidence)).toEqual(expect.objectContaining({
+      finalStatus: 'PARTIAL'
+    }));
+  });
+
+  test('a committed run result carries its guarantee through unchanged', () => {
+    const evidence = AnswerEvidence.buildAnswerEvidence({
+      llmName: 'GPT',
+      text: 'Proven answer text. '.repeat(20),
+      responseMeta: { source: 'panel_extraction' },
+      runResult: { type: 'COMMITTED', guarantee: 'STRICT', strongestEvidenceClass: 'P0' }
+    });
+
+    expect(evidence.resultGuarantee).toBe('STRICT');
+    expect(evidence.evidenceClass).toBe('P0');
+    expect(evidence.partialAllowed).toBe(false);
+    expect(AnswerEvidence.shouldFinalizeWithEvidence(evidence)).toEqual(expect.objectContaining({
+      ok: true,
+      finalStatus: 'SUCCESS'
+    }));
+  });
+});

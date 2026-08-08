@@ -96,6 +96,14 @@
       ? input.busyIndicatorVisible
       : (typeof responseMeta.busyVisible === 'boolean' ? responseMeta.busyVisible : null);
 
+    // The typed run result, when the pipeline produced one. It does not
+    // replace the source/reason heuristics below — it constrains them: a run
+    // whose own proof came out UNKNOWN or OBSERVER_LOST must not reach the
+    // caller as a plain success just because its text is long enough.
+    const runResult = input.runResult || responseMeta.runResult || null;
+    const resultType = runResult?.type ? String(runResult.type).toUpperCase() : null;
+    const unprovenResultType = Boolean(resultType && ['UNKNOWN', 'OBSERVER_LOST', 'FAILED', 'CANCELLED'].includes(resultType));
+
     const snapshot = isSnapshotSource(normalizedSource);
     const materialize = isMaterializeSource(normalizedSource);
     const panel = isPanelSource(normalizedSource);
@@ -137,6 +145,7 @@
 
     const reason = (() => {
       if (!validText) return length ? 'text_too_short_or_error' : 'empty_text';
+      if (unprovenResultType) return `unproven_run_result_${resultType.toLowerCase()}`;
       if (timeout) return 'timeout_with_text';
       if (hardStop) return 'hardstop_with_text';
       if (snapshot && !snapshotTerminalEligible) return 'snapshot_text_too_short_without_terminal_signal';
@@ -179,8 +188,11 @@
       sameTextSeenCount,
       snapshotTerminalMinChars,
       confidence: typeof input.confidence === 'number' ? input.confidence : (typeof responseMeta.confidence === 'number' ? responseMeta.confidence : null),
+      resultType,
+      resultGuarantee: runResult?.guarantee || null,
+      evidenceClass: runResult?.strongestEvidenceClass || null,
       terminalEligible,
-      partialAllowed: Boolean(timeout || hardStop || responseMeta.partial || responseMeta.degraded),
+      partialAllowed: Boolean(timeout || hardStop || unprovenResultType || responseMeta.partial || responseMeta.degraded),
       reason,
       rejectReason: terminalEligible ? null : reason,
       createdAt: Number(input.createdAt || Date.now())
