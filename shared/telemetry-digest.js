@@ -1,11 +1,12 @@
 /**
  * Reduce a telemetry export to the facts that actually drive diagnosis.
  *
- * A full "all presets" export runs ~640KB. Roughly 46% of that is preset report
- * definitions and 9% derived views — neither carries run data. Every diagnosis
- * in practice has come from a dozen fields inside ledger.events. This prints
- * those, and nothing else, so an export can be pasted into a conversation
- * without carrying the rest of the file with it.
+ * A full "all presets" export is mostly scaffolding: on a measured 20-event run
+ * it was 163KB, of which 85KB was preset report prose and 61KB the dependency
+ * registry, against 19KB of actual run data. This prints the facts that drive
+ * diagnosis and nothing else, so an export can be pasted into a conversation
+ * without carrying the rest of the file with it — 3.2MB reduces to 44KB, and
+ * the 20-event run above to 2.3KB.
  *
  * Usage:
  *   node scripts/telemetry-digest.js <export.json> [--json]
@@ -22,6 +23,7 @@ const SECTIONS = Object.freeze({
   BLOCKERS: 'blockers',
   TABS: 'tabs',
   EXCEPTIONS: 'exceptions',
+  PROGRESS: 'progress',
   COVERAGE: 'coverage'
 });
 
@@ -65,15 +67,83 @@ const READ_TYPES = Object.freeze([
   'DISPATCH_BASELINE_CAPTURED', 'MODEL_TERMINAL_RECORDED', 'DECISION_RECORDED',
   'OBSERVATION_SLOT_GRANTED', 'OBSERVATION_SLOT_RELEASED', 'OBSERVATION_SLOT_DENIED'
 ]);
+
+// The seven diagnostic presets rest on 34 event types. Before this list existed
+// the digest had a rule for 20 of them: eight had no rule at all and eleven were
+// ignored wholesale, which left prompt-not-sent blind on 8 of its 11 types and
+// prompt-not-inserted on 7 of 10 — the digest could not diagnose those classes.
+//
+// Rather than fourteen bespoke metadata readers guessing at field names, these
+// are read through payload.typed = {kind, state}. That pair is the canonical
+// fact on every schema-6 event ("prompt_insertion: inserted", "deadline:
+// reached"), so one rule covers all of them and cannot drift out of sync with
+// per-type metadata. tests/telemetry-digest-coverage.test.js recomputes the
+// preset requirement from REPORT_EVENT_TYPES and fails if this list falls behind.
+const PROGRESS_TYPES = Object.freeze([
+  'PROMPT_INSERTION_EVALUATED', 'SUBMIT_ACTION_OBSERVED', 'SUBMISSION_EVIDENCE_CHANGED',
+  'SUBMISSION_INFERRED', 'DISPATCH_STAGE_OBSERVED',
+  'TEXT_STATE_CHANGED', 'ANSWER_COMPLETENESS_EVALUATED', 'ANSWER_CARD_RENDER_EVALUATED',
+  'ANSWER_COMMIT_EVALUATED', 'ANSWER_DELIVERY_ACKNOWLEDGED', 'EXTRACTION_ATTEMPTED',
+  'COMPLETION_HYPOTHESIS_EVALUATED', 'TERMINAL_DEADLINE_REACHED', 'STABILITY_INTERVAL_CLOSED',
+  'FINALIZATION_POLICY_EVALUATED', 'OBSERVATION_INTERVAL_CLOSED',
+  'OBSERVER_HEALTH_OBSERVED', 'OBSERVER_HEALTH_INTERVAL_CLOSED',
+  'PAGE_HEALTH_OBSERVED', 'PAGE_CONTEXT_OBSERVED'
+]);
+
+// Metadata worth carrying alongside a state. Deliberately short: a state without
+// its length or budget is often unusable ("deadline reached" at what budget?),
+// but the rest of metadata is what makes the full report 163KB.
+const PROGRESS_DETAIL_KEYS = Object.freeze([
+  'reason', 'outcome', 'insertionState', 'boundaryReason', 'phase', 'status',
+  'promptLength', 'composerLength', 'answerLength', 'normalizedLength',
+  'budgetMs', 'heldMs', 'durationMs'
+]);
+
 const IGNORED_TYPES = Object.freeze([
-  'OBSERVER_HEALTH_INTERVAL_CLOSED', 'OBSERVER_HEALTH_OBSERVED', 'OBSERVATION_INTERVAL_CLOSED',
-  'SUBMIT_ACTION_OBSERVED', 'SUBMISSION_EVIDENCE_CHANGED', 'SUBMISSION_INFERRED',
-  'ANSWER_CARD_RENDER_EVALUATED',
-  'ANSWER_COMMIT_EVALUATED', 'FINALIZATION_POLICY_EVALUATED', 'PAGE_HEALTH_OBSERVED',
-  'PAGE_CONTEXT_OBSERVED', 'RUN_CONFIG_RECORDED', 'CLOCK_EPOCH_STARTED'
+  'RUN_CONFIG_RECORDED', 'CLOCK_EPOCH_STARTED'
 ]);
 
 const metaOf = (event) => (event && event.payload && event.payload.metadata) || {};
+const typedOf = (event) => (event && event.payload && event.payload.typed) || {};
+
+// "prompt_insertion: inserted" — the fact, without the envelope around it.
+function describeTypedState(event) {
+  const typed = typedOf(event);
+  const kind = typed.kind && typed.kind !== 'unknown' ? typed.kind : null;
+  const state = typed.state && typed.state !== 'unknown' ? typed.state : null;
+  // TEXT_STATE_CHANGED and the page observers carry typed:unknown by contract;
+  // for them the source event type is the only thing that names what happened.
+  const label = kind && state
+    ? `${kind}:${state}`
+    : String((event.payload && event.payload.sourceEventType) || event.eventType || '?');
+  const meta = metaOf(event);
+  const detail = PROGRESS_DETAIL_KEYS
+    .filter((key) => meta[key] !== null && meta[key] !== undefined && meta[key] !== '')
+    .map((key) => `${key}=${meta[key]}`);
+  return { label, detail: detail.join(' ') };
+}
+
+// Dedup collapses a repeated state, but not states that alternate: a 2180-event
+// run produced 1793 steps and a 104KB digest, which defeats the point. Keep the
+// head (how the run started) and the tail (how it failed — failures land at the
+// end), and drop the middle.
+//
+// The reader contract says a state absent from the trajectory did not occur.
+// Dropping steps can falsify that, so any label that survives ONLY in the
+// dropped middle is reported by name: the claim then stays true for every label
+// the reader can actually see.
+const PROGRESS_STEP_LIMIT = 60;
+const PROGRESS_HEAD_STEPS = 20;
+
+function capProgress(steps) {
+  if (steps.length <= PROGRESS_STEP_LIMIT) return { steps, droppedSteps: 0, droppedOnlyLabels: [] };
+  const head = steps.slice(0, PROGRESS_HEAD_STEPS);
+  const tail = steps.slice(steps.length - (PROGRESS_STEP_LIMIT - PROGRESS_HEAD_STEPS));
+  const dropped = steps.slice(PROGRESS_HEAD_STEPS, steps.length - tail.length);
+  const kept = new Set([...head, ...tail].map((step) => step.label));
+  const droppedOnlyLabels = [...new Set(dropped.map((step) => step.label))].filter((label) => !kept.has(label));
+  return { steps: [...head, ...tail], droppedSteps: dropped.length, droppedOnlyLabels, dropAfterIndex: head.length };
+}
 
 function buildDigest(doc) {
   const ledger = (doc && doc.ledger) || {};
@@ -86,17 +156,35 @@ function buildDigest(doc) {
   const submits = [];
   const tabEvents = [];
   const exceptions = [];
+  const progress = new Map();
   const unknownTypes = new Map();
   const omittedTypes = new Map();
 
   for (const event of events) {
     const meta = metaOf(event);
+    if (PROGRESS_TYPES.includes(event.eventType)) {
+      // Consecutive repeats of one state carry no new fact — a heartbeat that
+      // closed seventy identical intervals is one line with a count, not
+      // seventy. Only a change of state is a step in the trajectory.
+      const model = String(event.modelId || 'SYSTEM');
+      if (!progress.has(model)) progress.set(model, []);
+      const steps = progress.get(model);
+      const { label, detail } = describeTypedState(event);
+      const last = steps[steps.length - 1];
+      if (last && last.label === label) {
+        last.count += 1;
+        if (detail) last.detail = detail;
+        last.lastSeq = event.seq;
+      } else {
+        steps.push({ label, detail, count: 1, type: event.eventType, firstSeq: event.seq, lastSeq: event.seq });
+      }
+    }
     const describeException = EXCEPTION_TYPES[event.eventType];
     if (describeException) {
       let detail = '';
       try { detail = String(describeException(event.payload || {}, meta) || ''); } catch (_) { detail = ''; }
       exceptions.push({ model: event.modelId, type: event.eventType, detail });
-    } else if (!READ_TYPES.includes(event.eventType)) {
+    } else if (!READ_TYPES.includes(event.eventType) && !PROGRESS_TYPES.includes(event.eventType)) {
       // Everything the digest does not turn into a fact is omitted, whether it
       // was omitted on purpose or is simply a type this file has no rule for.
       // Both matter to a reader deciding whether to ask for the full report.
@@ -195,6 +283,9 @@ function buildDigest(doc) {
       .sort((a, b) => b.models.length - a.models.length),
     [SECTIONS.TABS]: tabEvents,
     [SECTIONS.EXCEPTIONS]: exceptions,
+    [SECTIONS.PROGRESS]: [...progress.entries()]
+      .map(([model, steps]) => ({ model, ...capProgress(steps) }))
+      .sort((a, b) => a.model.localeCompare(b.model)),
     [SECTIONS.COVERAGE]: {
       totalEvents: events.length,
       exceptionsCarried: exceptions.length,
@@ -225,6 +316,13 @@ function renderReaderContract(digest) {
   lines.push('minUsefulMs, failed decision rules, the control that submitted each');
   lines.push('prompt, tab-reuse events, and every exception');
   lines.push(`event (${coverage.exceptionsCarried} of ${coverage.totalEvents} events in this run).`);
+  lines.push('');
+  lines.push('It also carries the per-model PROGRESS trajectory: every change of state');
+  lines.push('across prompt insertion, submission, dispatch stages, text and answer');
+  lines.push('handling, completion and deadlines. Consecutive repeats of one state are');
+  lines.push('collapsed to a ×count — the count is exact, the intermediate events are not');
+  lines.push('carried. A state that never appears in the trajectory did not occur in this');
+  lines.push('run: those types are read in full, so their absence IS evidence here.');
   lines.push('');
   if (coverage.omittedTypes.length) {
     lines.push('It does NOT carry these event types, present in this run:');
@@ -311,6 +409,24 @@ function render(digest) {
     lines.push('EXCEPTIONS');
     for (const e of digest[SECTIONS.EXCEPTIONS]) {
       lines.push(`  ${String(e.model).padEnd(11)} ${e.type}${e.detail ? ` · ${e.detail}` : ''}`);
+    }
+    lines.push('');
+  }
+
+  if (digest[SECTIONS.PROGRESS].length) {
+    lines.push('PROGRESS (state changes; ×n = consecutive repeats collapsed)');
+    for (const row of digest[SECTIONS.PROGRESS]) {
+      lines.push(`  ${row.model}`);
+      row.steps.forEach((step, index) => {
+        if (row.droppedSteps && index === row.dropAfterIndex) {
+          lines.push(`    … ${row.droppedSteps} state changes omitted from the middle of this run`);
+          if (row.droppedOnlyLabels.length) {
+            lines.push(`      states occurring ONLY in the omitted part: ${row.droppedOnlyLabels.join(', ')}`);
+          }
+        }
+        const repeat = step.count > 1 ? ` ×${step.count}` : '';
+        lines.push(`    seq ${String(step.firstSeq).padStart(5)}  ${step.label}${repeat}${step.detail ? ` · ${step.detail}` : ''}`);
+      });
     }
     lines.push('');
   }
