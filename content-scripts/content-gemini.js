@@ -1358,7 +1358,10 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
                     composerTextLength: readComposerText(inputField).length,
                     generationElements: collectGeminiGenerationElements()
                 });
-                if (proof?.confirmed === true) return true;
+                // On a freshly opened Gemini page hydration may add a response
+                // shell or a transient busy element without committing our prompt.
+                // A rendered user turn is the provider-owned receipt for this send.
+                if (proof?.confirmed === true && proof.directSignals?.includes('new_user_turn')) return true;
                 // Fail closed when the shared oracle is unavailable: only direct
                 // current-turn evidence counts, never composer clearing.
                 if (!geminiSubmitConfirmation && (
@@ -1409,24 +1412,10 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
             2800
         );
         let sendButton = null;
-        if (!confirmed) {
-            console.log('[content-gemini] Ctrl+Enter not confirmed, looking for send button');
-            activity.heartbeat(0.55, { phase: 'send-button-search' });
-            sendButton = await findAndCacheElement('sendButton', sendButtonSelectors).catch(() => null);
-            if (!sendButton || scoreGeminiSendButtonCandidate(sendButton, inputField) < 8) {
-                sendButton = resolveGeminiSendButton(inputField, sendButtonSelectors);
-            }
-            if (sendButton) {
-                confirmed = await runSendStrategy(
-                    'button_click',
-                    () => geminiHumanClick(sendButton),
-                    sendButton
-                );
-            }
-        }
         // Gemini may ignore every synthetic KeyboardEvent/click in a background
         // tab. Use the shared browser-level click while the same prompt is still
-        // present; the background validates both the provider URL and sender tab.
+        // present, before a synthetic DOM click can create unrelated hydration
+        // signals; the background validates both the provider URL and sender tab.
         if (!confirmed && normalizeGeminiComposerText(readComposerText(inputField)).includes(promptHead)) {
             confirmed = await runSendStrategy(
                 'trusted_send',
@@ -1460,6 +1449,21 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
                 });
                 return false;
             });
+        }
+        if (!confirmed) {
+            console.log('[content-gemini] Trusted Send not confirmed, looking for send button');
+            activity.heartbeat(0.55, { phase: 'send-button-search' });
+            sendButton = await findAndCacheElement('sendButton', sendButtonSelectors).catch(() => null);
+            if (!sendButton || scoreGeminiSendButtonCandidate(sendButton, inputField) < 8) {
+                sendButton = resolveGeminiSendButton(inputField, sendButtonSelectors);
+            }
+            if (sendButton) {
+                confirmed = await runSendStrategy(
+                    'button_click',
+                    () => geminiHumanClick(sendButton),
+                    sendButton
+                );
+            }
         }
         if (!confirmed) {
             console.warn('[content-gemini] Send not confirmed, using Enter fallback');

@@ -1,5 +1,16 @@
 # CHANGELOG — Project
 
+### 2026-08-09 — Gemini требует квитанцию нового user-turn, version 2.81.321
+
+- На свежей странице Gemini hydration может добавить новый response-shell или
+  busy-элемент без отправки prompt. Общий submit-oracle считал каждый такой
+  новый узел прямым сигналом, поэтому адаптер мог остановиться на ложном
+  `confirmed` ещё до browser-level Send.
+- Для Gemini подтверждением теперь служит обязательный `new_user_turn` —
+  provider-owned отображение отправленного запроса. Trusted Send выполняется
+  до синтетического DOM-click, пока prompt заведомо остаётся в composer.
+
+
 ### 2026-08-09 — Gemini сохраняет отрицательный результат проверки Send, version 2.81.320
 
 - Gemini продолжал мониторить pipeline после того, как ни `Ctrl+Enter`, ни

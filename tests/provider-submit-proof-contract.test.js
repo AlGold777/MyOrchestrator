@@ -131,5 +131,7 @@ describe('provider submit proof contract', () => {
     expect(src).toContain("type: 'PROVIDER_TRUSTED_SEND_REQUEST'");
     expect(src).toContain('normalizeGeminiComposerText(readComposerText(inputField)).includes(promptHead)');
     expect(MESSAGE_ROUTER).toMatch(/model === 'Gemini'.*gemini\\\.google\\\.com/);
+    expect(src.indexOf("'trusted_send'")).toBeLessThan(src.indexOf("'button_click'"));
+    expect(src).toContain("proof.directSignals?.includes('new_user_turn')");
   });
 });
