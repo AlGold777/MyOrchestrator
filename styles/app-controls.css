@@ -9,7 +9,10 @@
 
     text-align: left;
     box-shadow: none;
-    position: static;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: #F3F4F6;
     width: 100%;
     box-sizing: border-box;
 }

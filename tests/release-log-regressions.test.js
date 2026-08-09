@@ -82,6 +82,8 @@ describe('release log regression guards', () => {
 
     expect(appControls).toContain('.top-control-bar {');
     expect(appControls).toContain('flex-wrap: nowrap;');
+    expect(appControls).toContain('position: sticky;');
+    expect(appControls).toContain('top: 0;');
     expect(appControls).toContain('.top-models-bar {');
     expect(appControls).toContain('min-width: 0;');
     expect(appControls).toContain('overflow-x: auto;');
