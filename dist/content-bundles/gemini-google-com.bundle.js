@@ -29164,6 +29164,15 @@ async function fallbackTypeGemini(element, text) {
 }
 
 async function geminiHumanType(element, text, options = {}) {
+  // The effective orchestrator prompt can be many kilobytes even when the user
+  // selected a simple no-attachment task. Humanoid.typeText is deliberately
+  // character-paced; run 1786287946831 spent ~5 minutes inserting 11.8K chars,
+  // long enough for background to schedule a repair. Use the same native
+  // setter/input transaction atomically for long payloads.
+  if (String(text || '').length > 2000) {
+    await fallbackTypeGemini(element, text);
+    return;
+  }
   const humanoid = getHumanoid();
   if (humanoid?.typeText) {
     try {
