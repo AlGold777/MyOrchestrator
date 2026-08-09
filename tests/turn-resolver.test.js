@@ -99,6 +99,19 @@ describe('authoritative turn resolver', () => {
     expect(result.answerNode.textContent).toBe('Generated answer');
   });
 
+  test('kimi rejects a trailing reasoning candidate admitted by broad selectors', () => {
+    document.body.innerHTML = `
+      <div class="segment-assistant">
+        <div class="markdown-container">Финальный ответ Kimi должен быть выбран.</div>
+        <div class="markdown-container" data-type="reasoning">Внутренние размышления Kimi нельзя выбирать.</div>
+      </div>`;
+    const selectors = window.AnswerPipelineSelectors.PLATFORM_SELECTORS.kimi;
+    const result = TurnResolver.resolveTurn({ platform: 'kimi', selectors, document, minimumTextLength: 5 });
+    expect(result.answerNode).toBe(document.querySelector('.markdown-container:not([class*="reason" i])'));
+    expect(result.answerNode.textContent).toContain('Финальный ответ Kimi');
+    expect(result.rejectedCandidates).toContain(document.querySelector('[data-type="reasoning"]'));
+  });
+
   test('does not fall back to previous answers when candidate count equals the turn anchor', () => {
     document.body.innerHTML = `
       <article data-role="assistant">Old answer one</article>

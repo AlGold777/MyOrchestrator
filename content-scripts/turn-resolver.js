@@ -7,6 +7,30 @@
     return typeof value === 'string' && value.trim() ? [value] : [];
   }
 
+  // Kimi renders its private reasoning trace in the same assistant turn as
+  // the answer. Broad assistant/markdown selectors can therefore admit the
+  // trace as a later DOM candidate even when the specific answer selector is
+  // correct. Keep this guard in the authoritative resolver so every consumer
+  // (watcher, pipeline and skeleton capture) shares the same exclusion.
+  const KIMI_REASONING_SELECTOR = [
+    '[class*="think" i]', '[class*="thought" i]', '[class*="reason" i]',
+    '[class*="analysis" i]', '[class*="scratch" i]', '[class*="trace" i]',
+    '[class*="internal" i]', '[class*="reflection" i]',
+    '[data-testid*="think" i]', '[data-testid*="thought" i]',
+    '[data-testid*="reason" i]', '[data-testid*="analysis" i]',
+    '[data-type*="think" i]', '[data-type*="thought" i]',
+    '[data-type*="reason" i]', '[data-type*="analysis" i]'
+  ].join(',');
+
+  function isKimiReasoningNode(node) {
+    if (!node || typeof node.matches !== 'function') return false;
+    try {
+      return Boolean(node.matches(KIMI_REASONING_SELECTOR) || node.closest?.(KIMI_REASONING_SELECTOR));
+    } catch (_) {
+      return false;
+    }
+  }
+
   function sortDocumentOrder(nodes = []) {
     return nodes.slice().sort((a, b) => {
       if (a === b) return 0;
@@ -131,6 +155,10 @@
       const node = pool[index];
       const text = String(readNodeText(node) || '').trim();
       if (text.length < minimumTextLength) continue;
+      if (String(options.platform || '').toLowerCase() === 'kimi' && isKimiReasoningNode(node)) {
+        rejectedCandidates.push(node);
+        continue;
+      }
       if (candidateEligible) {
         let eligible = false;
         try { eligible = candidateEligible({ node, text, index, pool }) !== false; } catch (_) { eligible = false; }
