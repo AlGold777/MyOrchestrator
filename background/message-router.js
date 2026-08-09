@@ -2197,6 +2197,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 const model = String(message.llmName || '');
                 const allowed = (model === 'Le Chat' && /^https:\/\/chat\.mistral\.ai\//i.test(senderUrl))
                     || (model === 'Perplexity' && /^https:\/\/(?:www\.)?perplexity\.ai\//i.test(senderUrl))
+                    || (model === 'Gemini' && /^https:\/\/(?:www\.)?gemini\.google\.com\//i.test(senderUrl))
                     || (model === 'Kimi' && /^https:\/\/(?:www\.)?kimi\.com\//i.test(senderUrl));
                 if (!tabId || !allowed) {
                     sendResponse({ ok: false, reason: 'untrusted_sender' });

@@ -116,4 +116,20 @@ describe('provider submit proof contract', () => {
     expect(DISPATCH_COORDINATOR).toContain('const dispatchAlreadyConfirmed = entry.confirmedDispatchId === dispatchId');
     expect(DISPATCH_COORDINATOR).toMatch(/if \(!dispatchAlreadyConfirmed\) \{[\s\S]*PROMPT_SUBMITTED_PENDING/);
   });
+
+  test('Gemini reports an unconfirmed send as unconfirmed to background', () => {
+    const src = sourceFor('gemini');
+    expect(src).toContain("let geminiSubmitMethod = 'none'");
+    expect(src).toContain('confirmed,');
+    expect(src).toContain('submitMethod: geminiSubmitMethod');
+    expect(src).toContain("submitEvidence: confirmed ? 'direct' : 'none'");
+  });
+
+  test('Gemini has a URL-gated trusted Send fallback while the prompt remains', () => {
+    const src = sourceFor('gemini');
+    expect(src).toContain("'trusted_send'");
+    expect(src).toContain("type: 'PROVIDER_TRUSTED_SEND_REQUEST'");
+    expect(src).toContain('normalizeGeminiComposerText(readComposerText(inputField)).includes(promptHead)');
+    expect(MESSAGE_ROUTER).toMatch(/model === 'Gemini'.*gemini\\\.google\\\.com/);
+  });
 });

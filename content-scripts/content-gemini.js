@@ -1371,7 +1371,9 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
             return false;
         };
 
+        let geminiSubmitMethod = 'none';
         const runSendStrategy = async (strategy, action, sendButtonCandidate = null, timeout = 3500) => {
+            geminiSubmitMethod = strategy;
             emitGeminiDiagnostic({
                 type: 'DISPATCH',
                 label: 'Gemini send strategy',
@@ -1421,6 +1423,43 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
                     sendButton
                 );
             }
+        }
+        // Gemini may ignore every synthetic KeyboardEvent/click in a background
+        // tab. Use the shared browser-level click while the same prompt is still
+        // present; the background validates both the provider URL and sender tab.
+        if (!confirmed && normalizeGeminiComposerText(readComposerText(inputField)).includes(promptHead)) {
+            confirmed = await runSendStrategy(
+                'trusted_send',
+                async () => {
+                    const trusted = await new Promise((resolve) => {
+                        chrome.runtime.sendMessage({
+                            type: 'PROVIDER_TRUSTED_SEND_REQUEST',
+                            llmName: MODEL,
+                            prompt
+                        }, (response) => {
+                            if (chrome.runtime.lastError) {
+                                resolve({ ok: false, reason: chrome.runtime.lastError.message });
+                            } else {
+                                resolve(response || { ok: false, reason: 'empty_response' });
+                            }
+                        });
+                    });
+                    if (!trusted?.ok) {
+                        throw new Error(`trusted Send rejected: ${trusted?.reason || 'no_send_evidence'}`);
+                    }
+                },
+                sendButton,
+                5000
+            ).catch((err) => {
+                emitGeminiDiagnostic({
+                    type: 'DISPATCH',
+                    label: 'Gemini trusted send failed',
+                    details: err?.message || String(err),
+                    level: 'warning',
+                    meta: { dispatchId: dispatchMeta?.dispatchId || null }
+                });
+                return false;
+            });
         }
         if (!confirmed) {
             console.warn('[content-gemini] Send not confirmed, using Enter fallback');
@@ -1481,7 +1520,22 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
         activity.heartbeat(0.6, { phase: 'send-dispatched' });
         geminiLastSubmittedFingerprint = fp;
         geminiLastSubmittedAt = Date.now();
-        try { chrome.runtime.sendMessage({ type: 'PROMPT_SUBMITTED', llmName: MODEL, ts: Date.now(), meta: dispatchMeta }); } catch (_) {}
+        // Preserve the distinction established above. Continuing into the answer
+        // pipeline is useful for late DOM evidence, but it must not turn an
+        // unconfirmed gesture into accepted submission evidence in background.
+        try {
+            chrome.runtime.sendMessage({
+                type: 'PROMPT_SUBMITTED',
+                llmName: MODEL,
+                ts: Date.now(),
+                meta: {
+                    ...dispatchMeta,
+                    confirmed,
+                    submitMethod: geminiSubmitMethod,
+                    submitEvidence: confirmed ? 'direct' : 'none'
+                }
+            });
+        } catch (_) {}
 
         console.log('[content-gemini] Message sent, waiting for response...');
         activity.heartbeat(0.7, { phase: 'waiting-response' });

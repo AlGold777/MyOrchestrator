@@ -1,5 +1,23 @@
 # CHANGELOG — Project
 
+### 2026-08-09 — Gemini сохраняет отрицательный результат проверки Send, version 2.81.320
+
+- Gemini продолжал мониторить pipeline после того, как ни `Ctrl+Enter`, ни
+  кнопка, ни fallback-жесты не дали прямого доказательства нового хода. Это
+  допустимо для позднего наблюдения, но затем адаптер отправлял обычный
+  `PROMPT_SUBMITTED` без `confirmed:false`; background считал отсутствие флага
+  подтверждением и писал ложный `PROMPT_SUBMITTED_ACCEPTED`.
+- Теперь Gemini передаёт фактические `confirmed`, `submitMethod` и
+  `submitEvidence`. Неподтверждённый жест попадает в
+  `PROMPT_SUBMITTED_UNCONFIRMED` и не открывает submit-gate, при этом позднее
+  прямое DOM-доказательство всё ещё может быть собрано pipeline.
+- Если синтетические `Ctrl+Enter` и DOM-click проигнорированы, но исходный
+  prompt всё ещё находится в composer, Gemini вызывает общий browser-level
+  trusted Send. Background разрешает его только для sender-вкладки на
+  `gemini.google.com`; жест по-прежнему считается подтверждённым лишь после
+  появления прямого DOM-доказательства нового хода.
+- Контракт закреплён в `tests/provider-submit-proof-contract.test.js`.
+
 ### 2026-08-08 — отказ контракта стал гейтом, version 2.81.319
 
 - **Отказ `AnswerEvidence` ни на что не влиял.** `isPartial` читал
