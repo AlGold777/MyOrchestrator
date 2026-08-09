@@ -7489,7 +7489,19 @@ function buildFinalizationEvidence(llmName, entry, context = {}) {
   });
   const terminalFailure = FAILURE_STATUSES.includes(finalStatus);
   const success = SUCCESS_STATUSES.includes(finalStatus);
+  const lengthPolicy = self.AnswerLengthPolicy?.evaluateTerminalAnswerLength?.(llmName, answerLength, { finalStatus })
+    || { policyRef: 'answer-length-policy@fallback', length: answerLength, minTerminalChars: DOM_SNAPSHOT_RECOVERY_MIN_CHARS, meetsTerminalMin: answerLength >= DOM_SNAPSHOT_RECOVERY_MIN_CHARS };
   const contradictions = [];
+  // Run 1786280638177, Z.ai: 16 characters accepted as SUCCESS while the same
+  // decision recorded `evidence_policy:text_too_short` and `no_accepted_answer`
+  // among its own blockers. The refusal was computed and then ignored, because
+  // a manual ping waives every contradiction below. A manual ping may waive how
+  // strictly the answer was verified; it cannot waive there not being an answer,
+  // so this one is unwaivable. The text is not lost — a blocked success is kept
+  // as a visible pending candidate (principle 5).
+  if (success && lengthPolicy.meetsTerminalMin === false) {
+    contradictions.push('answer_below_terminal_minimum');
+  }
   if (promptEcho) contradictions.push('prompt_echo_candidate');
   if (staleBaseline && !manualRecovery) contradictions.push('stale_baseline_candidate');
   if (preFinalRecovery && success && !manualRecovery && !freshness?.fresh && !explicitCandidateFresh) {
@@ -7566,8 +7578,7 @@ function buildFinalizationEvidence(llmName, entry, context = {}) {
     hasAnswerEvidence: !!hasAnswerEvidence,
     answerEvidence,
     evidencePolicy,
-    lengthPolicy: self.AnswerLengthPolicy?.evaluateTerminalAnswerLength?.(llmName, answerLength, { finalStatus })
-      || { policyRef: 'answer-length-policy@fallback', length: answerLength, minTerminalChars: DOM_SNAPSHOT_RECOVERY_MIN_CHARS, meetsTerminalMin: answerLength >= DOM_SNAPSHOT_RECOVERY_MIN_CHARS },
+    lengthPolicy,
     terminalEligible: !!answerEvidence?.terminalEligible,
     terminalEligibleReason: answerEvidence?.reason || null,
     promptSubmittedAt,
@@ -7599,7 +7610,9 @@ function buildFinalizationEvidence(llmName, entry, context = {}) {
     liftedContradictions,
     stableEvidenceBlockers,
     acceptedOnStableEvidence: liftedContradictions.length > 0,
-    accepted: contradictions.length === 0 || manualRecovery
+    unwaivableContradictions: contradictions.filter((reason) => UNWAIVABLE_CONTRADICTIONS.has(reason)),
+    accepted: contradictions.length === 0
+      || (manualRecovery && !contradictions.some((reason) => UNWAIVABLE_CONTRADICTIONS.has(reason)))
   };
 }
 
@@ -7841,6 +7854,10 @@ function getTerminalRank(status) {
 // doubt about which answer this is. Identity, echo and stale-baseline reasons are
 // never liftable.
 const LIFTABLE_STRICTNESS_CONTRADICTIONS = new Set(['answer_not_verified']);
+// Contradictions a manual recovery may not waive. Manual intent can stand in for
+// a verifier that did not run; it cannot stand in for an answer that is not
+// there.
+const UNWAIVABLE_CONTRADICTIONS = new Set(['answer_below_terminal_minimum']);
 const PRE_INSERTION_DEFERRAL_LIMIT = 1;
 // Round 2 has to fit its whole batch inside its budget, so the deferral has to
 // outlive that batch - and then stop. Run 1785870408469: Grok and Perplexity were
