@@ -1256,9 +1256,16 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
         }
 
         console.log('[content-gemini] Input field found. Injecting prompt...');
-        const pasteOk = window.ContentUtils?.pasteTextFirst
+        // A delayed first dispatch may wake after focus returns while background
+        // has already scheduled a repair dispatch. Treat the existing exact
+        // draft as an owned transaction: never clear and reinsert the same prompt.
+        const composerAlreadyPrepared = window.ContentUtils?.promptMatchesComposer?.(
+            readComposerText(inputField),
+            prompt
+        ) === true;
+        const pasteOk = composerAlreadyPrepared || (window.ContentUtils?.pasteTextFirst
             ? await window.ContentUtils.pasteTextFirst(inputField, prompt)
-            : false;
+            : false);
         if (!pasteOk) {
             try {
                 await ensureMainWorldBridge();
@@ -1639,11 +1646,12 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
       }
     });
 
-    geminiSharedInjection = opPromise.finally(() => {
-        if (geminiSharedInjection === opPromise) {
+    const sharedPromise = opPromise.finally(() => {
+        if (geminiSharedInjection === sharedPromise) {
             geminiSharedInjection = null;
         }
     });
+    geminiSharedInjection = sharedPromise;
     return geminiSharedInjection;
 }
 
@@ -1712,10 +1720,22 @@ const onRuntimeMessage = (message, sender, sendResponse) => {
         ensureSession(message?.meta?.sessionId);
         const releaseActive = () => window.ContentUtils?.stopActiveRequest?.();
         window.ContentUtils?.startActiveRequest?.();
+        const acceptedMeta = message.meta || null;
+        window.ContentUtils?.reportProviderPipelineState?.(MODEL, acceptedMeta, 'composer', true);
+        // Acknowledge command ownership immediately. Holding the message port
+        // open through background-tab throttling made background classify the
+        // still-running adapter as dead and schedule a second dispatch.
+        sendResponse?.({
+            ok: true,
+            accepted: true,
+            status: 'accepted',
+            dispatchId: acceptedMeta?.dispatchId || null,
+            attemptId: acceptedMeta?.attemptId || null,
+            tabSessionId: acceptedMeta?.tabSessionId || null
+        });
         injectAndGetResponse(message.prompt, message.attachments, message.meta || null)
             .then(result => {
                 if (message.isFireAndForget) {
-                    sendResponse?.({ status: 'success_fire_and_forget' });
                     return;
                 }
                 const responseType = message.type === 'GET_ANSWER' ? 'LLM_RESPONSE' : 'FINAL_LLM_RESPONSE';
@@ -1736,11 +1756,9 @@ const onRuntimeMessage = (message, sender, sendResponse) => {
                         ? Object.assign({}, message.meta || {}, { responseMeta })
                         : (message.meta || null)
                 });
-                sendResponse?.({ status: 'success' });
             })
             .catch(error => {
                 if (error?.code === 'background-force-stop') {
-                    sendResponse?.({ status: 'force_stopped' });
                     return;
                 }
                 const errorMessage = error.message || 'Unknown error in Gemini content script';
@@ -1751,10 +1769,13 @@ const onRuntimeMessage = (message, sender, sendResponse) => {
                     error: { type: error.type || 'generic_error', message: errorMessage },
                     meta: message.meta || null
                 });
-                sendResponse?.({ status: 'error', message: errorMessage });
             })
-            .finally(releaseActive);
-        return true; // Важно для асинхронной обработки
+            .finally(() => {
+                window.ContentUtils?.reportProviderPipelineState?.(MODEL, acceptedMeta, 'composer', false);
+                window.ContentUtils?.reportProviderPipelineState?.(MODEL, acceptedMeta, 'answer_collection', false);
+                releaseActive();
+            });
+        return false;
     }
     
     return false;

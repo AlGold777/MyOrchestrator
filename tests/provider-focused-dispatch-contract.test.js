@@ -34,6 +34,30 @@ describe('provider focused dispatch ownership', () => {
     expect(coordinator).toContain('providerComposerTransactionActive');
     expect(coordinator).toContain("['retry_supervisor', 'round2_repair', 'round2_repair_pre_visit'].includes(reason)");
     expect(coordinator).toContain("reason: 'provider_pipeline_active'");
-    expect(coordinator).toContain('const PROVIDER_PIPELINE_OWNERSHIP_TTL_MS = 180000');
+    expect(coordinator).toContain('const getProviderPipelineOwnershipTtlMs = () => getScriptRuntimeHardStopMs()');
+  });
+
+  test('Gemini acknowledges composer ownership before asynchronous provider work', () => {
+    const source = read('content-scripts/content-gemini.js');
+    const handlerAt = source.indexOf("if (message?.type === 'GET_ANSWER'");
+    const activeAt = source.indexOf("reportProviderPipelineState?.(MODEL, acceptedMeta, 'composer', true)", handlerAt);
+    const acceptedAt = source.indexOf("status: 'accepted'", activeAt);
+    const injectAt = source.indexOf('injectAndGetResponse(', acceptedAt);
+    expect(handlerAt).toBeGreaterThan(-1);
+    expect(activeAt).toBeGreaterThan(handlerAt);
+    expect(acceptedAt).toBeGreaterThan(activeAt);
+    expect(injectAt).toBeGreaterThan(acceptedAt);
+    expect(source.slice(handlerAt, injectAt)).toContain('sendResponse?.({');
+  });
+
+  test('Gemini releases composer ownership when asynchronous work settles', () => {
+    const source = read('content-scripts/content-gemini.js');
+    const handlerAt = source.indexOf("if (message?.type === 'GET_ANSWER'");
+    const handler = source.slice(handlerAt, source.indexOf('// --- БАЗОВЫЙ HEARTBEAT', handlerAt));
+    expect(handler).toContain('.finally(() => {');
+    expect(handler).toContain("'composer', false");
+    expect(handler).toContain("'answer_collection', false");
+    expect(source).toContain('const sharedPromise = opPromise.finally');
+    expect(source).toContain('geminiSharedInjection === sharedPromise');
   });
 });

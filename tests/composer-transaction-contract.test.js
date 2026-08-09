@@ -56,6 +56,16 @@ describe('composer transaction contract', () => {
     expect(utils).toContain('ensurePromptPrepared,');
   });
 
+  test('Gemini preserves an already prepared exact draft on recovery dispatch', () => {
+    const gemini = read('content-scripts/content-gemini.js');
+    const preparedAt = gemini.indexOf('const composerAlreadyPrepared');
+    const pasteAt = gemini.indexOf('ContentUtils?.pasteTextFirst', preparedAt);
+    expect(preparedAt).toBeGreaterThan(-1);
+    expect(pasteAt).toBeGreaterThan(preparedAt);
+    expect(gemini.slice(preparedAt, pasteAt)).toContain('promptMatchesComposer');
+    expect(gemini).toContain('const pasteOk = composerAlreadyPrepared ||');
+  });
+
   test('DeepSeek publishes PROMPT_SUBMITTED only after preparation and confirmed send', () => {
     const deepseek = read('content-scripts/content-deepseek.js');
     const injection = deepseek.slice(deepseek.indexOf("console.log('[DeepSeek] Input found, injecting...')"), deepseek.indexOf("console.log('[DeepSeek] Waiting for response...')"));

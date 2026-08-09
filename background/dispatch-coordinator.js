@@ -75,7 +75,7 @@ const SCRIPT_RUNTIME_HARD_STOP_ACTIVITY_WINDOW_MS = 15000;
 const SCRIPT_RUNTIME_HARD_STOP_GRACE_MS = 12000;
 const SCRIPT_RUNTIME_HARD_STOP_MAX_GRACE_EXTENSIONS = 2;
 const TRANSPORT_RECOVER_BACKOFF_MS = 12000;
-const PROVIDER_PIPELINE_OWNERSHIP_TTL_MS = 180000;
+const getProviderPipelineOwnershipTtlMs = () => getScriptRuntimeHardStopMs();
 const PROVIDER_SEND_ONLY_RECOVERY_DELAY_MS = 5000;
 const PROVIDER_SEND_ONLY_RECOVERY_TIMEOUT_MS = 15000;
 
@@ -85,7 +85,7 @@ function isProviderPipelineOwnershipActive(entry, now = Date.now()) {
     || (entry.providerComposerTransactionActive == null && entry.providerPipelineActive === true);
   if (!active) return false;
   const activeAt = Number(entry.providerComposerTransactionActiveAt || entry.providerPipelineActiveAt || 0);
-  return activeAt > 0 && Math.max(0, Number(now) - activeAt) < PROVIDER_PIPELINE_OWNERSHIP_TTL_MS;
+  return activeAt > 0 && Math.max(0, Number(now) - activeAt) < getProviderPipelineOwnershipTtlMs();
 }
 
 function cancelProviderSendOnlyRecovery(llmName) {

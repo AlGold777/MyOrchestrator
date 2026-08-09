@@ -1,5 +1,18 @@
 # CHANGELOG — Project
 
+### 2026-08-09 — Gemini не дублирует проснувшийся dispatch, version 2.81.325
+
+- Run `1786287946831` показал две конкурентные команды одного prompt. Dispatch
+  `:1` получил `LEASE_DENIED active_lease`, замёрз в background-вкладке почти
+  на пять минут и вставил prompt после возврата фокуса. Background уже потерял
+  открытый message-port и запустил `:2`, который очистил и вставил draft снова.
+- Gemini теперь синхронно отвечает `accepted` и публикует composer ownership до
+  первого `await`. Background не считает живой adapter зависшим; ownership TTL
+  равен runtime hard-stop профиля (8/15 минут), а не прежним трём минутам.
+- Повторный dispatch не мутирует composer, если там уже ровно один экземпляр
+  текущего prompt. Исправлено также освобождение `geminiSharedInjection`:
+  прежний `finally` сравнивал wrapper с исходным promise и никогда его не снимал.
+
 ### 2026-08-09 — верхняя панель управления закреплена при прокрутке, version 2.81.324
 
 - `.top-control-bar` теперь остаётся закреплённой у верхнего края окна при прокрутке
