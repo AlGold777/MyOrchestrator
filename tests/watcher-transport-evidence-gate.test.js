@@ -206,4 +206,42 @@ describe('watcher: transport evidence gates the commit', () => {
     expect(['UNKNOWN', 'SUSPECTED_COMPLETE']).toContain(settled.runProof.type);
     expect(settled.runProof.textReadable).toBe(false);
   });
+
+  test('the detector tick names why it did not conclude, in the form the export keeps', async () => {
+    settledAnswerDom();
+    const sent = [];
+    global.chrome = Object.assign({}, global.chrome, {
+      runtime: Object.assign({}, global.chrome?.runtime, {
+        id: 'test-extension',
+        sendMessage: (message) => { sent.push(message); }
+      })
+    });
+
+    const watcher = new window.AnswerPipeline.UnifiedAnswerCompletionWatcher('chatgpt', { llmName: 'GPT' });
+    watcher.waitForCompletion({ container: document.querySelector('main') });
+
+    streamEvents.emit({ kind: 'stream', phase: 'request', at: Date.now(), streamId: 's1', url: '/backend-api/conversation' });
+    streamEvents.emit({ kind: 'stream', phase: 'start', at: Date.now(), streamId: 's1' });
+    streamEvents.emit({ kind: 'stream', phase: 'first_chunk', at: Date.now(), streamId: 's1' });
+
+    await tick(40);
+
+    const ticks = sent.filter((m) => m?.event?.label === 'DETECTOR_TICK');
+    expect(ticks.length).toBeGreaterThan(0);
+    const reasons = new Set(ticks.map((m) => m.event.meta.reason));
+    // The stream is open, so every tick must say so rather than staying silent.
+    expect([...reasons].some((reason) => reason.startsWith('veto:stream_open'))).toBe(true);
+    expect([...reasons].every((reason) => reason.includes('transport:'))).toBe(true);
+    // Low cardinality is the contract: the ledger keeps ten distinct reasons.
+    expect(reasons.size).toBeLessThanOrEqual(4);
+  });
+
+  test('a run with no fresh answer says exactly that', async () => {
+    document.body.innerHTML = '<main><article data-message-author-role="assistant"><div class="prose"></div></article></main>';
+    const watcher = new window.AnswerPipeline.UnifiedAnswerCompletionWatcher('chatgpt', { llmName: 'GPT' });
+    watcher.waitForCompletion({ container: document.querySelector('main') });
+    await tick(20);
+
+    expect(watcher.describeEvidenceState()).toMatch(/^no_fresh_answer\|transport:/);
+  });
 });
