@@ -44,6 +44,7 @@ function createSandbox() {
     TabMapManager: {
       entries: () => []
     },
+    jobState: { llms: {} },
     ModelRunState: {
       isTerminalRunState(entry) {
         return entry?.modelRunState?.terminalState && entry.modelRunState.terminalState !== 'open';
@@ -92,6 +93,27 @@ describe('health-monitor terminal state', () => {
     expect(context.__telemetry).toContainEqual(expect.objectContaining({
       llmName: 'GPT',
       event: 'READY_REANNOUNCE_REQUESTED'
+    }));
+  });
+
+  test('does not reload a confirmed active provider page to reinject a script', async () => {
+    const context = createSandbox();
+    context.jobState.llms.Gemini = {
+      status: 'GENERATING',
+      promptSubmittedAt: Date.now(),
+      confirmedDispatchId: 'Gemini:run:1',
+      modelRunState: { terminalState: 'open', generationState: 'generating' }
+    };
+    context.chrome.tabs.reload = jest.fn();
+    context.chrome.tabs.sendMessage = jest.fn();
+
+    await expect(context.reinjectScript(42, 'Gemini')).resolves.toBe(false);
+
+    expect(context.chrome.tabs.reload).not.toHaveBeenCalled();
+    expect(context.chrome.tabs.sendMessage).not.toHaveBeenCalledWith(42, { type: 'FORCE_CLEANUP' });
+    expect(context.__telemetry).toContainEqual(expect.objectContaining({
+      llmName: 'Gemini',
+      event: 'SCRIPT_REINJECT_SKIPPED_ACTIVE_RUN'
     }));
   });
 });

@@ -1,5 +1,17 @@
 # CHANGELOG — Project
 
+### 2026-08-09 — recovery не перезагружает подтверждённый активный run, version 2.81.323
+
+- Retry-supervisor проверял `flags.isSent` слишком поздно: сначала выполнял
+  health ping и на второй попытке мог перезагрузить вкладку, а уже после reload
+  обнаруживал подтверждённый submit и прекращал resend. На Gemini это уничтожало
+  живую генерацию при кратком разрыве message-port во время SPA navigation.
+- Проверка `isSent/isInProgress` перенесена перед health/reload. Дополнительный
+  fail-closed guard в `reinjectScript()` запрещает `FORCE_CLEANUP` и reload для
+  любого подтверждённого, ещё не терминального provider-run.
+- Вместо разрушительного recovery пишутся `PRE_DISPATCH_RECOVERY_SKIPPED` и
+  `SCRIPT_REINJECT_SKIPPED_ACTIVE_RUN`.
+
 ### 2026-08-09 — Gemini требует квитанцию нового user-turn, version 2.81.321
 
 - На свежей странице Gemini hydration может добавить новый response-shell или

@@ -1072,6 +1072,26 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
       return;
     }
   }
+  // A retry-supervisor timer may fire after the content adapter has already
+  // confirmed the submit. Check ownership before the health probe: the old
+  // order pinged first, reloaded an apparently unresponsive provider page on
+  // attempt 2, and only then noticed flags.isSent and returned. That destroyed
+  // a live Gemini generation without ever resending the prompt.
+  const preHealthFlags = resolveDispatchFlags(llmName, entry);
+  if (isTerminalLlmEntry(entry)) return;
+  if (preHealthFlags.isSent || preHealthFlags.isInProgress) {
+    emitTelemetry(llmName, 'PRE_DISPATCH_RECOVERY_SKIPPED', {
+      level: 'info',
+      details: preHealthFlags.isSent ? 'submission_already_confirmed' : 'dispatch_in_progress',
+      meta: {
+        tabId,
+        dispatchReason: reason,
+        dispatchId: entry?.confirmedDispatchId || entry?.lastDispatchMeta?.dispatchId || null
+      },
+      force: true
+    });
+    return;
+  }
   //-- 1.1. Быстрая проверка связи перед захватом фокуса (без агрессивного reload в Round1) --//
   const isAlive = await new Promise(r => {
     chrome.tabs.sendMessage(tabId, { type: 'HEALTH_CHECK_PING' }, resp => {

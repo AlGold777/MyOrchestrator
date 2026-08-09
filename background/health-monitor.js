@@ -289,6 +289,26 @@ async function reinjectScript(tabId, llmName) {
     console.error(`[BACKGROUND] No script mapping for ${llmName}`);
     return false;
   }
+  const entry = jobState?.llms?.[llmName] || null;
+  const confirmedActiveRun = Boolean(
+    entry
+    && !isTerminalHealthEntry(entry)
+    && (entry.promptSubmittedAt || entry.confirmedDispatchId || entry.submitSource === 'content')
+  );
+  if (confirmedActiveRun) {
+    emitTelemetry(llmName, 'SCRIPT_REINJECT_SKIPPED_ACTIVE_RUN', {
+      level: 'warning',
+      details: 'preserve_confirmed_provider_page',
+      meta: {
+        tabId,
+        dispatchId: entry.confirmedDispatchId || entry?.lastDispatchMeta?.dispatchId || null,
+        status: entry.status || null,
+        generationState: entry?.modelRunState?.generationState || null
+      },
+      force: true
+    });
+    return false;
+  }
 
   globalThis.LLMLog?.debug?.(`[BACKGROUND] Reinjecting ${scriptFile} into tab ${tabId}...`);
   emitTelemetry(llmName, 'SCRIPT_REINJECT_START', {

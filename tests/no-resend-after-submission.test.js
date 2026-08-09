@@ -11,6 +11,13 @@
 // A submission already on the page is proof in its own right, independent of any
 // answer.
 require('../shared/recovery-intent.js');
+const fs = require('fs');
+const path = require('path');
+
+const DISPATCH_COORDINATOR = fs.readFileSync(
+  path.join(__dirname, '..', 'background', 'dispatch-coordinator.js'),
+  'utf8'
+);
 
 const RecoveryIntent = globalThis.RecoveryIntent;
 const resend = { intent: 'resend_prompt', reason: 'round2_repair_pre_visit', minChars: 120 };
@@ -77,5 +84,15 @@ describe('a confirmed submission blocks a resend on its own', () => {
       allowAfterEvidence: true
     });
     expect(decision.ok).toBe(true);
+  });
+
+  test('retry supervisor checks sent state before any health-triggered reload', () => {
+    const guardAt = DISPATCH_COORDINATOR.indexOf('const preHealthFlags = resolveDispatchFlags');
+    const healthProbeAt = DISPATCH_COORDINATOR.indexOf('const isAlive = await new Promise', guardAt);
+    const reloadAt = DISPATCH_COORDINATOR.indexOf('allowPreDispatchReload', healthProbeAt);
+    expect(guardAt).toBeGreaterThan(-1);
+    expect(healthProbeAt).toBeGreaterThan(guardAt);
+    expect(reloadAt).toBeGreaterThan(healthProbeAt);
+    expect(DISPATCH_COORDINATOR.slice(guardAt, healthProbeAt)).toContain('preHealthFlags.isSent');
   });
 });
