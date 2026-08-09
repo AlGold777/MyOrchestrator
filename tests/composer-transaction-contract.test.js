@@ -66,6 +66,15 @@ describe('composer transaction contract', () => {
     expect(gemini).toContain('const pasteOk = composerAlreadyPrepared ||');
   });
 
+  test('Gemini does not character-type multi-kilobyte orchestrator prompts', () => {
+    const gemini = read('content-scripts/content-gemini.js');
+    const typeAt = gemini.indexOf('async function geminiHumanType');
+    const humanoidAt = gemini.indexOf('const humanoid = getHumanoid()', typeAt);
+    const longPromptGuard = gemini.slice(typeAt, humanoidAt);
+    expect(longPromptGuard).toContain("String(text || '').length > 2000");
+    expect(longPromptGuard).toContain('await fallbackTypeGemini(element, text)');
+  });
+
   test('DeepSeek publishes PROMPT_SUBMITTED only after preparation and confirmed send', () => {
     const deepseek = read('content-scripts/content-deepseek.js');
     const injection = deepseek.slice(deepseek.indexOf("console.log('[DeepSeek] Input found, injecting...')"), deepseek.indexOf("console.log('[DeepSeek] Waiting for response...')"));
