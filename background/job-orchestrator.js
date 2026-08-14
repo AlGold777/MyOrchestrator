@@ -4003,6 +4003,36 @@ const scheduleClaudeHardTimeoutRetry = (llmName, entry, metaObj, sessionId) => {
   return true;
 };
 
+const stopContentAutomationAtDeadline = (llmName, entry, phase, budgetMs) => {
+  const tabId = resolveBoundTabIdForOrchestrator(llmName, entry);
+  if (!isValidTabId(tabId)) return false;
+  const payload = {
+    reason: 'automation_deadline',
+    phase,
+    budgetMs: Number(budgetMs || 0)
+  };
+  const messages = [
+    {
+      type: 'HUMANOID_FORCE_STOP',
+      payload
+    },
+    {
+      type: 'STOP_AND_CLEANUP',
+      reason: 'automation_deadline',
+      payload
+    }
+  ];
+  let dispatched = false;
+  messages.forEach((message) => {
+    try {
+      const pending = chrome.tabs.sendMessage(tabId, message);
+      pending?.catch?.(() => {});
+      dispatched = true;
+    } catch (_) {}
+  });
+  return dispatched;
+};
+
 const finalizeAutomationDeadline = (llmName, phase, budgetMs, meta = {}) => {
   const entry = jobState?.llms?.[llmName];
   if (!entry || isFinalizedEntry(entry)) return false;
@@ -4057,6 +4087,12 @@ const finalizeAutomationDeadline = (llmName, phase, budgetMs, meta = {}) => {
       entry?.confirmedDispatchId || entry?.lastDispatchMeta?.dispatchId || null
     );
   }
+  const extensionRuntimeStopDispatched = stopContentAutomationAtDeadline(
+    llmName,
+    entry,
+    normalizedPhase,
+    resolvedBudgetMs
+  );
 
   emitTelemetry(llmName, 'AUTOMATION_DEADLINE_REACHED', {
     level: 'warning',
@@ -4068,6 +4104,7 @@ const finalizeAutomationDeadline = (llmName, phase, budgetMs, meta = {}) => {
       tabId: entry?.tabId || null,
       dispatchId: entry?.lastDispatchMeta?.dispatchId || null,
       providerGenerationLeftRunning: true,
+      extensionRuntimeStopDispatched,
       manualRecoveryAvailable: true,
       // A model that reached the deadline after a deferred pre-insertion failure
       // did not simply run out of generation time - say so in the record.
@@ -4093,6 +4130,7 @@ const finalizeAutomationDeadline = (llmName, phase, budgetMs, meta = {}) => {
       forceTerminalSuccess: Boolean(pendingAnswer),
       automationStopped: true,
       providerGenerationLeftRunning: true,
+      extensionRuntimeStopDispatched,
       manualRecoveryAvailable: true
     }
   };

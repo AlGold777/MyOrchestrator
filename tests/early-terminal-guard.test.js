@@ -1363,9 +1363,16 @@ describe('automation deadline terminal contract', () => {
     expect(entry.answer).toContain('Ответ уже виден');
     expect(context.closePingWindowForLLM).toHaveBeenCalledWith('GPT');
     expect(context.completeHumanPresenceForModel).toHaveBeenCalledWith('GPT', 'automation_deadline');
-    expect(context.chrome.tabs.sendMessage).not.toHaveBeenCalledWith(
+    expect(context.chrome.tabs.sendMessage).toHaveBeenCalledWith(
       101,
       expect.objectContaining({ type: 'HUMANOID_FORCE_STOP' })
+    );
+    expect(context.chrome.tabs.sendMessage).toHaveBeenCalledWith(
+      101,
+      expect.objectContaining({
+        type: 'STOP_AND_CLEANUP',
+        reason: 'automation_deadline'
+      })
     );
   });
 

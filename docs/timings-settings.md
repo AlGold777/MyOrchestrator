@@ -283,6 +283,12 @@ tab create/attach
 | `COLLECT_BUDGET_MS` | `60000` | budget фазы collect |
 | `MV3_SURVIVAL_ALARM_PERIOD_MIN` | `0.5` | период survival alarm |
 
+Когда абсолютный budget `generation` или `collect` исчерпан, background фиксирует
+terminal-результат и отправляет во вкладку модели `HUMANOID_FORCE_STOP` вместе с
+`STOP_AND_CLEANUP`. Это завершает скроллинг, наблюдатели и прочую автоматизацию
+расширения. Генерация на стороне провайдера может продолжаться, поэтому поздний
+ответ всё ещё можно забрать вручную, но скрипты расширения после дедлайна не работают.
+
 ### 5. Human Presence And Focus
 
 Файл: `background/human-presence.js`.

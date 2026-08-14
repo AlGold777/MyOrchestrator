@@ -10,6 +10,10 @@ describe('automation deadline wiring', () => {
     expect(orchestrator).toContain('finalizeAutomationDeadline(llmName, normalizedPhase');
     expect(orchestrator).toContain("entry.skipHumanLoop = true");
     expect(orchestrator).toContain("providerGenerationLeftRunning: true");
+    expect(orchestrator).toContain('stopContentAutomationAtDeadline(');
+    expect(orchestrator).toContain("type: 'HUMANOID_FORCE_STOP'");
+    expect(orchestrator).toContain("type: 'STOP_AND_CLEANUP'");
+    expect(orchestrator).toContain('extensionRuntimeStopDispatched');
     expect(orchestrator).toContain("manualRecoveryAvailable: true");
     expect(orchestrator).toContain("type === 'stream_start_timeout' || type === 'automation_deadline'");
     expect(orchestrator).toContain("if (!isSuccess && !metaObj?.automationDeadline)");
