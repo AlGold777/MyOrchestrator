@@ -18148,7 +18148,7 @@ document.addEventListener('click', (event) => {
     a.href = url;
 
     const now = new Date();
-    a.download = `LLMs answers ${formatNamedExportStamp(now)}.html`;
+    a.download = `LLM_answers - ${formatNamedExportStamp(now)}.html`;
 
     document.body.appendChild(a);
     a.click();
@@ -18174,7 +18174,7 @@ document.addEventListener('click', (event) => {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `LLMs answers ${formatNamedExportStamp(now)}.txt`;
+    anchor.download = `LLM_answers - ${formatNamedExportStamp(now)}.txt`;
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
