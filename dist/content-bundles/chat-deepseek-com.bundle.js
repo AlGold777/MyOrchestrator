@@ -437,6 +437,10 @@
 
 /* ==== shared/completion-protocol.js ==== */
 (function initCompletionProtocol(root, factory) {
+  if (root?.CompletionProtocol) {
+    if (typeof module === 'object' && module.exports) module.exports = root.CompletionProtocol;
+    return;
+  }
   const api = factory();
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.CompletionProtocol = api;
@@ -26125,6 +26129,10 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
 
 /* ==== shared/completion-protocol.js ==== */
 (function initCompletionProtocol(root, factory) {
+  if (root?.CompletionProtocol) {
+    if (typeof module === 'object' && module.exports) module.exports = root.CompletionProtocol;
+    return;
+  }
   const api = factory();
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.CompletionProtocol = api;

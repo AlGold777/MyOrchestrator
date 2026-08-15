@@ -6445,3 +6445,6 @@ Backlog `what-to-do.md`, батч 1 (UI + Финализация).
 - Streaming требует `SUCCESS_TERMINAL`: удачный scroll больше не компенсирует failed completion. Finalization использует immutable extraction snapshot и не перечитывает live DOM после terminal verification.
 - Background принимает `LLM_RESPONSE_READY` только с typed `SUCCESS_TERMINAL`; добавлены capability health, recovery reconciliation, fact-level/shadow telemetry и mapping в статусы `FinalizationController`.
 - Обновлены regression contracts старых heuristic tests; добавлены проверки truth-table, hydration reset, immutable extraction и streaming OR-gate.
+# 2.81.333 — Idempotent Completion Protocol bootstrap
+
+- Повторная инъекция shared/provider manifest-блоками теперь переиспользует уже созданный `CompletionProtocol`, не заменяя глобальный API во время активной lifecycle session.
