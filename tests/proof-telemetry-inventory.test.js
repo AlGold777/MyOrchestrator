@@ -6,17 +6,29 @@ describe('proof telemetry inventory', () => {
   test('registers every canonical event type and every report dependency', () => {
     const result = Inventory.validateInventory(ProofTelemetry.CANONICAL_EVENT_TYPES);
     expect(result).toEqual({ valid: true, errors: [] });
-    expect(Object.keys(Inventory.EVENT_REGISTRY)).toHaveLength(67);
+    expect(Object.keys(Inventory.EVENT_REGISTRY)).toHaveLength(68);
 
     for (const eventType of [
       'ATTEMPT_CONTEXT_CAPTURED', 'WITNESS_OBSERVED', 'GENERATION_OBSERVED',
       'OWNERSHIP_CONFIRMED', 'PRODUCER_TERMINAL', 'CONTENT_TERMINAL',
-      'TERMINAL_DECISION', 'EXTRACTION_SNAPSHOT_CAPTURED'
+      'TERMINAL_DECISION', 'EXTRACTION_SNAPSHOT_CAPTURED', 'COMPLETION_SHADOW_DECISION'
     ]) {
       expect(ProofTelemetry.classifyRuntimeEvent({ label: eventType })).toEqual(expect.objectContaining({
         route: 'canonical', eventType
       }));
     }
+  });
+
+  test('keeps shadow deltas canonical and maps capability degradation to observer health', () => {
+    expect(ProofTelemetry.classifyRuntimeEvent({ label: 'COMPLETION_SHADOW_DECISION' }))
+      .toEqual(expect.objectContaining({ route: 'canonical', eventType: 'COMPLETION_SHADOW_DECISION' }));
+    expect(ProofTelemetry.classifyRuntimeEvent({
+      label: 'COMPLETION_CAPABILITY_HEALTH_CHANGED',
+      meta: { phaseEvidence: { capability: 'answerResolution', state: 'UNAVAILABLE' } }
+    })).toEqual(expect.objectContaining({
+      route: 'canonical', eventType: 'OBSERVER_HEALTH_OBSERVED',
+      typed: { kind: 'observation', state: 'unavailable' }
+    }));
   });
 
   test('fails closed when code introduces an event without registry metadata', () => {

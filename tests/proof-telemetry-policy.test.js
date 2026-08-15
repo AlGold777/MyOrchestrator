@@ -35,6 +35,26 @@ describe('proof telemetry evidence and policy replay', () => {
     expect(Policy.evidenceTier(ledger, ledger[ledger.length - 1])).toBe(4);
   });
 
+  test('derives V2 success from the composite decision without promoting producer terminal to tier 4', () => {
+    const ledger = ProofTelemetry.buildLedger([
+      evt('GENERATION_OBSERVED', 1000),
+      evt('OWNERSHIP_CONFIRMED', 1100),
+      evt('PRODUCER_TERMINAL', 1200),
+      evt('CONTENT_TERMINAL', 1300),
+      evt('TERMINAL_DECISION', 1400, { phaseEvidence: { terminalResult: { status: 'SUCCESS_TERMINAL' } } })
+    ], { runSessionId: 42 });
+    const axes = Policy.deriveAxes(ledger, ledger[ledger.length - 1]);
+    expect(Policy.evidenceTier(ledger, ledger[ledger.length - 1])).toBe(3);
+    expect(axes).toEqual(expect.objectContaining({
+      generationStart: 'started',
+      answerIdentity: 'current_dispatch',
+      observedGeneration: 'inactive',
+      answerCompleteness: 'probably_complete',
+      completionDetection: 'inferred_complete',
+      completionEvidenceTier: 3
+    }));
+  });
+
   test('does not promote generic completion and verification to tier 3', () => {
     const ledger = ProofTelemetry.buildLedger([
       evt('ANSWER_VERIFICATION_RECORDED', 1000, { verified: true }),

@@ -160,6 +160,8 @@
     , TIMEOUT_HARD: 'TIMEOUT_HARD'
     , TERMINAL_DECISION: 'TERMINAL_DECISION'
     , EXTRACTION_SNAPSHOT_CAPTURED: 'EXTRACTION_SNAPSHOT_CAPTURED'
+    , COMPLETION_SHADOW_DECISION: 'COMPLETION_SHADOW_DECISION'
+    , COMPLETION_CAPABILITY_HEALTH_CHANGED: 'OBSERVER_HEALTH_OBSERVED'
   });
 
   const RUNTIME_TYPED_FACTS = Object.freeze({
@@ -203,7 +205,7 @@
     , PRODUCER_ACTIVE: { kind: 'generation', state: 'active' }
     , PRODUCER_CANDIDATE: { kind: 'producer_state', state: 'candidate' }
     , PRODUCER_CANDIDATE_REVOKED: { kind: 'producer_state', state: 'active' }
-    , PRODUCER_TERMINAL: { kind: 'provider_terminal', state: 'completed' }
+    , PRODUCER_TERMINAL: { kind: 'producer_state', state: 'terminal' }
     , VETO_ACTIVATED: { kind: 'completion_veto', state: 'active' }
     , VETO_CLEARED: { kind: 'completion_veto', state: 'cleared' }
     , CONTENT_STABILITY_PASSED: { kind: 'text', state: 'stable' }
@@ -215,6 +217,7 @@
     , TIMEOUT_HARD: { kind: 'deadline', state: 'hard_timeout' }
     , TERMINAL_DECISION: { kind: 'completion_decision', state: 'recorded' }
     , EXTRACTION_SNAPSHOT_CAPTURED: { kind: 'extraction', state: 'completed', outcome: 'completed', mode: 'immutable_snapshot' }
+    , COMPLETION_SHADOW_DECISION: { kind: 'shadow_comparison', state: 'recorded' }
   });
 
   const OPERATIONAL_EVENT_PATTERN = /^(?:ADAPTIVE_PROBE_TICK|MANUAL_PING(?:_FAIL|_START|_RESULT)?|PING_(?:TRANSPORT_ERROR|RETRY|TICK)|ROUND4_GATE_WAIT|MODEL_RUN_TRANSITION|STATE_PROJECTION_COMMITTED|DETECTOR_TICK|SELECTOR_STATS|RECOVERY_BUDGET_(?:EXHAUSTED|CONSUMED|WAIT)|FOCUS_(?:WAIT|RETRY|CHECK)|LEASE_(?:WAIT|RETRY|CHECK)|POLL(?:ING)?_TICK|WATCHDOG_TICK)$/;
@@ -252,8 +255,19 @@
     if (pipelineStep) return pipelineStep;
     const dispatchStage = dispatchStageMapping(event, label);
     if (dispatchStage) return dispatchStage;
-    if (CANONICAL_EVENT_TYPES.has(label)) return { route: 'canonical', label, eventType: label };
+    if (label === 'COMPLETION_CAPABILITY_HEALTH_CHANGED') {
+      const state = String(event?.meta?.phaseEvidence?.state || '').toUpperCase();
+      return {
+        route: 'canonical', label, eventType: 'OBSERVER_HEALTH_OBSERVED',
+        typed: { kind: 'observation', state: state === 'HEALTHY' ? 'reliable' : state === 'UNAVAILABLE' ? 'unavailable' : 'degraded' }
+      };
+    }
+    if (label === 'TERMINAL_DECISION') {
+      const state = String(event?.meta?.phaseEvidence?.terminalResult?.status || event?.meta?.state || 'unknown').toLowerCase();
+      return { route: 'canonical', label, eventType: label, typed: { kind: 'completion_decision', state } };
+    }
     if (EVENT_MAP[label]) return { route: 'canonical', label, eventType: EVENT_MAP[label], typed: RUNTIME_TYPED_FACTS[label] || null };
+    if (CANONICAL_EVENT_TYPES.has(label)) return { route: 'canonical', label, eventType: label };
     if (OPERATIONAL_EVENT_PATTERN.test(label)) return { route: 'operational', label, eventType: 'OBSERVER_HEALTH_INTERVAL_CLOSED' };
     return { route: 'debug', label, eventType: null };
   }
@@ -261,7 +275,7 @@
   const INFERENCE_TYPES = new Set(['SUBMISSION_INFERRED', 'GENERATION_START_EVALUATED', 'CANDIDATE_IDENTITY_INFERRED', 'GENERATION_STATE_INFERRED', 'ANSWER_COMPLETENESS_EVALUATED', 'STRUCTURAL_VERIFICATION_EVALUATED', 'COMPLETION_HYPOTHESIS_EVALUATED']);
   const DECISION_TYPES = new Set(['FINALIZATION_POLICY_EVALUATED', 'POLICY_OVERRIDE_APPLIED', 'DECISION_RECORDED', 'DECISION_SUPERSEDED', 'MISSING_EVIDENCE_RECORDED']);
   const ACTION_TYPES = new Set(['MODEL_TERMINAL_RECORDED']);
-  const AUDIT_TYPES = new Set(['POST_TERMINAL_AUDIT_COMPLETED', 'SELECTOR_FORENSIC_SNAPSHOT_CAPTURED', 'REPLAY_VALIDATION_RECORDED', 'EXPORT_AUDIT_RECORDED']);
+  const AUDIT_TYPES = new Set(['POST_TERMINAL_AUDIT_COMPLETED', 'SELECTOR_FORENSIC_SNAPSHOT_CAPTURED', 'REPLAY_VALIDATION_RECORDED', 'EXPORT_AUDIT_RECORDED', 'COMPLETION_SHADOW_DECISION']);
   const SYSTEM_TYPES = new Set(['RUN_CONFIG_RECORDED', 'SELECTOR_CANARY_RESULT']);
   const CANONICAL_EVENT_TYPES = new Set([
     ...Object.values(EVENT_MAP),

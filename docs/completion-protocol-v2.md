@@ -20,4 +20,6 @@ Non-success состояния типизированы: `CONTINUE_REQUIRED`, `P
 
 Настройка `responseLifecycleDetectorSettings.completionProtocolV2` принимает `legacy`, `shadow`, `enforced`; migration default — `shadow`. В `shadow` отдельный migration-adapter сохраняет прежнюю доставку только для свежего, стабильного и corroborated candidate без active veto, а CompletionSession параллельно формирует V2 decision/delta. В `enforced` downstream принимает исключительно `SUCCESS_TERMINAL`. Weighted score остаётся только диагностикой и не принимается migration-adapter'ом.
 
+Переходы capability health для `generationSignal`, `producerControls`, `answerResolution` и `continueDetection` публикуются в canonical ledger как `OBSERVER_HEALTH_OBSERVED`; неизменившиеся состояния дедуплицируются. Shadow delta сохраняется отдельным canonical audit-событием `COMPLETION_SHADOW_DECISION`. Локальный `PRODUCER_TERMINAL` остаётся producer-state fact и не подменяет provider finish reason уровня Tier 4; полный V2 `SUCCESS_TERMINAL` даёт составное доказательство Tier 3.
+
 Сценарная regression matrix находится в `tests/completion-protocol-e2e.test.js` и фиксирует normal/long streaming, stalled partial, early controls, temporary Stop disappearance, delayed hydration/structure, length regression, node replacement, Continue, provider error, SPA navigation, cosmetic churn и immutable extraction race.

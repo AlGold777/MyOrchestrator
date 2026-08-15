@@ -75,6 +75,7 @@
     const scoped = scopedEvents(events, target);
     const entries = facts(scoped);
     if (entries.some(({ fact }) => fact.kind === 'provider_terminal' && fact.state === 'completed')) return 4;
+    if (entries.some(({ fact }) => fact.kind === 'completion_decision' && fact.state === 'success_terminal')) return 3;
     const strongTransition = entries.some(({ fact }) => fact.kind === 'generation_transition' && fact.strong === true);
     const currentIdentity = entries.some(({ fact }) => fact.kind === 'candidate_identity' && fact.state === 'current_dispatch');
     if (strongTransition && currentIdentity && observationReliability(scoped) === 'reliable') return 3;
@@ -90,6 +91,8 @@
   function evidenceTierDerivation(entries, scoped) {
     const providerTerminal = entries.find(({ fact }) => fact.kind === 'provider_terminal' && fact.state === 'completed');
     if (providerTerminal) return { value: 4, provenance: provenance(sourceLayer(providerTerminal, 'fact'), 'provider-terminal-completed', [providerTerminal]) };
+    const v2Success = [...entries].reverse().find(({ fact }) => fact.kind === 'completion_decision' && fact.state === 'success_terminal');
+    if (v2Success) return { value: 3, provenance: provenance('decision', 'completion-v2-success-conjunction', [v2Success]) };
     const strongTransition = entries.find(({ fact }) => fact.kind === 'generation_transition' && fact.strong === true);
     const currentIdentity = entries.find(({ fact }) => fact.kind === 'candidate_identity' && fact.state === 'current_dispatch');
     const reliability = observationReliabilityDerivation(entries, scoped);
@@ -141,6 +144,7 @@
     const latestSubmission = latestFact(entries, 'submission');
     const latestIdentity = latestFact(entries, 'candidate_identity');
     const latestGeneration = [...entries].reverse().find(({ fact }) => ['generation', 'generation_transition', 'terminal_action', 'text'].includes(fact.kind)) || null;
+    const latestProducer = latestFact(entries, 'producer_state');
     const latestVerification = latestFact(entries, 'verification');
     const latestExtraction = latestFact(entries, 'extraction');
     const deadline = entries.find(({ fact }) => fact.kind === 'deadline' && fact.state === 'reached') || null;
@@ -150,6 +154,8 @@
     const stable = entries.find(({ fact }) => fact.kind === 'text' && fact.state === 'stable') || null;
     const completionHypothesis = latestFact(entries, 'completion_hypothesis');
     const providerTerminal = latestFact(entries, 'provider_terminal');
+    const completionDecision = latestFact(entries, 'completion_decision');
+    const contentTerminal = [...entries].reverse().find(({ fact }) => fact.kind === 'answer_completeness' && fact.state === 'verified_complete') || null;
     const startFact = entries.find(({ fact }) => fact.kind === 'generation_start' && fact.state === 'started')
       || entries.find(({ fact }) => fact.kind === 'generation') || null;
     const started = Boolean(startFact);
@@ -170,6 +176,7 @@
     else if (started) set('answerIdentity', 'candidate', 'inference', 'generation-start-implies-candidate', [startFact]);
     else set('answerIdentity', 'none', 'audit', 'no-candidate-evidence', []);
     if (terminal) set('observedGeneration', 'inactive', 'decision', 'terminal-action-closes-generation', [terminal]);
+    else if (latestProducer?.fact.state === 'terminal') set('observedGeneration', 'inactive', sourceLayer(latestProducer, 'fact'), 'completion-v2-producer-terminal', [latestProducer]);
     else if (latestGeneration?.fact.state === 'provider_ui_completed') set('observedGeneration', 'inactive', sourceLayer(latestGeneration, 'fact'), 'provider-ui-completed', [latestGeneration]);
     else if (latestGeneration?.fact.state === 'active') set('observedGeneration', 'active', sourceLayer(latestGeneration, 'fact'), 'latest-generation-active', [latestGeneration]);
     else if (latestGeneration?.fact.state === 'stable') set('observedGeneration', 'quiescent', sourceLayer(latestGeneration, 'fact'), 'latest-generation-stable', [latestGeneration]);
@@ -179,7 +186,8 @@
     else if (latestGeneration?.fact.state === 'active') set('textEvolution', 'changing', sourceLayer(latestGeneration, 'fact'), 'active-generation-implies-changing-text', [latestGeneration]);
     else if (stable) set('textEvolution', 'stable', sourceLayer(stable, 'fact'), 'stable-text-observed', [stable]);
     else set('textEvolution', 'none', 'audit', 'no-text-evolution-evidence', []);
-    if (tier.value >= 3) set('answerCompleteness', 'probably_complete', 'inference', 'completion-evidence-tier-threshold', tier.provenance.basisEventIds.map((eventId) => scoped.find((event) => event.eventId === eventId)));
+    if (contentTerminal) set('answerCompleteness', 'probably_complete', sourceLayer(contentTerminal, 'fact'), 'completion-v2-content-terminal', [contentTerminal]);
+    else if (tier.value >= 3) set('answerCompleteness', 'probably_complete', 'inference', 'completion-evidence-tier-threshold', tier.provenance.basisEventIds.map((eventId) => scoped.find((event) => event.eventId === eventId)));
     else if (terminal) set('answerCompleteness', 'unknown', 'decision', 'terminal-without-completion-proof', [terminal, ...tier.provenance.basisEventIds.map((eventId) => scoped.find((event) => event.eventId === eventId))]);
     else set('answerCompleteness', 'not_evaluated', 'audit', 'completion-not-evaluable', tier.provenance.basisEventIds.map((eventId) => scoped.find((event) => event.eventId === eventId)));
     if (latestExtraction) set('extraction', latestExtraction.fact.state, sourceLayer(latestExtraction), 'latest-extraction-result', [latestExtraction]);
@@ -189,6 +197,8 @@
     else if (started) set('verification', 'pending', 'inference', 'generation-started-verification-pending', [startFact]);
     else set('verification', 'none', 'audit', 'no-verification-evidence', []);
     if (providerTerminal) set('completionDetection', 'provider_complete', sourceLayer(providerTerminal, 'fact'), 'provider-terminal-signal', [providerTerminal]);
+    else if (completionDecision?.fact.state === 'success_terminal') set('completionDetection', 'inferred_complete', 'decision', 'completion-v2-success-terminal', [completionDecision]);
+    else if (completionDecision) set('completionDetection', 'inconclusive', 'decision', 'completion-v2-non-success-terminal', [completionDecision]);
     else if (tier.value >= 3) set('completionDetection', 'inferred_complete', 'inference', 'completion-evidence-tier-threshold', tier.provenance.basisEventIds.map((eventId) => scoped.find((event) => event.eventId === eventId)));
     else if (completionHypothesis) set('completionDetection', 'probably_complete', sourceLayer(completionHypothesis, 'inference'), 'completion-hypothesis', [completionHypothesis]);
     else if (terminal) set('completionDetection', 'inconclusive', 'decision', 'terminal-without-completion-detection', [terminal]);

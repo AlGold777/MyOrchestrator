@@ -86,7 +86,7 @@
     "resolutionState": "unresolved",
     "reportMode": "standalone",
     "dependencyRegistryVersion": "6.7.0",
-    "dependencyRegistryHash": "sha256:7954b68b0903cab0d98a4eadd3cfe06df1e53b1745d0237bc9aeacc3b39d1ac7",
+    "dependencyRegistryHash": "sha256:024d84f2d5ee06d0c854d8fa6d77f5dea65c0dd67b658ef60dfe00858617998d",
     "limitations": []
   },
   "correlation": {
@@ -1819,7 +1819,7 @@
       "reason": null
     },
     "hashes": {
-      "artifact": "sha256:ab55e6bbfc0b57d3903f5c1e4706fcfc451a05bc4d1f67ec0b234fa5920b3ff0",
+      "artifact": "sha256:8c17ae943113d0dfe71e77307eafb3561edb0e9359e42f872f52daf126baeb0d",
       "semantic": "sha256:3c79d9e43e879b1dfaa68e2afecc921c58921a9c5e5efdadc15f405a372313a6"
     },
     "size": {

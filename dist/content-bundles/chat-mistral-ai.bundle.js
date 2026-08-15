@@ -437,7 +437,7 @@
 
 /* ==== shared/completion-protocol.js ==== */
 (function initCompletionProtocol(root, factory) {
-  const protocolVersion = '2.2.0';
+  const protocolVersion = '2.3.0';
   if (root?.CompletionProtocol?.version === protocolVersion) {
     if (typeof module === 'object' && module.exports) module.exports = root.CompletionProtocol;
     return;
@@ -604,7 +604,8 @@
   }
 
   class CompletionCapabilityHealth {
-    constructor(initial = {}) {
+    constructor(initial = {}, onTransition = null) {
+      this.onTransition = typeof onTransition === 'function' ? onTransition : null;
       this.states = {
         generationSignal: initial.generationSignal || 'UNAVAILABLE',
         producerControls: initial.producerControls || 'UNAVAILABLE',
@@ -615,7 +616,10 @@
     report(capability, state) {
       if (!Object.prototype.hasOwnProperty.call(this.states, capability)) throw new TypeError(`Unknown capability: ${capability}`);
       if (!['HEALTHY', 'DEGRADED', 'UNAVAILABLE'].includes(state)) throw new TypeError(`Unknown capability state: ${state}`);
+      const previousState = this.states[capability];
+      if (previousState === state) return state;
       this.states[capability] = state;
+      try { this.onTransition?.({ capability, previousState, state }); } catch (_) {}
       return state;
     }
     snapshot() { return freeze({ ...this.states }); }
@@ -782,7 +786,9 @@
         providerError: false, continueRequired: false, interrupted: false, contextLost: false
       };
       this.ownershipResult = null;
-      this.capabilityHealth = new CompletionCapabilityHealth(options.capabilityHealth);
+      this.capabilityHealth = new CompletionCapabilityHealth(options.capabilityHealth, (change) => {
+        this.emitTransition('COMPLETION_CAPABILITY_HEALTH_CHANGED', change);
+      });
       this.verifiedSnapshot = null;
       this.terminalResult = null;
       this.extractionSnapshot = null;
@@ -850,10 +856,16 @@
     confirmOwnership(result) {
       const previous = { ...this.facts, activeVetoes: this.facts.activeVetoes.slice() };
       const status = OWNERSHIP_STATES.includes(result?.status) ? result.status : 'UNKNOWN';
-      this.ownershipResult = freeze({ status, responseIdentity: result?.responseIdentity, reasons: Array.from(result?.reasons || []), verifiedAt: Number(result?.verifiedAt || Date.now()) });
+      const reasons = Array.from(result?.reasons || []);
+      const identityKey = JSON.stringify(result?.responseIdentity || null);
+      const priorKey = JSON.stringify(this.ownershipResult?.responseIdentity || null);
+      const changed = this.ownershipResult?.status !== status
+        || identityKey !== priorKey
+        || JSON.stringify(this.ownershipResult?.reasons || []) !== JSON.stringify(reasons);
+      this.ownershipResult = freeze({ status, responseIdentity: result?.responseIdentity, reasons, verifiedAt: Number(result?.verifiedAt || Date.now()) });
       this.facts.ownership = status;
       this.refreshVetoes();
-      this.emitTransition(`OWNERSHIP_${status}`, { ownershipStatus: status, reasons: this.ownershipResult.reasons });
+      if (changed) this.emitTransition(`OWNERSHIP_${status}`, { ownershipStatus: status, reasons: this.ownershipResult.reasons });
       this.emitFactTransitions(previous);
       return this.ownershipResult;
     }
@@ -26418,7 +26430,7 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
 
 /* ==== shared/completion-protocol.js ==== */
 (function initCompletionProtocol(root, factory) {
-  const protocolVersion = '2.2.0';
+  const protocolVersion = '2.3.0';
   if (root?.CompletionProtocol?.version === protocolVersion) {
     if (typeof module === 'object' && module.exports) module.exports = root.CompletionProtocol;
     return;
@@ -26585,7 +26597,8 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
   }
 
   class CompletionCapabilityHealth {
-    constructor(initial = {}) {
+    constructor(initial = {}, onTransition = null) {
+      this.onTransition = typeof onTransition === 'function' ? onTransition : null;
       this.states = {
         generationSignal: initial.generationSignal || 'UNAVAILABLE',
         producerControls: initial.producerControls || 'UNAVAILABLE',
@@ -26596,7 +26609,10 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
     report(capability, state) {
       if (!Object.prototype.hasOwnProperty.call(this.states, capability)) throw new TypeError(`Unknown capability: ${capability}`);
       if (!['HEALTHY', 'DEGRADED', 'UNAVAILABLE'].includes(state)) throw new TypeError(`Unknown capability state: ${state}`);
+      const previousState = this.states[capability];
+      if (previousState === state) return state;
       this.states[capability] = state;
+      try { this.onTransition?.({ capability, previousState, state }); } catch (_) {}
       return state;
     }
     snapshot() { return freeze({ ...this.states }); }
@@ -26763,7 +26779,9 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
         providerError: false, continueRequired: false, interrupted: false, contextLost: false
       };
       this.ownershipResult = null;
-      this.capabilityHealth = new CompletionCapabilityHealth(options.capabilityHealth);
+      this.capabilityHealth = new CompletionCapabilityHealth(options.capabilityHealth, (change) => {
+        this.emitTransition('COMPLETION_CAPABILITY_HEALTH_CHANGED', change);
+      });
       this.verifiedSnapshot = null;
       this.terminalResult = null;
       this.extractionSnapshot = null;
@@ -26831,10 +26849,16 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
     confirmOwnership(result) {
       const previous = { ...this.facts, activeVetoes: this.facts.activeVetoes.slice() };
       const status = OWNERSHIP_STATES.includes(result?.status) ? result.status : 'UNKNOWN';
-      this.ownershipResult = freeze({ status, responseIdentity: result?.responseIdentity, reasons: Array.from(result?.reasons || []), verifiedAt: Number(result?.verifiedAt || Date.now()) });
+      const reasons = Array.from(result?.reasons || []);
+      const identityKey = JSON.stringify(result?.responseIdentity || null);
+      const priorKey = JSON.stringify(this.ownershipResult?.responseIdentity || null);
+      const changed = this.ownershipResult?.status !== status
+        || identityKey !== priorKey
+        || JSON.stringify(this.ownershipResult?.reasons || []) !== JSON.stringify(reasons);
+      this.ownershipResult = freeze({ status, responseIdentity: result?.responseIdentity, reasons, verifiedAt: Number(result?.verifiedAt || Date.now()) });
       this.facts.ownership = status;
       this.refreshVetoes();
-      this.emitTransition(`OWNERSHIP_${status}`, { ownershipStatus: status, reasons: this.ownershipResult.reasons });
+      if (changed) this.emitTransition(`OWNERSHIP_${status}`, { ownershipStatus: status, reasons: this.ownershipResult.reasons });
       this.emitFactTransitions(previous);
       return this.ownershipResult;
     }

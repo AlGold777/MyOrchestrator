@@ -4,6 +4,7 @@ const vm = require('vm');
 const { webcrypto } = require('crypto');
 const { TextEncoder } = require('util');
 const ProofTelemetry = require('../shared/proof-oriented-telemetry.js');
+const Inventory = require('../shared/proof-telemetry-inventory.js');
 const { validateContainer, validateCanonicalEvidence } = require('../scripts/validate-proof-telemetry.js');
 
 const ROOT = path.join(__dirname, '..');
@@ -94,7 +95,7 @@ describe('telemetry export worker', () => {
     const container = JSON.parse(complete.json);
     expect(container.containerType).toBe('all-presets');
     expect(container.ledger.events).toHaveLength(events.length);
-    expect(container.sharedConfig.dependencyRegistry.eventInventoryVersion).toBe('1.0.0');
+    expect(container.sharedConfig.dependencyRegistry.eventInventoryVersion).toBe(Inventory.INVENTORY_VERSION);
     expect(container.exportAudit.completeness).toEqual(expect.objectContaining({
       snapshotCompleteness: 'queue_drained',
       runCompleteness: 'unknown',

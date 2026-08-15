@@ -36,6 +36,34 @@ describe('CompletionPolicy deterministic terminal contract', () => {
 });
 
 describe('Completion protocol components', () => {
+  test('capability health emits only state transitions', () => {
+    const transitions = [];
+    const session = new Protocol.CompletionSession(
+      { dispatchId: 'd', promptSubmittedAt: 1 },
+      { onTransition: (transition) => transitions.push(transition) }
+    );
+    session.capabilityHealth.report('answerResolution', 'DEGRADED');
+    session.capabilityHealth.report('answerResolution', 'DEGRADED');
+    session.capabilityHealth.report('answerResolution', 'HEALTHY');
+    expect(transitions.filter((item) => item.type === 'COMPLETION_CAPABILITY_HEALTH_CHANGED'))
+      .toEqual([
+        expect.objectContaining({ capability: 'answerResolution', previousState: 'UNAVAILABLE', state: 'DEGRADED' }),
+        expect.objectContaining({ capability: 'answerResolution', previousState: 'DEGRADED', state: 'HEALTHY' })
+      ]);
+  });
+
+  test('unchanged ownership does not flood transition telemetry', () => {
+    const transitions = [];
+    const session = new Protocol.CompletionSession(
+      { dispatchId: 'd', promptSubmittedAt: 1 },
+      { onTransition: (transition) => transitions.push(transition) }
+    );
+    const ownership = { status: 'CONFIRMED', responseIdentity: { nodeKey: 'n1' }, reasons: ['fresh'] };
+    session.confirmOwnership(ownership);
+    session.confirmOwnership(ownership);
+    expect(transitions.filter((item) => item.type === 'OWNERSHIP_CONFIRMED')).toHaveLength(1);
+  });
+
   test('ledger is ordered, immutable and append-only', () => {
     const ledger = new Protocol.EvidenceLedger();
     const first = ledger.append({ type: 'GENERATION_ACTIVE', source: 'test', observedAt: 1, payload: {} });

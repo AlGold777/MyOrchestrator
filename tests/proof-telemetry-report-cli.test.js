@@ -111,6 +111,10 @@ describe('offline proof telemetry report CLI', () => {
     ), 'utf8'));
     source.sharedConfig.generatorVersion = 'proof-export@2.6.0';
     source.exportAudit.hashes.sharedConfig = await ProofTelemetry.sha256(source.sharedConfig);
+    source.exportAudit.hashes.container = `sha256:${'0'.repeat(64)}`;
+    for (let pass = 0; pass < 3; pass += 1) {
+      source.exportAudit.budget.measuredBytes = Buffer.byteLength(JSON.stringify(source));
+    }
     delete source.exportAudit.hashes.container;
     source.exportAudit.hashes.container = await ProofTelemetry.sha256(source);
     const filename = path.join(directory, 'historical-all-presets.json');

@@ -80,7 +80,7 @@
     },
     "reportMode": "standalone",
     "dependencyRegistryVersion": "6.7.0",
-    "dependencyRegistryHash": "sha256:7954b68b0903cab0d98a4eadd3cfe06df1e53b1745d0237bc9aeacc3b39d1ac7",
+    "dependencyRegistryHash": "sha256:024d84f2d5ee06d0c854d8fa6d77f5dea65c0dd67b658ef60dfe00858617998d",
     "limitations": []
   },
   "correlation": {
@@ -1792,7 +1792,7 @@
       "reason": null
     },
     "hashes": {
-      "artifact": "sha256:2be9c02a1bdc0ed549d1258ec8b68326e751e3b4f45fb58e38e83980031172fa",
+      "artifact": "sha256:71b1fe5b9c01c1faeab6f945b5f30f740913aa18787e3538c5201fb0679a69ab",
       "semantic": "sha256:e1322ccbb3fc6ff9bea0d058083549402f6c046c75b32d3e4f636cc3050d17f6"
     },
     "size": {

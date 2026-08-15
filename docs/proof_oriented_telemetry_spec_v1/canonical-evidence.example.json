@@ -52,11 +52,11 @@
   },
   "dependencyRegistry": {
     "registryVersion": "6.7.0",
-    "eventInventoryVersion": "1.1.0",
+    "eventInventoryVersion": "1.2.0",
     "eventRegistry": {
       "ATTEMPT_CONTEXT_CAPTURED": {
         "eventType": "ATTEMPT_CONTEXT_CAPTURED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -109,7 +109,7 @@
       },
       "ANSWER_CARD_RENDER_EVALUATED": {
         "eventType": "ANSWER_CARD_RENDER_EVALUATED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -163,7 +163,7 @@
       },
       "ANSWER_COMMIT_EVALUATED": {
         "eventType": "ANSWER_COMMIT_EVALUATED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -217,7 +217,7 @@
       },
       "ANSWER_COMPLETENESS_EVALUATED": {
         "eventType": "ANSWER_COMPLETENESS_EVALUATED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "inference",
         "producers": [
           "proof-telemetry-policy",
@@ -272,7 +272,7 @@
       },
       "ANSWER_DELIVERY_ACKNOWLEDGED": {
         "eventType": "ANSWER_DELIVERY_ACKNOWLEDGED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -326,7 +326,7 @@
       },
       "ANSWER_DELIVERY_REJECTED": {
         "eventType": "ANSWER_DELIVERY_REJECTED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -380,7 +380,7 @@
       },
       "ANSWER_SOURCE_MATERIALIZED": {
         "eventType": "ANSWER_SOURCE_MATERIALIZED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -435,7 +435,7 @@
       },
       "CANDIDATE_IDENTITY_INFERRED": {
         "eventType": "CANDIDATE_IDENTITY_INFERRED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "inference",
         "producers": [
           "proof-telemetry-policy",
@@ -491,7 +491,7 @@
       },
       "CANDIDATE_SET_CHANGED": {
         "eventType": "CANDIDATE_SET_CHANGED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -547,7 +547,7 @@
       },
       "CONTENT_MATERIALIZATION_CHANGED": {
         "eventType": "CONTENT_MATERIALIZATION_CHANGED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -600,7 +600,7 @@
       },
       "CONTENT_STABILITY_PASSED": {
         "eventType": "CONTENT_STABILITY_PASSED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -653,7 +653,7 @@
       },
       "CONTENT_STABILITY_RESET": {
         "eventType": "CONTENT_STABILITY_RESET",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -706,7 +706,7 @@
       },
       "CONTENT_TERMINAL": {
         "eventType": "CONTENT_TERMINAL",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -759,7 +759,7 @@
       },
       "COMPLETION_HYPOTHESIS_EVALUATED": {
         "eventType": "COMPLETION_HYPOTHESIS_EVALUATED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "inference",
         "producers": [
           "proof-telemetry-policy",
@@ -812,9 +812,62 @@
           "report:late-end"
         ]
       },
+      "COMPLETION_SHADOW_DECISION": {
+        "eventType": "COMPLETION_SHADOW_DECISION",
+        "contractVersion": "1.2.0",
+        "layer": "audit",
+        "producers": [
+          "proof-telemetry-audit",
+          "export-validator"
+        ],
+        "requiredEnvelopeFields": [
+          "schemaVersion",
+          "eventId",
+          "eventType",
+          "layer",
+          "seq",
+          "wallTs",
+          "runSessionId",
+          "producer",
+          "payload"
+        ],
+        "identity": {
+          "modelScoped": true,
+          "requiredFields": [
+            "runSessionId",
+            "modelId"
+          ],
+          "incidentDiscriminatorFields": [
+            "dispatchId",
+            "generationEpoch",
+            "documentInstanceId",
+            "navigationEpoch"
+          ]
+        },
+        "recipients": [
+          "proof-ledger",
+          "all-presets-json",
+          "standalone-report",
+          "canonical-evidence"
+        ],
+        "sampling": {
+          "mode": "none",
+          "lossPolicy": "lossless"
+        },
+        "retention": {
+          "criticality": "required",
+          "canonical": "bounded-with-explicit-omission",
+          "legacyParallelStream": "not-required"
+        },
+        "consumers": [
+          "incident-timeline",
+          "model-timeline",
+          "telemetry-validator"
+        ]
+      },
       "DECISION_RECORDED": {
         "eventType": "DECISION_RECORDED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "decision",
         "producers": [
           "proof-telemetry-policy",
@@ -870,7 +923,7 @@
       },
       "DECISION_SUPERSEDED": {
         "eventType": "DECISION_SUPERSEDED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "decision",
         "producers": [
           "proof-telemetry-policy",
@@ -923,7 +976,7 @@
       },
       "DISPATCH_BASELINE_CAPTURED": {
         "eventType": "DISPATCH_BASELINE_CAPTURED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -979,7 +1032,7 @@
       },
       "DISPATCH_STAGE_OBSERVED": {
         "eventType": "DISPATCH_STAGE_OBSERVED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -1032,7 +1085,7 @@
       },
       "EXPORT_AUDIT_RECORDED": {
         "eventType": "EXPORT_AUDIT_RECORDED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "audit",
         "producers": [
           "proof-telemetry-audit",
@@ -1079,7 +1132,7 @@
       },
       "EXTRACTION_ATTEMPTED": {
         "eventType": "EXTRACTION_ATTEMPTED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -1133,7 +1186,7 @@
       },
       "EXTRACTION_COMPLETED": {
         "eventType": "EXTRACTION_COMPLETED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -1190,7 +1243,7 @@
       },
       "EXTRACTION_SNAPSHOT_CAPTURED": {
         "eventType": "EXTRACTION_SNAPSHOT_CAPTURED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -1243,7 +1296,7 @@
       },
       "FINALIZATION_POLICY_EVALUATED": {
         "eventType": "FINALIZATION_POLICY_EVALUATED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "decision",
         "producers": [
           "proof-telemetry-policy",
@@ -1299,7 +1352,7 @@
       },
       "GENERATION_SIGNAL_CHANGED": {
         "eventType": "GENERATION_SIGNAL_CHANGED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -1354,7 +1407,7 @@
       },
       "GENERATION_OBSERVED": {
         "eventType": "GENERATION_OBSERVED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -1407,7 +1460,7 @@
       },
       "GENERATION_START_EVALUATED": {
         "eventType": "GENERATION_START_EVALUATED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "inference",
         "producers": [
           "proof-telemetry-policy",
@@ -1460,7 +1513,7 @@
       },
       "GENERATION_STATE_INFERRED": {
         "eventType": "GENERATION_STATE_INFERRED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "inference",
         "producers": [
           "proof-telemetry-policy",
@@ -1513,7 +1566,7 @@
       },
       "MISSING_EVIDENCE_RECORDED": {
         "eventType": "MISSING_EVIDENCE_RECORDED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "decision",
         "producers": [
           "proof-telemetry-audit",
@@ -1571,7 +1624,7 @@
       },
       "MODEL_TERMINAL_RECORDED": {
         "eventType": "MODEL_TERMINAL_RECORDED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "action",
         "producers": [
           "proof-telemetry-ledger",
@@ -1629,7 +1682,7 @@
       },
       "OBSERVATION_FRAME_CAPTURED": {
         "eventType": "OBSERVATION_FRAME_CAPTURED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -1687,7 +1740,7 @@
       },
       "OBSERVATION_INTERVAL_CLOSED": {
         "eventType": "OBSERVATION_INTERVAL_CLOSED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -1743,7 +1796,7 @@
       },
       "OBSERVATION_SLOT_DENIED": {
         "eventType": "OBSERVATION_SLOT_DENIED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -1799,7 +1852,7 @@
       },
       "OBSERVATION_SLOT_GRANTED": {
         "eventType": "OBSERVATION_SLOT_GRANTED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -1852,7 +1905,7 @@
       },
       "OBSERVATION_SLOT_RELEASED": {
         "eventType": "OBSERVATION_SLOT_RELEASED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -1905,7 +1958,7 @@
       },
       "OBSERVER_HEALTH_INTERVAL_CLOSED": {
         "eventType": "OBSERVER_HEALTH_INTERVAL_CLOSED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -1962,7 +2015,7 @@
       },
       "OBSERVER_HEALTH_OBSERVED": {
         "eventType": "OBSERVER_HEALTH_OBSERVED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -2019,7 +2072,7 @@
       },
       "PAGE_CONTEXT_OBSERVED": {
         "eventType": "PAGE_CONTEXT_OBSERVED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -2074,7 +2127,7 @@
       },
       "PAGE_HEALTH_OBSERVED": {
         "eventType": "PAGE_HEALTH_OBSERVED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -2129,7 +2182,7 @@
       },
       "OWNERSHIP_CONFIRMED": {
         "eventType": "OWNERSHIP_CONFIRMED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "inference",
         "producers": [
           "proof-telemetry-policy",
@@ -2182,7 +2235,7 @@
       },
       "OWNERSHIP_CONFLICT": {
         "eventType": "OWNERSHIP_CONFLICT",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "inference",
         "producers": [
           "proof-telemetry-policy",
@@ -2235,7 +2288,7 @@
       },
       "OWNERSHIP_UNKNOWN": {
         "eventType": "OWNERSHIP_UNKNOWN",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "inference",
         "producers": [
           "proof-telemetry-policy",
@@ -2288,7 +2341,7 @@
       },
       "POLICY_OVERRIDE_APPLIED": {
         "eventType": "POLICY_OVERRIDE_APPLIED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "decision",
         "producers": [
           "proof-telemetry-policy",
@@ -2343,7 +2396,7 @@
       },
       "POST_TERMINAL_AUDIT_COMPLETED": {
         "eventType": "POST_TERMINAL_AUDIT_COMPLETED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "audit",
         "producers": [
           "proof-telemetry-audit",
@@ -2400,7 +2453,7 @@
       },
       "PRODUCER_ACTIVE": {
         "eventType": "PRODUCER_ACTIVE",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -2453,7 +2506,7 @@
       },
       "PRODUCER_CANDIDATE": {
         "eventType": "PRODUCER_CANDIDATE",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -2506,7 +2559,7 @@
       },
       "PRODUCER_CANDIDATE_REVOKED": {
         "eventType": "PRODUCER_CANDIDATE_REVOKED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -2559,7 +2612,7 @@
       },
       "PRODUCER_TERMINAL": {
         "eventType": "PRODUCER_TERMINAL",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -2612,7 +2665,7 @@
       },
       "PROMPT_INSERTION_EVALUATED": {
         "eventType": "PROMPT_INSERTION_EVALUATED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -2666,7 +2719,7 @@
       },
       "REPLAY_VALIDATION_RECORDED": {
         "eventType": "REPLAY_VALIDATION_RECORDED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "audit",
         "producers": [
           "proof-telemetry-audit",
@@ -2719,7 +2772,7 @@
       },
       "RUN_CONFIG_RECORDED": {
         "eventType": "RUN_CONFIG_RECORDED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "system",
         "producers": [
           "proof-telemetry-ledger"
@@ -2765,7 +2818,7 @@
       },
       "SELECTOR_CANARY_RESULT": {
         "eventType": "SELECTOR_CANARY_RESULT",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "system",
         "producers": [
           "proof-telemetry-ledger"
@@ -2811,7 +2864,7 @@
       },
       "SELECTOR_FORENSIC_SNAPSHOT_CAPTURED": {
         "eventType": "SELECTOR_FORENSIC_SNAPSHOT_CAPTURED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "audit",
         "producers": [
           "proof-telemetry-audit",
@@ -2864,7 +2917,7 @@
       },
       "STABILITY_INTERVAL_CLOSED": {
         "eventType": "STABILITY_INTERVAL_CLOSED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -2918,7 +2971,7 @@
       },
       "STRUCTURAL_VERIFICATION_EVALUATED": {
         "eventType": "STRUCTURAL_VERIFICATION_EVALUATED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "inference",
         "producers": [
           "proof-telemetry-policy",
@@ -2973,7 +3026,7 @@
       },
       "SUBMISSION_EVIDENCE_CHANGED": {
         "eventType": "SUBMISSION_EVIDENCE_CHANGED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -3028,7 +3081,7 @@
       },
       "SUBMISSION_INFERRED": {
         "eventType": "SUBMISSION_INFERRED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "inference",
         "producers": [
           "proof-telemetry-policy",
@@ -3083,7 +3136,7 @@
       },
       "SUBMIT_ACTION_OBSERVED": {
         "eventType": "SUBMIT_ACTION_OBSERVED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -3137,7 +3190,7 @@
       },
       "TERMINAL_DECISION": {
         "eventType": "TERMINAL_DECISION",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "decision",
         "producers": [
           "proof-telemetry-policy",
@@ -3190,7 +3243,7 @@
       },
       "TERMINAL_DEADLINE_REACHED": {
         "eventType": "TERMINAL_DEADLINE_REACHED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -3245,7 +3298,7 @@
       },
       "TEXT_STATE_CHANGED": {
         "eventType": "TEXT_STATE_CHANGED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -3302,7 +3355,7 @@
       },
       "TIMEOUT_HARD": {
         "eventType": "TIMEOUT_HARD",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -3355,7 +3408,7 @@
       },
       "TIMEOUT_PRODUCER_STUCK": {
         "eventType": "TIMEOUT_PRODUCER_STUCK",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -3408,7 +3461,7 @@
       },
       "TIMEOUT_PROGRESS": {
         "eventType": "TIMEOUT_PROGRESS",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -3461,7 +3514,7 @@
       },
       "VETO_ACTIVATED": {
         "eventType": "VETO_ACTIVATED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -3514,7 +3567,7 @@
       },
       "VETO_CLEARED": {
         "eventType": "VETO_CLEARED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -3567,7 +3620,7 @@
       },
       "WITNESS_OBSERVED": {
         "eventType": "WITNESS_OBSERVED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -3620,7 +3673,7 @@
       },
       "USER_FOCUS_OBSERVED": {
         "eventType": "USER_FOCUS_OBSERVED",
-        "contractVersion": "1.1.0",
+        "contractVersion": "1.2.0",
         "layer": "fact",
         "producers": [
           "runtime-observer",
@@ -5992,13 +6045,13 @@
   "integrity": {
     "hashes": {
       "ledger": "sha256:52467e42ace02ebb58402e58faed81f2f8e16e8df04d9a30db10f30e55582c1f",
-      "registry": "sha256:7954b68b0903cab0d98a4eadd3cfe06df1e53b1745d0237bc9aeacc3b39d1ac7",
+      "registry": "sha256:024d84f2d5ee06d0c854d8fa6d77f5dea65c0dd67b658ef60dfe00858617998d",
       "attachments": "sha256:b1968c832915f5cdc3320b65fc5ad56f2c9f3a9d20eaa0919b749ad664b9c18a",
       "readerGuidance": "sha256:55a0e2506c3ddcf6d0a57be946312816e086a30dedaf56719f89bbfd82cc8a5b",
-      "artifact": "sha256:25dfa02a1814073a5f3730f0850b7a7f69388ad4ded160fe29ce7deb01bef869"
+      "artifact": "sha256:bee7f22426ecd67a6d3f91aa5e1c3d1d514c88302e65d50d779ac7f34f38e2aa"
     },
     "size": {
-      "measuredBytes": 95613
+      "measuredBytes": 96422
     },
     "schemaValidation": {
       "valid": true,
