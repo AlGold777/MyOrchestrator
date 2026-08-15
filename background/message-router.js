@@ -18,6 +18,7 @@ const geminiAttachmentFlightsByTab = new Map();
 const qwenAttachmentFlightsByTab = new Map();
 const providerAttachmentFlightsByTab = new Map();
 const debuggerSessionQueuesByTab = new Map();
+const completionAuthorityAttempts = new Map();
 
 function withManagedDebuggerSession(tabId, label, operation) {
     if (!Number.isInteger(tabId) || tabId <= 0) return Promise.reject(new Error('invalid_tab'));
@@ -1033,6 +1034,43 @@ const validateLifecycleCorrelation = (llmName, message, messageType) => {
     return { ok: true, expectedDispatchId, incomingDispatchId, expectedRunSessionId, incomingRunSessionId };
 };
 
+const completionAuthorityKey = (llmName) => String(llmName || '').trim();
+
+const recordCompletionAuthorityAttempt = (llmName, meta = {}) => {
+    const key = completionAuthorityKey(llmName);
+    if (!key) return null;
+    const previous = completionAuthorityAttempts.get(key) || {};
+    const next = {
+        ...previous,
+        runSessionId: meta.runSessionId || meta.sessionId || previous.runSessionId || null,
+        dispatchId: meta.dispatchId || previous.dispatchId || null,
+        generationEpoch: meta.generationEpoch ?? previous.generationEpoch ?? null,
+        rolloutMode: ['legacy', 'shadow', 'enforced'].includes(meta.rolloutMode) ? meta.rolloutMode : (previous.rolloutMode || 'enforced'),
+        protocolVersion: meta.protocolVersion || previous.protocolVersion || null,
+        terminalResult: meta.terminalResult || previous.terminalResult || null,
+        updatedAt: Date.now()
+    };
+    completionAuthorityAttempts.set(key, next);
+    return next;
+};
+
+const validateCompletionAuthorityDelivery = (llmName, message = {}) => {
+    if (message.error || !String(message.answer || '').trim()) return { ok: true, reason: 'non_success_payload' };
+    const meta = message.meta && typeof message.meta === 'object' ? message.meta : {};
+    const authority = completionAuthorityAttempts.get(completionAuthorityKey(llmName)) || null;
+    const incomingDispatchId = meta.dispatchId || null;
+    if (!authority) return { ok: false, reason: 'completion_attempt_unregistered' };
+    if (authority.dispatchId && incomingDispatchId && String(authority.dispatchId) !== String(incomingDispatchId)) {
+        return { ok: false, reason: 'completion_authority_dispatch_mismatch' };
+    }
+    const rolloutMode = meta.completionRolloutMode || authority.rolloutMode || 'enforced';
+    if (rolloutMode === 'legacy' || rolloutMode === 'shadow') return { ok: true, reason: `${rolloutMode}_delivery` };
+    const terminalResult = meta.completionTerminalResult || meta.terminalResult || authority.terminalResult || null;
+    return terminalResult?.status === 'SUCCESS_TERMINAL'
+        ? { ok: true, reason: 'success_terminal_authority' }
+        : { ok: false, reason: 'missing_success_terminal_authority' };
+};
+
 const PERPLEXITY_TRANSIENT_BLOCKER_KIND = 'file_upload_paywall';
 const PERPLEXITY_TRANSIENT_BLOCKER_TTL_MS = 120000;
 const PERPLEXITY_TRANSIENT_BLOCKER_ALARM_PREFIX = 'perplexity-transient-blocker-expiry:';
@@ -1831,6 +1869,57 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 break;
             }
 
+            case 'LLM_COMPLETION_ATTEMPT': {
+                const senderGate = validateLifecycleSender(message.llmName, sender, 'LLM_COMPLETION_ATTEMPT', message.meta || {});
+                if (!senderGate.ok) {
+                    sendResponse({ status: 'completion_attempt_rejected', reason: senderGate.reason });
+                    break;
+                }
+                const correlationGate = validateLifecycleCorrelation(message.llmName, message, 'LLM_COMPLETION_ATTEMPT');
+                if (!correlationGate.ok) {
+                    sendResponse({ status: 'completion_attempt_rejected', reason: correlationGate.reason });
+                    break;
+                }
+                const authority = recordCompletionAuthorityAttempt(message.llmName, message.meta || {});
+                sendResponse({ status: 'completion_attempt_recorded', rolloutMode: authority?.rolloutMode || null });
+                break;
+            }
+
+            case 'LLM_COMPLETION_TERMINAL': {
+                const senderGate = validateLifecycleSender(message.llmName, sender, 'LLM_COMPLETION_TERMINAL', message.meta || {});
+                if (!senderGate.ok) {
+                    sendResponse({ status: 'completion_terminal_rejected', reason: senderGate.reason });
+                    break;
+                }
+                const correlationGate = validateLifecycleCorrelation(message.llmName, message, 'LLM_COMPLETION_TERMINAL');
+                if (!correlationGate.ok) {
+                    sendResponse({ status: 'completion_terminal_rejected', reason: correlationGate.reason });
+                    break;
+                }
+                const authority = recordCompletionAuthorityAttempt(message.llmName, message.meta || {});
+                const terminalResult = authority?.terminalResult || null;
+                if (terminalResult && terminalResult.status !== 'SUCCESS_TERMINAL' && !isTerminalRouterEntry(jobState?.llms?.[message.llmName])) {
+                    const errorType = ({
+                        CONTINUE_REQUIRED: 'continue_required',
+                        PROVIDER_ERROR: 'provider_error',
+                        INTERRUPTED: 'interrupted',
+                        STALLED: 'stream_start_timeout',
+                        AMBIGUOUS: 'uncertain',
+                        CONTEXT_LOST: 'uncertain'
+                    })[terminalResult.status] || 'uncertain';
+                    handleLLMResponse(message.llmName, '', {
+                        type: errorType,
+                        message: terminalResult.reason || terminalResult.status
+                    }, {
+                        ...(message.meta || {}),
+                        completionTerminalResult: terminalResult,
+                        completionRolloutMode: authority.rolloutMode
+                    }, '');
+                }
+                sendResponse({ status: 'completion_terminal_recorded', terminalStatus: terminalResult?.status || null });
+                break;
+            }
+
             case 'LLM_RESPONSE': {
                 const senderGate = validateLifecycleSender(message.llmName, sender, 'LLM_RESPONSE');
                 if (!senderGate.ok) {
@@ -1840,6 +1929,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 const correlationGate = validateLifecycleCorrelation(message.llmName, message, 'LLM_RESPONSE');
                 if (!correlationGate.ok) {
                     sendResponse({ status: 'response_rejected', reason: correlationGate.reason });
+                    break;
+                }
+                const authorityGate = sender?.tab?.id
+                    ? validateCompletionAuthorityDelivery(message.llmName, message)
+                    : { ok: true, reason: 'trusted_extension_page_sender' };
+                if (!authorityGate.ok) {
+                    emitTelemetry(message.llmName, 'ANSWER_DELIVERY_REJECTED', {
+                        level: 'warning', details: authorityGate.reason,
+                        meta: { ...(message.meta || {}), messageType: 'LLM_RESPONSE' }, force: true
+                    });
+                    sendResponse({ status: 'response_rejected', reason: authorityGate.reason });
                     break;
                 }
                 if (message.llmName === 'Perplexity'
@@ -1879,6 +1979,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 const correlationGate = validateLifecycleCorrelation(message.llmName, message, 'FINAL_LLM_RESPONSE');
                 if (!correlationGate.ok) {
                     sendResponse({ status: 'final_response_rejected', reason: correlationGate.reason });
+                    break;
+                }
+                const authorityGate = sender?.tab?.id
+                    ? validateCompletionAuthorityDelivery(message.llmName, message)
+                    : { ok: true, reason: 'trusted_extension_page_sender' };
+                if (!authorityGate.ok) {
+                    emitTelemetry(message.llmName, 'ANSWER_DELIVERY_REJECTED', {
+                        level: 'warning', details: authorityGate.reason,
+                        meta: { ...(message.meta || {}), messageType: 'FINAL_LLM_RESPONSE' }, force: true
+                    });
+                    sendResponse({ status: 'final_response_rejected', reason: authorityGate.reason });
                     break;
                 }
                 if (message.llmName === 'Perplexity'

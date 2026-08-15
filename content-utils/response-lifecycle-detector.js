@@ -1009,6 +1009,22 @@
         facts: tracker.completionSession ? { ...tracker.completionSession.facts } : null
       }
     });
+    if (transition.type === 'TERMINAL_DECISION' && transition.terminalResult) {
+      try {
+        chrome.runtime.sendMessage({
+          type: 'LLM_COMPLETION_TERMINAL',
+          llmName: tracker.modelName,
+          meta: {
+            runSessionId: tracker.runSessionId,
+            dispatchId: tracker.dispatchId,
+            generationEpoch: tracker.generationEpoch,
+            rolloutMode: tracker.completionSession?.rolloutMode || 'enforced',
+            protocolVersion: CompletionProtocol?.version || null,
+            terminalResult: transition.terminalResult
+          }
+        });
+      } catch (_) {}
+    }
   }
 
   function commitCompletionResult(tracker, result) {
@@ -1790,6 +1806,19 @@
       },
       onTransition: (transition) => emitCompletionTransition(tracker, transition)
     });
+    try {
+      chrome.runtime.sendMessage({
+        type: 'LLM_COMPLETION_ATTEMPT',
+        llmName: modelName,
+        meta: {
+          runSessionId: tracker.runSessionId,
+          dispatchId: tracker.dispatchId,
+          generationEpoch: tracker.generationEpoch,
+          rolloutMode: tracker.completionSession.rolloutMode,
+          protocolVersion: CompletionProtocol?.version || null
+        }
+      });
+    } catch (_) {}
     emitLifecycleTelemetry('ATTEMPT_CONTEXT_CAPTURED', {
       modelName,
       state: tracker.state,

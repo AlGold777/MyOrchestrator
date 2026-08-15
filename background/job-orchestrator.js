@@ -7035,7 +7035,7 @@ function deriveFailureFinalStatus(error = null, sendConfirmed = null, failure = 
   const failureClass = String(failure?.class || '').toLowerCase();
   const reason = String(error?.message || failure?.reason || '').toLowerCase();
   const haystack = [type, failureClass, reason].filter(Boolean).join(' ');
-  if (/auth_required|login|required_login|captcha|wrong_page|conversation_limit|unsafe_prompt_modal|attachment_failed|attachment_unavailable/.test(haystack)) return 'USER_ACTION_REQUIRED';
+  if (/auth_required|continue_required|login|required_login|captcha|wrong_page|conversation_limit|unsafe_prompt_modal|attachment_failed|attachment_unavailable/.test(haystack)) return 'USER_ACTION_REQUIRED';
   if (/provider_error|provider_error_surface|model_unavailable|rate_limit|rate limited|external_llm|external llm|api_failed|overload|overloaded|high_demand|unable_to_respond/.test(haystack)) return 'EXTERNAL_LLM_FAILURE';
   if (sendConfirmed === false) return 'NO_SEND';
   if (['send_failed', 'send_payload_mismatch', 'send_payload_unverified', 'no_send'].includes(type)) return 'NO_SEND';

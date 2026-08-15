@@ -992,6 +992,13 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
         extractionSnapshot: authoritySnapshot,
         completionRolloutMode: this.state.answerResult?.rolloutMode || 'enforced',
         legacyCompletionDecision: this.state.answerResult?.legacyDecision || null,
+        metadata: {
+          completionTerminalResult: this.state.answerResult?.terminalResult || null,
+          extractionSnapshot: authoritySnapshot,
+          completionRolloutMode: this.state.answerResult?.rolloutMode || 'enforced',
+          legacyCompletionDecision: this.state.answerResult?.legacyDecision || null,
+          answerVerification: this.lastAnswerVerification || null
+        },
         runResult: runResult ? runResult.serialize() : null
       };
       this.telemetry.logPhase('finalization_done', { duration, sanityCheck, selectorTier });

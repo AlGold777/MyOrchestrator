@@ -6445,6 +6445,12 @@ Backlog `what-to-do.md`, батч 1 (UI + Финализация).
 - Streaming требует `SUCCESS_TERMINAL`: удачный scroll больше не компенсирует failed completion. Finalization использует immutable extraction snapshot и не перечитывает live DOM после terminal verification.
 - Background принимает `LLM_RESPONSE_READY` только с typed `SUCCESS_TERMINAL`; добавлены capability health, recovery reconciliation, fact-level/shadow telemetry и mapping в статусы `FinalizationController`.
 - Обновлены regression contracts старых heuristic tests; добавлены проверки truth-table, hydration reset, immutable extraction и streaming OR-gate.
+# 2.81.338 — End-to-end terminal authority gate
+
+- Lifecycle регистрирует completion attempt и typed terminal result в background; `LLM_RESPONSE`, `FINAL_LLM_RESPONSE` и `LLM_RESPONSE_READY` теперь используют одну authority boundary.
+- Provider-specific fallback watcher больше не может опубликовать SUCCESS в `enforced` без `SUCCESS_TERMINAL`; `shadow/legacy` остаются явным migration exception.
+- Typed non-success terminal немедленно маппится в существующую finalization taxonomy, включая `CONTINUE_REQUIRED → USER_ACTION_REQUIRED`.
+
 # 2.81.337 — Functional Completion rollout
 
 - `legacy`, `shadow`, `enforced` теперь реально меняют delivery policy; migration default переведён в `shadow` до завершения provider smoke matrix.

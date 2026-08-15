@@ -261,9 +261,57 @@ describe('lifecycle sender gate', () => {
     expect(rejected?.status).toBe('response_rejected');
     expect(context.handleLLMResponse).not.toHaveBeenCalled();
 
-    const accepted = await sendMessage({ type: 'LLM_RESPONSE', llmName: 'GPT', answer: 'real text', meta: META }, BOUND_SENDER);
+    await sendMessage({
+      type: 'LLM_COMPLETION_ATTEMPT', llmName: 'GPT',
+      meta: { ...META, terminalResult: null, rolloutMode: 'enforced', protocolVersion: '2.1.0' }
+    }, BOUND_SENDER);
+    const acceptedMeta = { ...META, completionTerminalResult: META.terminalResult, completionRolloutMode: 'enforced' };
+    const accepted = await sendMessage({ type: 'LLM_RESPONSE', llmName: 'GPT', answer: 'real text', meta: acceptedMeta }, BOUND_SENDER);
     expect(accepted?.status).toBe('response_handled');
-    expect(context.handleLLMResponse).toHaveBeenCalledWith('GPT', 'real text', null, META, '');
+    expect(context.handleLLMResponse).toHaveBeenCalledWith('GPT', 'real text', null, acceptedMeta, '');
+  });
+
+  test('enforced completion authority rejects a legacy success without SUCCESS_TERMINAL', async () => {
+    const { context, sendMessage } = createRouterSandbox();
+    await sendMessage({
+      type: 'LLM_COMPLETION_ATTEMPT', llmName: 'GPT',
+      meta: { ...META, terminalResult: null, rolloutMode: 'enforced', protocolVersion: '2.1.0' }
+    }, BOUND_SENDER);
+    const response = await sendMessage({
+      type: 'LLM_RESPONSE', llmName: 'GPT', answer: 'legacy fallback answer', meta: { ...META, terminalResult: null }
+    }, BOUND_SENDER);
+    expect(response).toEqual(expect.objectContaining({ status: 'response_rejected', reason: 'missing_success_terminal_authority' }));
+    expect(context.handleLLMResponse).not.toHaveBeenCalled();
+  });
+
+  test('shadow mode keeps legacy delivery while V2 observes in parallel', async () => {
+    const { context, sendMessage } = createRouterSandbox();
+    await sendMessage({
+      type: 'LLM_COMPLETION_ATTEMPT', llmName: 'GPT',
+      meta: { ...META, terminalResult: null, rolloutMode: 'shadow', protocolVersion: '2.1.0' }
+    }, BOUND_SENDER);
+    const response = await sendMessage({
+      type: 'LLM_RESPONSE', llmName: 'GPT', answer: 'shadow legacy answer', meta: META
+    }, BOUND_SENDER);
+    expect(response?.status).toBe('response_handled');
+    expect(context.handleLLMResponse).toHaveBeenCalled();
+  });
+
+  test('typed non-success terminal is forwarded immediately to finalization', async () => {
+    const { context, sendMessage } = createRouterSandbox();
+    await sendMessage({
+      type: 'LLM_COMPLETION_ATTEMPT', llmName: 'GPT',
+      meta: { ...META, terminalResult: null, rolloutMode: 'enforced', protocolVersion: '2.1.0' }
+    }, BOUND_SENDER);
+    const terminalResult = { ...META.terminalResult, status: 'CONTINUE_REQUIRED', reason: 'continue_required' };
+    const response = await sendMessage({
+      type: 'LLM_COMPLETION_TERMINAL', llmName: 'GPT', meta: { ...META, rolloutMode: 'enforced', terminalResult }
+    }, BOUND_SENDER);
+    expect(response).toEqual(expect.objectContaining({ status: 'completion_terminal_recorded', terminalStatus: 'CONTINUE_REQUIRED' }));
+    expect(context.handleLLMResponse).toHaveBeenCalledWith(
+      'GPT', '', expect.objectContaining({ type: 'continue_required' }),
+      expect.objectContaining({ completionTerminalResult: terminalResult }), ''
+    );
   });
 
   test('LLM_RESPONSE_READY from a foreign tab cannot set completion evidence', async () => {
