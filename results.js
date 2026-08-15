@@ -17999,8 +17999,8 @@ function formatExportPromptName(promptText = getExportPromptSource()) {
         .trim();
     if (!normalized) return 'Prompt';
     const chars = Array.from(normalized);
-    const prefix = chars.slice(0, 20).join('').trim();
-    return `${prefix}${chars.length > 20 ? '…' : ''}` || 'Prompt';
+    const prefix = chars.slice(0, 30).join('').trim();
+    return `${prefix}${chars.length > 30 ? '…' : ''}` || 'Prompt';
 }
 
 function buildResponseExportFilename(modelName, extension, date = new Date()) {

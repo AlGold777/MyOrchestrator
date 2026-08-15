@@ -812,11 +812,11 @@ describe('Pipeline debate favorites view', () => {
     expect(text).toContain('Base model response.');
     expect(window.__resultsExportDebug.formatNamedExportStamp(new Date(2026, 6, 17, 18, 30))).toBe('jul26 18-30');
     document.getElementById('modTa').value = 'Разработка адаптера для новой версии провайдера';
-    expect(window.__resultsExportDebug.formatExportPromptName()).toBe('Разработка адаптера…');
+    expect(window.__resultsExportDebug.formatExportPromptName()).toBe('Разработка адаптера для новой…');
     expect(window.__resultsExportDebug.buildResponseExportFilename(null, 'txt', new Date(2026, 7, 26, 10, 45)))
-      .toBe('Разработка адаптера… - all_LLM aug26 10-45.txt');
+      .toBe('Разработка адаптера для новой… - all_LLM aug26 10-45.txt');
     expect(window.__resultsExportDebug.buildResponseExportFilename('GPT', 'html', new Date(2026, 7, 26, 10, 45)))
-      .toBe('Разработка адаптера… - GPT aug26 10-45.html');
+      .toBe('Разработка адаптера для новой… - GPT aug26 10-45.html');
     expect(favoriteText).toBe('--- GPT ---\n[12:00]\nBase model response.');
     window.__resultsExportDebug.favoriteState.entries = originalFavoriteEntries;
     window.__resultsExportDebug.favoriteState.cardKeyToId = originalFavoriteCardMap;
