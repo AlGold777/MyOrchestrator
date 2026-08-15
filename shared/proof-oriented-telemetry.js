@@ -139,6 +139,27 @@
     POST_TERMINAL_ANSWER_OBSERVED: 'OBSERVATION_FRAME_CAPTURED',
     POST_TERMINAL_ANSWER_WINDOW_CLOSED: 'OBSERVATION_INTERVAL_CLOSED',
     PROVIDER_FINISH_REASON: 'GENERATION_SIGNAL_CHANGED'
+    , ATTEMPT_CONTEXT_CAPTURED: 'ATTEMPT_CONTEXT_CAPTURED'
+    , WITNESS_OBSERVED: 'WITNESS_OBSERVED'
+    , GENERATION_OBSERVED: 'GENERATION_OBSERVED'
+    , OWNERSHIP_CONFIRMED: 'OWNERSHIP_CONFIRMED'
+    , OWNERSHIP_UNKNOWN: 'OWNERSHIP_UNKNOWN'
+    , OWNERSHIP_CONFLICT: 'OWNERSHIP_CONFLICT'
+    , PRODUCER_ACTIVE: 'PRODUCER_ACTIVE'
+    , PRODUCER_CANDIDATE: 'PRODUCER_CANDIDATE'
+    , PRODUCER_CANDIDATE_REVOKED: 'PRODUCER_CANDIDATE_REVOKED'
+    , PRODUCER_TERMINAL: 'PRODUCER_TERMINAL'
+    , VETO_ACTIVATED: 'VETO_ACTIVATED'
+    , VETO_CLEARED: 'VETO_CLEARED'
+    , CONTENT_STABILITY_PASSED: 'CONTENT_STABILITY_PASSED'
+    , CONTENT_STABILITY_RESET: 'CONTENT_STABILITY_RESET'
+    , CONTENT_MATERIALIZATION_CHANGED: 'CONTENT_MATERIALIZATION_CHANGED'
+    , CONTENT_TERMINAL: 'CONTENT_TERMINAL'
+    , TIMEOUT_PROGRESS: 'TIMEOUT_PROGRESS'
+    , TIMEOUT_PRODUCER_STUCK: 'TIMEOUT_PRODUCER_STUCK'
+    , TIMEOUT_HARD: 'TIMEOUT_HARD'
+    , TERMINAL_DECISION: 'TERMINAL_DECISION'
+    , EXTRACTION_SNAPSHOT_CAPTURED: 'EXTRACTION_SNAPSHOT_CAPTURED'
   });
 
   const RUNTIME_TYPED_FACTS = Object.freeze({
@@ -173,6 +194,27 @@
     ANSWER_DELIVERY_ACKNOWLEDGED: { kind: 'delivery', state: 'accepted', outcome: 'accepted' },
     ANSWER_DELIVERY_REJECTED: { kind: 'delivery', state: 'rejected', outcome: 'rejected' },
     PROVIDER_FINISH_REASON: { kind: 'provider_terminal', state: 'completed' }
+    , ATTEMPT_CONTEXT_CAPTURED: { kind: 'attempt_context', state: 'captured' }
+    , WITNESS_OBSERVED: { kind: 'completion_witness', state: 'observed' }
+    , GENERATION_OBSERVED: { kind: 'generation_start', state: 'started' }
+    , OWNERSHIP_CONFIRMED: { kind: 'candidate_identity', state: 'current_dispatch' }
+    , OWNERSHIP_UNKNOWN: { kind: 'candidate_identity', state: 'unknown' }
+    , OWNERSHIP_CONFLICT: { kind: 'candidate_identity', state: 'ambiguous' }
+    , PRODUCER_ACTIVE: { kind: 'generation', state: 'active' }
+    , PRODUCER_CANDIDATE: { kind: 'producer_state', state: 'candidate' }
+    , PRODUCER_CANDIDATE_REVOKED: { kind: 'producer_state', state: 'active' }
+    , PRODUCER_TERMINAL: { kind: 'provider_terminal', state: 'completed' }
+    , VETO_ACTIVATED: { kind: 'completion_veto', state: 'active' }
+    , VETO_CLEARED: { kind: 'completion_veto', state: 'cleared' }
+    , CONTENT_STABILITY_PASSED: { kind: 'text', state: 'stable' }
+    , CONTENT_STABILITY_RESET: { kind: 'text', state: 'changing' }
+    , CONTENT_MATERIALIZATION_CHANGED: { kind: 'text', state: 'changing' }
+    , CONTENT_TERMINAL: { kind: 'answer_completeness', state: 'verified_complete' }
+    , TIMEOUT_PROGRESS: { kind: 'deadline', state: 'progress_timeout' }
+    , TIMEOUT_PRODUCER_STUCK: { kind: 'deadline', state: 'producer_stuck_timeout' }
+    , TIMEOUT_HARD: { kind: 'deadline', state: 'hard_timeout' }
+    , TERMINAL_DECISION: { kind: 'completion_decision', state: 'recorded' }
+    , EXTRACTION_SNAPSHOT_CAPTURED: { kind: 'extraction', state: 'completed', outcome: 'completed', mode: 'immutable_snapshot' }
   });
 
   const OPERATIONAL_EVENT_PATTERN = /^(?:ADAPTIVE_PROBE_TICK|MANUAL_PING(?:_FAIL|_START|_RESULT)?|PING_(?:TRANSPORT_ERROR|RETRY|TICK)|ROUND4_GATE_WAIT|MODEL_RUN_TRANSITION|STATE_PROJECTION_COMMITTED|DETECTOR_TICK|SELECTOR_STATS|RECOVERY_BUDGET_(?:EXHAUSTED|CONSUMED|WAIT)|FOCUS_(?:WAIT|RETRY|CHECK)|LEASE_(?:WAIT|RETRY|CHECK)|POLL(?:ING)?_TICK|WATCHDOG_TICK)$/;

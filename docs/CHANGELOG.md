@@ -6445,6 +6445,11 @@ Backlog `what-to-do.md`, батч 1 (UI + Финализация).
 - Streaming требует `SUCCESS_TERMINAL`: удачный scroll больше не компенсирует failed completion. Finalization использует immutable extraction snapshot и не перечитывает live DOM после terminal verification.
 - Background принимает `LLM_RESPONSE_READY` только с typed `SUCCESS_TERMINAL`; добавлены capability health, recovery reconciliation, fact-level/shadow telemetry и mapping в статусы `FinalizationController`.
 - Обновлены regression contracts старых heuristic tests; добавлены проверки truth-table, hydration reset, immutable extraction и streaming OR-gate.
+# 2.81.335 — Canonical Completion telemetry
+
+- Все события Completion Protocol из ТЗ зарегистрированы как canonical schema-6 events и больше не отбрасываются в debug-route при экспорте.
+- Критические границы attempt/generation/ownership/producer/content/timeout/terminal/extraction закреплены в диагностических буферах и имеют inventory metadata.
+
 # 2.81.334 — Completion fact transitions
 
 - `CompletionSession` теперь публикует все изменения deterministic facts через пассивный transition callback: witness, generation, producer hysteresis, ownership, veto, content, timeout, terminal и immutable extraction snapshot.
