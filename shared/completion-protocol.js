@@ -1,5 +1,5 @@
 (function initCompletionProtocol(root, factory) {
-  const protocolVersion = '2.1.0';
+  const protocolVersion = '2.2.0';
   if (root?.CompletionProtocol?.version === protocolVersion) {
     if (typeof module === 'object' && module.exports) module.exports = root.CompletionProtocol;
     return;
@@ -256,10 +256,14 @@
   const RecoveryReconciler = Object.freeze({
     reconcile(persisted, current) {
       if (!persisted || !current || current.contextValid === false) return 'CONTEXT_LOST';
+      const persistedContext = persisted.context || persisted;
+      const currentContext = current.context || current;
       const keys = ['runSessionId', 'dispatchId', 'generationEpoch'];
-      if (keys.some((key) => persisted[key] != null && current[key] != null && String(persisted[key]) !== String(current[key]))) return 'AMBIGUOUS';
-      if (persisted.responseIdentity && current.responseIdentity
-        && JSON.stringify(persisted.responseIdentity) !== JSON.stringify(current.responseIdentity)) return 'AMBIGUOUS';
+      if (keys.some((key) => persistedContext[key] != null && currentContext[key] != null && String(persistedContext[key]) !== String(currentContext[key]))) return 'AMBIGUOUS';
+      const persistedIdentity = persisted.responseIdentity || persisted.extractionSnapshot?.responseIdentity || persisted.ownershipResult?.responseIdentity || null;
+      const currentIdentity = current.responseIdentity || current.extractionSnapshot?.responseIdentity || current.ownershipResult?.responseIdentity || null;
+      if (persistedIdentity && currentIdentity
+        && JSON.stringify(persistedIdentity) !== JSON.stringify(currentIdentity)) return 'AMBIGUOUS';
       return 'RESUME';
     }
   });

@@ -133,6 +133,20 @@ describe('Completion protocol components', () => {
     expect(Protocol.RecoveryReconciler.reconcile({ dispatchId: 'a' }, { contextValid: false })).toBe('CONTEXT_LOST');
   });
 
+  test('recovery reconciles serialized CompletionSession snapshots by immutable context', () => {
+    const persisted = {
+      context: { runSessionId: 'r', dispatchId: 'd', generationEpoch: 2 },
+      extractionSnapshot: { responseIdentity: { nodeKey: 'n1' } }
+    };
+    expect(Protocol.RecoveryReconciler.reconcile(persisted, {
+      runSessionId: 'r', dispatchId: 'd', generationEpoch: 2,
+      responseIdentity: { nodeKey: 'n1' }, contextValid: true
+    })).toBe('RESUME');
+    expect(Protocol.RecoveryReconciler.reconcile(persisted, {
+      runSessionId: 'r', dispatchId: 'other', generationEpoch: 2, contextValid: true
+    })).toBe('AMBIGUOUS');
+  });
+
   test('typed results map into existing FinalizationController statuses', () => {
     expect(Protocol.FinalizationAdapter.toFinalStatus({ status: 'SUCCESS_TERMINAL' })).toBe('COMPLETE');
     expect(Protocol.FinalizationAdapter.toFinalStatus({ status: 'CONTINUE_REQUIRED' })).toBe('USER_ACTION_REQUIRED');

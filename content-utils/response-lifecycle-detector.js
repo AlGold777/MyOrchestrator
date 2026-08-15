@@ -1,7 +1,8 @@
 (function initResponseLifecycleDetector() {
-  if (window.LLMExtension?.ResponseLifecycleDetector) return;
-
-  const VERSION = '2.1.0';
+  const VERSION = '2.2.0';
+  const existingDetector = window.LLMExtension?.ResponseLifecycleDetector || window.ResponseLifecycleDetector;
+  if (existingDetector?.version === VERSION) return;
+  try { existingDetector?.dispose?.({ reason: 'runtime_upgrade' }); } catch (_) {}
   const CompletionProtocol = window.CompletionProtocol || (() => {
     if (typeof require !== 'function') return null;
     try { return require('../shared/completion-protocol.js'); } catch (_) { return null; }
@@ -88,6 +89,35 @@
     });
     tracker.pollTimers = [];
     tracker.timeoutTimers = [];
+  }
+
+  function releaseTrackerResources(tracker, reason = 'terminal_cleanup') {
+    if (!tracker || tracker.resourcesReleased) return false;
+    tracker.resourcesReleased = true;
+    try { tracker.observer?.disconnect?.(); } catch (_) {}
+    tracker.observer = null;
+    clearTrackerTimers(tracker);
+    const waiters = Array.isArray(tracker.completionWaiters) ? tracker.completionWaiters.splice(0) : [];
+    waiters.forEach((resolve) => { try { resolve(tracker.completionTerminalResult || null); } catch (_) {} });
+    const registered = registeredCandidates.get(tracker.modelName);
+    if (!registered || !tracker.traceId || !registered.traceId || String(registered.traceId) === String(tracker.traceId)) {
+      registeredCandidates.delete(tracker.modelName);
+    }
+    tracker.latestAnswerEl = null;
+    tracker.baselineElement = null;
+    tracker.sendButtonEl = null;
+    tracker.observedTarget = null;
+    tracker.lastWitnessSignatures?.clear?.();
+    if (trackers.get(tracker.modelName) === tracker) trackers.delete(tracker.modelName);
+    tracker.releaseReason = reason;
+    return true;
+  }
+
+  function scheduleTrackerRelease(tracker, delayMs = 2000, reason = 'terminal_cleanup') {
+    if (!tracker || tracker.releaseScheduled || tracker.resourcesReleased) return false;
+    tracker.releaseScheduled = true;
+    setTimeout(() => releaseTrackerResources(tracker, reason), Math.max(0, Number(delayMs || 0)));
+    return true;
   }
 
   function wakeTracker(tracker) {
@@ -548,6 +578,7 @@
       observationOffsetMs: Math.max(0, Date.now() - audit.startedAt),
       observationSampleCount: audit.sampleCount
     });
+    scheduleTrackerRelease(tracker, 0, `post_terminal_${outcome}`);
     return true;
   }
 
@@ -1047,6 +1078,7 @@
     }
     const waiters = Array.isArray(tracker.completionWaiters) ? tracker.completionWaiters.splice(0) : [];
     waiters.forEach((resolve) => { try { resolve(result); } catch (_) {} });
+    if (result.status !== 'SUCCESS_TERMINAL') scheduleTrackerRelease(tracker, 2500, `terminal_${result.status.toLowerCase()}`);
     return result;
   }
 
@@ -2045,6 +2077,12 @@
     } catch (_) {}
   }
 
+  function dispose({ reason = 'disposed' } = {}) {
+    Array.from(trackers.values()).forEach((tracker) => releaseTrackerResources(tracker, reason));
+    registeredCandidates.clear();
+    return true;
+  }
+
   async function runSelfTest() {
     const failures = [];
     try {
@@ -2095,6 +2133,7 @@
     STUCK_BUSY_OVERRIDE_MIN_MS,
     version: VERSION,
     runSelfTest
+    , dispose
   };
 
   window.LLMExtension = window.LLMExtension || {};
