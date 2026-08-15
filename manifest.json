@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "A_Fable",
-  "version": "2.81.330",
+  "version": "2.81.331",
   "description": "Compares LLMs with stable Debate pipelines, structured state maps, and optional synthesis.",
   "permissions": [
     "storage",
@@ -81,6 +81,7 @@
         "shared/selector-profile-lifecycle.js",
         "shared/answer-content-classifier.js",
         "shared/provider-submit-confirmation.js",
+        "shared/completion-protocol.js",
         "content-utils/selector-resolver-v2.js",
         "content-utils/response-lifecycle-detector.js",
         "content-scripts/content-bootstrap.js",
@@ -134,6 +135,7 @@
       ],
       "js": [
         "shared/selector-profile-lifecycle.js",
+        "shared/completion-protocol.js",
         "content-utils/selector-resolver-v2.js",
         "content-utils/response-lifecycle-detector.js",
         "content-scripts/content-chatgpt.js"
@@ -148,6 +150,7 @@
       "js": [
         "shared/selector-profile-lifecycle.js",
         "shared/provider-submit-confirmation.js",
+        "shared/completion-protocol.js",
         "content-utils/selector-resolver-v2.js",
         "content-utils/response-lifecycle-detector.js",
         "content-scripts/content-perplexity.js"
@@ -161,6 +164,7 @@
       ],
       "js": [
         "shared/selector-profile-lifecycle.js",
+        "shared/completion-protocol.js",
         "content-utils/selector-resolver-v2.js",
         "content-utils/response-lifecycle-detector.js",
         "content-scripts/content-gemini.js"
@@ -173,6 +177,7 @@
       ],
       "js": [
         "shared/selector-profile-lifecycle.js",
+        "shared/completion-protocol.js",
         "content-utils/selector-resolver-v2.js",
         "content-utils/response-lifecycle-detector.js",
         "content-scripts/content-claude.js"
@@ -188,6 +193,7 @@
       ],
       "js": [
         "shared/selector-profile-lifecycle.js",
+        "shared/completion-protocol.js",
         "content-utils/selector-resolver-v2.js",
         "content-utils/response-lifecycle-detector.js",
         "content-scripts/content-grok.js"
@@ -200,6 +206,7 @@
       ],
       "js": [
         "shared/selector-profile-lifecycle.js",
+        "shared/completion-protocol.js",
         "content-utils/selector-resolver-v2.js",
         "content-utils/response-lifecycle-detector.js",
         "content-scripts/content-qwen.js"
@@ -213,6 +220,7 @@
       "js": [
         "shared/selector-profile-lifecycle.js",
         "shared/provider-submit-confirmation.js",
+        "shared/completion-protocol.js",
         "content-utils/selector-resolver-v2.js",
         "content-utils/response-lifecycle-detector.js",
         "content-scripts/content-lechat.js"

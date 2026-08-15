@@ -6433,3 +6433,8 @@ Backlog `what-to-do.md`, батч 1 (UI + Финализация).
 - Внутренние ошибки больше не передаются и не сохраняются как текст ответа. Все девять адаптеров, фоновые таймауты, ошибки вкладок, отправки, извлечения и оценщика используют структурный канал `error.type`/`error.message`, оставляя `answer` пустым.
 - Центральная финализация больше не синтезирует строки `Error: …` для пустого ответа, UI scaffolding, prompt echo и исчерпанного восстановления. Старые сообщения распознаются единым реестром технических форматов; явно помеченная внутренняя ошибка от будущего адаптера отсекается независимо от её текста.
 - Добавлен исполняемый контракт, запрещающий адаптерам сериализовать `Error:` или `Structural Error:` в `answer`, и регрессия для Z.AI: ошибка `Extracted text is prompt/UI scaffolding, not an answer` даёт `EXTRACT_FAILED` с нулевой длиной ответа.
+# 2.81.331 — Completion Protocol core
+
+- Добавлен `shared/completion-protocol.js`: append-only Evidence Ledger, deterministic CompletionPolicy, Producer Gate с hysteresis, unified veto facts, semantic MutationClassifier, независимые timeout-классы, Materialization/Hydration Gate, RecoveryReconciler и immutable ExtractionSnapshot.
+- `SUCCESS_TERMINAL` определяется только полной конъюнкцией generation/producer/content/ownership/no-veto; score и отдельные UI-сигналы не участвуют в predicate.
+- Protocol загружается до lifecycle detector в content-script entry points и bundled runtime; добавлена unit truth-table и component regression suite.

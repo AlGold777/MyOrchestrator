@@ -32,6 +32,7 @@ const COMMON_FILES = [
   'shared/provider-stream-semantics.js',
   'shared/answer-verification.js',
   'shared/provider-submit-confirmation.js',
+  'shared/completion-protocol.js',
   // answer-pipeline-selectors.js is the selector contract the unified pipeline
   // actually consumes (manifest order). The old platform-selectors.js claimed the
   // same window.AnswerPipelineSelectors namespace with an incompatible contract
