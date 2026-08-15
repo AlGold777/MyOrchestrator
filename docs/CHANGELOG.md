@@ -6445,6 +6445,10 @@ Backlog `what-to-do.md`, батч 1 (UI + Финализация).
 - Streaming требует `SUCCESS_TERMINAL`: удачный scroll больше не компенсирует failed completion. Finalization использует immutable extraction snapshot и не перечитывает live DOM после terminal verification.
 - Background принимает `LLM_RESPONSE_READY` только с typed `SUCCESS_TERMINAL`; добавлены capability health, recovery reconciliation, fact-level/shadow telemetry и mapping в статусы `FinalizationController`.
 - Обновлены regression contracts старых heuristic tests; добавлены проверки truth-table, hydration reset, immutable extraction и streaming OR-gate.
+# 2.81.340 — Completion protocol E2E matrix
+
+- Добавлена последовательностная regression matrix для всех failure classes из Completion Architecture Refactor, включая early controls, stalled partial, hydration/structure delay, replacement, Continue/error/navigation и extraction race.
+
 # 2.81.339 — Completion recovery and resource lifecycle
 
 - RecoveryReconciler корректно читает сериализованный `CompletionSession.snapshot()` и сверяет immutable context/response identity перед resume.

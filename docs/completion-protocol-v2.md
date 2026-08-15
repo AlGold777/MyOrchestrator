@@ -19,3 +19,5 @@ Copy, Regenerate, completion marker, исчезновение Stop и transport 
 Non-success состояния типизированы: `CONTINUE_REQUIRED`, `PROVIDER_ERROR`, `INTERRUPTED`, `STALLED`, `AMBIGUOUS`, `CONTEXT_LOST`. Progress, producer-stuck и hard-attempt timeout независимы и никогда не дают success. Recovery перед resume проходит `RecoveryReconciler`.
 
 Настройка `responseLifecycleDetectorSettings.completionProtocolV2` принимает `legacy`, `shadow`, `enforced`; migration default — `shadow`. В `shadow` отдельный migration-adapter сохраняет прежнюю доставку только для свежего, стабильного и corroborated candidate без active veto, а CompletionSession параллельно формирует V2 decision/delta. В `enforced` downstream принимает исключительно `SUCCESS_TERMINAL`. Weighted score остаётся только диагностикой и не принимается migration-adapter'ом.
+
+Сценарная regression matrix находится в `tests/completion-protocol-e2e.test.js` и фиксирует normal/long streaming, stalled partial, early controls, temporary Stop disappearance, delayed hydration/structure, length regression, node replacement, Continue, provider error, SPA navigation, cosmetic churn и immutable extraction race.
