@@ -559,13 +559,14 @@
         const controlsRoot = context.controlsRoot || null;
         const inResponse = !!(target && responseRoot && (target === responseRoot || responseRoot.contains?.(target)));
         const inControls = !!(target && controlsRoot && (target === controlsRoot || controlsRoot.contains?.(target)));
+        const producerControl = inControls || !!context.isProducerControl?.(target, mutation);
         const cosmetic = !!context.isCosmetic?.(target, mutation)
           || (mutation?.type === 'attributes' && ['class', 'style', 'aria-live', 'aria-busy'].includes(mutation.attributeName));
         const normalizedBefore = context.normalizedBefore ?? null;
         const normalizedAfter = context.normalizedAfter ?? null;
         const structuralBefore = context.structuralBefore ?? null;
         const structuralAfter = context.structuralAfter ?? null;
-        if (inControls) return { kind: 'PRODUCER_CONTROL', substantive: false, targetNode: target };
+        if (producerControl) return { kind: 'PRODUCER_CONTROL', substantive: false, targetNode: target };
         if (!inResponse) return { kind: 'UNRELATED', substantive: false, targetNode: target };
         if (normalizedBefore !== null && normalizedAfter !== null && normalizedBefore !== normalizedAfter) {
           return { kind: 'CONTENT_PROGRESS', substantive: true, targetNode: target };
@@ -809,8 +810,8 @@
         this.facts.contentTerminal = false;
         this.verifiedSnapshot = null;
       }
-      this.timeouts.producerActive(['GENERATION_ACTIVE', 'STOP_VISIBLE'].includes(type), record.observedAt);
       this.facts.producerState = this.producer.observe(type, record.observedAt, record.seq);
+      this.timeouts.producerActive(this.facts.producerState === 'ACTIVE', record.observedAt);
       if (type === 'PROVIDER_ERROR_VISIBLE') this.facts.providerError = true;
       if (type === 'CONTINUE_VISIBLE') this.facts.continueRequired = true;
       if (type === 'USER_INTERRUPTED') this.facts.interrupted = true;
@@ -841,8 +842,13 @@
         && materialization?.changed === false;
       this.facts.contentTerminal = terminal;
       this.verifiedSnapshot = terminal ? freeze({ ...(snapshot || verification?.snapshot || {}) }) : null;
-      if (verification?.stable === true) this.emitTransition('CONTENT_STABILITY_PASSED', { contentTerminal: terminal });
-      if (previousTerminal && !terminal) this.emitTransition('CONTENT_STABILITY_RESET', { contentTerminal: false });
+      if (verification?.stable === true && materialization?.changed !== true) this.emitTransition('CONTENT_STABILITY_PASSED', { contentTerminal: terminal });
+      if ((previousTerminal && !terminal) || materialization?.changed === true || verification?.stable === false) {
+        this.emitTransition('CONTENT_STABILITY_RESET', {
+          contentTerminal: false,
+          reason: materialization?.changed === true ? 'materialization_changed' : 'verification_reset'
+        });
+      }
       if (!previousTerminal && terminal) this.emitTransition('CONTENT_TERMINAL', { contentTerminal: true });
       return terminal;
     }
@@ -3293,15 +3299,20 @@
       if (tracker.completionSession && CompletionProtocol?.MutationClassifier) {
         const currentText = normalizeText(tracker.latestAnswerEl?.innerText || tracker.latestAnswerEl?.textContent || '');
         const currentHash = shortHash(currentText);
+        const currentStructuralHash = shortHash(String(tracker.latestAnswerEl?.innerHTML || ''));
         const classifications = new CompletionProtocol.MutationClassifier().classify(mutations, {
           responseRoot: tracker.latestAnswerEl,
           normalizedBefore: tracker.lastSemanticMutationHash,
           normalizedAfter: currentHash,
+          structuralBefore: tracker.lastSemanticStructuralHash,
+          structuralAfter: currentStructuralHash,
+          isProducerControl: (node) => !!node?.closest?.('button,[role="button"],[aria-label*="stop" i],[data-testid*="stop" i]'),
           isCosmetic: (node) => !!node?.closest?.('[aria-live],[class*="cursor" i],[class*="toolbar" i]')
         });
         const substantive = classifications.find((item) => item.substantive);
         if (substantive) {
           tracker.lastSemanticMutationHash = currentHash;
+          tracker.lastSemanticStructuralHash = currentStructuralHash;
           appendCompletionWitness(tracker, substantive.kind === 'CONTENT_PROGRESS' ? 'CONTENT_PROGRESS' : 'RESPONSE_STRUCTURE_CHANGED', {
             mutationCount: mutations.length
           }, 'MutationClassifier');
@@ -3408,7 +3419,8 @@
       completionTerminalResult: null,
       completionWaiters: [],
       lastWitnessSignatures: new Map(),
-      lastSemanticMutationHash: shortHash(normalizeText(baselineSnapshot?.text || ''))
+      lastSemanticMutationHash: shortHash(normalizeText(baselineSnapshot?.text || '')),
+      lastSemanticStructuralHash: shortHash(String(baselineSnapshot?.element?.innerHTML || ''))
     };
   }
 
@@ -3422,7 +3434,9 @@
       PROVIDER_ERROR_VISIBLE: 'provider-error', CONTINUE_VISIBLE: 'continue'
     })[type] || type;
     const witnessSignature = `${type}:${JSON.stringify(payload || null)}`;
-    if (tracker.lastWitnessSignatures?.get(witnessGroup) === witnessSignature) return null;
+    const repeatedTerminalCandidate = ['STOP_ABSENT', 'GENERATION_INACTIVE', 'COPY_VISIBLE', 'REGENERATE_VISIBLE', 'COMPLETION_MARKER_VISIBLE'].includes(type)
+      && tracker.completionSession?.producer?.state === 'ACTIVE';
+    if (!repeatedTerminalCandidate && tracker.lastWitnessSignatures?.get(witnessGroup) === witnessSignature) return null;
     tracker.lastWitnessSignatures?.set(witnessGroup, witnessSignature);
     let record = null;
     try {
@@ -18312,6 +18326,7 @@ const scrollIntoViewSmoothly = async (element) => {
       this.lastWitnessState = new Map();
       this.currentAnswerElement = null;
       this.lastMutationContentHash = null;
+      this.lastMutationStructuralHash = null;
     }
 
     emitWitness(type, payload = null, dedupeKey = type) {
@@ -18390,6 +18405,7 @@ const scrollIntoViewSmoothly = async (element) => {
           const answerRoot = this.currentAnswerElement;
           const currentText = answerRoot ? this.readAnswerText(answerRoot) : '';
           const currentHash = this.hashString(currentText);
+          const currentStructuralHash = this.hashString(String(answerRoot?.innerHTML || ''));
           const classifier = window.CompletionProtocol?.MutationClassifier
             ? new window.CompletionProtocol.MutationClassifier()
             : null;
@@ -18397,14 +18413,24 @@ const scrollIntoViewSmoothly = async (element) => {
             responseRoot: answerRoot,
             normalizedBefore: this.lastMutationContentHash,
             normalizedAfter: currentHash,
+            structuralBefore: this.lastMutationStructuralHash,
+            structuralAfter: currentStructuralHash,
+            isProducerControl: (node) => !!node?.closest?.('button,[role="button"],[aria-label*="stop" i],[data-testid*="stop" i]'),
             isCosmetic: (node) => !!node?.closest?.('[aria-live],[class*="cursor" i],[class*="toolbar" i]')
           }) || [];
           const substantive = !classifier || !answerRoot || classified.some((entry) => entry.substantive);
           this.lastMutationContentHash = currentHash;
+          this.lastMutationStructuralHash = currentStructuralHash;
           if (substantive) {
             lastMutation = Date.now();
             this.criteria.mark('mutationIdle', false);
             this.humanSession?.reportActivity?.('mutation');
+            const structural = classified.some((entry) => entry.kind === 'RESPONSE_STRUCTURE');
+            this.emitWitness(structural ? 'RESPONSE_STRUCTURE_CHANGED' : 'CONTENT_PROGRESS', {
+              mutationCount: classified.length,
+              contentHash: currentHash,
+              structuralHash: currentStructuralHash
+            }, null);
           } else if (classified.some((entry) => entry.kind === 'COSMETIC')) {
             this.emitWitness('COSMETIC_MUTATION', { mutationCount: classified.length }, 'cosmetic-mutation');
           }
@@ -26307,13 +26333,14 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
         const controlsRoot = context.controlsRoot || null;
         const inResponse = !!(target && responseRoot && (target === responseRoot || responseRoot.contains?.(target)));
         const inControls = !!(target && controlsRoot && (target === controlsRoot || controlsRoot.contains?.(target)));
+        const producerControl = inControls || !!context.isProducerControl?.(target, mutation);
         const cosmetic = !!context.isCosmetic?.(target, mutation)
           || (mutation?.type === 'attributes' && ['class', 'style', 'aria-live', 'aria-busy'].includes(mutation.attributeName));
         const normalizedBefore = context.normalizedBefore ?? null;
         const normalizedAfter = context.normalizedAfter ?? null;
         const structuralBefore = context.structuralBefore ?? null;
         const structuralAfter = context.structuralAfter ?? null;
-        if (inControls) return { kind: 'PRODUCER_CONTROL', substantive: false, targetNode: target };
+        if (producerControl) return { kind: 'PRODUCER_CONTROL', substantive: false, targetNode: target };
         if (!inResponse) return { kind: 'UNRELATED', substantive: false, targetNode: target };
         if (normalizedBefore !== null && normalizedAfter !== null && normalizedBefore !== normalizedAfter) {
           return { kind: 'CONTENT_PROGRESS', substantive: true, targetNode: target };
@@ -26557,8 +26584,8 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
         this.facts.contentTerminal = false;
         this.verifiedSnapshot = null;
       }
-      this.timeouts.producerActive(['GENERATION_ACTIVE', 'STOP_VISIBLE'].includes(type), record.observedAt);
       this.facts.producerState = this.producer.observe(type, record.observedAt, record.seq);
+      this.timeouts.producerActive(this.facts.producerState === 'ACTIVE', record.observedAt);
       if (type === 'PROVIDER_ERROR_VISIBLE') this.facts.providerError = true;
       if (type === 'CONTINUE_VISIBLE') this.facts.continueRequired = true;
       if (type === 'USER_INTERRUPTED') this.facts.interrupted = true;
@@ -26589,8 +26616,13 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
         && materialization?.changed === false;
       this.facts.contentTerminal = terminal;
       this.verifiedSnapshot = terminal ? freeze({ ...(snapshot || verification?.snapshot || {}) }) : null;
-      if (verification?.stable === true) this.emitTransition('CONTENT_STABILITY_PASSED', { contentTerminal: terminal });
-      if (previousTerminal && !terminal) this.emitTransition('CONTENT_STABILITY_RESET', { contentTerminal: false });
+      if (verification?.stable === true && materialization?.changed !== true) this.emitTransition('CONTENT_STABILITY_PASSED', { contentTerminal: terminal });
+      if ((previousTerminal && !terminal) || materialization?.changed === true || verification?.stable === false) {
+        this.emitTransition('CONTENT_STABILITY_RESET', {
+          contentTerminal: false,
+          reason: materialization?.changed === true ? 'materialization_changed' : 'verification_reset'
+        });
+      }
       if (!previousTerminal && terminal) this.emitTransition('CONTENT_TERMINAL', { contentTerminal: true });
       return terminal;
     }
@@ -29041,15 +29073,20 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
       if (tracker.completionSession && CompletionProtocol?.MutationClassifier) {
         const currentText = normalizeText(tracker.latestAnswerEl?.innerText || tracker.latestAnswerEl?.textContent || '');
         const currentHash = shortHash(currentText);
+        const currentStructuralHash = shortHash(String(tracker.latestAnswerEl?.innerHTML || ''));
         const classifications = new CompletionProtocol.MutationClassifier().classify(mutations, {
           responseRoot: tracker.latestAnswerEl,
           normalizedBefore: tracker.lastSemanticMutationHash,
           normalizedAfter: currentHash,
+          structuralBefore: tracker.lastSemanticStructuralHash,
+          structuralAfter: currentStructuralHash,
+          isProducerControl: (node) => !!node?.closest?.('button,[role="button"],[aria-label*="stop" i],[data-testid*="stop" i]'),
           isCosmetic: (node) => !!node?.closest?.('[aria-live],[class*="cursor" i],[class*="toolbar" i]')
         });
         const substantive = classifications.find((item) => item.substantive);
         if (substantive) {
           tracker.lastSemanticMutationHash = currentHash;
+          tracker.lastSemanticStructuralHash = currentStructuralHash;
           appendCompletionWitness(tracker, substantive.kind === 'CONTENT_PROGRESS' ? 'CONTENT_PROGRESS' : 'RESPONSE_STRUCTURE_CHANGED', {
             mutationCount: mutations.length
           }, 'MutationClassifier');
@@ -29156,7 +29193,8 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
       completionTerminalResult: null,
       completionWaiters: [],
       lastWitnessSignatures: new Map(),
-      lastSemanticMutationHash: shortHash(normalizeText(baselineSnapshot?.text || ''))
+      lastSemanticMutationHash: shortHash(normalizeText(baselineSnapshot?.text || '')),
+      lastSemanticStructuralHash: shortHash(String(baselineSnapshot?.element?.innerHTML || ''))
     };
   }
 
@@ -29170,7 +29208,9 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
       PROVIDER_ERROR_VISIBLE: 'provider-error', CONTINUE_VISIBLE: 'continue'
     })[type] || type;
     const witnessSignature = `${type}:${JSON.stringify(payload || null)}`;
-    if (tracker.lastWitnessSignatures?.get(witnessGroup) === witnessSignature) return null;
+    const repeatedTerminalCandidate = ['STOP_ABSENT', 'GENERATION_INACTIVE', 'COPY_VISIBLE', 'REGENERATE_VISIBLE', 'COMPLETION_MARKER_VISIBLE'].includes(type)
+      && tracker.completionSession?.producer?.state === 'ACTIVE';
+    if (!repeatedTerminalCandidate && tracker.lastWitnessSignatures?.get(witnessGroup) === witnessSignature) return null;
     tracker.lastWitnessSignatures?.set(witnessGroup, witnessSignature);
     let record = null;
     try {

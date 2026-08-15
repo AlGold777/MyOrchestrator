@@ -64,6 +64,32 @@ describe('Completion protocol components', () => {
     expect(result).toMatchObject({ kind: 'COSMETIC', substantive: false });
   });
 
+  test('structural-only response changes are substantive', () => {
+    const root = document.createElement('div');
+    const code = document.createElement('code');
+    root.append(code);
+    const [result] = new Protocol.MutationClassifier().classify([
+      { type: 'childList', target: code }
+    ], {
+      responseRoot: root,
+      normalizedBefore: 'same-text',
+      normalizedAfter: 'same-text',
+      structuralBefore: 'before',
+      structuralAfter: 'after'
+    });
+    expect(result).toMatchObject({ kind: 'RESPONSE_STRUCTURE', substantive: true });
+  });
+
+  test('content progress keeps producer-stuck timeout armed', () => {
+    const session = new Protocol.CompletionSession(
+      { dispatchId: 'd', promptSubmittedAt: 0 },
+      { timeouts: { progressTimeoutMs: 1000, producerStuckTimeoutMs: 20, hardAttemptTimeoutMs: 1000 } }
+    );
+    session.observe({ type: 'CONTENT_PROGRESS', source: 'test', observedAt: 10 });
+    expect(session.timeouts.producerActiveSince).toBe(10);
+    expect(session.timeouts.evaluate(30)).toBe('PRODUCER_STUCK');
+  });
+
   test('materialization change prevents content terminal', async () => {
     const captures = [{ text: 'a' }, { text: 'ab' }];
     const materialization = await new Protocol.MaterializationHydrationGate().materialize({

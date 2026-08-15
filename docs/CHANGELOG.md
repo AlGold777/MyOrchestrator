@@ -6445,6 +6445,12 @@ Backlog `what-to-do.md`, батч 1 (UI + Финализация).
 - Streaming требует `SUCCESS_TERMINAL`: удачный scroll больше не компенсирует failed completion. Finalization использует immutable extraction snapshot и не перечитывает live DOM после terminal verification.
 - Background принимает `LLM_RESPONSE_READY` только с typed `SUCCESS_TERMINAL`; добавлены capability health, recovery reconciliation, fact-level/shadow telemetry и mapping в статусы `FinalizationController`.
 - Обновлены regression contracts старых heuristic tests; добавлены проверки truth-table, hydration reset, immutable extraction и streaming OR-gate.
+# 2.81.336 — Semantic mutation and producer timeout fixes
+
+- Оба observer path теперь передают MutationClassifier text и structural hashes; изменения DOM-структуры при неизменном тексте больше не считаются cosmetic.
+- Producer-Stuck timeout остаётся активным после `CONTENT_PROGRESS`, а повторный terminal witness может заново открыть hysteresis после отзыва candidate.
+- Изменение при materialization явно сбрасывает content stability telemetry.
+
 # 2.81.335 — Canonical Completion telemetry
 
 - Все события Completion Protocol из ТЗ зарегистрированы как canonical schema-6 events и больше не отбрасываются в debug-route при экспорте.

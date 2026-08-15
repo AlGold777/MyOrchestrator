@@ -236,6 +236,7 @@
       this.lastWitnessState = new Map();
       this.currentAnswerElement = null;
       this.lastMutationContentHash = null;
+      this.lastMutationStructuralHash = null;
     }
 
     emitWitness(type, payload = null, dedupeKey = type) {
@@ -314,6 +315,7 @@
           const answerRoot = this.currentAnswerElement;
           const currentText = answerRoot ? this.readAnswerText(answerRoot) : '';
           const currentHash = this.hashString(currentText);
+          const currentStructuralHash = this.hashString(String(answerRoot?.innerHTML || ''));
           const classifier = window.CompletionProtocol?.MutationClassifier
             ? new window.CompletionProtocol.MutationClassifier()
             : null;
@@ -321,14 +323,24 @@
             responseRoot: answerRoot,
             normalizedBefore: this.lastMutationContentHash,
             normalizedAfter: currentHash,
+            structuralBefore: this.lastMutationStructuralHash,
+            structuralAfter: currentStructuralHash,
+            isProducerControl: (node) => !!node?.closest?.('button,[role="button"],[aria-label*="stop" i],[data-testid*="stop" i]'),
             isCosmetic: (node) => !!node?.closest?.('[aria-live],[class*="cursor" i],[class*="toolbar" i]')
           }) || [];
           const substantive = !classifier || !answerRoot || classified.some((entry) => entry.substantive);
           this.lastMutationContentHash = currentHash;
+          this.lastMutationStructuralHash = currentStructuralHash;
           if (substantive) {
             lastMutation = Date.now();
             this.criteria.mark('mutationIdle', false);
             this.humanSession?.reportActivity?.('mutation');
+            const structural = classified.some((entry) => entry.kind === 'RESPONSE_STRUCTURE');
+            this.emitWitness(structural ? 'RESPONSE_STRUCTURE_CHANGED' : 'CONTENT_PROGRESS', {
+              mutationCount: classified.length,
+              contentHash: currentHash,
+              structuralHash: currentStructuralHash
+            }, null);
           } else if (classified.some((entry) => entry.kind === 'COSMETIC')) {
             this.emitWitness('COSMETIC_MUTATION', { mutationCount: classified.length }, 'cosmetic-mutation');
           }

@@ -850,15 +850,20 @@
       if (tracker.completionSession && CompletionProtocol?.MutationClassifier) {
         const currentText = normalizeText(tracker.latestAnswerEl?.innerText || tracker.latestAnswerEl?.textContent || '');
         const currentHash = shortHash(currentText);
+        const currentStructuralHash = shortHash(String(tracker.latestAnswerEl?.innerHTML || ''));
         const classifications = new CompletionProtocol.MutationClassifier().classify(mutations, {
           responseRoot: tracker.latestAnswerEl,
           normalizedBefore: tracker.lastSemanticMutationHash,
           normalizedAfter: currentHash,
+          structuralBefore: tracker.lastSemanticStructuralHash,
+          structuralAfter: currentStructuralHash,
+          isProducerControl: (node) => !!node?.closest?.('button,[role="button"],[aria-label*="stop" i],[data-testid*="stop" i]'),
           isCosmetic: (node) => !!node?.closest?.('[aria-live],[class*="cursor" i],[class*="toolbar" i]')
         });
         const substantive = classifications.find((item) => item.substantive);
         if (substantive) {
           tracker.lastSemanticMutationHash = currentHash;
+          tracker.lastSemanticStructuralHash = currentStructuralHash;
           appendCompletionWitness(tracker, substantive.kind === 'CONTENT_PROGRESS' ? 'CONTENT_PROGRESS' : 'RESPONSE_STRUCTURE_CHANGED', {
             mutationCount: mutations.length
           }, 'MutationClassifier');
@@ -965,7 +970,8 @@
       completionTerminalResult: null,
       completionWaiters: [],
       lastWitnessSignatures: new Map(),
-      lastSemanticMutationHash: shortHash(normalizeText(baselineSnapshot?.text || ''))
+      lastSemanticMutationHash: shortHash(normalizeText(baselineSnapshot?.text || '')),
+      lastSemanticStructuralHash: shortHash(String(baselineSnapshot?.element?.innerHTML || ''))
     };
   }
 
@@ -979,7 +985,9 @@
       PROVIDER_ERROR_VISIBLE: 'provider-error', CONTINUE_VISIBLE: 'continue'
     })[type] || type;
     const witnessSignature = `${type}:${JSON.stringify(payload || null)}`;
-    if (tracker.lastWitnessSignatures?.get(witnessGroup) === witnessSignature) return null;
+    const repeatedTerminalCandidate = ['STOP_ABSENT', 'GENERATION_INACTIVE', 'COPY_VISIBLE', 'REGENERATE_VISIBLE', 'COMPLETION_MARKER_VISIBLE'].includes(type)
+      && tracker.completionSession?.producer?.state === 'ACTIVE';
+    if (!repeatedTerminalCandidate && tracker.lastWitnessSignatures?.get(witnessGroup) === witnessSignature) return null;
     tracker.lastWitnessSignatures?.set(witnessGroup, witnessSignature);
     let record = null;
     try {

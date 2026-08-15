@@ -121,13 +121,14 @@
         const controlsRoot = context.controlsRoot || null;
         const inResponse = !!(target && responseRoot && (target === responseRoot || responseRoot.contains?.(target)));
         const inControls = !!(target && controlsRoot && (target === controlsRoot || controlsRoot.contains?.(target)));
+        const producerControl = inControls || !!context.isProducerControl?.(target, mutation);
         const cosmetic = !!context.isCosmetic?.(target, mutation)
           || (mutation?.type === 'attributes' && ['class', 'style', 'aria-live', 'aria-busy'].includes(mutation.attributeName));
         const normalizedBefore = context.normalizedBefore ?? null;
         const normalizedAfter = context.normalizedAfter ?? null;
         const structuralBefore = context.structuralBefore ?? null;
         const structuralAfter = context.structuralAfter ?? null;
-        if (inControls) return { kind: 'PRODUCER_CONTROL', substantive: false, targetNode: target };
+        if (producerControl) return { kind: 'PRODUCER_CONTROL', substantive: false, targetNode: target };
         if (!inResponse) return { kind: 'UNRELATED', substantive: false, targetNode: target };
         if (normalizedBefore !== null && normalizedAfter !== null && normalizedBefore !== normalizedAfter) {
           return { kind: 'CONTENT_PROGRESS', substantive: true, targetNode: target };
@@ -371,8 +372,8 @@
         this.facts.contentTerminal = false;
         this.verifiedSnapshot = null;
       }
-      this.timeouts.producerActive(['GENERATION_ACTIVE', 'STOP_VISIBLE'].includes(type), record.observedAt);
       this.facts.producerState = this.producer.observe(type, record.observedAt, record.seq);
+      this.timeouts.producerActive(this.facts.producerState === 'ACTIVE', record.observedAt);
       if (type === 'PROVIDER_ERROR_VISIBLE') this.facts.providerError = true;
       if (type === 'CONTINUE_VISIBLE') this.facts.continueRequired = true;
       if (type === 'USER_INTERRUPTED') this.facts.interrupted = true;
@@ -403,8 +404,13 @@
         && materialization?.changed === false;
       this.facts.contentTerminal = terminal;
       this.verifiedSnapshot = terminal ? freeze({ ...(snapshot || verification?.snapshot || {}) }) : null;
-      if (verification?.stable === true) this.emitTransition('CONTENT_STABILITY_PASSED', { contentTerminal: terminal });
-      if (previousTerminal && !terminal) this.emitTransition('CONTENT_STABILITY_RESET', { contentTerminal: false });
+      if (verification?.stable === true && materialization?.changed !== true) this.emitTransition('CONTENT_STABILITY_PASSED', { contentTerminal: terminal });
+      if ((previousTerminal && !terminal) || materialization?.changed === true || verification?.stable === false) {
+        this.emitTransition('CONTENT_STABILITY_RESET', {
+          contentTerminal: false,
+          reason: materialization?.changed === true ? 'materialization_changed' : 'verification_reset'
+        });
+      }
       if (!previousTerminal && terminal) this.emitTransition('CONTENT_TERMINAL', { contentTerminal: true });
       return terminal;
     }
