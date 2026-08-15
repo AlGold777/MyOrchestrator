@@ -39,7 +39,7 @@ describe('release log regression guards', () => {
     expect(html).toContain('aria-label="Export all responses as TXT">txt</button>');
     expect(source).toContain("event.target.closest('#export-txt-btn')");
     expect(source).toContain("type: 'text/plain;charset=utf-8'");
-    expect(source).toContain('anchor.download = `LLMs answers ${formatNamedExportStamp(now)}.txt`;');
+    expect(source).toContain("buildResponseExportFilename(null, 'txt', now)");
   });
 
   test('response selection toolbar also works inside the Favourite card', () => {

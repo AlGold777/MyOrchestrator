@@ -17987,6 +17987,28 @@ function formatModelCardExportStamp(date = new Date()) {
     return formatNamedExportStamp(date).replace(':', '-');
 }
 
+function getExportPromptSource() {
+    const promptEl = document.getElementById('prompt-input') || document.getElementById('modTa');
+    return String(promptEl?.value || '').trim();
+}
+
+function formatExportPromptName(promptText = getExportPromptSource()) {
+    const normalized = String(promptText || '')
+        .replace(/\s+/g, ' ')
+        .replace(/[\\/:?<>|*"']/g, '')
+        .trim();
+    if (!normalized) return 'Prompt';
+    const chars = Array.from(normalized);
+    const prefix = chars.slice(0, 20).join('').trim();
+    return `${prefix}${chars.length > 20 ? '…' : ''}` || 'Prompt';
+}
+
+function buildResponseExportFilename(modelName, extension, date = new Date()) {
+    const promptName = formatExportPromptName();
+    const subject = modelName ? String(modelName).replace(/[\\/:?<>|*"']/g, '').trim() : 'all_LLM';
+    return `${promptName} - ${subject} ${formatNamedExportStamp(date)}.${extension}`;
+}
+
 function buildFavoriteExportText(entries) {
     const groups = buildFavoriteGroups(entries);
     return groups.map((group) => {
@@ -18127,6 +18149,8 @@ if (
         buildFavoriteExportSectionsHtml,
         buildSessionExportBlock,
         buildSessionResponsesText,
+        formatExportPromptName,
+        buildResponseExportFilename,
         favoriteState
     };
 }
@@ -18148,7 +18172,7 @@ document.addEventListener('click', (event) => {
     a.href = url;
 
     const now = new Date();
-    a.download = `LLM_answers - ${formatNamedExportStamp(now)}.html`;
+    a.download = buildResponseExportFilename(null, 'html', now);
 
     document.body.appendChild(a);
     a.click();
@@ -18174,7 +18198,7 @@ document.addEventListener('click', (event) => {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `LLM_answers - ${formatNamedExportStamp(now)}.txt`;
+    anchor.download = buildResponseExportFilename(null, 'txt', now);
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
@@ -18365,13 +18389,38 @@ document.addEventListener('click', (event) => {
 
     const modelForFile = String(modelName || 'Model').replace(/[\/\\:?<>|*"']/g, '').trim() || 'Model';
     const now = new Date();
-    anchor.download = `${modelForFile} ${formatModelCardExportStamp(now)}.html`;
+    anchor.download = buildResponseExportFilename(modelForFile, 'html', now);
 
     document.body.appendChild(anchor);
     anchor.click();
     document.body.removeChild(anchor);
     URL.revokeObjectURL(url);
 
+    flashButtonFeedback(btn, 'success');
+});
+
+document.addEventListener('click', (event) => {
+    const btn = event.target.closest('.panel-export-txt-btn');
+    if (!btn) return;
+
+    const targetId = btn.dataset.target;
+    const outputEl = targetId ? document.getElementById(targetId) : null;
+    const modelName = btn.dataset.name || 'Model';
+    const text = outputEl ? (outputEl.innerText || outputEl.textContent || '').trim() : '';
+    if (!text) {
+        flashButtonFeedback(btn, 'warn');
+        return;
+    }
+
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = buildResponseExportFilename(modelName, 'txt');
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
     flashButtonFeedback(btn, 'success');
 });
 
