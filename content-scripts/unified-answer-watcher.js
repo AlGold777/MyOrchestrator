@@ -272,6 +272,23 @@
       };
     }
 
+    buildLegacyRolloutResult(rolloutMode, legacyDecision, recentGrowth = 0) {
+      return {
+        success: legacyDecision?.accepted === true,
+        completed: legacyDecision?.accepted === true,
+        reason: legacyDecision?.reason || 'legacy_candidate_unproven',
+        terminalResult: null,
+        extractionSnapshot: null,
+        rolloutMode,
+        legacyDecision: legacyDecision || null,
+        duration: Date.now() - this.startTime,
+        indicators: { streaming: false },
+        scrollGrowthInLast2s: recentGrowth,
+        diagnosticConfidence: this.calculateScore(),
+        criteriaMet: this.criteria.metCount()
+      };
+    }
+
     async waitForCompletion(params = {}) {
       this.container = this.resolveContainer(params?.container);
       this.criteria.reset();
@@ -573,6 +590,34 @@
           });
           const contentMutationStable = contentMutationStableNow;
           if (contentMutationStable) this.emitWitness('COSMETIC_MUTATION', { contentStable: true }, 'stable-observation');
+
+          const completionSnapshot = lifecycle?.getCompletionSnapshot?.({ modelName: this.llmName, dispatchId: this.runDispatchId }) || null;
+          const rolloutMode = window.CompletionProtocol?.CompletionRollout?.normalize?.(completionSnapshot?.rolloutMode) || 'enforced';
+          if (window.CompletionProtocol?.CompletionRollout?.permitsLegacyDelivery?.(rolloutMode)) {
+            const legacyDecision = window.CompletionProtocol.CompletionRollout.evaluateLegacyCandidate({
+              freshAnswerObserved: this.freshAnswerObserved,
+              vetoActive: vetoed,
+              stopVisible,
+              contentStable: this.criteria.criteria.contentStable?.met === true,
+              fingerprintStable: this.fingerprintStable,
+              transportTerminal: evidence?.canCommit === true,
+              regenerateVisible,
+              completionMarkerVisible: completionSignal,
+              copyButtonStable,
+              contentMutationStable,
+              signals: [
+                evidence?.canCommit === true ? 'transport_terminal' : null,
+                regenerateVisible ? 'regenerate_visible' : null,
+                completionSignal ? 'completion_marker_visible' : null,
+                copyButtonStable ? 'copy_button_stable' : null,
+                contentMutationStable ? 'content_mutation_stable' : null
+              ].filter(Boolean)
+            });
+            if (legacyDecision.accepted) {
+              cleanup(this.buildLegacyRolloutResult(rolloutMode, legacyDecision, getRecentGrowth()));
+              return;
+            }
+          }
 
           if (expiration.hardExpired) {
             cleanup(this.buildResult('hard_timeout', 0.3, typingActive, getRecentGrowth(), false));

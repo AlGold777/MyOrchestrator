@@ -6445,6 +6445,11 @@ Backlog `what-to-do.md`, батч 1 (UI + Финализация).
 - Streaming требует `SUCCESS_TERMINAL`: удачный scroll больше не компенсирует failed completion. Finalization использует immutable extraction snapshot и не перечитывает live DOM после terminal verification.
 - Background принимает `LLM_RESPONSE_READY` только с typed `SUCCESS_TERMINAL`; добавлены capability health, recovery reconciliation, fact-level/shadow telemetry и mapping в статусы `FinalizationController`.
 - Обновлены regression contracts старых heuristic tests; добавлены проверки truth-table, hydration reset, immutable extraction и streaming OR-gate.
+# 2.81.337 — Functional Completion rollout
+
+- `legacy`, `shadow`, `enforced` теперь реально меняют delivery policy; migration default переведён в `shadow` до завершения provider smoke matrix.
+- Переходный legacy adapter отделён от watcher authority и принимает только fresh + stable + corroborated candidate без veto; weighted score не может дать delivery.
+
 # 2.81.336 — Semantic mutation and producer timeout fixes
 
 - Оба observer path теперь передают MutationClassifier text и structural hashes; изменения DOM-структуры при неизменном тексте больше не считаются cosmetic.

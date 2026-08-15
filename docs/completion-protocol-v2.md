@@ -18,4 +18,4 @@ Copy, Regenerate, completion marker, исчезновение Stop и transport 
 
 Non-success состояния типизированы: `CONTINUE_REQUIRED`, `PROVIDER_ERROR`, `INTERRUPTED`, `STALLED`, `AMBIGUOUS`, `CONTEXT_LOST`. Progress, producer-stuck и hard-attempt timeout независимы и никогда не дают success. Recovery перед resume проходит `RecoveryReconciler`.
 
-Настройка `responseLifecycleDetectorSettings.completionProtocolV2` принимает `legacy`, `shadow`, `enforced`; production default — `enforced`. Shadow payload содержит legacy candidate, V2 status/evidence, length/hash и `decisionDelta`. Режим не меняет deterministic policy: telemetry не участвует в correctness.
+Настройка `responseLifecycleDetectorSettings.completionProtocolV2` принимает `legacy`, `shadow`, `enforced`; migration default — `shadow`. В `shadow` отдельный migration-adapter сохраняет прежнюю доставку только для свежего, стабильного и corroborated candidate без active veto, а CompletionSession параллельно формирует V2 decision/delta. В `enforced` downstream принимает исключительно `SUCCESS_TERMINAL`. Weighted score остаётся только диагностикой и не принимается migration-adapter'ом.

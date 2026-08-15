@@ -290,6 +290,26 @@
   const CompletionRollout = Object.freeze({
     MODES: Object.freeze(['legacy', 'shadow', 'enforced']),
     normalize(mode) { return this.MODES.includes(mode) ? mode : 'enforced'; },
+    permitsLegacyDelivery(mode) { return ['legacy', 'shadow'].includes(this.normalize(mode)); },
+    evaluateLegacyCandidate(observations = {}) {
+      const stable = observations.contentStable === true || observations.fingerprintStable === true;
+      const corroborated = observations.transportTerminal === true
+        || observations.regenerateVisible === true
+        || observations.completionMarkerVisible === true
+        || observations.copyButtonStable === true
+        || observations.contentMutationStable === true;
+      const accepted = observations.freshAnswerObserved === true
+        && observations.vetoActive !== true
+        && observations.stopVisible !== true
+        && stable
+        && corroborated;
+      return freeze({
+        accepted,
+        reason: accepted ? 'legacy_corroborated_stable_candidate' : 'legacy_candidate_unproven',
+        signals: Array.from(observations.signals || []),
+        evaluatedAt: Number(observations.evaluatedAt || Date.now())
+      });
+    },
     compare({ legacySuccess = false, legacyCompletionReason = null, terminalResult = null, responseLength = 0, contentHash = null } = {}) {
       const v2TerminalStatus = terminalResult?.status || null;
       const v2Success = v2TerminalStatus === 'SUCCESS_TERMINAL';

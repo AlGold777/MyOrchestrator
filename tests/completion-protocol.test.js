@@ -154,4 +154,22 @@ describe('Completion protocol components', () => {
       v2Evidence: [2, 4]
     }));
   });
+
+  test('legacy rollout requires stable corroborated evidence and never uses score', () => {
+    const accepted = Protocol.CompletionRollout.evaluateLegacyCandidate({
+      freshAnswerObserved: true,
+      contentStable: true,
+      stopVisible: false,
+      vetoActive: false,
+      copyButtonStable: true
+    });
+    expect(accepted.accepted).toBe(true);
+    expect(Protocol.CompletionRollout.permitsLegacyDelivery('shadow')).toBe(true);
+    expect(Protocol.CompletionRollout.permitsLegacyDelivery('enforced')).toBe(false);
+    expect(Protocol.CompletionRollout.evaluateLegacyCandidate({
+      freshAnswerObserved: true,
+      contentStable: true,
+      score: 1
+    }).accepted).toBe(false);
+  });
 });

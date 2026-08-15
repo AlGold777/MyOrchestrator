@@ -735,7 +735,11 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
         this.state.scrollResult = scrollResult;
         this.state.answerResult = answerResult;
 
-        if (!answerResult?.success || answerResult?.terminalResult?.status !== 'SUCCESS_TERMINAL') {
+        const v2Accepted = answerResult?.success && answerResult?.terminalResult?.status === 'SUCCESS_TERMINAL';
+        const legacyRolloutAccepted = answerResult?.success
+          && ['legacy', 'shadow'].includes(answerResult?.rolloutMode)
+          && answerResult?.legacyDecision?.accepted === true;
+        if (!v2Accepted && !legacyRolloutAccepted) {
           return { success: false, error: answerResult?.terminalResult?.reason || answerResult?.reason || 'streaming_incomplete' };
         }
 
@@ -986,6 +990,8 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
         answerVerification: this.lastAnswerVerification || null,
         terminalResult: this.state.answerResult?.terminalResult || null,
         extractionSnapshot: authoritySnapshot,
+        completionRolloutMode: this.state.answerResult?.rolloutMode || 'enforced',
+        legacyCompletionDecision: this.state.answerResult?.legacyDecision || null,
         runResult: runResult ? runResult.serialize() : null
       };
       this.telemetry.logPhase('finalization_done', { duration, sanityCheck, selectorTier });

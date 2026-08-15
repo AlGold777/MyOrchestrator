@@ -20,7 +20,7 @@
     stableMs: 1500,
     pollIntervalMs: 600,
     minCompleteConfidence: 0.75,
-    completionProtocolV2: 'enforced'
+    completionProtocolV2: 'shadow'
   };
   const GENERATING_SELECTORS = [
     '[aria-label*="Stop" i]',
