@@ -114,16 +114,12 @@ describe('watcher: transport evidence gates the commit', () => {
 
     await tick(20);
 
-    // The marker is recorded as P0 and lifts the guarantee above DOM-only, but
-    // causal ordering cannot say the stream was this run's, so the run does not
-    // commit on it — it finishes through the DOM path, typed as suspicion.
-    expect(settled).not.toBeNull();
-    expect(settled.reason).not.toBe('transport_terminal');
-    expect(settled.evidence.strongestClass).toBe('P0');
-    expect(settled.evidence.transport.streamOpen).toBe(false);
-    expect(settled.evidence.guarantee).toBe('DEGRADED');
-    expect(settled.evidence.reasons).toContain('terminal_fact_not_attributed_to_this_run');
-    expect(settled.runProof.type).toBe('SUSPECTED_COMPLETE');
+    // The watcher records the transport marker but has no terminal authority.
+    expect(settled).toBeNull();
+    expect(watcher.lastLadderVerdict.strongestClass).toBe('P0');
+    expect(watcher.lastTransportSnapshot.streamOpen).toBe(false);
+    expect(watcher.lastLadderVerdict.guarantee).toBe('DEGRADED');
+    expect(watcher.lastLadderVerdict.reasons).toContain('terminal_fact_not_attributed_to_this_run');
   });
 
   test('the run proof names the dispatch it claims to be about', async () => {
@@ -138,11 +134,11 @@ describe('watcher: transport evidence gates the commit', () => {
 
     await tick(40);
 
-    expect(settled).not.toBeNull();
-    expect(settled.runProof.dispatchId).toBe('GPT:1781159284885:3');
+    expect(settled).toBeNull();
+    expect(watcher.buildRunProof('witness_only', false).serialize().dispatchId).toBe('GPT:1781159284885:3');
   });
 
-  test('a DOM-only completion is typed as suspected, never as a proven commit', async () => {
+  test('a DOM-only completion remains a witness and never commits', async () => {
     settledAnswerDom();
     // No transport observer available at all: the DOM is the only witness.
     window.humanoidFetchMonitorState = () => ({ injected: false, hasGenerationContract: false });
@@ -154,11 +150,10 @@ describe('watcher: transport evidence gates the commit', () => {
 
     await tick(40);
 
-    expect(settled).not.toBeNull();
-    expect(settled.completed).toBe(true);
-    expect(settled.runProof.type).toBe('SUSPECTED_COMPLETE');
-    expect(settled.runProof.guarantee).toBe('HEURISTIC');
-    expect(settled.runProof.reasons).toContain('terminality_not_proven');
+    expect(settled).toBeNull();
+    const proof = watcher.buildRunProof('witness_only', false).serialize();
+    expect(proof.type).not.toBe('COMMITTED');
+    expect(proof.axes.terminality).not.toBe('proven');
   });
 
   test('text shorter than its own maximum vetoes the commit until it recovers', async () => {

@@ -73,7 +73,7 @@ describe('lifecycle stuck-busy handling', () => {
     detector.stopResponseLifecycleTracking({ modelName: 'DeepSeek', reason: 'test_done' });
   });
 
-  test('a stale decorative loading class is overridden after long stability', async () => {
+  test('a stale loading signal remains an active veto instead of timing into success', async () => {
     const detector = window.ResponseLifecycleDetector;
     const spinner = document.createElement('div');
     spinner.className = 'sidebar-loading-decor';
@@ -101,9 +101,9 @@ describe('lifecycle stuck-busy handling', () => {
       const jump = setInterval(() => { offset += 2000; }, 5);
       const result = await detector.waitForAnswerComplete({ modelName: 'DeepSeek', timeoutMs: 60000, stableMs: 40, pollIntervalMs: 10, traceId: 'sb-2' });
       clearInterval(jump);
-      expect(result.ok).toBe(true);
-      expect(result.completionSignals?.stuckBusyOverride).toBe(true);
-      expect(readyEvents().length).toBeGreaterThanOrEqual(1);
+      expect(result.ok).toBe(false);
+      expect(result.terminalResult?.status).toBe('STALLED');
+      expect(readyEvents()).toHaveLength(0);
     } finally {
       Date.now = realNow;
       detector.stopResponseLifecycleTracking({ modelName: 'DeepSeek', reason: 'test_done' });

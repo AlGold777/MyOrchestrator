@@ -137,7 +137,18 @@ const BOUND_SENDER = { tab: { id: 101 } };
 const FOREIGN_SENDER = { tab: { id: 202 } };
 const PAGE_SENDER = {}; // extension pages have no sender.tab
 const RESULTS_SENDER = { tab: { id: 909 } };
-const META = { dispatchId: 'GPT:12345:1', runSessionId: 12345, sessionId: 12345 };
+const META = {
+  dispatchId: 'GPT:12345:1',
+  runSessionId: 12345,
+  sessionId: 12345,
+  terminalResult: {
+    status: 'SUCCESS_TERMINAL',
+    attemptId: 'GPT:12345:1',
+    decidedAt: 12346,
+    reason: 'all_terminal_facts_proven',
+    evidenceRefs: [1, 2, 3, 4]
+  }
+};
 
 const PPLX_META_1 = { dispatchId: 'Perplexity:12345:1', runSessionId: 12345, sessionId: 12345 };
 const PPLX_CHAT_SENDER = {

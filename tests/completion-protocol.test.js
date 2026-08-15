@@ -106,4 +106,26 @@ describe('Completion protocol components', () => {
     expect(Protocol.RecoveryReconciler.reconcile({ dispatchId: 'a' }, { dispatchId: 'a' })).toBe('RESUME');
     expect(Protocol.RecoveryReconciler.reconcile({ dispatchId: 'a' }, { contextValid: false })).toBe('CONTEXT_LOST');
   });
+
+  test('typed results map into existing FinalizationController statuses', () => {
+    expect(Protocol.FinalizationAdapter.toFinalStatus({ status: 'SUCCESS_TERMINAL' })).toBe('COMPLETE');
+    expect(Protocol.FinalizationAdapter.toFinalStatus({ status: 'CONTINUE_REQUIRED' })).toBe('USER_ACTION_REQUIRED');
+    expect(Protocol.FinalizationAdapter.toFinalStatus({ status: 'STALLED' })).toBe('STREAM_TIMEOUT');
+    expect(Protocol.FinalizationAdapter.toFinalStatus({ status: 'AMBIGUOUS' })).toBe('UNCERTAIN');
+  });
+
+  test('shadow rollout reports false-completion deltas without changing policy', () => {
+    const comparison = Protocol.CompletionRollout.compare({
+      legacySuccess: true,
+      legacyCompletionReason: 'copy_button_stable',
+      terminalResult: { status: 'STALLED', evidenceRefs: [2, 4] },
+      responseLength: 42,
+      contentHash: 'h'
+    });
+    expect(comparison).toEqual(expect.objectContaining({
+      v2TerminalStatus: 'STALLED',
+      decisionDelta: 'legacy_success_v2_STALLED',
+      v2Evidence: [2, 4]
+    }));
+  });
 });

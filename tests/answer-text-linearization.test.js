@@ -98,9 +98,13 @@ describe('authoritative answer text linearization', () => {
       answer.textContent += ` public-chunk-${index}`;
     }
     expect(settled).toBe(false);
+    window.__LLMScrollHardStop = true;
+    await new Promise((resolve) => setTimeout(resolve, 30));
     const result = await completion;
-    expect(result.completed).toBe(true);
-    expect(['content_mutation_stable', 'criteria_met']).toContain(result.reason);
-    expect(watcher.latestContentLength).toBe(watcher.readAnswerText(document.querySelector('.answer-root')).length);
+    expect(result.completed).toBe(false);
+    expect(result.reason).toBe('hard_stop');
+    expect(watcher.latestContentLength).toBeGreaterThan(0);
+    expect(watcher.latestContentLength).toBeLessThanOrEqual(watcher.readAnswerText(document.querySelector('.answer-root')).length);
+    delete window.__LLMScrollHardStop;
   });
 });

@@ -37,6 +37,14 @@ describe('tri-state completion (stop-button)', () => {
     };
     window.chrome = global.chrome;
     loadScript('content-utils/response-lifecycle-detector.js');
+    loadScript('content-scripts/answer-pipeline-selectors.js');
+    loadScript('content-scripts/turn-resolver.js');
+    loadScript('content-scripts/answer-structure.js');
+    loadScript('content-scripts/generation-signal.js');
+    loadScript('shared/answer-verification.js');
+    window.AnswerPipelineConfig = {
+      finalization: { stabilityChecks: 2, stabilityRetryBudget: 1, stabilityInterval: 5 }
+    };
   });
 
   const completeEvents = () => sentMessages.filter((m) =>
@@ -46,6 +54,7 @@ describe('tri-state completion (stop-button)', () => {
   const runTracking = async (modelName) => {
     const detector = window.ResponseLifecycleDetector;
     const oldAnswer = document.createElement('article');
+    oldAnswer.setAttribute('data-message-author-role', 'assistant');
     oldAnswer.textContent = 'Old response that existed before this dispatch and must not complete it.';
     setRect(oldAnswer, { top: 420, left: 140, width: 720, height: 180 });
     document.body.appendChild(oldAnswer);
@@ -53,14 +62,16 @@ describe('tri-state completion (stop-button)', () => {
     const submittedAt = Date.now();
     await detector.startResponseLifecycleTracking({ modelName, dispatchId: `d-${modelName}`, runSessionId: 77, promptSubmittedAt: submittedAt, traceId: `d-${modelName}` });
     const answer = document.createElement('article');
+    answer.setAttribute('data-message-author-role', 'assistant');
     answer.textContent = 'Stable generated answer long enough to be treated as a real response by the detector.';
     setRect(answer, { top: 540, left: 140, width: 720, height: 180 });
     document.body.appendChild(answer);
     detector.registerAnswerCandidate({ modelName, element: answer, observedAt: Date.now(), traceId: `d-${modelName}` });
     const start = await detector.waitForAnswerStart({ modelName, promptSubmittedAt: submittedAt, timeoutMs: 200, pollIntervalMs: 10, traceId: `d-${modelName}` });
     expect(start.ok).toBe(true);
-    await detector.waitForAnswerComplete({ modelName, timeoutMs: 600, stableMs: 60, pollIntervalMs: 20 });
+    const completionResult = await detector.waitForAnswerComplete({ modelName, timeoutMs: 600, stableMs: 60, pollIntervalMs: 20 });
     detector.stopResponseLifecycleTracking({ modelName, reason: 'test_done' });
+    return completionResult;
   };
 
   test('a present localized stop button (Arrêter) blocks completion', async () => {
@@ -76,7 +87,8 @@ describe('tri-state completion (stop-button)', () => {
   });
 
   test('a clean page (confirmed-absent stop) still completes', async () => {
-    await runTracking('GPT');
+    const completionResult = await runTracking('GPT');
+    expect(completionResult).toEqual(expect.objectContaining({ ok: true, state: 'COMPLETE' }));
     expect(completeEvents().length).toBeGreaterThanOrEqual(1);
     expect(readyEvents()).toEqual([
       expect.objectContaining({

@@ -635,6 +635,7 @@ const hardTimeoutPromise = new Promise((_, reject) => {
 
       this.humanActivity.startDuringWait();
       let guardInterval = null;
+      let textStabilityMonitor = null;
       const clearGuardInterval = () => {
         if (guardInterval) {
           clearInterval(guardInterval);
@@ -648,7 +649,7 @@ const hardTimeoutPromise = new Promise((_, reject) => {
         const answerPromise = this.runAnswerCompletion(prepResult.containerInfo);
 
         //-- 2.1. Fallback: завершение по отсутствию изменений текста --//
-const textStabilityMonitor = setInterval(() => {
+textStabilityMonitor = setInterval(() => {
   if (this.streamingTimedOut || this.hardStopTriggered) {
     clearInterval(textStabilityMonitor);
     return;
@@ -724,6 +725,7 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
 
         clearTimeout(watchdog);
         clearGuardInterval();
+        clearInterval(textStabilityMonitor);
         this.humanActivity.stop();
 
         if (this.streamingTimedOut) {
@@ -733,8 +735,8 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
         this.state.scrollResult = scrollResult;
         this.state.answerResult = answerResult;
 
-        if (!scrollResult?.success && !answerResult?.success) {
-          return { success: false, error: 'streaming_incomplete' };
+        if (!answerResult?.success || answerResult?.terminalResult?.status !== 'SUCCESS_TERMINAL') {
+          return { success: false, error: answerResult?.terminalResult?.reason || answerResult?.reason || 'streaming_incomplete' };
         }
 
         const duration = Date.now() - phaseStart;
@@ -745,6 +747,7 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
       } catch (error) {
         clearTimeout(watchdog);
         clearGuardInterval();
+        clearInterval(textStabilityMonitor);
         this.humanActivity.stop();
         this.humanSession.stopSession('streaming-error');
         return { success: false, error: error.message || 'streaming_failed' };
@@ -903,31 +906,36 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
       this.telemetry.logPhase('finalization_start');
       this.emitPipelineStep('finalization_start', { meta: { phase: 'finalization' } });
 
-      const maintenanceResult = await this.runMaintenanceScroll(this.state.container);
+      const authoritySnapshot = this.state.answerResult?.extractionSnapshot || null;
+      const maintenanceResult = authoritySnapshot
+        ? { ran: false, reason: 'immutable_extraction_already_captured' }
+        : await this.runMaintenanceScroll(this.state.container);
       this.state.maintenanceResult = maintenanceResult;
 
-      const stable = await this.runFinalStabilityChecks();
+      const stable = authoritySnapshot ? true : await this.runFinalStabilityChecks();
       if (!stable) {
         this.telemetry.logPhase('finalization_unstable_answer', { platform: this.platform });
         return { success: false, error: 'answer_not_stable' };
       }
-      let answer;
-      let answerHtml = '';
-      try {
-        const extracted = await this.extractAnswerWithHtml();
-        answer = extracted.text;
-        answerHtml = extracted.html;
-      } catch (err) {
-        const message = err?.message || String(err) || 'answer_extract_failed';
-        this.telemetry.logPhase('finalization_extract_failed', { message });
-        return { success: false, error: message };
+      let answer = authoritySnapshot?.text;
+      let answerHtml = authoritySnapshot?.html || '';
+      if (!authoritySnapshot) {
+        try {
+          const extracted = await this.extractAnswerWithHtml();
+          answer = extracted.text;
+          answerHtml = extracted.html;
+        } catch (err) {
+          const message = err?.message || String(err) || 'answer_extract_failed';
+          this.telemetry.logPhase('finalization_extract_failed', { message });
+          return { success: false, error: message };
+        }
       }
 
       if (!String(answer || '').trim()) {
         this.telemetry.logPhase('finalization_empty_answer', { platform: this.platform });
         return { success: false, error: 'empty_answer' };
       }
-      const providerErrorSurface = window.ContentUtils?.detectProviderErrorSurface?.();
+      const providerErrorSurface = authoritySnapshot ? null : window.ContentUtils?.detectProviderErrorSurface?.();
       if (providerErrorSurface?.detected) {
         this.telemetry.logPhase('finalization_provider_error_surface', {
           platform: this.platform,
@@ -976,6 +984,8 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
         success: true, duration, answer, answerHtml, sanityCheck, stable,
         selectorTier, selectorUsed: this.lastAnswerSelector || null,
         answerVerification: this.lastAnswerVerification || null,
+        terminalResult: this.state.answerResult?.terminalResult || null,
+        extractionSnapshot: authoritySnapshot,
         runResult: runResult ? runResult.serialize() : null
       };
       this.telemetry.logPhase('finalization_done', { duration, sanityCheck, selectorTier });

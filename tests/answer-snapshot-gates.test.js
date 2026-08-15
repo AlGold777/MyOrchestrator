@@ -6,7 +6,7 @@ const source = (file) => fs.readFileSync(path.join(__dirname, '..', file), 'utf8
 
 function loadPipeline() {
   class Dummy { constructor() {} start() {} stop() {} }
-  class DummyTelemetry { constructor() { this.traceId = 'snapshot-gate'; } record() {} }
+  class DummyTelemetry { constructor() { this.traceId = 'snapshot-gate'; } record() {} logPhase() {} }
   window.UnifiedPipelineModules = {
     AdaptiveTimeoutManager: Dummy,
     coordinationModes: {},
@@ -80,5 +80,55 @@ describe('production answer snapshot gates', () => {
     expect(snapshot.generationActive).toBe(true);
     expect(snapshot.generationSignalKind).toBe('generating');
     expect(snapshot.generationSignalSelector).toBe('[data-generating="true"]');
+  });
+
+  test('scroll success cannot compensate a failed completion authority', async () => {
+    const pipeline = loadPipeline();
+    window.UnifiedPipelineModules.coordinationModes.test = { waitFor: 'both' };
+    pipeline.config.streaming.coordinationMode = 'test';
+    pipeline.adaptiveTimeout = { calculateTimeout: () => ({ soft: 1000, hard: 1000 }) };
+    pipeline.humanSession = { startSession() {}, on() {}, stopSession() {} };
+    pipeline.humanActivity = { startDuringWait() {}, stop() {} };
+    pipeline.runInitialScrollKick = jest.fn(async () => ({ ran: true }));
+    pipeline.runScrollSettlement = jest.fn(async () => ({ success: true }));
+    pipeline.runAnswerCompletion = jest.fn(async () => ({
+      success: false,
+      reason: 'timeout_progress',
+      terminalResult: { status: 'STALLED', reason: 'timeout_progress' }
+    }));
+    pipeline.getAnswerElement = jest.fn(() => null);
+
+    await expect(pipeline.runStreamingPhase({ containerInfo: {} })).resolves.toEqual(
+      expect.objectContaining({ success: false, error: 'timeout_progress' })
+    );
+  });
+
+  test('finalization publishes the immutable authority snapshot without a live DOM lookup', async () => {
+    const pipeline = loadPipeline();
+    pipeline.state.answerResult = {
+      success: true,
+      terminalResult: { status: 'SUCCESS_TERMINAL', reason: 'all_terminal_facts_proven' },
+      extractionSnapshot: {
+        text: 'verified immutable answer',
+        html: '<p>verified immutable answer</p>',
+        contentHash: 'content-hash',
+        structuralHash: 'structural-hash',
+        responseIdentity: { nodeKey: 'answer-1' }
+      }
+    };
+    pipeline.extractAnswerWithHtml = jest.fn(() => { throw new Error('live DOM lookup forbidden'); });
+    pipeline.runFinalStabilityChecks = jest.fn(async () => { throw new Error('duplicate verification forbidden'); });
+    pipeline.sanityCheck = { execute: jest.fn(async () => ({ passed: true })) };
+    pipeline.isStaleBaselineAnswer = jest.fn(() => false);
+    pipeline.buildFinalRunResult = jest.fn(() => null);
+
+    const result = await pipeline.runFinalizationPhase();
+    expect(result).toEqual(expect.objectContaining({
+      success: true,
+      answer: 'verified immutable answer',
+      answerHtml: '<p>verified immutable answer</p>'
+    }));
+    expect(pipeline.extractAnswerWithHtml).not.toHaveBeenCalled();
+    expect(pipeline.runFinalStabilityChecks).not.toHaveBeenCalled();
   });
 });

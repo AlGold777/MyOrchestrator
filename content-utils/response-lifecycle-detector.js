@@ -1,11 +1,14 @@
 (function initResponseLifecycleDetector() {
   if (window.LLMExtension?.ResponseLifecycleDetector) return;
 
-  const VERSION = '1.1.0';
+  const VERSION = '2.0.0';
+  const CompletionProtocol = window.CompletionProtocol || (() => {
+    if (typeof require !== 'function') return null;
+    try { return require('../shared/completion-protocol.js'); } catch (_) { return null; }
+  })();
   const BODY_MUTATION_THROTTLE_MS = 500;
   const ANSWER_GENERATING_TELEMETRY_THROTTLE_MS = 15000;
   const POST_TERMINAL_OBSERVATION_OFFSETS_MS = Object.freeze([1000, 3000, 8000, 15000, 30000]);
-  const MIN_COMPLETE_CONFIDENCE = 0.75;
   const STUCK_BUSY_OVERRIDE_MIN_MS = 6000;
   const LIFECYCLE_READINESS_RESOLVER_TIMEOUT_MS = 800;
   const RESPONSE_LIFECYCLE_DEFAULTS = {
@@ -16,7 +19,8 @@
     answerCompleteTimeoutMs: 450000,
     stableMs: 1500,
     pollIntervalMs: 600,
-    minCompleteConfidence: 0.75
+    minCompleteConfidence: 0.75,
+    completionProtocolV2: 'enforced'
   };
   const GENERATING_SELECTORS = [
     '[aria-label*="Stop" i]',
@@ -280,6 +284,8 @@
       messageRootSelector: turn.messageRootSelector || null,
       structuralComplete: turn.resolution === 'exact' && structure.complete === true,
       structuralIssues: Array.isArray(structure.issues) ? structure.issues : [],
+      selectedHtml: String(turn.answerNode?.innerHTML || ''),
+      structuralHash: shortHash(String(turn.answerNode?.innerHTML || '')),
       generationActive: generation.active,
       generationSignalKind: generation.kind,
       generationSignalSelector: generation.selector || null,
@@ -721,7 +727,9 @@
       ? [
           ...selectorApi.selectorList(platformSelectors.generatingIndicators).map((selector) => ({ selector, kind: 'generating' })),
           ...selectorApi.selectorList(platformSelectors.streaming).map((selector) => ({ selector, kind: 'streaming' })),
-          ...selectorApi.selectorList(platformSelectors.stopButton).map((selector) => ({ selector, kind: 'stopButton' }))
+          ...selectorApi.selectorList(platformSelectors.stopButton).map((selector) => ({ selector, kind: 'stopButton' })),
+          ...GENERATING_SELECTORS.filter((selector) => /stop|останов|detener|arrêter/i.test(selector))
+            .map((selector) => ({ selector, kind: 'stopButton' }))
         ]
       : GENERATING_SELECTORS.map((selector) => ({ selector, kind: 'legacy' }));
     if (canQuery) {
@@ -732,7 +740,15 @@
           const visible = selectorApi?.isVisible
             ? (node) => selectorApi.isVisible(node)
             : (node) => isVisible(node);
-          const nodes = Array.from(root.querySelectorAll(selector)).filter(visible);
+          const nodes = Array.from(root.querySelectorAll(selector)).filter((node) => {
+            if (!visible(node)) return false;
+            if (descriptor.kind === 'stopButton' || /stop|останов|detener|arrêter/i.test(selector)) {
+              return !node.disabled
+                && node.getAttribute?.('aria-disabled') !== 'true'
+                && node.getAttribute?.('data-disabled') !== 'true';
+            }
+            return true;
+          });
           if (nodes.length) indicators.push(descriptor);
         } catch (_) { queriesFailed += 1; }
       }
@@ -817,7 +833,7 @@
     const observeTarget = target === document.body ? document.body : target;
     if (!observeTarget) return false;
     const observingBody = observeTarget === document.body;
-    const observer = new MutationObserver(() => {
+    const observer = new MutationObserver((mutations) => {
       const now = Date.now();
       if (observingBody && now - bodyMutationScheduledAt < BODY_MUTATION_THROTTLE_MS) {
         // Throttle accounting, not liveness: a Stop/loading removal can be the
@@ -831,12 +847,32 @@
         tracker.firstMutationAfterDispatchAt = now;
       }
       tracker.mutationCount += 1;
+      if (tracker.completionSession && CompletionProtocol?.MutationClassifier) {
+        const currentText = normalizeText(tracker.latestAnswerEl?.innerText || tracker.latestAnswerEl?.textContent || '');
+        const currentHash = shortHash(currentText);
+        const classifications = new CompletionProtocol.MutationClassifier().classify(mutations, {
+          responseRoot: tracker.latestAnswerEl,
+          normalizedBefore: tracker.lastSemanticMutationHash,
+          normalizedAfter: currentHash,
+          isCosmetic: (node) => !!node?.closest?.('[aria-live],[class*="cursor" i],[class*="toolbar" i]')
+        });
+        const substantive = classifications.find((item) => item.substantive);
+        if (substantive) {
+          tracker.lastSemanticMutationHash = currentHash;
+          appendCompletionWitness(tracker, substantive.kind === 'CONTENT_PROGRESS' ? 'CONTENT_PROGRESS' : 'RESPONSE_STRUCTURE_CHANGED', {
+            mutationCount: mutations.length
+          }, 'MutationClassifier');
+        } else if (classifications.some((item) => item.kind === 'COSMETIC')) {
+          appendCompletionWitness(tracker, 'COSMETIC_MUTATION', { mutationCount: mutations.length }, 'MutationClassifier');
+        }
+      }
       wakeTracker(tracker);
     });
     observer.observe(observeTarget, {
       childList: true,
       subtree: true,
-      characterData: true
+      characterData: true,
+      attributes: true
     });
     tracker.observer = observer;
     tracker.observedTarget = observeTarget;
@@ -924,8 +960,128 @@
       nextStructuralVerificationAt: 0,
       cancelledAt: null,
       cancelReason: null,
-      cancelled: false
+      cancelled: false,
+      completionSession: null,
+      completionTerminalResult: null,
+      completionWaiters: [],
+      lastWitnessSignatures: new Map(),
+      lastSemanticMutationHash: shortHash(normalizeText(baselineSnapshot?.text || ''))
     };
+  }
+
+  function appendCompletionWitness(tracker, type, payload = null, source = 'ResponseLifecycleDetector') {
+    if (!tracker?.completionSession || tracker.completionTerminalResult) return null;
+    const witnessGroup = ({
+      STOP_VISIBLE: 'stop', STOP_ABSENT: 'stop',
+      GENERATION_ACTIVE: 'generation', GENERATION_INACTIVE: 'generation',
+      FRESH_RESPONSE_OBSERVED: 'fresh', CONTENT_PROGRESS: 'content',
+      RESPONSE_STRUCTURE_CHANGED: 'structure', COSMETIC_MUTATION: 'cosmetic',
+      PROVIDER_ERROR_VISIBLE: 'provider-error', CONTINUE_VISIBLE: 'continue'
+    })[type] || type;
+    const witnessSignature = `${type}:${JSON.stringify(payload || null)}`;
+    if (tracker.lastWitnessSignatures?.get(witnessGroup) === witnessSignature) return null;
+    tracker.lastWitnessSignatures?.set(witnessGroup, witnessSignature);
+    let record = null;
+    try {
+      record = tracker.completionSession.observe({ type, observedAt: Date.now(), source, payload });
+    } catch (_) { return null; }
+    if (record) {
+      emitLifecycleTelemetry('WITNESS_OBSERVED', {
+        modelName: tracker.modelName,
+        state: tracker.state,
+        phaseEvidence: { witnessType: type, evidenceSeq: record.seq }
+      });
+      if (tracker.completionSession.facts.generationObserved && !tracker.generationFactEmitted) {
+        tracker.generationFactEmitted = true;
+        emitLifecycleTelemetry('GENERATION_OBSERVED', { modelName: tracker.modelName, state: tracker.state, phaseEvidence: { evidenceSeq: record.seq } });
+      }
+    }
+    return record;
+  }
+
+  function commitCompletionResult(tracker, result) {
+    if (!tracker || !result || tracker.completionTerminalResult) return tracker?.completionTerminalResult || null;
+    tracker.completionTerminalResult = result;
+    tracker.state = result.status;
+    emitLifecycleTelemetry('TERMINAL_DECISION', {
+      modelName: tracker.modelName,
+      state: result.status,
+      level: result.status === 'SUCCESS_TERMINAL' ? 'success' : 'warning',
+      phaseEvidence: { terminalResult: result, facts: tracker.completionSession?.snapshot?.().facts || null }
+    });
+    const shadowComparison = CompletionProtocol?.CompletionRollout?.compare?.({
+      legacySuccess: !!tracker.legacyCompletionCandidate,
+      legacyCompletionReason: tracker.legacyCompletionCandidate || null,
+      terminalResult: result,
+      responseLength: tracker.lastTextLength || tracker.latestAnswerText?.length || 0,
+      contentHash: tracker.lastTextHash || null
+    });
+    if (shadowComparison) {
+      emitLifecycleTelemetry('COMPLETION_SHADOW_DECISION', {
+        modelName: tracker.modelName,
+        state: result.status,
+        phaseEvidence: shadowComparison
+      });
+    }
+    const waiters = Array.isArray(tracker.completionWaiters) ? tracker.completionWaiters.splice(0) : [];
+    waiters.forEach((resolve) => { try { resolve(result); } catch (_) {} });
+    return result;
+  }
+
+  function observeWitness({ modelName, dispatchId = null, type, payload = null, source = 'external' } = {}) {
+    const tracker = trackers.get(modelName);
+    if (!tracker || (dispatchId && tracker.dispatchId && String(dispatchId) !== String(tracker.dispatchId))) return false;
+    if (source === 'UnifiedAnswerCompletionWatcher' && ['COPY_VISIBLE', 'REGENERATE_VISIBLE', 'COMPLETION_MARKER_VISIBLE'].includes(type)) {
+      tracker.legacyCompletionCandidate = type.toLowerCase();
+    }
+    return !!appendCompletionWitness(tracker, type, payload, source);
+  }
+
+  function getTerminalResult({ modelName, dispatchId = null } = {}) {
+    const tracker = trackers.get(modelName);
+    if (!tracker || (dispatchId && tracker.dispatchId && String(dispatchId) !== String(tracker.dispatchId))) return null;
+    return tracker.completionTerminalResult || null;
+  }
+
+  function getCompletionSnapshot({ modelName, dispatchId = null } = {}) {
+    const tracker = trackers.get(modelName);
+    if (!tracker || (dispatchId && tracker.dispatchId && String(dispatchId) !== String(tracker.dispatchId))) return null;
+    return tracker.completionSession?.snapshot?.() || null;
+  }
+
+  function waitForTerminalResult({ modelName, dispatchId = null, timeoutMs = 450000 } = {}) {
+    const tracker = trackers.get(modelName);
+    if (!tracker || (dispatchId && tracker.dispatchId && String(dispatchId) !== String(tracker.dispatchId))) {
+      return Promise.resolve(null);
+    }
+    if (tracker.completionTerminalResult) return Promise.resolve(tracker.completionTerminalResult);
+    return new Promise((resolve) => {
+      tracker.completionWaiters.push(resolve);
+      const entry = { id: null };
+      entry.id = setTimeout(() => {
+        const index = tracker.completionWaiters.indexOf(resolve);
+        if (index !== -1) tracker.completionWaiters.splice(index, 1);
+        resolve(tracker.completionTerminalResult || null);
+      }, Math.max(0, Number(timeoutMs || 0)));
+      tracker.timeoutTimers.push(entry);
+    });
+  }
+
+  function reconcileRecovery({ modelName, persisted = null, current = null } = {}) {
+    const tracker = trackers.get(modelName);
+    const currentContext = current || (tracker ? {
+      runSessionId: tracker.runSessionId,
+      dispatchId: tracker.dispatchId,
+      generationEpoch: tracker.generationEpoch,
+      contextValid: tracker.documentInstanceId === lifecycleDocumentInstanceId && tracker.navigationEpoch === lifecycleNavigationEpoch
+    } : null);
+    const result = CompletionProtocol?.RecoveryReconciler?.reconcile?.(persisted, currentContext) || 'CONTEXT_LOST';
+    if (tracker && result !== 'RESUME') {
+      appendCompletionWitness(tracker, result === 'CONTEXT_LOST' ? 'CONTEXT_INVALIDATED' : 'NODE_REPLACED', { recoveryResult: result }, 'RecoveryReconciler');
+      const terminalResult = tracker.completionSession?.evaluate?.(Date.now());
+      if (terminalResult) commitCompletionResult(tracker, terminalResult);
+    }
+    return result;
   }
 
   async function waitForAnswerStart({
@@ -973,6 +1129,14 @@
         tracker.state = 'ANSWER_STARTED';
         tracker.latestAnswerText = snapshot.text;
         tracker.freshAnswerObserved = true;
+        tracker.completionSession?.capabilityHealth?.report?.('answerResolution', snapshot.element ? 'HEALTHY' : 'DEGRADED');
+        tracker.completionSession?.capabilityHealth?.report?.('generationSignal', generationSignal ? 'HEALTHY' : 'DEGRADED');
+        appendCompletionWitness(tracker, 'FRESH_RESPONSE_OBSERVED', {
+          candidateCount: snapshot.candidateCount || null,
+          baselineChanged: baselineElementChanged,
+          generationSignal
+        });
+        if (generationSignal) appendCompletionWitness(tracker, 'GENERATION_ACTIVE', { indicators: indicators.indicators || [] });
         if (!isTrackerActive(tracker)) {
           return trackerCancelledResult(tracker);
         }
@@ -1014,6 +1178,13 @@
     traceId = null
   }) {
     const deadline = Date.now() + timeoutMs;
+    const activeSession = trackers.get(modelName)?.completionSession;
+    if (activeSession?.producer) {
+      activeSession.producer.confirmationWindowMs = Math.max(0, Math.min(
+        Number(activeSession.producer.confirmationWindowMs || stableMs || 0),
+        Number(stableMs || activeSession.producer.confirmationWindowMs || 0)
+      ));
+    }
     let previous = { hash: null, length: 0 };
     let stableSince = Date.now();
     while (Date.now() < deadline) {
@@ -1028,7 +1199,11 @@
       if (!tracker.observer || tracker.observedTarget !== document.body) {
         attachTrackerObserver(tracker, document.body);
       }
+      const previousHash = previous.hash;
       const stability = isTextStable(previous, snapshot.text, stableSince, stableMs);
+      if (previousHash && previousHash !== stability.hash) {
+        appendCompletionWitness(tracker, 'CONTENT_PROGRESS', { textLength: stability.length, contentHash: stability.hash });
+      }
       previous = { hash: stability.hash, length: stability.length };
       stableSince = stability.stableSince;
       tracker.lastTextHash = stability.hash;
@@ -1105,13 +1280,51 @@
         sendButtonReady,
         mutationQuiet
       };
-      let confidence = 0;
-      if (completionSignals.textStable) confidence += 0.35;
-      if (completionSignals.noStopButton) confidence += 0.20; // unknown stop -> no credit
-      if (completionSignals.noLoadingIndicator) confidence += 0.15;
-      if (completionSignals.mutationQuiet) confidence += 0.15;
-      if (completionSignals.composerReady) confidence += 0.10;
-      if (completionSignals.sendButtonReady) confidence += 0.05;
+      let diagnosticConfidence = 0;
+      if (completionSignals.textStable) diagnosticConfidence += 0.35;
+      if (completionSignals.noStopButton) diagnosticConfidence += 0.20;
+      if (completionSignals.noLoadingIndicator) diagnosticConfidence += 0.15;
+      if (completionSignals.mutationQuiet) diagnosticConfidence += 0.15;
+      if (completionSignals.composerReady) diagnosticConfidence += 0.10;
+      if (completionSignals.sendButtonReady) diagnosticConfidence += 0.05;
+      if (indicators.hasStopButton || indicators.hasLoadingIndicator || indicators.hasProgressbar) {
+        tracker.completionSession?.capabilityHealth?.report?.('producerControls', 'HEALTHY');
+        appendCompletionWitness(tracker, indicators.hasStopButton ? 'STOP_VISIBLE' : 'GENERATION_ACTIVE', { indicators: indicators.indicators });
+      } else if (indicators.stopButtonSignal === false) {
+        tracker.completionSession?.capabilityHealth?.report?.('producerControls', 'HEALTHY');
+        appendCompletionWitness(tracker, 'STOP_ABSENT', { probeTrusted: indicators.probeTrusted });
+        appendCompletionWitness(tracker, 'GENERATION_INACTIVE', { probeTrusted: indicators.probeTrusted });
+      }
+      const providerErrorSurface = window.ContentUtils?.detectProviderErrorSurface?.();
+      if (providerErrorSurface?.detected) {
+        appendCompletionWitness(tracker, 'PROVIDER_ERROR_VISIBLE', { selector: providerErrorSurface.selector || null });
+      }
+      const continueVisible = Array.from(document.querySelectorAll('button,[role="button"]')).slice(0, 120).some((node) => {
+        if (!isVisible(node)) return false;
+        const label = normalizeText(`${node.getAttribute?.('aria-label') || ''} ${node.textContent || ''}`);
+        return /continue (?:generating|generation)|продолжить (?:генерацию|ответ)|continuar (?:generando|generación)/i.test(label);
+      });
+      if (continueVisible) appendCompletionWitness(tracker, 'CONTINUE_VISIBLE', null);
+      tracker.completionSession?.capabilityHealth?.report?.('continueDetection', 'HEALTHY');
+      const immediateTerminalResult = tracker.completionSession?.evaluate?.(Date.now()) || null;
+      if (immediateTerminalResult) {
+        commitCompletionResult(tracker, immediateTerminalResult);
+        return { ok: false, state: immediateTerminalResult.status, reason: immediateTerminalResult.reason, terminalResult: immediateTerminalResult };
+      }
+      const timeoutState = tracker.completionSession?.timeouts?.evaluate?.(Date.now()) || null;
+      if (timeoutState) {
+        tracker.completionSession.facts.timeoutState = timeoutState;
+        const timeoutResult = tracker.completionSession.evaluate(Date.now());
+        if (timeoutResult) {
+          commitCompletionResult(tracker, timeoutResult);
+          emitLifecycleTelemetry(`TIMEOUT_${timeoutState}`, {
+            modelName, state: timeoutResult.status, level: 'warning',
+            textLength: snapshot.textLength,
+            phaseEvidence: { timeoutState }
+          });
+          return { ok: false, state: timeoutResult.status, reason: timeoutResult.reason, terminalResult: timeoutResult };
+        }
+      }
       tracker.state = stability.stable && (indicators.hasLoadingIndicator || indicators.hasStopButton) ? 'GENERATING' : (stability.stable ? 'STABLE' : 'ANSWER_STARTED');
       if (stability.stable && (indicators.hasLoadingIndicator || indicators.hasStopButton)) {
         // Throttle: a stuck busy indicator over stable text used to emit this on every
@@ -1172,13 +1385,14 @@
         indicators.stopButtonSignal === false &&
         (!indicators.hasLoadingIndicator || stuckBusyOverride) &&
         !indicators.hasProgressbar &&
-        confidence >= MIN_COMPLETE_CONFIDENCE &&
+        tracker.completionSession?.producer?.evaluate?.(Date.now()) === 'TERMINAL' &&
         Date.now() >= Number(tracker.nextStructuralVerificationAt || 0)
       ) {
         if (!isTrackerActive(tracker)) {
           return trackerCancelledResult(tracker);
         }
         const structuralVerification = await verifyStructuralCompletion(tracker);
+        tracker.diagnostics.lastStructuralVerification = structuralVerification;
         if (!isTrackerActive(tracker)) {
           return trackerCancelledResult(tracker);
         }
@@ -1188,12 +1402,57 @@
           && window.GenerationSignal?.inspect
           && window.TurnResolver?.resolveTurn
         );
-        if (structuralProofAvailable && structuralVerification?.verified !== true) {
+        const ownershipReasons = Array.isArray(structuralVerification?.reasons) ? structuralVerification.reasons : [];
+        const lifecycleCorroboratesInactive = tracker.completionSession?.ledger?.getLatest?.('STOP_ABSENT') != null
+          && tracker.completionSession?.ledger?.getLatest?.('GENERATION_INACTIVE') != null;
+        const recoverableVerificationReasons = ownershipReasons.length > 0 && ownershipReasons.every((reason) => (
+          reason === 'identity_missing:generationEpoch'
+          || (reason === 'generation_inactive_unproven' && lifecycleCorroboratesInactive)
+        ));
+        const structuralVerified = structuralVerification?.verified === true || (
+          recoverableVerificationReasons
+          && structuralVerification?.resolution === 'exact'
+          && structuralVerification?.structuralComplete === true
+          && structuralVerification?.lengthRegressionActive !== true
+        );
+        if (structuralVerified && structuralVerification?.verified !== true) {
+          structuralVerification.verified = true;
+          structuralVerification.originalVerified = false;
+          structuralVerification.lifecycleCorroborated = true;
+          structuralVerification.state = 'verified';
+          if (structuralVerification.generationActive == null && lifecycleCorroboratesInactive) {
+            structuralVerification.generationActive = false;
+          }
+        }
+        const ownershipConflict = !recoverableVerificationReasons
+          && ownershipReasons.some((reason) => /node|identity|candidate_set|dispatch|session|epoch/i.test(String(reason)));
+        tracker.completionSession.confirmOwnership({
+          status: structuralVerified && structuralVerification?.resolution === 'exact'
+            ? 'CONFIRMED'
+            : (ownershipConflict ? 'CONFLICT' : 'UNKNOWN'),
+          responseIdentity: structuralVerification ? {
+            runSessionId: structuralVerification.runSessionId,
+            dispatchId: structuralVerification.dispatchId,
+            generationEpoch: structuralVerification.generationEpoch,
+            nodeKey: structuralVerification.selectedNodeKey,
+            candidateOrdinalAfterAnchor: structuralVerification.candidateOrdinalAfterAnchor,
+            candidateSetHash: structuralVerification.candidateSetHash,
+            messageRootHash: structuralVerification.messageRootHash
+          } : undefined,
+          reasons: ownershipReasons,
+          verifiedAt: Date.now()
+        });
+        const ownershipTerminalResult = tracker.completionSession.evaluate(Date.now());
+        if (ownershipTerminalResult?.status === 'AMBIGUOUS') {
+          commitCompletionResult(tracker, ownershipTerminalResult);
+          return { ok: false, state: ownershipTerminalResult.status, reason: ownershipTerminalResult.reason, terminalResult: ownershipTerminalResult };
+        }
+        if (structuralProofAvailable && !structuralVerified) {
           const reasons = Array.isArray(structuralVerification?.reasons)
             ? structuralVerification.reasons
             : [structuralVerification ? 'structural_verification_pending' : 'anchored_turn_unresolved'];
           tracker.state = 'STABLE';
-          tracker.nextStructuralVerificationAt = Date.now() + Math.max(1000, pollIntervalMs * 2);
+          tracker.nextStructuralVerificationAt = Date.now() + Math.max(50, Math.min(1000, pollIntervalMs * 2));
           emitLifecycleTelemetry('LIFECYCLE_STRUCTURAL_VERIFICATION_PENDING', {
             modelName,
             state: 'STABLE',
@@ -1209,15 +1468,65 @@
               snapshotsCompared: Number(structuralVerification?.snapshotsCompared || 0)
             }
           });
-          if (!(await delayForTracker(tracker, pollIntervalMs, 'poll'))) {
+          if (!(await delayForTracker(tracker, Math.min(pollIntervalMs, 1000), 'poll'))) {
             return trackerCancelledResult(tracker);
           }
           continue;
         }
+        const materializationBefore = structuralVerification;
+        let materializationCaptureCount = 0;
+        const materialization = await new CompletionProtocol.MaterializationHydrationGate().materialize({
+          provider: platformForModel(modelName),
+          capture: async () => {
+            const value = materializationCaptureCount++ === 0 ? materializationBefore : captureStructuralSnapshot(tracker);
+            return value ? {
+              ...value,
+              text: value.selectedText || '',
+              contentHash: value.selectedHash,
+              structuralHash: value.structuralHash
+            } : null;
+          },
+          forceBottom: async () => { try { tracker.latestAnswerEl?.scrollIntoView?.({ block: 'end', behavior: 'auto' }); } catch (_) {} },
+          waitForSettle: async () => delayForTracker(tracker, Math.max(5, Math.min(pollIntervalMs || stableMs, 250)), 'poll')
+        });
+        const materializationAfter = materialization.after;
+        const materializationChanged = !materializationAfter || materialization.changed;
+        if (materializationChanged) {
+          tracker.completionSession.setContentVerification({
+            stable: true,
+            structurallyComplete: structuralVerification.structuralComplete === true,
+            lengthRegressionRecovered: structuralVerification.lengthRegressionActive !== true
+          }, materialization, null);
+          appendCompletionWitness(tracker, 'CONTENT_PROGRESS', { reason: 'materialization_changed' }, 'MaterializationHydrationGate');
+          emitLifecycleTelemetry('CONTENT_MATERIALIZATION_CHANGED', { modelName, state: 'STABLE', phaseEvidence: {
+            beforeHash: materializationBefore.selectedHash, afterHash: materializationAfter?.selectedHash || null
+          } });
+          tracker.nextStructuralVerificationAt = Date.now() + Math.max(50, Math.min(1000, pollIntervalMs * 2));
+          continue;
+        }
+        const responseIdentity = tracker.completionSession.ownershipResult?.responseIdentity || {};
+        tracker.completionSession.setContentVerification({
+          stable: true,
+          structurallyComplete: structuralVerification.structuralComplete === true,
+          lengthRegressionRecovered: structuralVerification.lengthRegressionActive !== true
+        }, materialization, {
+          text: String(structuralVerification.selectedText || ''),
+          html: String(structuralVerification.selectedHtml || ''),
+          contentHash: structuralVerification.selectedHash,
+          structuralHash: structuralVerification.structuralHash,
+          responseIdentity,
+          observedAt: structuralVerification.observedAt
+        });
+        const terminalResult = tracker.completionSession.evaluate(Date.now());
+        if (terminalResult?.status !== 'SUCCESS_TERMINAL') {
+          if (terminalResult) commitCompletionResult(tracker, terminalResult);
+          if (terminalResult) return { ok: false, state: terminalResult.status, reason: terminalResult.reason, terminalResult };
+          continue;
+        }
+        commitCompletionResult(tracker, terminalResult);
         const completedAt = Date.now();
-        const completedAnswerText = String(
-          structuralVerification?.selectedText || snapshot.rawText || snapshot.text || ''
-        ).trim();
+        const extractionSnapshot = tracker.completionSession.extractionSnapshot;
+        const completedAnswerText = String(extractionSnapshot?.text || '').trim();
         const answerVerification = structuralVerification
           ? (({ selectedText: _selectedText, ...value }) => value)(structuralVerification)
           : null;
@@ -1250,7 +1559,7 @@
           hasLoadingIndicator: false,
           composerReady,
           sendButtonReady,
-          confidence,
+          confidence: diagnosticConfidence,
           answerMethod: snapshot.method || null,
           responsePhase: phaseEvidence.phase,
           phaseEvidence
@@ -1270,7 +1579,7 @@
               runSessionId: tracker.runSessionId || null,
               sessionId: tracker.runSessionId || null,
               state: 'COMPLETE',
-              confidence,
+              confidence: diagnosticConfidence,
               textLength,
               answerHash: proofEvidence?.normalizedHash || shortHash(completedAnswerText),
               normalizedHash: proofEvidence?.normalizedHash || null,
@@ -1286,6 +1595,8 @@
               generationEpoch: answerVerification?.generationEpoch ?? null,
               turnAnchor: answerVerification?.turnAnchor ?? tracker.turnAnchor ?? null,
               completedAt
+              , terminalResult
+              , extractionSnapshot
             }
           });
         } catch (_) {}
@@ -1303,14 +1614,20 @@
           latestAnswerEl: snapshot.element,
           answerText: completedAnswerText,
           textLength,
-          confidence,
+          confidence: diagnosticConfidence,
           completionSignals,
+          terminalResult,
+          extractionSnapshot,
           diagnostics: {
             mutationCount: tracker.mutationCount
           }
         };
       }
-      if (!(await delayForTracker(tracker, pollIntervalMs, 'poll'))) {
+      const producerGate = tracker.completionSession?.producer;
+      const producerConfirmationRemaining = producerGate?.state === 'CANDIDATE'
+        ? Math.max(1, Number(producerGate.confirmationWindowMs || 0) - (Date.now() - Number(producerGate.candidateSince || Date.now())))
+        : pollIntervalMs;
+      if (!(await delayForTracker(tracker, Math.min(pollIntervalMs, producerConfirmationRemaining), 'poll'))) {
         return trackerCancelledResult(tracker);
       }
     }
@@ -1351,10 +1668,16 @@
         }
       });
     } catch (_) {}
+    tracker.completionSession.facts.timeoutState = 'HARD';
+    const terminalResult = tracker.completionSession.evaluate(Date.now());
+    if (terminalResult) commitCompletionResult(tracker, terminalResult);
     return {
       ok: false,
-      state: 'TIMEOUT',
-      reason: 'answer_complete_timeout',
+      state: terminalResult?.status || 'STALLED',
+      reason: terminalResult?.reason || 'answer_complete_timeout',
+      terminalResult,
+      completionSnapshot: tracker.completionSession?.snapshot?.() || null,
+      lifecycleDiagnostics: tracker.diagnostics || null,
       latestAnswerText: latest.text,
       textLength: latest.textLength,
       partial,
@@ -1438,6 +1761,33 @@
       stopResponseLifecycleTracking({ modelName, dispatchId, runSessionId, reason: 'lifecycle_disabled_or_missing_model' });
       return { ok: false, reason: 'lifecycle_disabled_or_missing_model' };
     }
+    if (!CompletionProtocol?.CompletionSession) {
+      stopResponseLifecycleTracking({ modelName, dispatchId, runSessionId, reason: 'completion_protocol_unavailable' });
+      return { ok: false, reason: 'completion_protocol_unavailable' };
+    }
+    tracker.completionSession = new CompletionProtocol.CompletionSession(Object.freeze({
+      runSessionId: tracker.runSessionId,
+      dispatchId: tracker.dispatchId,
+      generationEpoch: tracker.generationEpoch,
+      promptSubmittedAt: tracker.promptSubmittedAt,
+      baselineAnswerSignature: tracker.baselineTextHash,
+      anchorAnswerCount: tracker.turnAnchor,
+      provider: platformForModel(modelName)
+    }), {
+      attemptId: tracker.traceId || tracker.dispatchId || `${modelName}:${tracker.promptSubmittedAt}`,
+      rolloutMode: CompletionProtocol.CompletionRollout.normalize(settings.completionProtocolV2),
+      confirmationWindowMs: Number(settings.producerConfirmationWindowMs || settings.stableMs || 1500),
+      timeouts: {
+        progressTimeoutMs: Number(settings.progressTimeoutMs || settings.answerCompleteTimeoutMs),
+        producerStuckTimeoutMs: Number(settings.producerStuckTimeoutMs || settings.answerCompleteTimeoutMs),
+        hardAttemptTimeoutMs: Math.max(Number(settings.answerCompleteTimeoutMs || 0), Number(window.AnswerPipelineConfig?.streaming?.adaptiveTimeout?.hardMax || 0))
+      }
+    });
+    emitLifecycleTelemetry('ATTEMPT_CONTEXT_CAPTURED', {
+      modelName,
+      state: tracker.state,
+      phaseEvidence: { attemptContext: tracker.completionSession.context }
+    });
     const previouslyRegistered = registeredCandidates.get(modelName);
     if (previouslyRegistered?.traceId && traceId && String(previouslyRegistered.traceId) !== String(traceId)) {
       registeredCandidates.delete(modelName);
@@ -1464,7 +1814,15 @@
       pollIntervalMs: Math.min(settings.pollIntervalMs, 500),
       traceId
     }).then((startResult) => {
-      if (!startResult?.ok) return startResult;
+      if (!startResult?.ok) {
+        if (isTrackerActive(tracker) && tracker.completionSession) {
+          tracker.completionSession.facts.timeoutState = 'PROGRESS';
+          const terminalResult = tracker.completionSession.evaluate(Date.now());
+          if (terminalResult) commitCompletionResult(tracker, terminalResult);
+          return { ...startResult, state: terminalResult?.status || startResult.state, terminalResult };
+        }
+        return startResult;
+      }
       if (!isTrackerActive(tracker)) {
         return trackerCancelledResult(tracker);
       }
@@ -1522,6 +1880,12 @@
     };
     Array.from(trackers.entries()).forEach(([key, tracker]) => {
       if (!shouldStop(tracker)) return;
+      if (!tracker.completionTerminalResult && tracker.completionSession) {
+        const contextLoss = /spa_navigation|session_expired|context|navigation/.test(String(reason));
+        appendCompletionWitness(tracker, contextLoss ? 'CONTEXT_INVALIDATED' : 'USER_INTERRUPTED', { reason });
+        const terminalResult = tracker.completionSession.evaluate(Date.now());
+        if (terminalResult) commitCompletionResult(tracker, terminalResult);
+      }
       if (!tracker.cancelledAt) {
         tracker.cancelledAt = Date.now();
       }
@@ -1627,6 +1991,8 @@
           stopResponseLifecycleTracking({ reason: String(message.type).toLowerCase() });
         } else if (message?.type === 'LATE_COLLECT_PING' || message?.action === 'LATE_COLLECT_PING') {
           wakeAllTrackers();
+        } else if (message?.type === 'RESTORE_ATTEMPT' && message?.llmName) {
+          reconcileRecovery({ modelName: message.llmName, persisted: message.persistedAttempt || message.meta?.persistedAttempt || null });
         }
       });
     } catch (_) {}
@@ -1680,6 +2046,11 @@
     registerAnswerCandidate,
     captureTurnAnchor,
     verifyStructuralCompletion,
+    observeWitness,
+    getTerminalResult,
+    getCompletionSnapshot,
+    waitForTerminalResult,
+    reconcileRecovery,
     schedulePostTerminalObservationWindow,
     closePostTerminalObservationWindow,
     POST_TERMINAL_OBSERVATION_OFFSETS_MS,

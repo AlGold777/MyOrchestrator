@@ -6438,3 +6438,10 @@ Backlog `what-to-do.md`, батч 1 (UI + Финализация).
 - Добавлен `shared/completion-protocol.js`: append-only Evidence Ledger, deterministic CompletionPolicy, Producer Gate с hysteresis, unified veto facts, semantic MutationClassifier, независимые timeout-классы, Materialization/Hydration Gate, RecoveryReconciler и immutable ExtractionSnapshot.
 - `SUCCESS_TERMINAL` определяется только полной конъюнкцией generation/producer/content/ownership/no-veto; score и отдельные UI-сигналы не участвуют в predicate.
 - Protocol загружается до lifecycle detector в content-script entry points и bundled runtime; добавлена unit truth-table и component regression suite.
+# 2.81.332 — Single Completion Authority
+
+- `ResponseLifecycleDetector` tracker преобразован в canonical `CompletionSession`: generation, ownership, producer hysteresis, veto, structural/content verification, materialization и timeout facts сходятся в единственном `TerminalResult`.
+- `UnifiedAnswerCompletionWatcher` переведён в witness-only режим. Copy, Regenerate, completion marker, DOM stability и diagnostic score больше не публикуют success; watcher принимает только решение lifecycle authority.
+- Streaming требует `SUCCESS_TERMINAL`: удачный scroll больше не компенсирует failed completion. Finalization использует immutable extraction snapshot и не перечитывает live DOM после terminal verification.
+- Background принимает `LLM_RESPONSE_READY` только с typed `SUCCESS_TERMINAL`; добавлены capability health, recovery reconciliation, fact-level/shadow telemetry и mapping в статусы `FinalizationController`.
+- Обновлены regression contracts старых heuristic tests; добавлены проверки truth-table, hydration reset, immutable extraction и streaming OR-gate.

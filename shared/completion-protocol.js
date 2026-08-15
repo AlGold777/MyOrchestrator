@@ -25,6 +25,8 @@
 
   const freeze = (value) => {
     if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
+    const prototype = Object.getPrototypeOf(value);
+    if (!Array.isArray(value) && prototype !== Object.prototype && prototype !== null) return value;
     Object.keys(value).forEach((key) => freeze(value[key]));
     return Object.freeze(value);
   };
@@ -157,6 +159,24 @@
     }
   }
 
+  class CompletionCapabilityHealth {
+    constructor(initial = {}) {
+      this.states = {
+        generationSignal: initial.generationSignal || 'UNAVAILABLE',
+        producerControls: initial.producerControls || 'UNAVAILABLE',
+        answerResolution: initial.answerResolution || 'UNAVAILABLE',
+        continueDetection: initial.continueDetection || 'UNAVAILABLE'
+      };
+    }
+    report(capability, state) {
+      if (!Object.prototype.hasOwnProperty.call(this.states, capability)) throw new TypeError(`Unknown capability: ${capability}`);
+      if (!['HEALTHY', 'DEGRADED', 'UNAVAILABLE'].includes(state)) throw new TypeError(`Unknown capability state: ${state}`);
+      this.states[capability] = state;
+      return state;
+    }
+    snapshot() { return freeze({ ...this.states }); }
+  }
+
   const CompletionPolicy = Object.freeze({
     canSucceed(facts) {
       return facts?.generationObserved === true
@@ -238,10 +258,52 @@
     }
   });
 
+  const FinalizationAdapter = Object.freeze({
+    toFinalStatus(terminalResult) {
+      return ({
+        SUCCESS_TERMINAL: 'COMPLETE',
+        CONTINUE_REQUIRED: 'USER_ACTION_REQUIRED',
+        PROVIDER_ERROR: 'EXTERNAL_LLM_FAILURE',
+        INTERRUPTED: 'ERROR',
+        STALLED: 'STREAM_TIMEOUT',
+        AMBIGUOUS: 'UNCERTAIN',
+        CONTEXT_LOST: 'UNCERTAIN'
+      })[terminalResult?.status] || 'UNCERTAIN';
+    },
+    toCandidate(terminalResult, extractionSnapshot = null) {
+      return freeze({
+        status: this.toFinalStatus(terminalResult),
+        finalStatus: this.toFinalStatus(terminalResult),
+        dispatchId: extractionSnapshot?.responseIdentity?.dispatchId || null,
+        trimmedAnswer: terminalResult?.status === 'SUCCESS_TERMINAL' ? String(extractionSnapshot?.text || '').trim() : '',
+        completionTerminalResult: terminalResult || null
+      });
+    }
+  });
+
+  const CompletionRollout = Object.freeze({
+    MODES: Object.freeze(['legacy', 'shadow', 'enforced']),
+    normalize(mode) { return this.MODES.includes(mode) ? mode : 'enforced'; },
+    compare({ legacySuccess = false, legacyCompletionReason = null, terminalResult = null, responseLength = 0, contentHash = null } = {}) {
+      const v2TerminalStatus = terminalResult?.status || null;
+      const v2Success = v2TerminalStatus === 'SUCCESS_TERMINAL';
+      return freeze({
+        legacySuccess: legacySuccess === true,
+        v2TerminalStatus,
+        legacyCompletionReason,
+        v2Evidence: terminalResult?.evidenceRefs || [],
+        responseLength: Number(responseLength || 0),
+        contentHash,
+        decisionDelta: legacySuccess === v2Success ? 'same' : (legacySuccess ? `legacy_success_v2_${v2TerminalStatus || 'non_terminal'}` : `legacy_non_success_v2_${v2TerminalStatus}`)
+      });
+    }
+  });
+
   class CompletionSession {
     constructor(context, options = {}) {
       this.context = freeze({ ...(context || {}) });
       this.attemptId = String(options.attemptId || context?.dispatchId || `${context?.provider || 'attempt'}:${context?.promptSubmittedAt || Date.now()}`);
+      this.rolloutMode = CompletionRollout.normalize(options.rolloutMode);
       this.ledger = new EvidenceLedger();
       this.producer = new ProducerGate({ confirmationWindowMs: options.confirmationWindowMs });
       this.timeouts = new TimeoutPolicy({ promptSubmittedAt: context?.promptSubmittedAt, ...options.timeouts });
@@ -251,6 +313,7 @@
         providerError: false, continueRequired: false, interrupted: false, contextLost: false
       };
       this.ownershipResult = null;
+      this.capabilityHealth = new CompletionCapabilityHealth(options.capabilityHealth);
       this.verifiedSnapshot = null;
       this.terminalResult = null;
       this.extractionSnapshot = null;
@@ -312,7 +375,7 @@
     evaluate(now = Date.now()) {
       if (this.terminalResult) return this.terminalResult;
       this.facts.producerState = this.producer.evaluate(now);
-      this.facts.timeoutState = this.timeouts.evaluate(now);
+      this.facts.timeoutState = this.facts.timeoutState || this.timeouts.evaluate(now);
       this.refreshVetoes();
       const result = CompletionPolicy.evaluate(this.facts, {
         attemptId: this.attemptId, decidedAt: now, evidenceRefs: this.ledger.refs(), ownershipResult: this.ownershipResult
@@ -327,14 +390,14 @@
     }
 
     snapshot() {
-      return freeze({ context: this.context, facts: { ...this.facts, activeVetoes: this.facts.activeVetoes.slice() }, evidence: this.ledger.snapshot(), terminalResult: this.terminalResult, extractionSnapshot: this.extractionSnapshot });
+      return freeze({ context: this.context, rolloutMode: this.rolloutMode, facts: { ...this.facts, activeVetoes: this.facts.activeVetoes.slice() }, capabilityHealth: this.capabilityHealth.snapshot(), evidence: this.ledger.snapshot(), terminalResult: this.terminalResult, extractionSnapshot: this.extractionSnapshot });
     }
   }
 
   return Object.freeze({
     TERMINAL_STATUSES, PRODUCER_STATES, OWNERSHIP_STATES, VETO_TYPES, WITNESS_TYPES,
-    EvidenceLedger, ProducerGate, MutationClassifier, TimeoutPolicy, CompletionPolicy,
-    MaterializationHydrationGate, ExtractionSnapshotFactory, RecoveryReconciler,
+    EvidenceLedger, ProducerGate, MutationClassifier, TimeoutPolicy, CompletionCapabilityHealth, CompletionPolicy,
+    MaterializationHydrationGate, ExtractionSnapshotFactory, RecoveryReconciler, FinalizationAdapter, CompletionRollout,
     CompletionSession, hashString
   });
 });

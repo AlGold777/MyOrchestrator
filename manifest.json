@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "A_Fable",
-  "version": "2.81.331",
+  "version": "2.81.332",
   "description": "Compares LLMs with stable Debate pipelines, structured state maps, and optional synthesis.",
   "permissions": [
     "storage",
@@ -233,6 +233,7 @@
       ],
       "js": [
         "shared/selector-profile-lifecycle.js",
+        "shared/completion-protocol.js",
         "content-utils/selector-resolver-v2.js",
         "content-utils/response-lifecycle-detector.js",
         "content-scripts/content-deepseek.js"
@@ -245,6 +246,7 @@
       ],
       "js": [
         "shared/selector-profile-lifecycle.js",
+        "shared/completion-protocol.js",
         "content-utils/selector-resolver-v2.js",
         "content-utils/response-lifecycle-detector.js",
         "content-scripts/content-zai.js"
@@ -259,6 +261,7 @@
       "js": [
         "shared/selector-profile-lifecycle.js",
         "shared/provider-submit-confirmation.js",
+        "shared/completion-protocol.js",
         "content-utils/selector-resolver-v2.js",
         "content-utils/response-lifecycle-detector.js",
         "content-scripts/content-kimi.js"

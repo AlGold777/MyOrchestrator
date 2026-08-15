@@ -458,8 +458,15 @@ describe('SelectorResolverV2 and ResponseLifecycleDetector', () => {
   });
 
   test('lifecycle completion requires text stability', async () => {
+    loadScript('content-scripts/answer-pipeline-selectors.js');
+    loadScript('content-scripts/turn-resolver.js');
+    loadScript('content-scripts/answer-structure.js');
+    loadScript('content-scripts/generation-signal.js');
+    loadScript('shared/answer-verification.js');
+    window.AnswerPipelineConfig = { finalization: { stabilityChecks: 2, stabilityRetryBudget: 1, stabilityInterval: 5 } };
     const detector = window.ResponseLifecycleDetector;
     const oldAnswer = document.createElement('article');
+    oldAnswer.setAttribute('data-message-author-role', 'assistant');
     oldAnswer.textContent = 'Old answer already present before dispatch.';
     setRect(oldAnswer, { top: 420, left: 140, width: 720, height: 180 });
     document.body.appendChild(oldAnswer);
@@ -471,6 +478,7 @@ describe('SelectorResolverV2 and ResponseLifecycleDetector', () => {
       promptSubmittedAt: Date.now()
     });
     const answer = document.createElement('article');
+    answer.setAttribute('data-message-author-role', 'assistant');
     answer.textContent = 'Initial stable answer text long enough to be considered content.';
     setRect(answer, { top: 640, left: 140, width: 720, height: 180 });
     document.body.appendChild(answer);

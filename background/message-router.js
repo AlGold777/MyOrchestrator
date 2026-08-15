@@ -3439,6 +3439,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             }
 
             case 'LLM_RESPONSE_READY':
+                if (message?.meta?.terminalResult?.status !== 'SUCCESS_TERMINAL') {
+                    emitTelemetry(message?.llmName || null, 'ANSWER_DELIVERY_REJECTED', {
+                        level: 'warning',
+                        details: 'missing_success_terminal_authority',
+                        meta: { terminalResult: message?.meta?.terminalResult || null },
+                        force: true
+                    });
+                    sendResponse({ status: 'response_ready_rejected', reason: 'missing_success_terminal_authority' });
+                    break;
+                }
                 {
                     const senderGate = validateLifecycleSender(message.llmName, sender, 'LLM_RESPONSE_READY', message.meta || {});
                     if (!senderGate.ok) {
@@ -3661,7 +3671,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                                         lateCollectFinal: true,
                                         freshTurnEvidence: true,
                                         lifecycleSnapshot: true,
-                                        answerVerification: lifecycleAnswerVerification
+                                        answerVerification: lifecycleAnswerVerification,
+                                        completionTerminalResult: message?.meta?.terminalResult || null,
+                                        extractionSnapshot: message?.meta?.extractionSnapshot || null
                                     }
                                 },
                                 ''

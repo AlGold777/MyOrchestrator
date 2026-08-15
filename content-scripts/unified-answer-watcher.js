@@ -233,6 +233,42 @@
       this.lastLadderVerdict = null;
       this.lastWitnessSet = null;
       this.runtimeIdAtStart = this.readRuntimeId();
+      this.lastWitnessState = new Map();
+      this.currentAnswerElement = null;
+      this.lastMutationContentHash = null;
+    }
+
+    emitWitness(type, payload = null, dedupeKey = type) {
+      const lifecycle = window.LLMExtension?.ResponseLifecycleDetector || window.ResponseLifecycleDetector;
+      if (!lifecycle?.observeWitness || !this.llmName) return false;
+      const signature = JSON.stringify(payload || null);
+      if (dedupeKey && this.lastWitnessState.get(dedupeKey) === signature) return false;
+      if (dedupeKey) this.lastWitnessState.set(dedupeKey, signature);
+      return lifecycle.observeWitness({
+        modelName: this.llmName,
+        dispatchId: this.runDispatchId,
+        type,
+        payload,
+        source: 'UnifiedAnswerCompletionWatcher'
+      });
+    }
+
+    buildAuthorityResult(terminalResult, recentGrowth = 0) {
+      const lifecycle = window.LLMExtension?.ResponseLifecycleDetector || window.ResponseLifecycleDetector;
+      const snapshot = lifecycle?.getCompletionSnapshot?.({ modelName: this.llmName, dispatchId: this.runDispatchId }) || null;
+      const success = terminalResult?.status === 'SUCCESS_TERMINAL';
+      return {
+        success,
+        completed: success,
+        reason: terminalResult?.reason || 'completion_authority_unavailable',
+        terminalResult: terminalResult || null,
+        extractionSnapshot: snapshot?.extractionSnapshot || null,
+        duration: Date.now() - this.startTime,
+        indicators: { streaming: terminalResult == null },
+        scrollGrowthInLast2s: recentGrowth,
+        diagnosticConfidence: this.calculateScore(),
+        criteriaMet: this.criteria.metCount()
+      };
     }
 
     async waitForCompletion(params = {}) {
@@ -272,12 +308,30 @@
       let lastMutation = Date.now();
       let lastScrollHeight = this.getScrollHeight();
       let lastContentLength = 0;
-      const mutationOptions = { childList: true, subtree: true, characterData: true };
+      const mutationOptions = { childList: true, subtree: true, characterData: true, attributes: true };
       const stopObserve = window.ContentUtils?.observeMutations
-        ? window.ContentUtils.observeMutations(this.container, mutationOptions, () => {
-          lastMutation = Date.now();
-          this.criteria.mark('mutationIdle', false);
-          this.humanSession?.reportActivity?.('mutation');
+        ? window.ContentUtils.observeMutations(this.container, mutationOptions, (mutations) => {
+          const answerRoot = this.currentAnswerElement;
+          const currentText = answerRoot ? this.readAnswerText(answerRoot) : '';
+          const currentHash = this.hashString(currentText);
+          const classifier = window.CompletionProtocol?.MutationClassifier
+            ? new window.CompletionProtocol.MutationClassifier()
+            : null;
+          const classified = classifier?.classify?.(mutations, {
+            responseRoot: answerRoot,
+            normalizedBefore: this.lastMutationContentHash,
+            normalizedAfter: currentHash,
+            isCosmetic: (node) => !!node?.closest?.('[aria-live],[class*="cursor" i],[class*="toolbar" i]')
+          }) || [];
+          const substantive = !classifier || !answerRoot || classified.some((entry) => entry.substantive);
+          this.lastMutationContentHash = currentHash;
+          if (substantive) {
+            lastMutation = Date.now();
+            this.criteria.mark('mutationIdle', false);
+            this.humanSession?.reportActivity?.('mutation');
+          } else if (classified.some((entry) => entry.kind === 'COSMETIC')) {
+            this.emitWitness('COSMETIC_MUTATION', { mutationCount: classified.length }, 'cosmetic-mutation');
+          }
         })
         : (() => () => {})();
 
@@ -285,6 +339,7 @@
       const updateHandle = setInterval(() => {
         const hardStopped = window.__LLMScrollHardStop || this.humanSession?.getState?.() === 'HARD_STOP';
         if (hardStopped) {
+          this.emitWitness('USER_INTERRUPTED', { reason: 'hard_stop' }, null);
           cleanup(this.buildResult('hard_stop', 0, typingActive, getRecentGrowth(), false));
           return;
         }
@@ -318,6 +373,7 @@
 
           const answerEl = this.getAnswerElement();
           if (answerEl) {
+            this.currentAnswerElement = answerEl;
             const text = this.readAnswerText(answerEl);
             const len = text.length || 0;
             const normalizedText = String(text || '').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -326,6 +382,7 @@
               || (!!normalizedText && normalizedText !== this.baselineAnswerSignature)
             ) {
               this.freshAnswerObserved = true;
+              this.emitWitness('FRESH_RESPONSE_OBSERVED', { textLength: len }, 'fresh-response');
             }
           this.latestContentLength = len;
           // Within one turn text does not un-generate. A shorter observation
@@ -337,6 +394,7 @@
           const absDelta = Math.abs(delta);
           if (absDelta > 0) {
             this.lastContentChangeAt = now;
+            this.emitWitness('CONTENT_PROGRESS', { textLength: len, delta }, null);
           }
           if (len > 0 && absDelta <= this.contentStableDelta) {
             this.contentStableStreak += 1;
@@ -382,6 +440,12 @@
         };
 
         checkHandle = setInterval(() => {
+          const lifecycle = window.LLMExtension?.ResponseLifecycleDetector || window.ResponseLifecycleDetector;
+          const terminalResult = lifecycle?.getTerminalResult?.({ modelName: this.llmName, dispatchId: this.runDispatchId }) || null;
+          if (terminalResult) {
+            cleanup(this.buildAuthorityResult(terminalResult, getRecentGrowth()));
+            return;
+          }
           if (this.config.completionSignalEnabled) {
             const stopBtn = this._findStopButton();
             if (stopBtn) {
@@ -397,6 +461,7 @@
           }
           // stop_disappeared is evidence only; final completion needs corroborating signals below.
           const stopVisible = this.getStopVisible();
+          this.emitWitness(stopVisible ? 'STOP_VISIBLE' : 'STOP_ABSENT', { visible: stopVisible }, 'stop-state');
           const stopDisappeared = Boolean(this.stopDisappearedAt) && !stopVisible;
           const regenerateVisible = this.detectRegenerateVisible();
           const completionSignal = this.detectCompletionIndicator();
@@ -406,6 +471,9 @@
             && !stopVisible
             && this.latestContentLength >= this.copyButtonMinAnswerLength
             && (!this.copyButtonRequiresStableText || this.criteria.criteria.contentStable?.met || this.fingerprintStable);
+          if (regenerateVisible) this.emitWitness('REGENERATE_VISIBLE', null, 'regenerate-visible');
+          if (completionSignal) this.emitWitness('COMPLETION_MARKER_VISIBLE', null, 'completion-marker-visible');
+          if (copyButtonReady) this.emitWitness('COPY_VISIBLE', { stable: copyButtonStable }, 'copy-visible');
           this.criteria.mark('completionSignal', completionSignal);
           this.criteria.mark('copyButtonVisible', copyButtonStable);
           const contentMutationStableNow = Boolean(this.criteria.criteria.contentStable?.met && this.criteria.criteria.mutationIdle?.met);
@@ -416,7 +484,7 @@
             completionSignal,
             copyButtonStable,
             contentMutationStable: contentMutationStableNow,
-            scoreMet: this.scoringEnabled && this.calculateScore() > this.scoreThreshold,
+            scoreMet: false,
             // An observer is only expected to be saying something while output
             // is believed to be in flight. Quiet sensors after the answer is
             // written are correct behaviour, not a health problem.
@@ -437,27 +505,6 @@
           // The provider said the turn is over on its own protocol. Committing
           // still waits for the renderer to catch up with the producer: the
           // terminal fact is about the stream, the text comes from the page.
-          if (
-            this.freshAnswerObserved
-            && !vetoed
-            && evidence?.canCommit
-            && (this.criteria.criteria.contentStable?.met || this.fingerprintStable)
-          ) {
-            cleanup(this.buildResult('transport_terminal', 1, typingActive, getRecentGrowth(), true));
-            return;
-          }
-          if (this.freshAnswerObserved && !vetoed && regenerateVisible) {
-            cleanup(this.buildResult('regenerate_visible', 1, typingActive, getRecentGrowth(), true));
-            return;
-          }
-          if (this.freshAnswerObserved && !vetoed && completionSignal && this.criteria.criteria.completionSignal?.enabled) {
-            cleanup(this.buildResult('completion_signal', 1, typingActive, getRecentGrowth(), true));
-            return;
-          }
-          if (this.freshAnswerObserved && !vetoed && copyButtonStable && this.criteria.criteria.copyButtonVisible?.enabled) {
-            cleanup(this.buildResult('copy_button_stable', 0.92, typingActive, getRecentGrowth(), true));
-            return;
-          }
           const metCount = this.criteria.metCount();
           const criteriaTotal = Object.values(this.criteria.criteria).filter((c) => c.enabled !== false).length || 5;
           const snapshot = {
@@ -513,20 +560,7 @@
             criteriaTotal
           });
           const contentMutationStable = contentMutationStableNow;
-          if (this.freshAnswerObserved && !vetoed && contentMutationStable) {
-            cleanup(this.buildResult('content_mutation_stable', 0.85, typingActive, getRecentGrowth(), true));
-            return;
-          }
-          if (this.scoringEnabled) {
-            const score = this.calculateScore();
-            if (this.freshAnswerObserved && !vetoed && score > this.scoreThreshold) {
-              cleanup(this.buildResult('score_threshold', score, typingActive, getRecentGrowth(), true));
-              return;
-            }
-          } else if (this.freshAnswerObserved && !vetoed && metCount >= this.minMetCriteria) {
-            cleanup(this.buildResult('criteria_met', metCount / criteriaTotal, typingActive, getRecentGrowth(), true));
-            return;
-          }
+          if (contentMutationStable) this.emitWitness('COSMETIC_MUTATION', { contentStable: true }, 'stable-observation');
 
           if (expiration.hardExpired) {
             cleanup(this.buildResult('hard_timeout', 0.3, typingActive, getRecentGrowth(), false));
@@ -1418,7 +1452,10 @@
       });
     }
 
-    buildResult(reason, confidence, typingActive, recentGrowth, completed = true) {
+    buildResult(reason, confidence, typingActive, recentGrowth, completed = false) {
+      // Legacy shape retained for callers, but the watcher is witness-only.
+      // Only buildAuthorityResult() may expose CompletionSession's terminal decision.
+      completed = false;
       const criteriaSnapshot = this.buildCriteriaSnapshot();
       const runProof = this.buildRunProof(reason, completed);
       this.lastRunProof = runProof;
