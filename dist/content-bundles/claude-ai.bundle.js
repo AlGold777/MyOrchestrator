@@ -437,14 +437,15 @@
 
 /* ==== shared/completion-protocol.js ==== */
 (function initCompletionProtocol(root, factory) {
-  if (root?.CompletionProtocol) {
+  const protocolVersion = '2.1.0';
+  if (root?.CompletionProtocol?.version === protocolVersion) {
     if (typeof module === 'object' && module.exports) module.exports = root.CompletionProtocol;
     return;
   }
-  const api = factory();
+  const api = factory(protocolVersion);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.CompletionProtocol = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function buildCompletionProtocol() {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function buildCompletionProtocol(PROTOCOL_VERSION) {
   'use strict';
 
   const TERMINAL_STATUSES = Object.freeze([
@@ -746,6 +747,7 @@
       this.context = freeze({ ...(context || {}) });
       this.attemptId = String(options.attemptId || context?.dispatchId || `${context?.provider || 'attempt'}:${context?.promptSubmittedAt || Date.now()}`);
       this.rolloutMode = CompletionRollout.normalize(options.rolloutMode);
+      this.onTransition = typeof options.onTransition === 'function' ? options.onTransition : null;
       this.ledger = new EvidenceLedger();
       this.producer = new ProducerGate({ confirmationWindowMs: options.confirmationWindowMs });
       this.timeouts = new TimeoutPolicy({ promptSubmittedAt: context?.promptSubmittedAt, ...options.timeouts });
@@ -761,8 +763,42 @@
       this.extractionSnapshot = null;
     }
 
+    emitTransition(type, payload = {}) {
+      if (!this.onTransition) return;
+      try {
+        this.onTransition(freeze({
+          type,
+          at: Date.now(),
+          attemptId: this.attemptId,
+          ...payload
+        }));
+      } catch (_) {}
+    }
+
+    emitFactTransitions(previous) {
+      if (!previous.generationObserved && this.facts.generationObserved) {
+        this.emitTransition('GENERATION_OBSERVED', { generationObserved: true });
+      }
+      if (previous.producerState !== this.facts.producerState) {
+        if (previous.producerState === 'CANDIDATE' && this.facts.producerState === 'ACTIVE') {
+          this.emitTransition('PRODUCER_CANDIDATE_REVOKED', { producerState: this.facts.producerState });
+        }
+        const eventType = ({ ACTIVE: 'PRODUCER_ACTIVE', CANDIDATE: 'PRODUCER_CANDIDATE', TERMINAL: 'PRODUCER_TERMINAL' })[this.facts.producerState];
+        if (eventType) this.emitTransition(eventType, { producerState: this.facts.producerState });
+      }
+      const beforeVetoes = new Set(previous.activeVetoes || []);
+      const afterVetoes = new Set(this.facts.activeVetoes || []);
+      afterVetoes.forEach((veto) => {
+        if (!beforeVetoes.has(veto)) this.emitTransition('VETO_ACTIVATED', { veto, activeVetoes: Array.from(afterVetoes) });
+      });
+      beforeVetoes.forEach((veto) => {
+        if (!afterVetoes.has(veto)) this.emitTransition('VETO_CLEARED', { veto, activeVetoes: Array.from(afterVetoes) });
+      });
+    }
+
     observe(event) {
       if (this.terminalResult) return null;
+      const previous = { ...this.facts, activeVetoes: this.facts.activeVetoes.slice() };
       const record = this.ledger.append(event);
       const type = record.type;
       if (['FRESH_RESPONSE_OBSERVED', 'GENERATION_ACTIVE', 'CONTENT_PROGRESS', 'RESPONSE_STRUCTURE_CHANGED'].includes(type)) {
@@ -781,24 +817,33 @@
       if (type === 'CONTEXT_INVALIDATED') this.facts.contextLost = true;
       if (type === 'NODE_REPLACED') this.confirmOwnership({ status: 'CONFLICT', reasons: ['node_replaced'], verifiedAt: record.observedAt });
       this.refreshVetoes();
+      this.emitTransition('WITNESS_OBSERVED', { witnessType: type, evidenceSeq: record.seq });
+      this.emitFactTransitions(previous);
       return record;
     }
 
     confirmOwnership(result) {
+      const previous = { ...this.facts, activeVetoes: this.facts.activeVetoes.slice() };
       const status = OWNERSHIP_STATES.includes(result?.status) ? result.status : 'UNKNOWN';
       this.ownershipResult = freeze({ status, responseIdentity: result?.responseIdentity, reasons: Array.from(result?.reasons || []), verifiedAt: Number(result?.verifiedAt || Date.now()) });
       this.facts.ownership = status;
       this.refreshVetoes();
+      this.emitTransition(`OWNERSHIP_${status}`, { ownershipStatus: status, reasons: this.ownershipResult.reasons });
+      this.emitFactTransitions(previous);
       return this.ownershipResult;
     }
 
     setContentVerification(verification, materialization, snapshot) {
+      const previousTerminal = this.facts.contentTerminal;
       const terminal = verification?.stable === true
         && verification?.structurallyComplete === true
         && verification?.lengthRegressionRecovered === true
         && materialization?.changed === false;
       this.facts.contentTerminal = terminal;
       this.verifiedSnapshot = terminal ? freeze({ ...(snapshot || verification?.snapshot || {}) }) : null;
+      if (verification?.stable === true) this.emitTransition('CONTENT_STABILITY_PASSED', { contentTerminal: terminal });
+      if (previousTerminal && !terminal) this.emitTransition('CONTENT_STABILITY_RESET', { contentTerminal: false });
+      if (!previousTerminal && terminal) this.emitTransition('CONTENT_TERMINAL', { contentTerminal: true });
       return terminal;
     }
 
@@ -816,16 +861,27 @@
 
     evaluate(now = Date.now()) {
       if (this.terminalResult) return this.terminalResult;
+      const previous = { ...this.facts, activeVetoes: this.facts.activeVetoes.slice() };
       this.facts.producerState = this.producer.evaluate(now);
       this.facts.timeoutState = this.facts.timeoutState || this.timeouts.evaluate(now);
       this.refreshVetoes();
+      this.emitFactTransitions(previous);
+      if (!previous.timeoutState && this.facts.timeoutState) {
+        this.emitTransition(`TIMEOUT_${this.facts.timeoutState}`, { timeoutState: this.facts.timeoutState });
+      }
       const result = CompletionPolicy.evaluate(this.facts, {
         attemptId: this.attemptId, decidedAt: now, evidenceRefs: this.ledger.refs(), ownershipResult: this.ownershipResult
       });
       if (result) {
         this.terminalResult = result;
+        this.emitTransition('TERMINAL_DECISION', { terminalResult: result, reason: result.reason });
         if (result.status === 'SUCCESS_TERMINAL') {
           this.extractionSnapshot = ExtractionSnapshotFactory.capture(result, this.verifiedSnapshot);
+          this.emitTransition('EXTRACTION_SNAPSHOT_CAPTURED', {
+            contentHash: this.extractionSnapshot.contentHash,
+            structuralHash: this.extractionSnapshot.structuralHash,
+            capturedAt: this.extractionSnapshot.capturedAt
+          });
         }
       }
       return result;
@@ -837,6 +893,7 @@
   }
 
   return Object.freeze({
+    version: PROTOCOL_VERSION,
     TERMINAL_STATUSES, PRODUCER_STATES, OWNERSHIP_STATES, VETO_TYPES, WITNESS_TYPES,
     EvidenceLedger, ProducerGate, MutationClassifier, TimeoutPolicy, CompletionCapabilityHealth, CompletionPolicy,
     MaterializationHydrationGate, ExtractionSnapshotFactory, RecoveryReconciler, FinalizationAdapter, CompletionRollout,
@@ -2387,7 +2444,7 @@
 (function initResponseLifecycleDetector() {
   if (window.LLMExtension?.ResponseLifecycleDetector) return;
 
-  const VERSION = '2.0.0';
+  const VERSION = '2.1.0';
   const CompletionProtocol = window.CompletionProtocol || (() => {
     if (typeof require !== 'function') return null;
     try { return require('../shared/completion-protocol.js'); } catch (_) { return null; }
@@ -3371,30 +3428,28 @@
     try {
       record = tracker.completionSession.observe({ type, observedAt: Date.now(), source, payload });
     } catch (_) { return null; }
-    if (record) {
-      emitLifecycleTelemetry('WITNESS_OBSERVED', {
-        modelName: tracker.modelName,
-        state: tracker.state,
-        phaseEvidence: { witnessType: type, evidenceSeq: record.seq }
-      });
-      if (tracker.completionSession.facts.generationObserved && !tracker.generationFactEmitted) {
-        tracker.generationFactEmitted = true;
-        emitLifecycleTelemetry('GENERATION_OBSERVED', { modelName: tracker.modelName, state: tracker.state, phaseEvidence: { evidenceSeq: record.seq } });
-      }
-    }
     return record;
+  }
+
+  function emitCompletionTransition(tracker, transition) {
+    if (!tracker || !transition?.type) return;
+    emitLifecycleTelemetry(transition.type, {
+      modelName: tracker.modelName,
+      state: transition.terminalResult?.status || tracker.state,
+      level: transition.terminalResult && transition.terminalResult.status !== 'SUCCESS_TERMINAL' ? 'warning' : 'info',
+      phaseEvidence: {
+        ...transition,
+        protocolVersion: CompletionProtocol?.version || null,
+        rolloutMode: tracker.completionSession?.rolloutMode || null,
+        facts: tracker.completionSession ? { ...tracker.completionSession.facts } : null
+      }
+    });
   }
 
   function commitCompletionResult(tracker, result) {
     if (!tracker || !result || tracker.completionTerminalResult) return tracker?.completionTerminalResult || null;
     tracker.completionTerminalResult = result;
     tracker.state = result.status;
-    emitLifecycleTelemetry('TERMINAL_DECISION', {
-      modelName: tracker.modelName,
-      state: result.status,
-      level: result.status === 'SUCCESS_TERMINAL' ? 'success' : 'warning',
-      phaseEvidence: { terminalResult: result, facts: tracker.completionSession?.snapshot?.().facts || null }
-    });
     const shadowComparison = CompletionProtocol?.CompletionRollout?.compare?.({
       legacySuccess: !!tracker.legacyCompletionCandidate,
       legacyCompletionReason: tracker.legacyCompletionCandidate || null,
@@ -4167,7 +4222,8 @@
         progressTimeoutMs: Number(settings.progressTimeoutMs || settings.answerCompleteTimeoutMs),
         producerStuckTimeoutMs: Number(settings.producerStuckTimeoutMs || settings.answerCompleteTimeoutMs),
         hardAttemptTimeoutMs: Math.max(Number(settings.answerCompleteTimeoutMs || 0), Number(window.AnswerPipelineConfig?.streaming?.adaptiveTimeout?.hardMax || 0))
-      }
+      },
+      onTransition: (transition) => emitCompletionTransition(tracker, transition)
     });
     emitLifecycleTelemetry('ATTEMPT_CONTEXT_CAPTURED', {
       modelName,
@@ -26129,14 +26185,15 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
 
 /* ==== shared/completion-protocol.js ==== */
 (function initCompletionProtocol(root, factory) {
-  if (root?.CompletionProtocol) {
+  const protocolVersion = '2.1.0';
+  if (root?.CompletionProtocol?.version === protocolVersion) {
     if (typeof module === 'object' && module.exports) module.exports = root.CompletionProtocol;
     return;
   }
-  const api = factory();
+  const api = factory(protocolVersion);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.CompletionProtocol = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function buildCompletionProtocol() {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function buildCompletionProtocol(PROTOCOL_VERSION) {
   'use strict';
 
   const TERMINAL_STATUSES = Object.freeze([
@@ -26438,6 +26495,7 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
       this.context = freeze({ ...(context || {}) });
       this.attemptId = String(options.attemptId || context?.dispatchId || `${context?.provider || 'attempt'}:${context?.promptSubmittedAt || Date.now()}`);
       this.rolloutMode = CompletionRollout.normalize(options.rolloutMode);
+      this.onTransition = typeof options.onTransition === 'function' ? options.onTransition : null;
       this.ledger = new EvidenceLedger();
       this.producer = new ProducerGate({ confirmationWindowMs: options.confirmationWindowMs });
       this.timeouts = new TimeoutPolicy({ promptSubmittedAt: context?.promptSubmittedAt, ...options.timeouts });
@@ -26453,8 +26511,42 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
       this.extractionSnapshot = null;
     }
 
+    emitTransition(type, payload = {}) {
+      if (!this.onTransition) return;
+      try {
+        this.onTransition(freeze({
+          type,
+          at: Date.now(),
+          attemptId: this.attemptId,
+          ...payload
+        }));
+      } catch (_) {}
+    }
+
+    emitFactTransitions(previous) {
+      if (!previous.generationObserved && this.facts.generationObserved) {
+        this.emitTransition('GENERATION_OBSERVED', { generationObserved: true });
+      }
+      if (previous.producerState !== this.facts.producerState) {
+        if (previous.producerState === 'CANDIDATE' && this.facts.producerState === 'ACTIVE') {
+          this.emitTransition('PRODUCER_CANDIDATE_REVOKED', { producerState: this.facts.producerState });
+        }
+        const eventType = ({ ACTIVE: 'PRODUCER_ACTIVE', CANDIDATE: 'PRODUCER_CANDIDATE', TERMINAL: 'PRODUCER_TERMINAL' })[this.facts.producerState];
+        if (eventType) this.emitTransition(eventType, { producerState: this.facts.producerState });
+      }
+      const beforeVetoes = new Set(previous.activeVetoes || []);
+      const afterVetoes = new Set(this.facts.activeVetoes || []);
+      afterVetoes.forEach((veto) => {
+        if (!beforeVetoes.has(veto)) this.emitTransition('VETO_ACTIVATED', { veto, activeVetoes: Array.from(afterVetoes) });
+      });
+      beforeVetoes.forEach((veto) => {
+        if (!afterVetoes.has(veto)) this.emitTransition('VETO_CLEARED', { veto, activeVetoes: Array.from(afterVetoes) });
+      });
+    }
+
     observe(event) {
       if (this.terminalResult) return null;
+      const previous = { ...this.facts, activeVetoes: this.facts.activeVetoes.slice() };
       const record = this.ledger.append(event);
       const type = record.type;
       if (['FRESH_RESPONSE_OBSERVED', 'GENERATION_ACTIVE', 'CONTENT_PROGRESS', 'RESPONSE_STRUCTURE_CHANGED'].includes(type)) {
@@ -26473,24 +26565,33 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
       if (type === 'CONTEXT_INVALIDATED') this.facts.contextLost = true;
       if (type === 'NODE_REPLACED') this.confirmOwnership({ status: 'CONFLICT', reasons: ['node_replaced'], verifiedAt: record.observedAt });
       this.refreshVetoes();
+      this.emitTransition('WITNESS_OBSERVED', { witnessType: type, evidenceSeq: record.seq });
+      this.emitFactTransitions(previous);
       return record;
     }
 
     confirmOwnership(result) {
+      const previous = { ...this.facts, activeVetoes: this.facts.activeVetoes.slice() };
       const status = OWNERSHIP_STATES.includes(result?.status) ? result.status : 'UNKNOWN';
       this.ownershipResult = freeze({ status, responseIdentity: result?.responseIdentity, reasons: Array.from(result?.reasons || []), verifiedAt: Number(result?.verifiedAt || Date.now()) });
       this.facts.ownership = status;
       this.refreshVetoes();
+      this.emitTransition(`OWNERSHIP_${status}`, { ownershipStatus: status, reasons: this.ownershipResult.reasons });
+      this.emitFactTransitions(previous);
       return this.ownershipResult;
     }
 
     setContentVerification(verification, materialization, snapshot) {
+      const previousTerminal = this.facts.contentTerminal;
       const terminal = verification?.stable === true
         && verification?.structurallyComplete === true
         && verification?.lengthRegressionRecovered === true
         && materialization?.changed === false;
       this.facts.contentTerminal = terminal;
       this.verifiedSnapshot = terminal ? freeze({ ...(snapshot || verification?.snapshot || {}) }) : null;
+      if (verification?.stable === true) this.emitTransition('CONTENT_STABILITY_PASSED', { contentTerminal: terminal });
+      if (previousTerminal && !terminal) this.emitTransition('CONTENT_STABILITY_RESET', { contentTerminal: false });
+      if (!previousTerminal && terminal) this.emitTransition('CONTENT_TERMINAL', { contentTerminal: true });
       return terminal;
     }
 
@@ -26508,16 +26609,27 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
 
     evaluate(now = Date.now()) {
       if (this.terminalResult) return this.terminalResult;
+      const previous = { ...this.facts, activeVetoes: this.facts.activeVetoes.slice() };
       this.facts.producerState = this.producer.evaluate(now);
       this.facts.timeoutState = this.facts.timeoutState || this.timeouts.evaluate(now);
       this.refreshVetoes();
+      this.emitFactTransitions(previous);
+      if (!previous.timeoutState && this.facts.timeoutState) {
+        this.emitTransition(`TIMEOUT_${this.facts.timeoutState}`, { timeoutState: this.facts.timeoutState });
+      }
       const result = CompletionPolicy.evaluate(this.facts, {
         attemptId: this.attemptId, decidedAt: now, evidenceRefs: this.ledger.refs(), ownershipResult: this.ownershipResult
       });
       if (result) {
         this.terminalResult = result;
+        this.emitTransition('TERMINAL_DECISION', { terminalResult: result, reason: result.reason });
         if (result.status === 'SUCCESS_TERMINAL') {
           this.extractionSnapshot = ExtractionSnapshotFactory.capture(result, this.verifiedSnapshot);
+          this.emitTransition('EXTRACTION_SNAPSHOT_CAPTURED', {
+            contentHash: this.extractionSnapshot.contentHash,
+            structuralHash: this.extractionSnapshot.structuralHash,
+            capturedAt: this.extractionSnapshot.capturedAt
+          });
         }
       }
       return result;
@@ -26529,6 +26641,7 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
   }
 
   return Object.freeze({
+    version: PROTOCOL_VERSION,
     TERMINAL_STATUSES, PRODUCER_STATES, OWNERSHIP_STATES, VETO_TYPES, WITNESS_TYPES,
     EvidenceLedger, ProducerGate, MutationClassifier, TimeoutPolicy, CompletionCapabilityHealth, CompletionPolicy,
     MaterializationHydrationGate, ExtractionSnapshotFactory, RecoveryReconciler, FinalizationAdapter, CompletionRollout,
@@ -28079,7 +28192,7 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
 (function initResponseLifecycleDetector() {
   if (window.LLMExtension?.ResponseLifecycleDetector) return;
 
-  const VERSION = '2.0.0';
+  const VERSION = '2.1.0';
   const CompletionProtocol = window.CompletionProtocol || (() => {
     if (typeof require !== 'function') return null;
     try { return require('../shared/completion-protocol.js'); } catch (_) { return null; }
@@ -29063,30 +29176,28 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
     try {
       record = tracker.completionSession.observe({ type, observedAt: Date.now(), source, payload });
     } catch (_) { return null; }
-    if (record) {
-      emitLifecycleTelemetry('WITNESS_OBSERVED', {
-        modelName: tracker.modelName,
-        state: tracker.state,
-        phaseEvidence: { witnessType: type, evidenceSeq: record.seq }
-      });
-      if (tracker.completionSession.facts.generationObserved && !tracker.generationFactEmitted) {
-        tracker.generationFactEmitted = true;
-        emitLifecycleTelemetry('GENERATION_OBSERVED', { modelName: tracker.modelName, state: tracker.state, phaseEvidence: { evidenceSeq: record.seq } });
-      }
-    }
     return record;
+  }
+
+  function emitCompletionTransition(tracker, transition) {
+    if (!tracker || !transition?.type) return;
+    emitLifecycleTelemetry(transition.type, {
+      modelName: tracker.modelName,
+      state: transition.terminalResult?.status || tracker.state,
+      level: transition.terminalResult && transition.terminalResult.status !== 'SUCCESS_TERMINAL' ? 'warning' : 'info',
+      phaseEvidence: {
+        ...transition,
+        protocolVersion: CompletionProtocol?.version || null,
+        rolloutMode: tracker.completionSession?.rolloutMode || null,
+        facts: tracker.completionSession ? { ...tracker.completionSession.facts } : null
+      }
+    });
   }
 
   function commitCompletionResult(tracker, result) {
     if (!tracker || !result || tracker.completionTerminalResult) return tracker?.completionTerminalResult || null;
     tracker.completionTerminalResult = result;
     tracker.state = result.status;
-    emitLifecycleTelemetry('TERMINAL_DECISION', {
-      modelName: tracker.modelName,
-      state: result.status,
-      level: result.status === 'SUCCESS_TERMINAL' ? 'success' : 'warning',
-      phaseEvidence: { terminalResult: result, facts: tracker.completionSession?.snapshot?.().facts || null }
-    });
     const shadowComparison = CompletionProtocol?.CompletionRollout?.compare?.({
       legacySuccess: !!tracker.legacyCompletionCandidate,
       legacyCompletionReason: tracker.legacyCompletionCandidate || null,
@@ -29859,7 +29970,8 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
         progressTimeoutMs: Number(settings.progressTimeoutMs || settings.answerCompleteTimeoutMs),
         producerStuckTimeoutMs: Number(settings.producerStuckTimeoutMs || settings.answerCompleteTimeoutMs),
         hardAttemptTimeoutMs: Math.max(Number(settings.answerCompleteTimeoutMs || 0), Number(window.AnswerPipelineConfig?.streaming?.adaptiveTimeout?.hardMax || 0))
-      }
+      },
+      onTransition: (transition) => emitCompletionTransition(tracker, transition)
     });
     emitLifecycleTelemetry('ATTEMPT_CONTEXT_CAPTURED', {
       modelName,

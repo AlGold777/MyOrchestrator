@@ -1,7 +1,7 @@
 (function initResponseLifecycleDetector() {
   if (window.LLMExtension?.ResponseLifecycleDetector) return;
 
-  const VERSION = '2.0.0';
+  const VERSION = '2.1.0';
   const CompletionProtocol = window.CompletionProtocol || (() => {
     if (typeof require !== 'function') return null;
     try { return require('../shared/completion-protocol.js'); } catch (_) { return null; }
@@ -985,30 +985,28 @@
     try {
       record = tracker.completionSession.observe({ type, observedAt: Date.now(), source, payload });
     } catch (_) { return null; }
-    if (record) {
-      emitLifecycleTelemetry('WITNESS_OBSERVED', {
-        modelName: tracker.modelName,
-        state: tracker.state,
-        phaseEvidence: { witnessType: type, evidenceSeq: record.seq }
-      });
-      if (tracker.completionSession.facts.generationObserved && !tracker.generationFactEmitted) {
-        tracker.generationFactEmitted = true;
-        emitLifecycleTelemetry('GENERATION_OBSERVED', { modelName: tracker.modelName, state: tracker.state, phaseEvidence: { evidenceSeq: record.seq } });
-      }
-    }
     return record;
+  }
+
+  function emitCompletionTransition(tracker, transition) {
+    if (!tracker || !transition?.type) return;
+    emitLifecycleTelemetry(transition.type, {
+      modelName: tracker.modelName,
+      state: transition.terminalResult?.status || tracker.state,
+      level: transition.terminalResult && transition.terminalResult.status !== 'SUCCESS_TERMINAL' ? 'warning' : 'info',
+      phaseEvidence: {
+        ...transition,
+        protocolVersion: CompletionProtocol?.version || null,
+        rolloutMode: tracker.completionSession?.rolloutMode || null,
+        facts: tracker.completionSession ? { ...tracker.completionSession.facts } : null
+      }
+    });
   }
 
   function commitCompletionResult(tracker, result) {
     if (!tracker || !result || tracker.completionTerminalResult) return tracker?.completionTerminalResult || null;
     tracker.completionTerminalResult = result;
     tracker.state = result.status;
-    emitLifecycleTelemetry('TERMINAL_DECISION', {
-      modelName: tracker.modelName,
-      state: result.status,
-      level: result.status === 'SUCCESS_TERMINAL' ? 'success' : 'warning',
-      phaseEvidence: { terminalResult: result, facts: tracker.completionSession?.snapshot?.().facts || null }
-    });
     const shadowComparison = CompletionProtocol?.CompletionRollout?.compare?.({
       legacySuccess: !!tracker.legacyCompletionCandidate,
       legacyCompletionReason: tracker.legacyCompletionCandidate || null,
@@ -1781,7 +1779,8 @@
         progressTimeoutMs: Number(settings.progressTimeoutMs || settings.answerCompleteTimeoutMs),
         producerStuckTimeoutMs: Number(settings.producerStuckTimeoutMs || settings.answerCompleteTimeoutMs),
         hardAttemptTimeoutMs: Math.max(Number(settings.answerCompleteTimeoutMs || 0), Number(window.AnswerPipelineConfig?.streaming?.adaptiveTimeout?.hardMax || 0))
-      }
+      },
+      onTransition: (transition) => emitCompletionTransition(tracker, transition)
     });
     emitLifecycleTelemetry('ATTEMPT_CONTEXT_CAPTURED', {
       modelName,
