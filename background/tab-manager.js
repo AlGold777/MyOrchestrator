@@ -939,7 +939,12 @@ function tryAttachExistingTab(llmName, prompt, attachments = [], options = {}) {
           resolve(false);
           return;
         }
-        await prepareTabForUse(candidate.id, llmName);
+        // Round 0 only acquires ownership. Runtime recovery belongs to the
+        // per-model Round 1 dispatch gate, otherwise ten stale tabs are
+        // reloaded concurrently before the first prompt can be sent.
+        if (!options.deferDispatch) {
+          await prepareTabForUse(candidate.id, llmName);
+        }
         await setTabBinding(llmName, candidate.id);
         initRequestMetadata(llmName, candidate.id, readiness.tab?.url || candidate?.url || (LLM_TARGETS[llmName]?.url) || '');
         emitTelemetry(llmName, 'TAB_ATTACHED', {
@@ -1134,7 +1139,9 @@ async function ensureTabReadyForDispatch(tabId, llmName, { reason = 'unknown' } 
   ) {
     return { ok: true, tab: initialTab, snapshot: initialSnapshot };
   }
-  const acceptsContentScriptReadiness = llmName === 'Perplexity';
+  // A correlated provider PONG proves that the page is usable even while
+  // non-essential network resources keep Chrome's tab status at "loading".
+  const acceptsContentScriptReadiness = true;
   let contentScriptReady = false;
   if (initialTab.discarded) {
     emitTelemetry(llmName, 'TAB_DISCARDED_RELOAD', {

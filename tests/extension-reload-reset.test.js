@@ -4,6 +4,18 @@ const path = require('path');
 const read = (file) => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
 
 describe('extension reload state reset', () => {
+  test('extension update never mass-reloads provider tabs', () => {
+    const lifecycleSource = read('background/lifecycle-runtime.js');
+    const updateHandler = lifecycleSource.slice(
+      lifecycleSource.indexOf('chrome.runtime.onInstalled.addListener'),
+      lifecycleSource.indexOf('chrome.tabs.onUpdated.addListener')
+    );
+    expect(updateHandler).toContain('provider tabs will recover lazily');
+    expect(updateHandler).not.toContain('chrome.tabs.reload');
+    expect(updateHandler).not.toContain('chrome.tabs.query');
+    expect(updateHandler).not.toContain("'llmTabMap'");
+  });
+
   test('state hydration waits for the runtime-epoch cleanup barrier', () => {
     const indexSource = read('background/index.js');
     const routerSource = read('background/message-router.js');

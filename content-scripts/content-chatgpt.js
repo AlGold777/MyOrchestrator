@@ -1226,9 +1226,8 @@ const chatgptScrollCoordinator = window.ScrollCoordinator
         await sleep(2000);
 
         const preDispatchBaseline = grabLatestAssistantMarkup().text || '';
-        try {
-          await window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, preDispatchBaseline);
-        } catch (_) {}
+        const completionAttemptReady = await window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, preDispatchBaseline);
+        if (completionAttemptReady !== true) throw { type: 'completion_runtime_unavailable', message: 'Completion attempt was not registered.' };
 
         // Ищем кнопку отправки с РАСШИРЕННЫМИ селекторами
         const sendButtonSelectors = [

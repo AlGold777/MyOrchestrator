@@ -18,6 +18,7 @@ const QWEN_SRC = read('content-scripts', 'content-qwen.js');
 const DEEPSEEK_SRC = read('content-scripts', 'content-deepseek.js');
 const PERPLEXITY_SRC = read('content-scripts', 'content-perplexity.js');
 const ZAI_SRC = read('content-scripts', 'content-zai.js');
+const KIMI_SRC = read('content-scripts', 'content-kimi.js');
 
 describe('dispatch baseline stale guard (follow-up false-green)', () => {
   test('orchestrator defines the baseline helpers + per-entry fields', () => {
@@ -126,15 +127,22 @@ describe('dispatch baseline stale guard (follow-up false-green)', () => {
     expect(DEEPSEEK_SRC).toContain('reportDispatchBaseline?.(MODEL, dispatchMeta, preDispatchBaseline');
     expect(PERPLEXITY_SRC).toContain('reportDispatchBaseline?.(MODEL, dispatchMeta, preDispatchBaseline');
     expect(ZAI_SRC).toContain('reportDispatchBaseline?.(MODEL, meta, baseline');
+    expect(KIMI_SRC).toContain('reportDispatchBaseline?.(MODEL, meta, baseline');
   });
 
   test('all adapters wait until the pre-send baseline reaches background', () => {
     [CHATGPT_SRC, CLAUDE_SRC, GEMINI_SRC, GROK_SRC, LECHAT_SRC, QWEN_SRC,
-      DEEPSEEK_SRC, PERPLEXITY_SRC, ZAI_SRC].forEach((source) => {
+      DEEPSEEK_SRC, PERPLEXITY_SRC, ZAI_SRC, KIMI_SRC].forEach((source) => {
       expect(source).toMatch(/await window\.ContentUtils\?\.reportDispatchBaseline\?\./);
     });
     expect(UTILS_SRC).toContain("response?.status === 'dispatch_baseline_ack'");
     expect(UTILS_SRC).toContain('setTimeout(() => finish(false), 1500)');
+    expect(UTILS_SRC).toContain('const lifecycleStart = await Promise.resolve(start.call(lifecycle');
+    expect(UTILS_SRC).toContain('if (lifecycleStart?.ok !== true) return false');
+    [CHATGPT_SRC, CLAUDE_SRC, GEMINI_SRC, GROK_SRC, LECHAT_SRC, QWEN_SRC,
+      DEEPSEEK_SRC, PERPLEXITY_SRC, ZAI_SRC, KIMI_SRC].forEach((source) => {
+      expect(source).toContain("if (completionAttemptReady !== true) throw { type: 'completion_runtime_unavailable'");
+    });
   });
 
   test('pipeline calls receive the pre-send baseline text', () => {

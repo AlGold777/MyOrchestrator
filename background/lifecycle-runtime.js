@@ -106,40 +106,11 @@ async function cleanupExpiredSelectorCache() {
 
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'update') {
-    globalThis.LLMLog?.debug?.('[BACKGROUND] Extension updated, reloading LLM tabs...');
-
-    const llmUrls = [
-      '*://chat.openai.com/*',
-      '*://chatgpt.com/*',
-      '*://gemini.google.com/*',
-      '*://claude.ai/*',
-      '*://grok.com/*',
-      '*://chat.qwen.ai/*',
-      '*://chat.mistral.ai/*',
-      '*://chat.deepseek.com/*',
-      '*://www.perplexity.ai/*',
-      '*://chat.z.ai/*'
-    ];
-
-    chrome.tabs.query({ url: llmUrls, audible: false }, (tabs) => {
-      globalThis.LLMLog?.debug?.(`[BACKGROUND] Found ${tabs.length} LLM tabs to reload`);
-      tabs.forEach(tab => {
-        chrome.tabs.reload(tab.id, () => {
-          if (chrome.runtime.lastError) {
-            console.warn(`[BACKGROUND] Failed to reload tab ${tab.id}`);
-          }
-        });
-      });
-    });
-
-    chrome.storage.local.remove(['llmTabMap', 'jobState', CIRCUIT_BREAKER_STORAGE_KEY, '__diagnostics_events__'], () => {
-      if (!chrome.runtime.lastError) {
-        globalThis.LLMLog?.debug?.('[BACKGROUND] Cleared diagnostics history on update');
-      }
-    });
-    if (chrome?.storage?.session) {
-      chrome.storage.session.remove([CIRCUIT_BREAKER_STORAGE_KEY, 'llm_pipeline_fsm_v1'], () => {});
-    }
+    // Never reload every provider page as an extension-update side effect.
+    // Existing tabs are recovered lazily, one model at a time, at its dispatch
+    // boundary. A mass reload creates a browser-wide load storm and makes the
+    // slowest provider block the first Round 1 request.
+    globalThis.LLMLog?.debug?.('[BACKGROUND] Extension updated; provider tabs will recover lazily');
   }
 });
 

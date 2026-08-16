@@ -6,34 +6,33 @@ const SOURCE = fs.readFileSync(
   'utf8'
 );
 
-describe('Round 1 readiness prewarm', () => {
-  test('prewarms every model concurrently before sequential dispatch starts', () => {
-    const prewarmStart = SOURCE.indexOf('async function prewarmRound1Readiness');
-    const prewarmEnd = SOURCE.indexOf('async function recoverRound1TabReadiness');
-    const prewarm = SOURCE.slice(prewarmStart, prewarmEnd);
-    expect(prewarmStart).toBeGreaterThan(0);
-    expect(prewarm).toContain('const tasks = modelNames.map(async (llmName) =>');
-    expect(prewarm).toContain('await Promise.allSettled(tasks)');
-    expect(prewarm).toContain("reason: 'round0_ready_prewarm'");
-    expect(prewarm).toContain('await waitForScriptReady(tabId, llmName');
-  });
-
-  test('Round 0 awaits prewarm before Round 1', () => {
+describe('Round 1 readiness isolation', () => {
+  test('Round 0 never waits for an all-model readiness barrier', () => {
     const rounds = SOURCE.slice(
       SOURCE.indexOf('async function runDispatchRounds'),
       SOURCE.length
     );
-    const prewarmIndex = rounds.indexOf('await prewarmRound1Readiness(selectedLLMs, sessionId)');
-    const round1Index = rounds.indexOf('await dispatchRound1Sequentially');
-    expect(prewarmIndex).toBeGreaterThan(0);
-    expect(round1Index).toBeGreaterThan(prewarmIndex);
+    expect(rounds).not.toContain('await prewarmRound1Readiness');
+    expect(rounds).toContain("readinessMode: 'per_model_dispatch_gate'");
+    expect(rounds).toContain('await dispatchRound1Sequentially');
   });
 
-  test('keeps the normal Round 1 readiness gate as a fallback', () => {
+  test('each model keeps its own page and ACK readiness gate', () => {
     const dispatch = fs.readFileSync(
       path.join(__dirname, '..', 'background', 'dispatch-coordinator.js'),
       'utf8'
     );
+    expect(dispatch).toContain('await ensureTabReadyForDispatch(tabId, llmName, { reason })');
     expect(dispatch).toContain('readyOk = await waitForScriptReady(tabId, llmName');
+    const tabManager = fs.readFileSync(
+      path.join(__dirname, '..', 'background', 'tab-manager.js'),
+      'utf8'
+    );
+    expect(tabManager).toContain('const acceptsContentScriptReadiness = true');
+  });
+
+  test('Qwen remains first and is not blocked by slow tail providers', () => {
+    expect(SOURCE).toContain("const ROUND1_PRIORITY_MODELS = Object.freeze(['Qwen'])");
+    expect(SOURCE).not.toContain('async function prewarmRound1Readiness');
   });
 });

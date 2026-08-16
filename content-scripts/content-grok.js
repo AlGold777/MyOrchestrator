@@ -2218,9 +2218,8 @@
         }
         activity.heartbeat(0.4, { phase: 'typing' });
         const baselineSnapshot = buildBaselineSnapshot();
-        try {
-          await window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, baselineSnapshot.text || '');
-        } catch (_) {}
+        const completionAttemptReady = await window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, baselineSnapshot.text || '');
+        if (completionAttemptReady !== true) throw { type: 'completion_runtime_unavailable', message: 'Completion attempt was not registered.' };
         const committedComposer = await waitForGrokComposerCommit(composer, prompt, 5000, 250);
         window.ContentUtils?.reportPromptInsertion?.(MODEL, dispatchMeta, {
           state: committedComposer ? 'inserted' : 'failed',

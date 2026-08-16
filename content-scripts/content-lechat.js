@@ -1574,9 +1574,8 @@ const hydrateAttachments = (raw = []) =>
         activity.heartbeat(0.45, { phase: 'typing' });
 
         const preDispatchBaseline = grabLatestAssistantMarkup().text || '';
-        try {
-          await window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, preDispatchBaseline);
-        } catch (_) {}
+        const completionAttemptReady = await window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, preDispatchBaseline);
+        if (completionAttemptReady !== true) throw { type: 'completion_runtime_unavailable', message: 'Completion attempt was not registered.' };
         
         let submitOutcome;
         try {

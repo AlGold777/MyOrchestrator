@@ -2791,9 +2791,8 @@ const keepAliveMutex = (() => {
           baselineAssistantText = assistantMessages.length
             ? extractMessageText(assistantMessages[assistantMessages.length - 1])
             : '';
-          try {
-            await window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, baselineAssistantText);
-          } catch (_) {}
+          const completionAttemptReady = await window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, baselineAssistantText);
+          if (completionAttemptReady !== true) throw { type: 'completion_runtime_unavailable', message: 'Completion attempt was not registered.' };
 
           emitDiagnostic({
             type: 'DISPATCH',

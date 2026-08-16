@@ -2004,9 +2004,8 @@ function isLikelyClaudeModelLabel(text = '') {
         // Expose the baseline to the ping/getResponses path so it can reject the
         // prior answer until a new one streams in.
         claudeDispatchBaseline = baselineText || '';
-        try {
-          await window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, claudeDispatchBaseline);
-        } catch (_) {}
+        const completionAttemptReady = await window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, claudeDispatchBaseline);
+        if (completionAttemptReady !== true) throw { type: 'completion_runtime_unavailable', message: 'Completion attempt was not registered.' };
 
         // 2.81.117: composer clearing/shortening and a disabled Send button no
         // longer confirm submission — the button is disabled precisely because the

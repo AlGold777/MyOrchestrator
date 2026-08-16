@@ -1397,9 +1397,8 @@ const buildLifecycleContext = (prompt = '', extra = {}) => ({
           // background rejects it as stale until the new answer renders (a follow-up's
           // answer-start otherwise latches onto the previous full-length answer).
           const preDispatchBaseline = grabLatestAssistantText().text || '';
-          try {
-            await window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, preDispatchBaseline);
-          } catch (_) {}
+          const completionAttemptReady = await window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, preDispatchBaseline);
+          if (completionAttemptReady !== true) throw { type: 'completion_runtime_unavailable', message: 'Completion attempt was not registered.' };
 
           if (Array.isArray(options.attachments) && options.attachments.length) {
             if (!attachmentHandler?.attach) {

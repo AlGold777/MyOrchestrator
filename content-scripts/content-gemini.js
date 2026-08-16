@@ -1231,9 +1231,8 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
         const preDispatchSnapshot = grabLatestAssistantMarkup();
         const preDispatchBaseline = buildGeminiAnswerBaseline(preDispatchSnapshot, fp);
         geminiLastDispatchBaseline = preDispatchBaseline;
-        try {
-            await window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, preDispatchBaseline.text || '');
-        } catch (_) {}
+        const completionAttemptReady = await window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, preDispatchBaseline.text || '');
+        if (completionAttemptReady !== true) throw { type: 'completion_runtime_unavailable', message: 'Completion attempt was not registered.' };
 
         if (Array.isArray(attachments) && attachments.length) {
           let attachmentsOk = false;

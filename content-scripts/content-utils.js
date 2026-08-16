@@ -533,7 +533,7 @@
   // answer renders (background/job-orchestrator.js isStaleBaselineCandidate). Fire this
   // before sending so the guard works even when the submit is never confirmed. The
   // normalization MUST match normalizeAnswerSignatureBg in the orchestrator.
-  const reportDispatchBaseline = (llmName, meta, baselineText = '') => {
+  const reportDispatchBaseline = async (llmName, meta, baselineText = '') => {
     if (!llmName) return false;
     const signature = normalizeForPaste(baselineText);
     const lifecycle = window.LLMExtension?.ResponseLifecycleDetector || window.ResponseLifecycleDetector;
@@ -551,18 +551,20 @@
     // already have inserted their new assistant node by then.
     try {
       const start = lifecycle?.startResponseLifecycleTracking;
-      if (typeof start === 'function') {
-        Promise.resolve(start.call(lifecycle, {
-          modelName: llmName,
-          dispatchId: meta?.dispatchId || null,
-          runSessionId: meta?.runSessionId || meta?.sessionId || null,
-          promptSubmittedAt: Date.now(),
-          traceId: meta?.traceId || meta?.dispatchId || null,
-          baselineText: String(baselineText || ''),
-          turnAnchor: anchorAnswerCount
-        })).catch(() => {});
-      }
-    } catch (_) {}
+      if (typeof start !== 'function') return false;
+      const lifecycleStart = await Promise.resolve(start.call(lifecycle, {
+        modelName: llmName,
+        dispatchId: meta?.dispatchId || null,
+        runSessionId: meta?.runSessionId || meta?.sessionId || null,
+        promptSubmittedAt: Date.now(),
+        traceId: meta?.traceId || meta?.dispatchId || null,
+        baselineText: String(baselineText || ''),
+        turnAnchor: anchorAnswerCount
+      }));
+      if (lifecycleStart?.ok !== true) return false;
+    } catch (_) {
+      return false;
+    }
     // F6.2: attach the positional turn anchor captured by the unified pipeline
     // at dispatch time (number of answer nodes already on the page), so the
     // background inline scans can skip previous conversation turns too.

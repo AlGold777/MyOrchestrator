@@ -9,7 +9,6 @@ if (!self.__JOB_ORCHESTRATOR_INITIALIZED__) {
 const ROUND0_OPEN_STAGGER_MS = 1000;
 const ROUND0_BIND_WAIT_TIMEOUT_MS = 15000;
 const ROUND0_BIND_POLL_MS = 250;
-const ROUND1_READY_PREWARM_TIMEOUT_MS = 6000;
 //- 1.1. Сокращаем подготовку -//
 const ROUND1_BEFORE_SEND_MS = 500;
 //- 1.2. Round 1 sends the command quickly, but confirmation is handled explicitly in Round 2. -//
@@ -5398,7 +5397,9 @@ async function reuseMappedDonorProviderTab(llmName, prompt, attachments = [], op
         reason: 'donor_sticky_reuse'
       });
       if (!readiness.ok) continue;
-      await prepareTabForUse(tabId, llmName);
+      if (!options.deferDispatch) {
+        await prepareTabForUse(tabId, llmName);
+      }
       initRequestMetadata(llmName, tabId, readiness.tab?.url || tab.url || LLM_TARGETS[llmName]?.url || '');
       await setTabBinding(llmName, tabId);
       emitTelemetry(llmName, 'DONOR_STICKY_TAB_REUSED', {
@@ -5540,79 +5541,6 @@ globalThis.LLMLog?.debug?.(`[ROUND0] Opened tab ${i + 1}/${selectedLLMs.length}:
   }
   return true;
 }
-
-async function prewarmRound1Readiness(selectedLLMs, sessionId) {
-  const modelNames = orderRound1Models(selectedLLMs);
-  const startedAt = Date.now();
-  const tasks = modelNames.map(async (llmName) => {
-    if (sessionId && !isSessionActive(sessionId)) {
-      return { llmName, ok: false, reason: 'session_inactive' };
-    }
-    const entry = jobState?.llms?.[llmName] || null;
-    const tabId = resolveBoundTabIdForOrchestrator(llmName, entry);
-    if (!isValidTabId(tabId)) {
-      return { llmName, ok: false, reason: 'tab_missing' };
-    }
-    const readiness = await ensureTabReadyForDispatch(tabId, llmName, {
-      reason: 'round0_ready_prewarm'
-    });
-    if (!readiness?.ok) {
-      return { llmName, tabId, ok: false, reason: readiness?.reason || 'tab_not_ready' };
-    }
-    const requiresAck = self.ModelPolicy?.modelRequiresAckReady
-      ? self.ModelPolicy.modelRequiresAckReady(llmName)
-      : llmName !== 'Perplexity';
-    let readyOk = true;
-    if (requiresAck) {
-      readyOk = await waitForScriptReady(tabId, llmName, {
-        timeoutMs: ROUND1_READY_PREWARM_TIMEOUT_MS,
-        intervalMs: 250
-      });
-    }
-    const readyInfo = self.ReadySignalManager?.getReadyInfo?.(tabId) || null;
-    if (entry) {
-      entry.round1ReadinessPrewarm = {
-        ok: readyOk,
-        tabId,
-        tabSessionId: readyInfo?.tabSessionId || null,
-        requiresAck,
-        warmedAt: Date.now()
-      };
-    }
-    emitTelemetry(llmName, readyOk ? 'ROUND1_READY_PREWARM_OK' : 'ROUND1_READY_PREWARM_MISS', {
-      level: readyOk ? 'info' : 'warning',
-      details: requiresAck ? (readyOk ? 'ready_and_acked' : 'ready_ack_timeout') : 'ack_not_required',
-      meta: {
-        tabId,
-        requiresAck,
-        tabSessionId: readyInfo?.tabSessionId || null,
-        elapsedMs: Date.now() - startedAt
-      },
-      force: true
-    });
-    return { llmName, tabId, ok: readyOk, requiresAck };
-  });
-  const settled = await Promise.allSettled(tasks);
-  const fulfilled = settled.filter((result) => result.status === 'fulfilled').map((result) => result.value);
-  const readyCount = fulfilled.filter((result) => result?.ok).length;
-  emitTelemetry('ROUNDS', 'ROUND1_READY_PREWARM_COMPLETE', {
-    level: readyCount === modelNames.length ? 'info' : 'warning',
-    details: `${readyCount}/${modelNames.length}`,
-    meta: {
-      readyCount,
-      total: modelNames.length,
-      elapsedMs: Date.now() - startedAt,
-      results: fulfilled.map((result) => ({
-        llmName: result?.llmName || null,
-        ok: result?.ok === true,
-        reason: result?.reason || null
-      }))
-    },
-    force: true
-  });
-  return readyCount;
-}
-
 
 async function recoverRound1TabReadiness(llmName, prompt, attachments = [], sessionId, previousTabId = null, reason = 'round1_recover') {
   if (sessionId && !isSessionActive(sessionId)) return null;
@@ -6671,11 +6599,9 @@ async function runDispatchRounds(selectedLLMs, prompt, forceNewTabs, attachments
       // Round 0: Последовательное открытие вкладок (пауза 2с между вкладками)
       await openTabsSequentially(selectedLLMs, prompt, forceNewTabs, attachments, sessionId);
       if (sessionId && !isSessionActive(sessionId)) return;
-      const prewarmedReadyCount = await prewarmRound1Readiness(selectedLLMs, sessionId);
-      if (sessionId && !isSessionActive(sessionId)) return;
-      emitRoundEvent(0, 'END', 'tabs opened and readiness prewarmed', {
-        prewarmedReadyCount,
-        totalModels: selectedLLMs.length
+      emitRoundEvent(0, 'END', 'tabs acquired; readiness is checked per model', {
+        totalModels: selectedLLMs.length,
+        readinessMode: 'per_model_dispatch_gate'
       });
       
       ensureRoundEntries(selectedLLMs, 'pre_round1');

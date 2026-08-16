@@ -235,7 +235,8 @@
       ? window.ContentUtils.ensureDispatchMeta(options.meta || null, MODEL)
       : (options.meta || null);
     const baseline = readLatestResponse().text;
-    await window.ContentUtils?.reportDispatchBaseline?.(MODEL, meta, baseline);
+    const completionAttemptReady = await window.ContentUtils?.reportDispatchBaseline?.(MODEL, meta, baseline);
+    if (completionAttemptReady !== true) throw { type: 'completion_runtime_unavailable', message: 'Completion attempt was not registered.' };
     let composer = await waitForFirst(COMPOSER_SELECTORS);
     if (options.attachments?.length) {
       if (!attachmentHandler?.attach) {

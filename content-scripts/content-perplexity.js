@@ -1477,9 +1477,8 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
     // Capture the prior on-page answer before submitting a follow-up, so the background
     // rejects it as stale until the new answer renders (avoids finalizing the old answer).
     const preDispatchBaseline = grabLatestAssistantMarkup().text || '';
-    try {
-      await window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, preDispatchBaseline);
-    } catch (_) {}
+    const completionAttemptReady = await window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, preDispatchBaseline);
+    if (completionAttemptReady !== true) throw { type: 'completion_runtime_unavailable', message: 'Completion attempt was not registered.' };
 
     if (Array.isArray(attachments) && attachments.length) {
       if (!attachmentHandler?.attach) {
