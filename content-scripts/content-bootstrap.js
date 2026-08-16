@@ -233,6 +233,18 @@
       });
     };
 
+    const completionRuntimeSnapshot = () => {
+      const detector = root.LLMExtension?.ResponseLifecycleDetector || root.ResponseLifecycleDetector;
+      const protocol = root.CompletionProtocol;
+      return {
+        buildVersion: detector?.buildVersion || manifestVersion,
+        detectorVersion: detector?.version || null,
+        protocolVersion: detector?.protocolVersion || protocol?.version || null,
+        completionSessionAvailable: typeof protocol?.CompletionSession === 'function'
+          && typeof detector?.startResponseLifecycleTracking === 'function'
+      };
+    };
+
     const sendReady = (state, meta = {}, reason = 'init') => {
       if (!state || state.acked) {
         clearRetryTimer(state);
@@ -249,6 +261,7 @@
         tabSessionId: state.tabSessionId,
         meta: {
           ...meta,
+          completionRuntime: completionRuntimeSnapshot(),
           tabSessionId: state.tabSessionId,
           reason,
           url: location.href

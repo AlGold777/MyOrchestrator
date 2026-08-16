@@ -112,6 +112,7 @@ function createRouterSandbox() {
         update: jest.fn((tabId, _update, callback) => { if (typeof callback === 'function') callback(); }),
         query: jest.fn(() => Promise.resolve([]))
       },
+      scripting: { executeScript: jest.fn(() => Promise.resolve([])) },
       windows: { onFocusChanged: { addListener: () => {} } },
       alarms: { create: () => {}, clear: () => {}, onAlarm: { addListener: () => {} } },
       action: { onClicked: { addListener: () => {} } }
@@ -284,17 +285,80 @@ describe('lifecycle sender gate', () => {
     expect(context.handleLLMResponse).not.toHaveBeenCalled();
   });
 
-  test('shadow mode keeps legacy delivery while V2 observes in parallel', async () => {
+  test('shadow label cannot authorize legacy delivery by itself', async () => {
     const { context, sendMessage } = createRouterSandbox();
     await sendMessage({
       type: 'LLM_COMPLETION_ATTEMPT', llmName: 'GPT',
       meta: { ...META, terminalResult: null, rolloutMode: 'shadow', protocolVersion: '2.1.0' }
     }, BOUND_SENDER);
     const response = await sendMessage({
-      type: 'LLM_RESPONSE', llmName: 'GPT', answer: 'shadow legacy answer', meta: META
+      type: 'LLM_RESPONSE', llmName: 'GPT', answer: 'shadow legacy answer', meta: { ...META, terminalResult: null }
+    }, BOUND_SENDER);
+    expect(response).toEqual(expect.objectContaining({ status: 'response_rejected', reason: 'missing_success_terminal_authority' }));
+    expect(context.handleLLMResponse).not.toHaveBeenCalled();
+  });
+
+  test('legacy delivery requires an explicit per-attempt authorization', async () => {
+    const { context, sendMessage } = createRouterSandbox();
+    await sendMessage({
+      type: 'LLM_COMPLETION_ATTEMPT', llmName: 'GPT',
+      meta: { ...META, terminalResult: null, rolloutMode: 'shadow', legacyDeliveryAuthorized: true }
+    }, BOUND_SENDER);
+    const response = await sendMessage({
+      type: 'LLM_RESPONSE', llmName: 'GPT', answer: 'authorized migration answer',
+      meta: { ...META, terminalResult: null, completionRolloutMode: 'shadow' }
     }, BOUND_SENDER);
     expect(response?.status).toBe('response_handled');
     expect(context.handleLLMResponse).toHaveBeenCalled();
+  });
+
+  test('SCRIPT_READY repairs a stale Completion runtime before acknowledging the provider', async () => {
+    const { context, sendMessage } = createRouterSandbox();
+    const currentRuntime = {
+      buildVersion: 'test', detectorVersion: '2.3.0', protocolVersion: '2.3.0', completionSessionAvailable: true
+    };
+    let probeCount = 0;
+    context.chrome.scripting.executeScript.mockImplementation((request) => {
+      if (request.files) return Promise.resolve([]);
+      probeCount += 1;
+      return Promise.resolve([{ result: probeCount === 1
+        ? { ...currentRuntime, detectorVersion: '2.2.0' }
+        : currentRuntime }]);
+    });
+    const response = await sendMessage({ type: 'SCRIPT_READY', llmName: 'GPT', meta: {} }, BOUND_SENDER);
+    expect(response?.status).toBe('ready_deferred_completion_runtime');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(context.chrome.scripting.executeScript).toHaveBeenCalledWith(expect.objectContaining({
+      files: [
+        'shared/completion-protocol.js',
+        'content-utils/selector-resolver-v2.js',
+        'content-utils/response-lifecycle-detector.js',
+        'content-scripts/content-bootstrap.js'
+      ]
+    }));
+    expect(context.chrome.tabs.sendMessage).toHaveBeenCalledWith(101, expect.objectContaining({
+      type: 'REQUEST_SCRIPT_READY', reason: 'completion_runtime_verified'
+    }));
+  });
+
+  test('SCRIPT_READY with the exact Completion runtime is acknowledged without reinjection', async () => {
+    const { context, sendMessage } = createRouterSandbox();
+    const response = await sendMessage({
+      type: 'SCRIPT_READY',
+      llmName: 'GPT',
+      meta: {
+        completionRuntime: {
+          buildVersion: 'test',
+          detectorVersion: '2.3.0',
+          protocolVersion: '2.3.0',
+          completionSessionAvailable: true
+        }
+      }
+    }, BOUND_SENDER);
+    // This isolated router sandbox has no ReadySignalManager, so acceptance
+    // falls through to ready_ignored; the important contract is no defer/repair.
+    expect(response?.status).toBe('ready_ignored');
+    expect(context.chrome.scripting.executeScript).not.toHaveBeenCalled();
   });
 
   test('typed non-success terminal is forwarded immediately to finalization', async () => {

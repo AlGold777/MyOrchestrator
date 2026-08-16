@@ -2484,14 +2484,23 @@
 
 /* ==== content-utils/response-lifecycle-detector.js ==== */
 (function initResponseLifecycleDetector() {
-  const VERSION = '2.2.0';
-  const existingDetector = window.LLMExtension?.ResponseLifecycleDetector || window.ResponseLifecycleDetector;
-  if (existingDetector?.version === VERSION) return;
-  try { existingDetector?.dispose?.({ reason: 'runtime_upgrade' }); } catch (_) {}
+  const VERSION = '2.3.0';
+  const BUILD_VERSION = (() => {
+    try { return chrome?.runtime?.getManifest?.()?.version || 'unknown'; } catch (_) { return 'unknown'; }
+  })();
   const CompletionProtocol = window.CompletionProtocol || (() => {
     if (typeof require !== 'function') return null;
     try { return require('../shared/completion-protocol.js'); } catch (_) { return null; }
   })();
+  const existingDetector = window.LLMExtension?.ResponseLifecycleDetector || window.ResponseLifecycleDetector;
+  const existingCompatible = existingDetector?.version === VERSION
+    && existingDetector?.protocolVersion === CompletionProtocol?.version
+    && existingDetector?.buildVersion === BUILD_VERSION;
+  if (existingCompatible) {
+    try { existingDetector?.announceRuntimeReady?.('compatible_reinjection'); } catch (_) {}
+    return;
+  }
+  try { existingDetector?.dispose?.({ reason: 'runtime_upgrade' }); } catch (_) {}
   const BODY_MUTATION_THROTTLE_MS = 500;
   const ANSWER_GENERATING_TELEMETRY_THROTTLE_MS = 15000;
   const POST_TERMINAL_OBSERVATION_OFFSETS_MS = Object.freeze([1000, 3000, 8000, 15000, 30000]);
@@ -2506,7 +2515,8 @@
     stableMs: 1500,
     pollIntervalMs: 600,
     minCompleteConfidence: 0.75,
-    completionProtocolV2: 'shadow'
+    completionProtocolV2: 'enforced',
+    allowLegacyCompletionRollout: false
   };
   const GENERATING_SELECTORS = [
     '[aria-label*="Stop" i]',
@@ -2528,6 +2538,7 @@
   ];
 
   const trackers = new Map();
+  const trackerStartFlights = new Map();
   const registeredCandidates = new Map();
   const lifecycleDocumentInstanceId = `lifecycle-document-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   let lifecycleNavigationEpoch = 0;
@@ -2984,7 +2995,16 @@
     if (cachedSettings) return cachedSettings;
     if (!settingsPromise) {
       settingsPromise = readStorage('responseLifecycleDetectorSettings')
-        .then((stored) => Object.assign({}, RESPONSE_LIFECYCLE_DEFAULTS, stored || {}))
+        .then((stored) => {
+          const settings = Object.assign({}, RESPONSE_LIFECYCLE_DEFAULTS, stored || {});
+          // Completion is a mandatory correctness boundary. Historical
+          // `enabled:false` and shadow defaults may not disable that boundary.
+          settings.enabled = true;
+          settings.completionProtocolV2 = settings.allowLegacyCompletionRollout === true
+            ? CompletionProtocol?.CompletionRollout?.normalize?.(settings.completionProtocolV2)
+            : 'enforced';
+          return settings;
+        })
         .catch(() => Object.assign({}, RESPONSE_LIFECYCLE_DEFAULTS))
         .then((settings) => {
           cachedSettings = settings;
@@ -3042,6 +3062,30 @@
         }
       });
     } catch (_) {}
+  }
+
+  function completionRuntimeDescriptor() {
+    return {
+      buildVersion: BUILD_VERSION,
+      detectorVersion: VERSION,
+      protocolVersion: CompletionProtocol?.version || null,
+      completionSessionAvailable: typeof CompletionProtocol?.CompletionSession === 'function',
+      authorityMode: RESPONSE_LIFECYCLE_DEFAULTS.completionProtocolV2
+    };
+  }
+
+  function announceRuntimeReady(reason = 'detector_initialized') {
+    const runtime = completionRuntimeDescriptor();
+    try {
+      chrome.runtime.sendMessage({
+        type: 'COMPLETION_RUNTIME_READY',
+        reason,
+        runtime
+      });
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   function closePostTerminalObservationWindow(tracker, outcome, measurement = {}) {
@@ -4229,7 +4273,31 @@
     };
   }
 
-  async function startResponseLifecycleTracking({
+  function startResponseLifecycleTracking(options = {}) {
+    const modelName = String(options?.modelName || '').trim();
+    if (!modelName) {
+      emitLifecycleTelemetry('COMPLETION_ATTEMPT_BOOTSTRAP_FAILED', {
+        modelName: 'SYSTEM',
+        state: 'ERROR',
+        runSessionId: options?.runSessionId || options?.sessionId || null,
+        dispatchId: options?.dispatchId || null,
+        phaseEvidence: { reason: 'missing_model', runtime: completionRuntimeDescriptor() }
+      });
+      return Promise.resolve({ ok: false, reason: 'missing_model' });
+    }
+    const dispatchId = String(options?.dispatchId || 'unbound');
+    const flightKey = `${modelName}:${dispatchId}`;
+    const activeFlight = trackerStartFlights.get(flightKey);
+    if (activeFlight) return activeFlight;
+    const flight = startResponseLifecycleTrackingInternal(options)
+      .finally(() => {
+        if (trackerStartFlights.get(flightKey) === flight) trackerStartFlights.delete(flightKey);
+      });
+    trackerStartFlights.set(flightKey, flight);
+    return flight;
+  }
+
+  async function startResponseLifecycleTrackingInternal({
     modelName,
     dispatchId = null,
     runSessionId = null,
@@ -4242,7 +4310,6 @@
     baselineText = null,
     turnAnchor = null
   }) {
-    if (!modelName) return { ok: false, reason: 'lifecycle_disabled_or_missing_model' };
     const activeTracker = trackers.get(modelName);
     const sameDispatch = !!activeTracker
       && isTrackerActive(activeTracker)
@@ -4296,11 +4363,14 @@
     attachTrackerObserver(tracker, document.body);
 
     const settings = await getSettings();
-    if (!settings.enabled || !modelName) {
-      stopResponseLifecycleTracking({ modelName, dispatchId, runSessionId, reason: 'lifecycle_disabled_or_missing_model' });
-      return { ok: false, reason: 'lifecycle_disabled_or_missing_model' };
-    }
     if (!CompletionProtocol?.CompletionSession) {
+      emitLifecycleTelemetry('COMPLETION_ATTEMPT_BOOTSTRAP_FAILED', {
+        modelName,
+        state: 'ERROR',
+        runSessionId,
+        dispatchId,
+        phaseEvidence: { reason: 'completion_protocol_unavailable', runtime: completionRuntimeDescriptor() }
+      });
       stopResponseLifecycleTracking({ modelName, dispatchId, runSessionId, reason: 'completion_protocol_unavailable' });
       return { ok: false, reason: 'completion_protocol_unavailable' };
     }
@@ -4565,6 +4635,7 @@
   function dispose({ reason = 'disposed' } = {}) {
     Array.from(trackers.values()).forEach((tracker) => releaseTrackerResources(tracker, reason));
     registeredCandidates.clear();
+    trackerStartFlights.clear();
     return true;
   }
 
@@ -4617,6 +4688,10 @@
     LIFECYCLE_READINESS_RESOLVER_TIMEOUT_MS,
     STUCK_BUSY_OVERRIDE_MIN_MS,
     version: VERSION,
+    buildVersion: BUILD_VERSION,
+    protocolVersion: CompletionProtocol?.version || null,
+    completionRuntimeDescriptor,
+    announceRuntimeReady,
     runSelfTest
     , dispose
   };
@@ -4626,6 +4701,7 @@
   window.ResponseLifecycleDetector = ResponseLifecycleDetector;
   installLifecycleStopListeners();
   maybePatchRuntimeMessaging().catch(() => {});
+  announceRuntimeReady();
 })();
 
 
@@ -4865,6 +4941,18 @@
       });
     };
 
+    const completionRuntimeSnapshot = () => {
+      const detector = root.LLMExtension?.ResponseLifecycleDetector || root.ResponseLifecycleDetector;
+      const protocol = root.CompletionProtocol;
+      return {
+        buildVersion: detector?.buildVersion || manifestVersion,
+        detectorVersion: detector?.version || null,
+        protocolVersion: detector?.protocolVersion || protocol?.version || null,
+        completionSessionAvailable: typeof protocol?.CompletionSession === 'function'
+          && typeof detector?.startResponseLifecycleTracking === 'function'
+      };
+    };
+
     const sendReady = (state, meta = {}, reason = 'init') => {
       if (!state || state.acked) {
         clearRetryTimer(state);
@@ -4881,6 +4969,7 @@
         tabSessionId: state.tabSessionId,
         meta: {
           ...meta,
+          completionRuntime: completionRuntimeSnapshot(),
           tabSessionId: state.tabSessionId,
           reason,
           url: location.href
@@ -28420,14 +28509,23 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
 
 /* ==== content-utils/response-lifecycle-detector.js ==== */
 (function initResponseLifecycleDetector() {
-  const VERSION = '2.2.0';
-  const existingDetector = window.LLMExtension?.ResponseLifecycleDetector || window.ResponseLifecycleDetector;
-  if (existingDetector?.version === VERSION) return;
-  try { existingDetector?.dispose?.({ reason: 'runtime_upgrade' }); } catch (_) {}
+  const VERSION = '2.3.0';
+  const BUILD_VERSION = (() => {
+    try { return chrome?.runtime?.getManifest?.()?.version || 'unknown'; } catch (_) { return 'unknown'; }
+  })();
   const CompletionProtocol = window.CompletionProtocol || (() => {
     if (typeof require !== 'function') return null;
     try { return require('../shared/completion-protocol.js'); } catch (_) { return null; }
   })();
+  const existingDetector = window.LLMExtension?.ResponseLifecycleDetector || window.ResponseLifecycleDetector;
+  const existingCompatible = existingDetector?.version === VERSION
+    && existingDetector?.protocolVersion === CompletionProtocol?.version
+    && existingDetector?.buildVersion === BUILD_VERSION;
+  if (existingCompatible) {
+    try { existingDetector?.announceRuntimeReady?.('compatible_reinjection'); } catch (_) {}
+    return;
+  }
+  try { existingDetector?.dispose?.({ reason: 'runtime_upgrade' }); } catch (_) {}
   const BODY_MUTATION_THROTTLE_MS = 500;
   const ANSWER_GENERATING_TELEMETRY_THROTTLE_MS = 15000;
   const POST_TERMINAL_OBSERVATION_OFFSETS_MS = Object.freeze([1000, 3000, 8000, 15000, 30000]);
@@ -28442,7 +28540,8 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
     stableMs: 1500,
     pollIntervalMs: 600,
     minCompleteConfidence: 0.75,
-    completionProtocolV2: 'shadow'
+    completionProtocolV2: 'enforced',
+    allowLegacyCompletionRollout: false
   };
   const GENERATING_SELECTORS = [
     '[aria-label*="Stop" i]',
@@ -28464,6 +28563,7 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
   ];
 
   const trackers = new Map();
+  const trackerStartFlights = new Map();
   const registeredCandidates = new Map();
   const lifecycleDocumentInstanceId = `lifecycle-document-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   let lifecycleNavigationEpoch = 0;
@@ -28920,7 +29020,16 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
     if (cachedSettings) return cachedSettings;
     if (!settingsPromise) {
       settingsPromise = readStorage('responseLifecycleDetectorSettings')
-        .then((stored) => Object.assign({}, RESPONSE_LIFECYCLE_DEFAULTS, stored || {}))
+        .then((stored) => {
+          const settings = Object.assign({}, RESPONSE_LIFECYCLE_DEFAULTS, stored || {});
+          // Completion is a mandatory correctness boundary. Historical
+          // `enabled:false` and shadow defaults may not disable that boundary.
+          settings.enabled = true;
+          settings.completionProtocolV2 = settings.allowLegacyCompletionRollout === true
+            ? CompletionProtocol?.CompletionRollout?.normalize?.(settings.completionProtocolV2)
+            : 'enforced';
+          return settings;
+        })
         .catch(() => Object.assign({}, RESPONSE_LIFECYCLE_DEFAULTS))
         .then((settings) => {
           cachedSettings = settings;
@@ -28978,6 +29087,30 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
         }
       });
     } catch (_) {}
+  }
+
+  function completionRuntimeDescriptor() {
+    return {
+      buildVersion: BUILD_VERSION,
+      detectorVersion: VERSION,
+      protocolVersion: CompletionProtocol?.version || null,
+      completionSessionAvailable: typeof CompletionProtocol?.CompletionSession === 'function',
+      authorityMode: RESPONSE_LIFECYCLE_DEFAULTS.completionProtocolV2
+    };
+  }
+
+  function announceRuntimeReady(reason = 'detector_initialized') {
+    const runtime = completionRuntimeDescriptor();
+    try {
+      chrome.runtime.sendMessage({
+        type: 'COMPLETION_RUNTIME_READY',
+        reason,
+        runtime
+      });
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   function closePostTerminalObservationWindow(tracker, outcome, measurement = {}) {
@@ -30165,7 +30298,31 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
     };
   }
 
-  async function startResponseLifecycleTracking({
+  function startResponseLifecycleTracking(options = {}) {
+    const modelName = String(options?.modelName || '').trim();
+    if (!modelName) {
+      emitLifecycleTelemetry('COMPLETION_ATTEMPT_BOOTSTRAP_FAILED', {
+        modelName: 'SYSTEM',
+        state: 'ERROR',
+        runSessionId: options?.runSessionId || options?.sessionId || null,
+        dispatchId: options?.dispatchId || null,
+        phaseEvidence: { reason: 'missing_model', runtime: completionRuntimeDescriptor() }
+      });
+      return Promise.resolve({ ok: false, reason: 'missing_model' });
+    }
+    const dispatchId = String(options?.dispatchId || 'unbound');
+    const flightKey = `${modelName}:${dispatchId}`;
+    const activeFlight = trackerStartFlights.get(flightKey);
+    if (activeFlight) return activeFlight;
+    const flight = startResponseLifecycleTrackingInternal(options)
+      .finally(() => {
+        if (trackerStartFlights.get(flightKey) === flight) trackerStartFlights.delete(flightKey);
+      });
+    trackerStartFlights.set(flightKey, flight);
+    return flight;
+  }
+
+  async function startResponseLifecycleTrackingInternal({
     modelName,
     dispatchId = null,
     runSessionId = null,
@@ -30178,7 +30335,6 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
     baselineText = null,
     turnAnchor = null
   }) {
-    if (!modelName) return { ok: false, reason: 'lifecycle_disabled_or_missing_model' };
     const activeTracker = trackers.get(modelName);
     const sameDispatch = !!activeTracker
       && isTrackerActive(activeTracker)
@@ -30232,11 +30388,14 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
     attachTrackerObserver(tracker, document.body);
 
     const settings = await getSettings();
-    if (!settings.enabled || !modelName) {
-      stopResponseLifecycleTracking({ modelName, dispatchId, runSessionId, reason: 'lifecycle_disabled_or_missing_model' });
-      return { ok: false, reason: 'lifecycle_disabled_or_missing_model' };
-    }
     if (!CompletionProtocol?.CompletionSession) {
+      emitLifecycleTelemetry('COMPLETION_ATTEMPT_BOOTSTRAP_FAILED', {
+        modelName,
+        state: 'ERROR',
+        runSessionId,
+        dispatchId,
+        phaseEvidence: { reason: 'completion_protocol_unavailable', runtime: completionRuntimeDescriptor() }
+      });
       stopResponseLifecycleTracking({ modelName, dispatchId, runSessionId, reason: 'completion_protocol_unavailable' });
       return { ok: false, reason: 'completion_protocol_unavailable' };
     }
@@ -30501,6 +30660,7 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
   function dispose({ reason = 'disposed' } = {}) {
     Array.from(trackers.values()).forEach((tracker) => releaseTrackerResources(tracker, reason));
     registeredCandidates.clear();
+    trackerStartFlights.clear();
     return true;
   }
 
@@ -30553,6 +30713,10 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
     LIFECYCLE_READINESS_RESOLVER_TIMEOUT_MS,
     STUCK_BUSY_OVERRIDE_MIN_MS,
     version: VERSION,
+    buildVersion: BUILD_VERSION,
+    protocolVersion: CompletionProtocol?.version || null,
+    completionRuntimeDescriptor,
+    announceRuntimeReady,
     runSelfTest
     , dispose
   };
@@ -30562,6 +30726,7 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
   window.ResponseLifecycleDetector = ResponseLifecycleDetector;
   installLifecycleStopListeners();
   maybePatchRuntimeMessaging().catch(() => {});
+  announceRuntimeReady();
 })();
 
 

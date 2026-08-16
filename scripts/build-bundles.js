@@ -33,6 +33,13 @@ const COMMON_FILES = [
   'shared/answer-verification.js',
   'shared/provider-submit-confirmation.js',
   'shared/completion-protocol.js',
+  // Completion authority must be present in the two-script distribution too.
+  // The field build previously shipped the protocol object without the
+  // lifecycle detector that creates CompletionSession instances.
+  'content-utils/selector-resolver-v2.js',
+  'content-utils/response-lifecycle-detector.js',
+  'content-scripts/content-bootstrap.js',
+  'content-scripts/content-utils.js',
   // answer-pipeline-selectors.js is the selector contract the unified pipeline
   // actually consumes (manifest order). The old platform-selectors.js claimed the
   // same window.AnswerPipelineSelectors namespace with an incompatible contract

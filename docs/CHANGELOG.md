@@ -1,5 +1,13 @@
 # CHANGELOG — Project
 
+### 2026-08-16 — Completion runtime включён в реальную сборку, version 2.81.343
+
+- Двухфайловая production-сборка теперь содержит `CompletionProtocol`, selector resolver, lifecycle detector, content bootstrap и общие content utilities; `CompletionSession` создаётся в фактически доставляемом runtime.
+- `SCRIPT_READY` подтверждается только после проверки build/detector/protocol contract. Stale вкладка автоматически получает недостающий runtime и повторяет handshake.
+- `enforced` стал обязательным production-режимом. Старые сохранённые настройки не могут выключить authority, а `legacy`/`shadow` требуют двух явных аварийных разрешений.
+- Все background-пути успеха, включая manual ping и recovery, проходят единый terminal authority gate; предыдущий terminal result не переносится на новый dispatch.
+- Телеметрия фиксирует readiness, repair и bootstrap failure Completion runtime как canonical observer-health evidence.
+
 ### 2026-08-16 — Не сжимать кнопки моделей в Header, version 2.81.342
 
 - Кнопки моделей сохраняют базовый размер `58px` и исходный зазор `10px`.

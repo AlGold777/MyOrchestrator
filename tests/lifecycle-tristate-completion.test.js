@@ -74,6 +74,30 @@ describe('tri-state completion (stop-button)', () => {
     return completionResult;
   };
 
+  test('stored legacy disable/shadow settings cannot turn off production Completion authority', async () => {
+    const originalGet = global.chrome.storage.local.get;
+    window.ResponseLifecycleDetector.dispose({ reason: 'settings_test_reload' });
+    delete window.LLMExtension;
+    delete window.ResponseLifecycleDetector;
+    global.chrome.storage.local.get = jest.fn(async () => ({
+      responseLifecycleDetectorSettings: {
+        enabled: false,
+        completionProtocolV2: 'shadow',
+        allowLegacyCompletionRollout: false
+      }
+    }));
+    loadScript('content-utils/response-lifecycle-detector.js');
+    const detector = window.ResponseLifecycleDetector;
+    const result = await detector.startResponseLifecycleTracking({
+      modelName: 'GPT', dispatchId: 'mandatory-authority', runSessionId: 77, promptSubmittedAt: Date.now()
+    });
+    expect(result.ok).toBe(true);
+    expect(detector.getCompletionSnapshot({ modelName: 'GPT', dispatchId: 'mandatory-authority' }).rolloutMode)
+      .toBe('enforced');
+    detector.stopResponseLifecycleTracking({ modelName: 'GPT', reason: 'test_done' });
+    global.chrome.storage.local.get = originalGet;
+  });
+
   test('a present localized stop button (Arrêter) blocks completion', async () => {
     const stop = document.createElement('button');
     stop.setAttribute('aria-label', 'Arrêter la génération');

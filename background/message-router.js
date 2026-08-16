@@ -18,7 +18,115 @@ const geminiAttachmentFlightsByTab = new Map();
 const qwenAttachmentFlightsByTab = new Map();
 const providerAttachmentFlightsByTab = new Map();
 const debuggerSessionQueuesByTab = new Map();
-const completionAuthorityAttempts = new Map();
+const completionAuthorityAttempts = self.__completionAuthorityAttempts || new Map();
+self.__completionAuthorityAttempts = completionAuthorityAttempts;
+const completionRuntimeByTab = new Map();
+const completionRuntimeRepairFlights = new Map();
+const EXPECTED_COMPLETION_DETECTOR_VERSION = '2.3.0';
+const EXPECTED_COMPLETION_PROTOCOL_VERSION = '2.3.0';
+
+const expectedCompletionRuntime = () => ({
+    buildVersion: chrome.runtime.getManifest().version,
+    detectorVersion: EXPECTED_COMPLETION_DETECTOR_VERSION,
+    protocolVersion: EXPECTED_COMPLETION_PROTOCOL_VERSION
+});
+
+const isCompletionRuntimeHealthy = (runtime) => {
+    const expected = expectedCompletionRuntime();
+    return runtime?.completionSessionAvailable === true
+        && runtime?.buildVersion === expected.buildVersion
+        && runtime?.detectorVersion === expected.detectorVersion
+        && runtime?.protocolVersion === expected.protocolVersion;
+};
+
+const probeCompletionRuntimeInTab = async (tabId) => {
+    if (!Number.isInteger(Number(tabId)) || Number(tabId) <= 0 || !chrome?.scripting?.executeScript) return null;
+    try {
+        const results = await chrome.scripting.executeScript({
+            target: { tabId: Number(tabId) },
+            func: () => {
+                const detector = window.LLMExtension?.ResponseLifecycleDetector || window.ResponseLifecycleDetector;
+                const protocol = window.CompletionProtocol;
+                let buildVersion = 'unknown';
+                try { buildVersion = chrome.runtime.getManifest().version || 'unknown'; } catch (_) {}
+                return {
+                    buildVersion: detector?.buildVersion || buildVersion,
+                    detectorVersion: detector?.version || null,
+                    protocolVersion: detector?.protocolVersion || protocol?.version || null,
+                    completionSessionAvailable: typeof protocol?.CompletionSession === 'function'
+                        && typeof detector?.startResponseLifecycleTracking === 'function'
+                };
+            }
+        });
+        return results?.find((item) => item?.result)?.result || null;
+    } catch (_) {
+        return null;
+    }
+};
+
+const ensureCompletionRuntimeInTab = (tabId, llmName) => {
+    const numericTabId = Number(tabId);
+    if (!Number.isInteger(numericTabId) || numericTabId <= 0) return Promise.resolve({ ok: false, reason: 'invalid_tab' });
+    if (completionRuntimeRepairFlights.has(numericTabId)) return completionRuntimeRepairFlights.get(numericTabId);
+    const flight = (async () => {
+        let runtime = await probeCompletionRuntimeInTab(numericTabId);
+        if (!isCompletionRuntimeHealthy(runtime)) {
+            try {
+                await chrome.scripting.executeScript({
+                    target: { tabId: numericTabId },
+                    files: [
+                        'shared/completion-protocol.js',
+                        'content-utils/selector-resolver-v2.js',
+                        'content-utils/response-lifecycle-detector.js',
+                        'content-scripts/content-bootstrap.js'
+                    ]
+                });
+            } catch (error) {
+                emitTelemetry(llmName || 'SYSTEM', 'COMPLETION_RUNTIME_REPAIR_FAILED', {
+                    level: 'error',
+                    details: error?.message || 'runtime injection failed',
+                    meta: { tabId: numericTabId, expectedRuntime: expectedCompletionRuntime(), observedRuntime: runtime },
+                    force: true
+                });
+                return { ok: false, reason: 'injection_failed', runtime };
+            }
+            runtime = await probeCompletionRuntimeInTab(numericTabId);
+        }
+        if (!isCompletionRuntimeHealthy(runtime)) {
+            emitTelemetry(llmName || 'SYSTEM', 'COMPLETION_RUNTIME_UNAVAILABLE', {
+                level: 'error',
+                details: 'completion runtime contract mismatch',
+                meta: { tabId: numericTabId, expectedRuntime: expectedCompletionRuntime(), observedRuntime: runtime },
+                force: true
+            });
+            return { ok: false, reason: 'runtime_contract_mismatch', runtime };
+        }
+        completionRuntimeByTab.set(numericTabId, { ...runtime, verifiedAt: Date.now() });
+        emitTelemetry(llmName || 'SYSTEM', 'COMPLETION_RUNTIME_REPAIRED', {
+            level: 'success',
+            details: 'completion runtime verified',
+            meta: { tabId: numericTabId, runtime },
+            force: true
+        });
+        try {
+            await chrome.tabs.sendMessage(numericTabId, {
+                type: 'REQUEST_SCRIPT_READY',
+                llmName,
+                reason: 'completion_runtime_verified'
+            });
+        } catch (_) {}
+        return { ok: true, runtime };
+    })().finally(() => completionRuntimeRepairFlights.delete(numericTabId));
+    completionRuntimeRepairFlights.set(numericTabId, flight);
+    return flight;
+};
+
+try {
+    chrome.tabs?.onRemoved?.addListener?.((tabId) => {
+        completionRuntimeByTab.delete(Number(tabId));
+        completionRuntimeRepairFlights.delete(Number(tabId));
+    });
+} catch (_) {}
 
 function withManagedDebuggerSession(tabId, label, operation) {
     if (!Number.isInteger(tabId) || tabId <= 0) return Promise.reject(new Error('invalid_tab'));
@@ -1040,14 +1148,18 @@ const recordCompletionAuthorityAttempt = (llmName, meta = {}) => {
     const key = completionAuthorityKey(llmName);
     if (!key) return null;
     const previous = completionAuthorityAttempts.get(key) || {};
+    const nextDispatchId = meta.dispatchId || previous.dispatchId || null;
+    const sameAttempt = Boolean(previous.dispatchId && nextDispatchId
+        && String(previous.dispatchId) === String(nextDispatchId));
     const next = {
-        ...previous,
+        ...(sameAttempt ? previous : {}),
         runSessionId: meta.runSessionId || meta.sessionId || previous.runSessionId || null,
-        dispatchId: meta.dispatchId || previous.dispatchId || null,
+        dispatchId: nextDispatchId,
         generationEpoch: meta.generationEpoch ?? previous.generationEpoch ?? null,
         rolloutMode: ['legacy', 'shadow', 'enforced'].includes(meta.rolloutMode) ? meta.rolloutMode : (previous.rolloutMode || 'enforced'),
+        legacyDeliveryAuthorized: meta.legacyDeliveryAuthorized === true,
         protocolVersion: meta.protocolVersion || previous.protocolVersion || null,
-        terminalResult: meta.terminalResult || previous.terminalResult || null,
+        terminalResult: meta.terminalResult || (sameAttempt ? previous.terminalResult : null) || null,
         updatedAt: Date.now()
     };
     completionAuthorityAttempts.set(key, next);
@@ -1060,16 +1172,32 @@ const validateCompletionAuthorityDelivery = (llmName, message = {}) => {
     const authority = completionAuthorityAttempts.get(completionAuthorityKey(llmName)) || null;
     const incomingDispatchId = meta.dispatchId || null;
     if (!authority) return { ok: false, reason: 'completion_attempt_unregistered' };
-    if (authority.dispatchId && incomingDispatchId && String(authority.dispatchId) !== String(incomingDispatchId)) {
+    if (authority.dispatchId && !incomingDispatchId) {
+        return { ok: false, reason: 'completion_authority_dispatch_missing' };
+    }
+    if (authority.dispatchId && String(authority.dispatchId) !== String(incomingDispatchId)) {
         return { ok: false, reason: 'completion_authority_dispatch_mismatch' };
     }
     const rolloutMode = meta.completionRolloutMode || authority.rolloutMode || 'enforced';
-    if (rolloutMode === 'legacy' || rolloutMode === 'shadow') return { ok: true, reason: `${rolloutMode}_delivery` };
+    if ((rolloutMode === 'legacy' || rolloutMode === 'shadow') && authority.legacyDeliveryAuthorized === true) {
+        return { ok: true, reason: `${rolloutMode}_explicit_legacy_delivery` };
+    }
     const terminalResult = meta.completionTerminalResult || meta.terminalResult || authority.terminalResult || null;
     return terminalResult?.status === 'SUCCESS_TERMINAL'
         ? { ok: true, reason: 'success_terminal_authority' }
         : { ok: false, reason: 'missing_success_terminal_authority' };
 };
+
+self.CompletionAuthorityRegistry = Object.freeze({
+    recordAttempt: recordCompletionAuthorityAttempt,
+    validateDelivery: validateCompletionAuthorityDelivery,
+    get(llmName) {
+        return completionAuthorityAttempts.get(completionAuthorityKey(llmName)) || null;
+    },
+    clear(llmName) {
+        return completionAuthorityAttempts.delete(completionAuthorityKey(llmName));
+    }
+});
 
 const PERPLEXITY_TRANSIENT_BLOCKER_KIND = 'file_upload_paywall';
 const PERPLEXITY_TRANSIENT_BLOCKER_TTL_MS = 120000;
@@ -3186,9 +3314,48 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 }
                 break;
             }
+            case 'COMPLETION_RUNTIME_READY': {
+                const tabId = Number(sender?.tab?.id || 0) || null;
+                const runtime = message?.runtime && typeof message.runtime === 'object' ? message.runtime : null;
+                if (!tabId || !isCompletionRuntimeHealthy(runtime)) {
+                    emitTelemetry(message?.llmName || 'SYSTEM', 'COMPLETION_RUNTIME_UNAVAILABLE', {
+                        level: 'error',
+                        details: 'runtime announcement rejected',
+                        meta: { tabId, expectedRuntime: expectedCompletionRuntime(), observedRuntime: runtime },
+                        force: true
+                    });
+                    sendResponse({ status: 'completion_runtime_rejected', expectedRuntime: expectedCompletionRuntime() });
+                    break;
+                }
+                completionRuntimeByTab.set(tabId, { ...runtime, verifiedAt: Date.now() });
+                if (message?.llmName) {
+                    emitTelemetry(message.llmName, 'COMPLETION_RUNTIME_READY', {
+                        level: 'success',
+                        details: message?.reason || 'runtime announced',
+                        meta: { tabId, runtime },
+                        force: true
+                    });
+                }
+                sendResponse({ status: 'completion_runtime_recorded' });
+                break;
+            }
             case 'SCRIPT_READY': {
                 const llmName = message.llmName;
                 const tabId = sender?.tab?.id;
+                const reportedRuntime = message?.meta?.completionRuntime || null;
+                if (tabId && isCompletionRuntimeHealthy(reportedRuntime)) {
+                    completionRuntimeByTab.set(Number(tabId), { ...reportedRuntime, verifiedAt: Date.now() });
+                }
+                const runtime = completionRuntimeByTab.get(Number(tabId)) || null;
+                if (tabId && !isCompletionRuntimeHealthy(runtime)) {
+                    void ensureCompletionRuntimeInTab(tabId, llmName);
+                    sendResponse({
+                        status: 'ready_deferred_completion_runtime',
+                        expectedRuntime: expectedCompletionRuntime(),
+                        observedRuntime: runtime
+                    });
+                    return true;
+                }
                 if (tabId && self.ReadySignalManager?.handleReadySignal) {
                     const meta = message.meta || {};
                     const tabSessionId = message.tabSessionId || meta.tabSessionId || null;

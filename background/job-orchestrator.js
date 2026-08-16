@@ -6943,11 +6943,16 @@ function resolveModelFinalStatus(finalStatus, finalReason, error) {
 }
 
 function resolveModelDoneReason({ completionReason, finalStatus, finalReason, error }) {
-  const errorType = error?.type || finalReason || null;
+  const errorType = error?.type || null;
   if (errorType === 'user_cancel') return 'user_cancel';
   const normalizedFinal = String(finalStatus || '').toLowerCase();
   if (['stream_timeout', 'stream_timeout_hidden'].includes(normalizedFinal)) return 'timeout';
   const reason = completionReason ? String(completionReason).toLowerCase() : '';
+  if (normalizedFinal === 'success') {
+    if (['all_terminal_facts_proven', 'success_terminal'].includes(reason)) return 'completion_authority';
+    if (reason.includes('manual_ping') || reason.includes('recovery')) return 'recovery';
+    return 'success';
+  }
   if (['hard_timeout', 'soft_timeout', 'stream_start_timeout', 'streaming_incomplete'].includes(reason)) {
     return 'timeout';
   }
@@ -6958,7 +6963,7 @@ function resolveModelDoneReason({ completionReason, finalStatus, finalReason, er
     return 'ui';
   }
   if (reason === 'hard_stop') return 'user_cancel';
-  if (errorType) return 'error';
+  if (errorType || finalReason) return 'error';
   return 'unknown';
 }
 
@@ -8078,6 +8083,35 @@ function handleLLMResponse(llmName, answer, error = null, meta = null, answerHtm
     return typeof answer === 'string' ? answer : String(answer ?? '');
   })().trim();
   const earlyIsSuccess = !error && !!earlyAnswerText;
+  if (earlyIsSuccess && self.CompletionAuthorityRegistry?.validateDelivery) {
+    const authorityGate = self.CompletionAuthorityRegistry.validateDelivery(llmName, {
+      answer: earlyAnswerText,
+      error: null,
+      meta: metaObj || {}
+    });
+    if (!authorityGate.ok) {
+      emitTelemetry(llmName, 'ANSWER_DELIVERY_REJECTED', {
+        level: 'error',
+        details: authorityGate.reason,
+        meta: {
+          ...(metaObj || {}),
+          answerLength: earlyAnswerText.length,
+          messageType: 'BACKGROUND_FINALIZATION',
+          completionAuthorityReason: authorityGate.reason
+        },
+        force: true
+      });
+      return handleLLMResponse(llmName, '', {
+        type: 'completion_authority_missing',
+        message: authorityGate.reason
+      }, {
+        ...(metaObj || {}),
+        completionAuthorityRejected: true,
+        completionAuthorityReason: authorityGate.reason,
+        lastResortTerminal: true
+      }, '');
+    }
+  }
   const earlyFailureClassification = earlyIsSuccess
     ? null
     : classifyFailure(error, {

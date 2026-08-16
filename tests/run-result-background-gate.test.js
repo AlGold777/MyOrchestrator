@@ -105,6 +105,20 @@ const deliver = async (context, runResult, extraMeta = {}) => {
 };
 
 describe('the typed run result gates the background success path', () => {
+  test('background manual recovery cannot bypass missing Completion authority', async () => {
+    const { context, telemetryEvents } = createSandbox();
+    context.CompletionAuthorityRegistry = {
+      validateDelivery: jest.fn(() => ({ ok: false, reason: 'missing_success_terminal_authority' }))
+    };
+    const entry = await deliver(context, {
+      type: 'COMMITTED', guarantee: 'STRICT', strongestEvidenceClass: 'P0'
+    });
+    expect(entry.finalStatus).not.toBe('SUCCESS');
+    expect(telemetryEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({ event: 'ANSWER_DELIVERY_REJECTED' })
+    ]));
+  });
+
   test('an UNKNOWN run does not land as SUCCESS', async () => {
     const { context } = createSandbox();
     const entry = await deliver(context, {
@@ -141,6 +155,7 @@ describe('the typed run result gates the background success path', () => {
     });
 
     expect(entry.finalStatus).toBe('SUCCESS');
+    expect(entry.doneReason).not.toBe('error');
   });
 
   test('a run with no typed result at all keeps the previous behaviour', async () => {

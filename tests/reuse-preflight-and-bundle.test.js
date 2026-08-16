@@ -94,4 +94,12 @@ describe('legacy selector bundle removal', () => {
     expect(bundler).toContain("'content-scripts/answer-pipeline-selectors.js'");
     expect(bundler).not.toContain("'content-scripts/platform-selectors.js'");
   });
+
+  test('the two-script distribution includes the Completion authority runtime', () => {
+    const bundler = read('scripts', 'build-bundles.js');
+    expect(bundler).toContain("'shared/completion-protocol.js'");
+    expect(bundler).toContain("'content-utils/response-lifecycle-detector.js'");
+    expect(bundler).toContain("'content-scripts/content-bootstrap.js'");
+    expect(bundler).toContain("'content-scripts/content-utils.js'");
+  });
 });
