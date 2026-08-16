@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "A_Fable",
-  "version": "2.81.341",
+  "version": "2.81.342",
   "description": "Compares LLMs with stable Debate pipelines, structured state maps, and optional synthesis.",
   "permissions": [
     "storage",

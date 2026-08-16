@@ -73,15 +73,14 @@
 .models-row-header .llm-buttons {
     justify-content: flex-start;
     flex-wrap: nowrap;
-    gap: 13px;
+    gap: 10px;
     margin-top: 4px;
     margin-left: 5px;
 }
 
-/* The header row is nowrap, so every provider added has to come out of the
-   spacing budget; at ten providers 10px gaps + 58px slots overflow the bar. */
 .models-row-header .llm-button {
-    min-width: 46px;
+    flex: 0 0 auto;
+    min-width: 58px;
 }
 
 .llm-buttons {
@@ -155,11 +154,6 @@
 
     .models-row-header .llm-buttons {
         flex-wrap: nowrap;
-        gap: 3px;
-    }
-
-    .models-row-header .llm-button {
-        min-width: 40px;
     }
 }
 
