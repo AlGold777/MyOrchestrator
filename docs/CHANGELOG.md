@@ -1,5 +1,9 @@
 # CHANGELOG — Project
 
+### 2026-08-16 — Уменьшен зазор между кнопками моделей, version 2.81.344
+
+- Между полноразмерными кнопками моделей в Header установлен компактный зазор `5px`.
+
 ### 2026-08-16 — Completion runtime включён в реальную сборку, version 2.81.343
 
 - Двухфайловая production-сборка теперь содержит `CompletionProtocol`, selector resolver, lifecycle detector, content bootstrap и общие content utilities; `CompletionSession` создаётся в фактически доставляемом runtime.
