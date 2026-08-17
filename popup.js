@@ -91,8 +91,8 @@ document.getElementById('get-it-button').addEventListener('click', async () => {
     "*://*.chat.deepseek.com/*",
     "*://*.perplexity.ai/*",
     "*://chat.z.ai/*",
-    "*://kimi.com/*",
-    "*://www.kimi.com/*"
+    "*://kimi.ai/*",
+    "*://www.kimi.ai/*"
   ];
 
   for (const url of urls) {

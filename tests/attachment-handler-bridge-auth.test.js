@@ -442,7 +442,7 @@ describe('attachment bridge authentication', () => {
     expect(ROUTER_SRC).toContain("model === 'Perplexity' && /^https:\\/\\/(?:www\\.)?perplexity\\.ai\\//i.test(senderUrl)");
     expect(ROUTER_SRC).toContain("case 'PERPLEXITY_TRUSTED_ENTER_REQUEST'");
     expect(ROUTER_SRC).toContain("case 'KIMI_TRUSTED_SEND_REQUEST'");
-    expect(ROUTER_SRC).toContain("!/^https:\\/\\/(?:www\\.)?kimi\\.com\\//i.test(senderUrl)");
+    expect(ROUTER_SRC).toContain("!/^https:\\/\\/(?:www\\.)?kimi\\.ai\\//i.test(senderUrl)");
     expect(ROUTER_SRC).toContain("'PROVIDER_TRUSTED_SEND_FAILED'");
     expect(ROUTER_SRC).toContain("'PROVIDER_TRUSTED_ENTER_FAILED'");
     expect(ROUTER_SRC).toContain("debuggerApiAvailable: typeof chrome.debugger?.attach === 'function'");

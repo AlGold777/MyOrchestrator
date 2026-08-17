@@ -937,7 +937,7 @@
     if (host.includes('chat.deepseek.com')) return 'DeepSeek';
     if (host.includes('perplexity.ai')) return 'Perplexity';
     if (host === 'chat.z.ai') return 'Z.ai';
-    if (host === 'kimi.com' || host.endsWith('.kimi.com')) return 'Kimi';
+    if (host === 'kimi.ai' || host.endsWith('.kimi.ai')) return 'Kimi';
     return window.MODEL || null;
   };
 

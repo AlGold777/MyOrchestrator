@@ -7,7 +7,7 @@
   const MODEL = 'Kimi';
   const PLATFORM = 'kimi';
   const KIMI_STABLE_TEXT_MS = 6000;
-  // kimi.com runs a Vue app with a Lexical contenteditable composer; the send
+  // kimi.ai runs a Vue app with a Lexical contenteditable composer; the send
   // control is a <div class="send-button-container"> that carries `disabled`
   // while the composer is empty, not a real <button>.
   const COMPOSER_SELECTORS = [
@@ -52,7 +52,7 @@
     isValidUrl: (url) => {
       try {
         const host = new URL(url).hostname.toLowerCase();
-        return host === 'kimi.com' || host.endsWith('.kimi.com');
+        return host === 'kimi.ai' || host.endsWith('.kimi.ai');
       } catch (_) { return false; }
     }
   }) : null;

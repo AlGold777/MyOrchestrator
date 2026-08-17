@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-08-17 — Kimi переехал на kimi.ai, version 2.81.347
+
+- Kimi target URL, host permissions, content-script matches, host detection и
+  trusted debugger routes обновлены с `kimi.com` на `kimi.ai`.
+- Синхронизированы Kimi selector/runtime bundles, manual-auth target и документация.
+
 ### 2026-08-16 — Устранён критический startup/reload storm, version 2.81.346
 
 - Обновление расширения больше не перезагружает одновременно все открытые LLM-вкладки и не стирает диагностическую историю.

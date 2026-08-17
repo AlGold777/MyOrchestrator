@@ -933,7 +933,7 @@
     if (host.includes('qwen')) return 'qwen';
     if (host.includes('mistral')) return 'lechat';
     if (host === 'chat.z.ai') return 'zai';
-    if (host === 'kimi.com' || host.endsWith('.kimi.com')) return 'kimi';
+    if (host === 'kimi.ai' || host.endsWith('.kimi.ai')) return 'kimi';
     return 'generic';
   };
 

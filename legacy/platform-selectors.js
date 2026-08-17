@@ -258,7 +258,7 @@
     if (hostname.includes('qwen.ai')) return 'qwen';
     if (hostname.includes('mistral.ai')) return 'lechat';
     if (hostname === 'chat.z.ai') return 'zai';
-    if (hostname === 'kimi.com' || hostname.endsWith('.kimi.com')) return 'kimi';
+    if (hostname === 'kimi.ai' || hostname.endsWith('.kimi.ai')) return 'kimi';
     return 'generic';
   }
 

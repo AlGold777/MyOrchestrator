@@ -12,7 +12,7 @@
     if (h.includes('qwen')) return 'qwen';
     if (h.includes('mistral')) return 'lechat';
     if (h === 'chat.z.ai') return 'zai';
-    if (h === 'kimi.com' || h.endsWith('.kimi.com')) return 'kimi';
+    if (h === 'kimi.ai' || h.endsWith('.kimi.ai')) return 'kimi';
     return 'generic';
   };
 

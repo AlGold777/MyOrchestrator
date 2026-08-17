@@ -6,7 +6,7 @@ The project is optimized for unstable provider UIs. Its core design assumes sele
 
 ## Status
 
-- Current version: `2.81.149`, synchronized in `manifest.json`, `package.json`
+- Current version: `2.81.347`, synchronized in `manifest.json`, `package.json`
   and the root package entry in `package-lock.json`
 - Extension type: Chrome Manifest V3
 - Package name: `llm-selector-manager`
@@ -111,7 +111,7 @@ The results page protects against stale provider replies, premature finalization
 | DeepSeek | yes | DeepSeek API | stable / fragile | `chat.deepseek.com` |
 | Le Chat | yes | Mistral API | experimental | `chat.mistral.ai` |
 | Perplexity | yes | Perplexity API | stable | `perplexity.ai`, `www.perplexity.ai` |
-| Kimi | yes | no | experimental | `kimi.com`, `www.kimi.com`; answer selectors unverified (login wall) |
+| Kimi | yes | no | experimental | `kimi.ai`, `www.kimi.ai`; answer selectors unverified (login wall) |
 
 ## Installation
 

@@ -7328,7 +7328,7 @@
     if (host.includes('chat.deepseek.com')) return 'DeepSeek';
     if (host.includes('perplexity.ai')) return 'Perplexity';
     if (host === 'chat.z.ai') return 'Z.ai';
-    if (host === 'kimi.com' || host.endsWith('.kimi.com')) return 'Kimi';
+    if (host === 'kimi.ai' || host.endsWith('.kimi.ai')) return 'Kimi';
     return window.MODEL || null;
   };
 
@@ -14762,7 +14762,7 @@ const scrollIntoViewSmoothly = async (element) => {
     if (h.includes('qwen')) return 'qwen';
     if (h.includes('mistral')) return 'lechat';
     if (h === 'chat.z.ai') return 'zai';
-    if (h === 'kimi.com' || h.endsWith('.kimi.com')) return 'kimi';
+    if (h === 'kimi.ai' || h.endsWith('.kimi.ai')) return 'kimi';
     return 'generic';
   };
 
@@ -21448,7 +21448,7 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
     if (h.includes('qwen')) return 'qwen';
     if (h.includes('mistral')) return 'lechat';
     if (h === 'chat.z.ai') return 'zai';
-    if (h === 'kimi.com' || h.endsWith('.kimi.com')) return 'kimi';
+    if (h === 'kimi.ai' || h.endsWith('.kimi.ai')) return 'kimi';
     return 'unknown';
   };
 
@@ -22692,12 +22692,12 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
         uiRevision: '2026.3',
         expiresAt: '2026-12-31T00:00:00Z',
         dateCreated: '2026-08-04T00:00:00Z',
-        // Composer and send button audited live on kimi.com (Vue app, Lexical
+        // Composer and send button audited live on kimi.ai (Vue app, Lexical
         // contenteditable composer, send control is a <div>, not a <button>).
         // The answer selectors below are unverified: the chat surface is behind
         // a login wall, so they lead with the Kimi-specific class names and fall
         // back to the generic assistant/markdown heuristics.
-        description: 'Kimi (Moonshot) chat UI audited on kimi.com.',
+        description: 'Kimi (Moonshot) chat UI audited on kimi.ai.',
         markers: [
           { selector: '.chat-input-editor' },
           { selector: '.send-button-container' }
@@ -24585,7 +24585,7 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
     if (host.includes('qwen')) return 'qwen';
     if (host.includes('mistral')) return 'lechat';
     if (host === 'chat.z.ai') return 'zai';
-    if (host === 'kimi.com' || host.endsWith('.kimi.com')) return 'kimi';
+    if (host === 'kimi.ai' || host.endsWith('.kimi.ai')) return 'kimi';
     return 'generic';
   };
 

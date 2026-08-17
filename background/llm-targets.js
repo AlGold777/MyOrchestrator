@@ -57,9 +57,9 @@ const LLM_TARGETS = {
     queryPatterns: ['https://chat.z.ai/*']
   },
   'Kimi': {
-    url: 'https://www.kimi.com/',
+    url: 'https://www.kimi.ai/',
     delay: 3000,
-    queryPatterns: ['https://kimi.com/*', 'https://www.kimi.com/*']
+    queryPatterns: ['https://kimi.ai/*', 'https://www.kimi.ai/*']
   }
 };
 
@@ -77,8 +77,8 @@ const LLM_URL_PATTERNS = (() => {
     '*://www.perplexity.ai/*',
     '*://chat.mistral.ai/*',
     '*://chat.z.ai/*',
-    '*://kimi.com/*',
-    '*://www.kimi.com/*'
+    '*://kimi.ai/*',
+    '*://www.kimi.ai/*'
   ];
   try {
     const patterns = Object.values(LLM_TARGETS || {})

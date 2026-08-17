@@ -29,7 +29,7 @@ const MODEL_TARGETS = {
   Perplexity: 'https://www.perplexity.ai/',
   'Le Chat': 'https://chat.mistral.ai/chat',
   'Z.ai': 'https://chat.z.ai/',
-  'Kimi': 'https://www.kimi.com/'
+  'Kimi': 'https://www.kimi.ai/'
 };
 
 const MODEL_BUTTON_IDS = {

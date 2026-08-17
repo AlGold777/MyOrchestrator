@@ -2448,7 +2448,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 const allowed = (model === 'Le Chat' && /^https:\/\/chat\.mistral\.ai\//i.test(senderUrl))
                     || (model === 'Perplexity' && /^https:\/\/(?:www\.)?perplexity\.ai\//i.test(senderUrl))
                     || (model === 'Gemini' && /^https:\/\/(?:www\.)?gemini\.google\.com\//i.test(senderUrl))
-                    || (model === 'Kimi' && /^https:\/\/(?:www\.)?kimi\.com\//i.test(senderUrl));
+                    || (model === 'Kimi' && /^https:\/\/(?:www\.)?kimi\.ai\//i.test(senderUrl));
                 if (!tabId || !allowed) {
                     sendResponse({ ok: false, reason: 'untrusted_sender' });
                     break;
@@ -2471,7 +2471,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             case 'KIMI_TRUSTED_SEND_REQUEST': {
                 const tabId = sender?.tab?.id;
                 const senderUrl = String(sender?.tab?.url || sender?.url || '');
-                if (!tabId || !/^https:\/\/(?:www\.)?kimi\.com\//i.test(senderUrl)) {
+                if (!tabId || !/^https:\/\/(?:www\.)?kimi\.ai\//i.test(senderUrl)) {
                     sendResponse({ ok: false, reason: 'untrusted_sender' });
                     break;
                 }
@@ -2493,7 +2493,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             case 'KIMI_TRUSTED_INPUT_REQUEST': {
                 const tabId = sender?.tab?.id;
                 const senderUrl = String(sender?.tab?.url || sender?.url || '');
-                if (!tabId || !/^https:\/\/(?:www\.)?kimi\.com\//i.test(senderUrl)) {
+                if (!tabId || !/^https:\/\/(?:www\.)?kimi\.ai\//i.test(senderUrl)) {
                     sendResponse({ ok: false, reason: 'untrusted_sender' });
                     break;
                 }
@@ -2631,7 +2631,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 const model = String(message.llmName || '');
                 const allowed = (model === 'Perplexity' && /^https:\/\/(?:www\.)?perplexity\.ai\//i.test(senderUrl))
                     || (model === 'Z.ai' && /^https:\/\/chat\.z\.ai\//i.test(senderUrl))
-                    || (model === 'Kimi' && /^https:\/\/(?:www\.)?kimi\.com\//i.test(senderUrl));
+                    || (model === 'Kimi' && /^https:\/\/(?:www\.)?kimi\.ai\//i.test(senderUrl));
                 if (!tabId || !allowed) {
                     sendResponse({ ok: false, reason: 'untrusted_sender' });
                     break;

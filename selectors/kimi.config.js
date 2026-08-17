@@ -8,12 +8,12 @@
         uiRevision: '2026.3',
         expiresAt: '2026-12-31T00:00:00Z',
         dateCreated: '2026-08-04T00:00:00Z',
-        // Composer and send button audited live on kimi.com (Vue app, Lexical
+        // Composer and send button audited live on kimi.ai (Vue app, Lexical
         // contenteditable composer, send control is a <div>, not a <button>).
         // The answer selectors below are unverified: the chat surface is behind
         // a login wall, so they lead with the Kimi-specific class names and fall
         // back to the generic assistant/markdown heuristics.
-        description: 'Kimi (Moonshot) chat UI audited on kimi.com.',
+        description: 'Kimi (Moonshot) chat UI audited on kimi.ai.',
         markers: [
           { selector: '.chat-input-editor' },
           { selector: '.send-button-container' }

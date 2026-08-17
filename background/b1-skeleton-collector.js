@@ -13,7 +13,7 @@
     { platform: 'deepseek', model: 'DeepSeek', patterns: ['https://chat.deepseek.com/*'] },
     { platform: 'lechat', model: 'Le Chat', patterns: ['https://chat.mistral.ai/*'] },
     { platform: 'zai', model: 'Z.ai', patterns: ['https://chat.z.ai/*'] },
-    { platform: 'kimi', model: 'Kimi', patterns: ['https://kimi.com/*', 'https://www.kimi.com/*'] }
+    { platform: 'kimi', model: 'Kimi', patterns: ['https://kimi.ai/*', 'https://www.kimi.ai/*'] }
   ]);
   const CAPTURE_FILES = Object.freeze([
     'shared/secret-redaction.js',

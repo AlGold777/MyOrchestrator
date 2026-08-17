@@ -34,7 +34,7 @@ function startEvaluation(evalPrompt, evaluatorName = 'Claude', options = {}) {
     'DeepSeek': 'https://chat.deepseek.com/',
     'Perplexity': 'https://www.perplexity.ai/',
     'Z.ai': 'https://chat.z.ai/',
-    'Kimi': 'https://www.kimi.com/'
+    'Kimi': 'https://www.kimi.ai/'
   };
 
   const url = evaluatorUrls[evaluatorName];

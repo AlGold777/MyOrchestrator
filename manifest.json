@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "A_Fable",
-  "version": "2.81.346",
+  "version": "2.81.347",
   "description": "Compares LLMs with stable Debate pipelines, structured state maps, and optional synthesis.",
   "permissions": [
     "storage",
@@ -31,8 +31,8 @@
     "*://perplexity.ai/*",
     "*://www.perplexity.ai/*",
     "*://chat.z.ai/*",
-    "*://kimi.com/*",
-    "*://www.kimi.com/*",
+    "*://kimi.ai/*",
+    "*://www.kimi.ai/*",
     "https://api.openai.com/*",
     "https://api.anthropic.com/*",
     "https://generativelanguage.googleapis.com/*",
@@ -71,8 +71,8 @@
         "*://www.perplexity.ai/*",
         "*://perplexity.ai/*",
         "*://chat.z.ai/*",
-        "*://kimi.com/*",
-        "*://www.kimi.com/*"
+        "*://kimi.ai/*",
+        "*://www.kimi.ai/*"
       ],
       "js": [
         "lib/purify.min.js",
@@ -255,8 +255,8 @@
     },
     {
       "matches": [
-        "*://kimi.com/*",
-        "*://www.kimi.com/*"
+        "*://kimi.ai/*",
+        "*://www.kimi.ai/*"
       ],
       "js": [
         "shared/selector-profile-lifecycle.js",
@@ -352,8 +352,8 @@
         "*://chat.deepseek.com/*",
         "*://perplexity.ai/*",
         "*://www.perplexity.ai/*",
-        "*://kimi.com/*",
-        "*://www.kimi.com/*"
+        "*://kimi.ai/*",
+        "*://www.kimi.ai/*"
       ]
     }
   ]
