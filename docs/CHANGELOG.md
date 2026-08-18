@@ -1,5 +1,13 @@
 # CHANGELOG — Project
 
+### 2026-08-19 — Восстановлена базовая отправка во все модели, version 2.81.353
+
+- Completion preflight остаётся первым этапом транзакции, но временная недоступность lifecycle/telemetry больше не запрещает вставку prompt и физический Send во всех десяти provider adapters.
+- При деградации публикуется стадия `completion_preflight_degraded`, после чего adapter продолжает безопасную composer transaction и сохраняет штатные подтверждения Send.
+- MAIN-world bridge снова имеет последний резервный путь инъекции для вкладок, переживших reload расширения; основной путь через `chrome.scripting` и declarative MAIN content script сохранён.
+- Manifest-контракты тестируются по назначению content-script блока, а не по его позиции в массиве; восстановлен полностью зелёный release gate.
+- Версии `manifest.json`, `package.json` и `package-lock.json` подняты до `2.81.353`.
+
 ### 2026-08-18 — Find and replace in response cards, version 2.81.352
 
 - В карточках ответов доступен поиск по `Ctrl+F` (`Cmd+F` на macOS) с переходом по совпадениям.
