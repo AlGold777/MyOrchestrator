@@ -19464,6 +19464,7 @@ function checkCompareButtonState() {
         upsertDebateTranscriptTurn(message);
         return message;
     }
+    window.patchDebateCardMessage = patchDebateCardMessage;
     function removeDebateCardMessage(card) {
         if (!(card instanceof HTMLElement)) return;
         const sessionId = card.dataset.sessionId || debateTabsState.activeSessionId;
@@ -19733,6 +19734,7 @@ function checkCompareButtonState() {
         updateOverflowState();
         requestAnimationFrame(updateOverflowState);
     }
+    window.syncDebateCardOutputLayout = syncDebateCardOutputLayout;
     function normalizeDebateCardState(card) {
         if (!(card instanceof HTMLElement) || !card.classList.contains('debate-model-card')) return;
         const isModerator = card.dataset.kind === 'moderator' || card.classList.contains('debate-moderator-card');

@@ -921,6 +921,29 @@ body.llm-stream-preview-open .llm-results .llm-panel.llm-panel-session-restored:
   z-index: 2147483647;
 }
 
+.response-find-replace {
+  width: min(360px, calc(100vw - 32px));
+  padding: 0;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  box-shadow: 0 12px 36px rgba(15, 23, 42, .2);
+  color: #172033;
+}
+.response-find-replace::backdrop { background: rgba(15, 23, 42, .18); }
+.response-find-replace-form { display: grid; gap: 10px; padding: 14px; }
+.response-find-replace header,
+.response-find-replace footer { display: flex; align-items: center; gap: 8px; }
+.response-find-replace header { justify-content: space-between; }
+.response-find-replace header button { border: 0; background: transparent; font-size: 20px; cursor: pointer; }
+.response-find-replace label { display: grid; gap: 4px; font-size: 12px; color: #526174; }
+.response-find-replace input[type="search"],
+.response-find-replace input[type="text"] { min-width: 0; padding: 7px 9px; border: 1px solid #cbd5e1; border-radius: 6px; color: #172033; }
+.response-find-replace-case { display: flex !important; align-items: center; }
+.response-find-replace output { min-height: 16px; font-size: 12px; color: #526174; }
+.response-find-replace footer { justify-content: flex-end; flex-wrap: wrap; }
+.response-find-replace footer button { padding: 6px 9px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; cursor: pointer; }
+.response-find-replace footer button:last-child { color: #fff; border-color: #2563eb; background: #2563eb; }
+
 /* -- 3. Кнопка копирования — внутренняя, справа -- */
 /* -- 1. Убираем контур вокруг кнопки копирования, делаем минималистично -- */
 .copy-btn {

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "A_Fable",
-  "version": "2.81.351",
+  "version": "2.81.352",
   "description": "Compares LLMs with stable Debate pipelines, structured state maps, and optional synthesis.",
   "permissions": [
     "storage",
@@ -268,6 +268,7 @@
         "results/debate-renderer.js",
         "results/debate-sessions-store.js",
         "results/debate-export.js",
+        "results/response-find-replace.js",
         "results/debate-plan-view-model.js",
         "results/debate-telemetry-view.js",
         "disput/pipeline-presets.js",

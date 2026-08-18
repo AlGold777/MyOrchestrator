@@ -1,5 +1,12 @@
 # CHANGELOG — Project
 
+### 2026-08-18 — Find and replace in response cards, version 2.81.352
+
+- В карточках ответов доступен поиск по `Ctrl+F` (`Cmd+F` на macOS) с переходом по совпадениям.
+- Добавлена замена текущего совпадения и всех совпадений с опцией учёта регистра.
+- Функция работает для обычных ответов моделей и Debate-карточек; изменения Debate-карточек синхронизируются с сохранённым состоянием.
+- Версии `manifest.json`, `package.json` и `package-lock.json` подняты до `2.81.352`.
+
 ### 2026-08-18 — Устранено CSP-блокирование main-world bridge, version 2.81.351
 
 - `content-bridge.js` теперь загружается как MV3 content script в `MAIN` world на `document_start`, поэтому строгий CSP ChatGPT не блокирует bridge.
