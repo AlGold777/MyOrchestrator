@@ -6,6 +6,7 @@
 var dispatchMutexManager = new MutexManager();
 var promptDispatchFocusMutex = Promise.resolve();
 var promptSubmitWaiters = new Map();
+var promptSubmitWaiterArms = new Map();
 var promptInsertionWaiters = new Map();
 var providerSendOnlyRecoveryTimers = new Map();
 var promptDispatchSupervisorTimer = null;
@@ -27,6 +28,12 @@ const ATTACHMENT_PROGRESS_STAGE = 'attachment_upload_started';
 // cascade (Qwen, 70 s) plus its dispatch, and bounds how long a single dispatch
 // can pin the tab even if progress keeps arriving.
 const ATTACHMENT_FOCUS_EXTENSION_CEILING_MS = TimingConfig.getTiming('attachmentFocusExtensionCeilingMs', 90000);
+// Safety net only. The normal submit timer starts on the provider's
+// send_action_requested evidence, not while it is still uploading a file.
+const PROVIDER_SEND_ACTION_FALLBACK_MS = TimingConfig.getTiming(
+  'providerSendActionFallbackMs',
+  ATTACHMENT_FOCUS_EXTENSION_CEILING_MS + 10000
+);
 const READY_ACK_TIMEOUT_MS = TimingConfig.getTiming('readyAckTimeoutMs', 6000);
 const SEND_PROMPT_DELAY_OVERRIDES = {
   'Perplexity': 1000,
@@ -624,8 +631,10 @@ function resolvePromptSubmitted(llmName, payload = {}) {
   return true;
 }
 
-function waitForPromptSubmitted(llmName, dispatchId, timeoutMs = PROMPT_SUBMIT_TIMEOUT_MS) {
-  return new Promise((resolve) => {
+function createPromptSubmittedWaiter(llmName, dispatchId, timeoutMs = PROMPT_SUBMIT_TIMEOUT_MS) {
+  let arm = () => false;
+  let armAfter = () => false;
+  const promise = new Promise((resolve) => {
     if (!llmName || !dispatchId) {
       resolve(false);
       return;
@@ -635,10 +644,18 @@ function waitForPromptSubmitted(llmName, dispatchId, timeoutMs = PROMPT_SUBMIT_T
     const waiters = modelWaiters.get(waiterKey) || new Set();
     modelWaiters.set(waiterKey, waiters);
     promptSubmitWaiters.set(llmName, modelWaiters);
+    const modelArms = promptSubmitWaiterArms.get(llmName) || new Map();
+    promptSubmitWaiterArms.set(llmName, modelArms);
     let settled = false;
+    let fallbackArmTimer = null;
     const done = (ok, payload) => {
       if (settled) return;
       settled = true;
+      if (fallbackArmTimer) {
+        clearTimeout(fallbackArmTimer);
+        dispatchDeregisterSessionTimer(fallbackArmTimer);
+        fallbackArmTimer = null;
+      }
       if (timer) {
         clearTimeout(timer);
         dispatchDeregisterSessionTimer(timer);
@@ -647,13 +664,46 @@ function waitForPromptSubmitted(llmName, dispatchId, timeoutMs = PROMPT_SUBMIT_T
       waiters.delete(handler);
       if (!waiters.size) modelWaiters.delete(waiterKey);
       if (!modelWaiters.size) promptSubmitWaiters.delete(llmName);
+      modelArms.delete(waiterKey);
+      if (!modelArms.size) promptSubmitWaiterArms.delete(llmName);
       resolve(ok ? (payload || true) : false);
     };
     const handler = (payload) => done(true, payload);
     waiters.add(handler);
     let timer = null;
-    timer = dispatchRegisterSessionTimer(setTimeout(() => done(false), Math.max(0, timeoutMs)));
+    arm = () => {
+      if (settled || timer) return false;
+      if (fallbackArmTimer) {
+        clearTimeout(fallbackArmTimer);
+        dispatchDeregisterSessionTimer(fallbackArmTimer);
+        fallbackArmTimer = null;
+      }
+      timer = dispatchRegisterSessionTimer(setTimeout(() => done(false), Math.max(0, timeoutMs)));
+      return true;
+    };
+    armAfter = (delayMs) => {
+      if (settled || timer || fallbackArmTimer) return false;
+      fallbackArmTimer = dispatchRegisterSessionTimer(setTimeout(() => {
+        dispatchDeregisterSessionTimer(fallbackArmTimer);
+        fallbackArmTimer = null;
+        arm();
+      }, Math.max(0, Number(delayMs) || 0)));
+      return true;
+    };
+    modelArms.set(waiterKey, arm);
   });
+  return { promise, arm, armAfter };
+}
+
+function armPromptSubmittedWaiter(llmName, dispatchId) {
+  const arm = promptSubmitWaiterArms.get(llmName)?.get?.(String(dispatchId));
+  return typeof arm === 'function' ? arm() : false;
+}
+
+function waitForPromptSubmitted(llmName, dispatchId, timeoutMs = PROMPT_SUBMIT_TIMEOUT_MS) {
+  const waiter = createPromptSubmittedWaiter(llmName, dispatchId, timeoutMs);
+  waiter.arm();
+  return waiter.promise;
 }
 
 function resolvePromptInsertion(llmName, payload = {}) {
@@ -1295,6 +1345,7 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
         meta: { snapshot: readiness.snapshot || null, dispatchId, dispatchReason: reason }
       });
       let waiter = null;
+      let waiterController = null;
       let insertionWaiter = null;
       const shouldBypassAck = self.ModelPolicy?.modelRequiresAckReady
         ? !self.ModelPolicy.modelRequiresAckReady(llmName)
@@ -1524,7 +1575,11 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
         machine.ready();
       }
 
-      waiter = waitForPromptSubmitted(llmName, dispatchId, submitTimeoutMs);
+      // Register before delivery so a very fast provider cannot outrun the
+      // listener, but do not start the timeout until the content script has
+      // explicitly accepted this dispatch.
+      waiterController = createPromptSubmittedWaiter(llmName, dispatchId, submitTimeoutMs);
+      waiter = waiterController.promise;
       const postCommandFocusHoldMs = Math.max(0, Number(options.postCommandFocusHoldMs || 0));
       const progressFocusExtensionMs = Math.max(0, Number(options.progressFocusExtensionMs || 0));
       if (postCommandFocusHoldMs > 0) {
@@ -1540,21 +1595,6 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
         );
       }
       const readyWaitMs = Math.max(0, Date.now() - lockAcquiredAt);
-  emitTelemetry(llmName, 'DISPATCH_SEND', {
-    details: `readyWaitMs=${readyWaitMs}`,
-    meta: {
-      ...dispatchIdentityMeta,
-      dispatchReason: reason,
-      attempt: entry.dispatchAttempts,
-      readyWaitMs,
-      tabReadyMs,
-      ackWaitMs,
-      noFocusProbeMs,
-      requiresFocus: needsFocus,
-      visibilityState,
-      hasFocus
-    }
-  });
 
       let previousTab = null;
       let restoreTimer = null;
@@ -1575,6 +1615,43 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
         }
       };
       const requireCommandAcceptance = options.requireCommandAcceptance === true;
+      const commandWasAccepted = (result) => {
+        if (!requireCommandAcceptance) return result?.ok === true;
+        const acceptance = result?.response || null;
+        return result?.ok === true
+          && result?.accepted === true
+          && acceptance?.accepted === true
+          && acceptance?.dispatchId === dispatchId;
+      };
+      let commandDeliveryReported = false;
+      const reportCommandDelivered = (result) => {
+        if (commandDeliveryReported || !commandWasAccepted(result)) return false;
+        commandDeliveryReported = true;
+        waiterController?.armAfter?.(PROVIDER_SEND_ACTION_FALLBACK_MS);
+        const commandTiming = {
+          readyWaitMs,
+          tabReadyMs,
+          ackWaitMs,
+          noFocusProbeMs,
+          requiresFocus: needsFocus,
+          visibilityState,
+          hasFocus,
+          commandAccepted: requireCommandAcceptance ? true : null
+        };
+        entry.lastCommandAcceptedAt = Date.now();
+        entry.lastCommandAcceptedDispatchId = dispatchId;
+        entry.lastCommandAcceptedTiming = commandTiming;
+        emitTelemetry(llmName, 'DISPATCH_COMMAND_ACCEPTED', {
+          details: `readyWaitMs=${readyWaitMs}`,
+          meta: {
+            ...dispatchIdentityMeta,
+            dispatchReason: reason,
+            attempt: entry.dispatchAttempts,
+            ...commandTiming
+          }
+        });
+        return true;
+      };
       const deliverAnswerCommand = () => {
         if (!requireCommandAcceptance) {
           sendMessageSafely(tabId, llmName, answerCommand);
@@ -1609,7 +1686,8 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
             await dispatchSleepMs(options.deferSendMs);
           }
           commandDeliveryResult = await deliverAnswerCommand();
-          if (postCommandFocusHoldMs > 0) {
+          const commandAccepted = reportCommandDelivered(commandDeliveryResult);
+          if (commandAccepted && postCommandFocusHoldMs > 0) {
             const holdStartedAt = Date.now();
             let boundary = await waitForPromptFocusBoundary(
               waiter,
@@ -1710,6 +1788,7 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
           await dispatchSleepMs(options.deferSendMs);
         }
         commandDeliveryResult = await deliverAnswerCommand();
+        reportCommandDelivered(commandDeliveryResult);
       }
       const focusMetricPayload = {
         type: 'SMART_FOCUS_METRIC',
@@ -2420,6 +2499,7 @@ function sendPassiveMessageWithRetries(tabId, llmName, message, {
 
 self.dispatchMutexManager = dispatchMutexManager;
 self.promptSubmitWaiters = promptSubmitWaiters;
+self.promptSubmitWaiterArms = promptSubmitWaiterArms;
 self.promptInsertionWaiters = promptInsertionWaiters;
 self.providerSendOnlyRecoveryTimers = providerSendOnlyRecoveryTimers;
 self.getRetryBackoffForModel = getRetryBackoffForModel;
@@ -2427,6 +2507,8 @@ self.getConnectionRetryDelaysForModel = getConnectionRetryDelaysForModel;
 self.withPromptDispatchLock = withPromptDispatchLock;
 self.withPromptDispatchFocusLock = withPromptDispatchFocusLock;
 self.resolvePromptSubmitted = resolvePromptSubmitted;
+self.createPromptSubmittedWaiter = createPromptSubmittedWaiter;
+self.armPromptSubmittedWaiter = armPromptSubmittedWaiter;
 self.waitForPromptSubmitted = waitForPromptSubmitted;
 self.resolvePromptInsertion = resolvePromptInsertion;
 self.waitForPromptInsertion = waitForPromptInsertion;

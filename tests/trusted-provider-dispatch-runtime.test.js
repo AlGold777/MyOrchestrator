@@ -129,6 +129,42 @@ describe('trusted provider dispatch runtime', () => {
     expect(calls.some((call) => call[0] === 'detach')).toBe(true);
   });
 
+  test('Perplexity trusted Send reacquires one debugger session after SPA invalidation', async () => {
+    const runtime = sliceRuntime(
+      'const buildProviderSendControlExpression',
+      'const isTerminalRouterEntry'
+    );
+    const calls = [];
+    let runtimeEnableAttempts = 0;
+    const sandbox = {
+      JSON,
+      Promise,
+      setTimeout,
+      chrome: focusedChromeStub(),
+      emitTelemetry: (...args) => calls.push(['telemetry', ...args]),
+      trustedClickDebuggerObject: async () => ({ clicked: true, descriptor: { label: 'Send' } }),
+      callChromeDebugger: async (method, target, command) => {
+        calls.push([method, target, command]);
+        if (method === 'sendCommand' && command === 'Runtime.enable') {
+          runtimeEnableAttempts += 1;
+          if (runtimeEnableAttempts === 1) throw new Error('Debugger is not attached to the tab with id: 23');
+        }
+        if (method === 'sendCommand' && command === 'Runtime.evaluate') {
+          return { result: { objectId: 'send-control' } };
+        }
+        return {};
+      }
+    };
+    vm.createContext(sandbox);
+    vm.runInContext(`${runtime}\n;globalThis.dispatchSend = dispatchProviderTrustedSend;`, sandbox);
+
+    await expect(sandbox.dispatchSend(23, 'Perplexity', 'prompt'))
+      .resolves.toEqual(expect.objectContaining({ ok: true }));
+    expect(calls.filter((call) => call[0] === 'attach')).toHaveLength(2);
+    expect(calls.some((call) => call[0] === 'telemetry'
+      && call[2] === 'PROVIDER_TRUSTED_SEND_SESSION_RETRY')).toBe(true);
+  });
+
   test('Send expression resolves the current Lexical composer localized control', () => {
     const runtime = sliceRuntime(
       'const buildProviderSendControlExpression',

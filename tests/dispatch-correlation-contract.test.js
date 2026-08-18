@@ -8,7 +8,13 @@ describe('dispatch correlation contract', () => {
   test('submit waiters are keyed by model and exact dispatch id', () => {
     const src = read('background', 'dispatch-coordinator.js');
     expect(src).toContain('modelWaiters?.get?.(String(dispatchId))');
-    expect(src).toContain('waitForPromptSubmitted(llmName, dispatchId, submitTimeoutMs)');
+    expect(src).toContain('createPromptSubmittedWaiter(llmName, dispatchId, submitTimeoutMs)');
+    expect(src).toContain('waiterController?.armAfter?.(PROVIDER_SEND_ACTION_FALLBACK_MS)');
+    expect(src).toContain("emitTelemetry(llmName, 'DISPATCH_COMMAND_ACCEPTED'");
+    const router = read('background', 'message-router.js');
+    expect(router).toContain("if (stage === 'send_action_requested')");
+    expect(router).toContain('self.armPromptSubmittedWaiter?.(llmName, dispatchId)');
+    expect(router).toContain("emitTelemetry(llmName, 'DISPATCH_SEND'");
     expect(src).not.toContain('waitForPromptSubmitted(llmName, submitTimeoutMs)');
     expect(src).toContain('waitForPromptInsertion(\n          llmName,\n          dispatchId,');
   });

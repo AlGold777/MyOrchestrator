@@ -239,6 +239,51 @@ function configurePerplexityHandshake(context, { deferProbe = false } = {}) {
 }
 
 describe('lifecycle sender gate', () => {
+  test('Completion authority ACK is immediate even while job-state persistence is blocked', async () => {
+    const { context, telemetryEvents, sendMessage } = createRouterSandbox();
+    context.saveJobState.mockImplementation(() => new Promise(() => {}));
+
+    const response = await Promise.race([
+      sendMessage({
+        type: 'LLM_COMPLETION_ATTEMPT', llmName: 'GPT',
+        meta: { ...META, terminalResult: null, rolloutMode: 'enforced' }
+      }, BOUND_SENDER),
+      new Promise((resolve) => setTimeout(() => resolve({ status: 'test_timeout' }), 50))
+    ]);
+
+    expect(response).toEqual(expect.objectContaining({ status: 'completion_attempt_recorded' }));
+    expect(context.jobState.llms.GPT.completionAuthorityAttempt).toEqual(expect.objectContaining({
+      dispatchId: META.dispatchId
+    }));
+    expect(telemetryEvents.some((event) => event.event === 'COMPLETION_ATTEMPT_ACCEPTED')).toBe(true);
+  });
+
+  test('submit timeout and DISPATCH_SEND evidence start on provider send action, not command delivery', async () => {
+    const { context, telemetryEvents, sendMessage } = createRouterSandbox();
+    context.armPromptSubmittedWaiter = jest.fn(() => true);
+    context.jobState.llms.GPT.lastCommandAcceptedDispatchId = META.dispatchId;
+    context.jobState.llms.GPT.lastCommandAcceptedAt = 12346;
+    context.jobState.llms.GPT.lastCommandAcceptedTiming = { readyWaitMs: 42 };
+
+    const response = await sendMessage({
+      type: 'PROVIDER_DISPATCH_STAGE_OBSERVED',
+      llmName: 'GPT',
+      stage: 'send_action_requested',
+      meta: META
+    }, BOUND_SENDER);
+
+    expect(response).toEqual(expect.objectContaining({ status: 'provider_dispatch_stage_ack' }));
+    expect(context.armPromptSubmittedWaiter).toHaveBeenCalledWith('GPT', META.dispatchId);
+    expect(telemetryEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        event: 'DISPATCH_SEND',
+        payload: expect.objectContaining({
+          meta: expect.objectContaining({ dispatchId: META.dispatchId, readyWaitMs: 42 })
+        })
+      })
+    ]));
+  });
+
   test('PROMPT_SUBMITTED from a foreign provider tab is rejected and does not confirm the dispatch', async () => {
     const { context, telemetryEvents, sendMessage } = createRouterSandbox();
     const response = await sendMessage({ type: 'PROMPT_SUBMITTED', llmName: 'GPT' }, FOREIGN_SENDER);

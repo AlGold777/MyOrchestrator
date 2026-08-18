@@ -977,7 +977,7 @@ const buildProviderSendControlExpression = (expectedText = '') => `(() => {
 })()`;
 
 async function dispatchProviderTrustedSend(tabId, model, expectedText = '') {
-    return withManagedDebuggerSession(tabId, `provider_trusted_send:${model}`, async (target) => {
+    const runOnce = () => withManagedDebuggerSession(tabId, `provider_trusted_send:${model}`, async (target) => {
         let objectId = null;
         try {
         await callChromeDebugger('sendCommand', target, 'Runtime.enable');
@@ -999,6 +999,24 @@ async function dispatchProviderTrustedSend(tabId, model, expectedText = '') {
             if (objectId) try { await callChromeDebugger('sendCommand', target, 'Runtime.releaseObject', { objectId }); } catch (_) {}
         }
     });
+    try {
+        return await runOnce();
+    } catch (err) {
+        const reason = String(err?.message || err || '');
+        // Perplexity can commit the draft with an SPA navigation. Chrome then
+        // invalidates the debugger session acquired a moment earlier. Re-open a
+        // fresh, serialized session once; the first session could not dispatch
+        // the click when Chrome reports that it was not attached.
+        if (!/debugger is not attached|not attached to the tab|target closed/i.test(reason)) throw err;
+        emitTelemetry(model, 'PROVIDER_TRUSTED_SEND_SESSION_RETRY', {
+            level: 'warning',
+            details: reason,
+            meta: { tabId, retry: 1, reason: 'debugger_session_invalidated' },
+            force: true
+        });
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        return runOnce();
+    }
 }
 
 // Kimi's Send control is a plain <div class="send-button-container"> with no
@@ -2062,20 +2080,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     break;
                 }
                 const authority = recordCompletionAuthorityAttempt(message.llmName, message.meta || {});
-                Promise.resolve(saveJobState(jobState)).catch(() => {}).finally(() => {
-                    emitTelemetry(message.llmName, 'COMPLETION_ATTEMPT_ACCEPTED', {
-                        level: 'info',
-                        details: 'completion_attempt_recorded',
-                        meta: {
-                            authorityAccepted: true,
-                            rolloutMode: authority?.rolloutMode || null,
-                            ...deliveryIdentityMeta(message.meta || {})
-                        },
-                        force: true
-                    });
-                    sendResponse({ status: 'completion_attempt_recorded', rolloutMode: authority?.rolloutMode || null });
+                // Authority is accepted by the in-memory/persisted job-state model
+                // synchronously. Storage durability is intentionally asynchronous:
+                // blocking this ACK on a full jobState write made every provider
+                // transaction wait (and retry) behind telemetry/storage pressure.
+                emitTelemetry(message.llmName, 'COMPLETION_ATTEMPT_ACCEPTED', {
+                    level: 'info',
+                    details: 'completion_attempt_recorded',
+                    meta: {
+                        authorityAccepted: true,
+                        rolloutMode: authority?.rolloutMode || null,
+                        ...deliveryIdentityMeta(message.meta || {})
+                    },
+                    force: true
                 });
-                return true;
+                sendResponse({ status: 'completion_attempt_recorded', rolloutMode: authority?.rolloutMode || null });
+                break;
             }
 
             case 'LLM_COMPLETION_TERMINAL': {
@@ -2312,6 +2332,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     },
                     force: true
                 });
+                if (stage === 'send_action_requested') {
+                    self.armPromptSubmittedWaiter?.(llmName, dispatchId);
+                    if (entry?.providerSendActionObservedDispatchId !== dispatchId) {
+                        if (entry) {
+                            entry.providerSendActionObservedDispatchId = dispatchId;
+                            entry.providerSendActionObservedAt = Date.now();
+                        }
+                        emitTelemetry(llmName, 'DISPATCH_SEND', {
+                            level: 'info',
+                            details: 'provider_send_action_requested',
+                            meta: {
+                                ...incomingMeta,
+                                ...(entry?.lastCommandAcceptedDispatchId === dispatchId
+                                    ? (entry.lastCommandAcceptedTiming || {})
+                                    : {}),
+                                dispatchId,
+                                commandAcceptedAt: entry?.lastCommandAcceptedDispatchId === dispatchId
+                                    ? entry.lastCommandAcceptedAt || null
+                                    : null,
+                                providerStage: stage
+                            },
+                            force: true
+                        });
+                    }
+                }
                 if (stage === 'prompt_inserted' || stage === 'send_action_failed') {
                     self.scheduleProviderSendOnlyRecovery?.(llmName, {
                         dispatchId,
