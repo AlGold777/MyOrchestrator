@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "A_Fable",
-  "version": "2.81.350",
+  "version": "2.81.351",
   "description": "Compares LLMs with stable Debate pipelines, structured state maps, and optional synthesis.",
   "permissions": [
     "storage",
@@ -54,6 +54,30 @@
     }
   },
   "content_scripts": [
+    {
+      "matches": [
+        "*://chat.openai.com/*",
+        "*://chatgpt.com/*",
+        "*://gemini.google.com/*",
+        "*://bard.google.com/*",
+        "*://claude.ai/*",
+        "*://grok.com/*",
+        "*://grok.x.ai/*",
+        "*://x.com/*",
+        "*://x.ai/*",
+        "*://chat.qwen.ai/*",
+        "*://chat.mistral.ai/*",
+        "*://chat.deepseek.com/*",
+        "*://www.perplexity.ai/*",
+        "*://perplexity.ai/*",
+        "*://chat.z.ai/*",
+        "*://kimi.ai/*",
+        "*://www.kimi.ai/*"
+      ],
+      "js": ["content-scripts/content-bridge.js"],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
     {
       "matches": [
         "*://chat.openai.com/*",
@@ -134,10 +158,6 @@
         "*://chatgpt.com/*"
       ],
       "js": [
-        "shared/selector-profile-lifecycle.js",
-        "shared/completion-protocol.js",
-        "content-utils/selector-resolver-v2.js",
-        "content-utils/response-lifecycle-detector.js",
         "content-scripts/content-chatgpt.js"
       ],
       "run_at": "document_end"
@@ -148,11 +168,6 @@
         "*://perplexity.ai/*"
       ],
       "js": [
-        "shared/selector-profile-lifecycle.js",
-        "shared/provider-submit-confirmation.js",
-        "shared/completion-protocol.js",
-        "content-utils/selector-resolver-v2.js",
-        "content-utils/response-lifecycle-detector.js",
         "content-scripts/content-perplexity.js"
       ],
       "run_at": "document_end"
@@ -163,10 +178,6 @@
         "*://bard.google.com/*"
       ],
       "js": [
-        "shared/selector-profile-lifecycle.js",
-        "shared/completion-protocol.js",
-        "content-utils/selector-resolver-v2.js",
-        "content-utils/response-lifecycle-detector.js",
         "content-scripts/content-gemini.js"
       ],
       "run_at": "document_end"
@@ -176,10 +187,6 @@
         "*://claude.ai/*"
       ],
       "js": [
-        "shared/selector-profile-lifecycle.js",
-        "shared/completion-protocol.js",
-        "content-utils/selector-resolver-v2.js",
-        "content-utils/response-lifecycle-detector.js",
         "content-scripts/content-claude.js"
       ],
       "run_at": "document_end"
@@ -192,10 +199,6 @@
         "*://x.ai/*"
       ],
       "js": [
-        "shared/selector-profile-lifecycle.js",
-        "shared/completion-protocol.js",
-        "content-utils/selector-resolver-v2.js",
-        "content-utils/response-lifecycle-detector.js",
         "content-scripts/content-grok.js"
       ],
       "run_at": "document_end"
@@ -205,10 +208,6 @@
         "*://chat.qwen.ai/*"
       ],
       "js": [
-        "shared/selector-profile-lifecycle.js",
-        "shared/completion-protocol.js",
-        "content-utils/selector-resolver-v2.js",
-        "content-utils/response-lifecycle-detector.js",
         "content-scripts/content-qwen.js"
       ],
       "run_at": "document_end"
@@ -218,11 +217,6 @@
         "*://chat.mistral.ai/*"
       ],
       "js": [
-        "shared/selector-profile-lifecycle.js",
-        "shared/provider-submit-confirmation.js",
-        "shared/completion-protocol.js",
-        "content-utils/selector-resolver-v2.js",
-        "content-utils/response-lifecycle-detector.js",
         "content-scripts/content-lechat.js"
       ],
       "run_at": "document_end"
@@ -232,10 +226,6 @@
         "*://chat.deepseek.com/*"
       ],
       "js": [
-        "shared/selector-profile-lifecycle.js",
-        "shared/completion-protocol.js",
-        "content-utils/selector-resolver-v2.js",
-        "content-utils/response-lifecycle-detector.js",
         "content-scripts/content-deepseek.js"
       ],
       "run_at": "document_end"
@@ -245,10 +235,6 @@
         "*://chat.z.ai/*"
       ],
       "js": [
-        "shared/selector-profile-lifecycle.js",
-        "shared/completion-protocol.js",
-        "content-utils/selector-resolver-v2.js",
-        "content-utils/response-lifecycle-detector.js",
         "content-scripts/content-zai.js"
       ],
       "run_at": "document_end"
@@ -259,11 +245,6 @@
         "*://www.kimi.ai/*"
       ],
       "js": [
-        "shared/selector-profile-lifecycle.js",
-        "shared/provider-submit-confirmation.js",
-        "shared/completion-protocol.js",
-        "content-utils/selector-resolver-v2.js",
-        "content-utils/response-lifecycle-detector.js",
         "content-scripts/content-kimi.js"
       ],
       "run_at": "document_end"

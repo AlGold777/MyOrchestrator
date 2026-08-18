@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-08-18 — Устранено CSP-блокирование main-world bridge, version 2.81.351
+
+- `content-bridge.js` теперь загружается как MV3 content script в `MAIN` world на `document_start`, поэтому строгий CSP ChatGPT не блокирует bridge.
+- Удалён inline fallback через `script.textContent`, который вызывал `Executing inline script violates ... CSP`.
+- Общие зависимости provider content scripts больше не загружаются повторно, поэтому исчезает лишнее `SelectorConfig Duplicate load prevented`.
+
 ### 2026-08-18 — Устранена многоминутная задержка Round 1, version 2.81.350
 
 - MV3 survival alarm больше не загружает сохранённый `jobState` поверх активного Round 1 и не снимает `roundsInProgress`; это исключает параллельный `retry_supervisor`, замену dispatch identity и повторные попытки до первой отправки.

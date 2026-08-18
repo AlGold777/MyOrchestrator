@@ -145,16 +145,11 @@
         try {
           const injected = await injectViaBackground();
           if (injected?.ok && injected.tokenAccepted) return;
-          // Legacy inline fallback (may be blocked by strict page CSP): fetch
-          // the source, template the token and insert as an inline script.
-          const bridgeUrl = chrome.runtime?.getURL('content-scripts/content-bridge.js');
-          const bridgeSource = await fetch(bridgeUrl).then((resp) => resp.text());
-          const bridgedSource = bridgeSource.replaceAll('__LLM_BRIDGE_TOKEN__', JSON.stringify(bridgeToken));
-          const s = document.createElement('script');
-          s.textContent = bridgedSource;
-          s.onload = () => { try { s.remove(); } catch (_) {} };
-          (document.documentElement || document.head || document.body).appendChild(s);
-          try { s.remove(); } catch (_) {}
+          // Do not fall back to an inline script. Provider pages control their
+          // own CSP and increasingly reject script.textContent injections.
+          // content-bridge.js is declared as a MAIN-world content script, so a
+          // failed background handshake must remain an explicit bridge failure.
+          console.warn('[content-bootstrap] CSP-safe bridge injection was not accepted', injected || {});
         } catch (err) {
           console.warn('[content-bootstrap] Failed to inject bridge script', err);
         }
