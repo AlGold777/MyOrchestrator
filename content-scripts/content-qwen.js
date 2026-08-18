@@ -2725,7 +2725,11 @@ const keepAliveMutex = (() => {
             ? extractMessageText(assistantMessages[assistantMessages.length - 1])
             : '';
           const completionAttemptReady = await window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, baselineAssistantText);
-          if (completionAttemptReady !== true) throw { type: 'completion_runtime_unavailable', message: 'Completion attempt was not registered.' };
+          if (completionAttemptReady !== true) {
+            window.ContentUtils?.reportDispatchStage?.(MODEL, dispatchMeta, 'completion_preflight_degraded', {
+              outcome: 'degraded', reason: 'completion_runtime_unavailable'
+            });
+          }
 
           if (Array.isArray(context.attachments) && context.attachments.length) {
             if (!attachmentHandler?.attach) {

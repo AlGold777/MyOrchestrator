@@ -130,7 +130,7 @@ describe('dispatch baseline stale guard (follow-up false-green)', () => {
     expect(KIMI_SRC).toContain('reportDispatchBaseline?.(MODEL, meta, baseline');
   });
 
-  test('all adapters wait until the pre-send baseline reaches background', () => {
+  test('all adapters attempt pre-send baseline registration without blocking Send on telemetry failure', () => {
     [CHATGPT_SRC, CLAUDE_SRC, GEMINI_SRC, GROK_SRC, LECHAT_SRC, QWEN_SRC,
       DEEPSEEK_SRC, PERPLEXITY_SRC, ZAI_SRC, KIMI_SRC].forEach((source) => {
       expect(source).toMatch(/await window\.ContentUtils\?\.reportDispatchBaseline\?\./);
@@ -143,7 +143,9 @@ describe('dispatch baseline stale guard (follow-up false-green)', () => {
     expect(UTILS_SRC).toContain('if (lifecycleStart?.ok !== true) return false');
     [CHATGPT_SRC, CLAUDE_SRC, GEMINI_SRC, GROK_SRC, LECHAT_SRC, QWEN_SRC,
       DEEPSEEK_SRC, PERPLEXITY_SRC, ZAI_SRC, KIMI_SRC].forEach((source) => {
-      expect(source).toContain("if (completionAttemptReady !== true) throw { type: 'completion_runtime_unavailable'");
+      expect(source).toContain("if (completionAttemptReady !== true)");
+      expect(source).toContain("'completion_preflight_degraded'");
+      expect(source).not.toContain("throw { type: 'completion_runtime_unavailable'");
     });
   });
 

@@ -309,7 +309,11 @@
       : (options.meta || null);
     const baseline = readLatestResponse().text;
     const completionAttemptReady = await window.ContentUtils?.reportDispatchBaseline?.(MODEL, meta, baseline);
-    if (completionAttemptReady !== true) throw { type: 'completion_runtime_unavailable', message: 'Completion attempt was not registered.' };
+    if (completionAttemptReady !== true) {
+      window.ContentUtils?.reportDispatchStage?.(MODEL, meta, 'completion_preflight_degraded', {
+        outcome: 'degraded', reason: 'completion_runtime_unavailable'
+      });
+    }
     let composer = await waitForFirst(COMPOSER_SELECTORS);
     if (options.attachments?.length) {
       if (!attachmentHandler?.attach) {

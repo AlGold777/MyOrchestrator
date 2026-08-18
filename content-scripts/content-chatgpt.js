@@ -1167,7 +1167,11 @@ const chatgptScrollCoordinator = window.ScrollCoordinator
         console.log('[CONTENT-GPT] Input field found. Injecting prompt...');
         const preDispatchBaseline = grabLatestAssistantMarkup().text || '';
         const completionAttemptReady = await window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, preDispatchBaseline);
-        if (completionAttemptReady !== true) throw { type: 'completion_runtime_unavailable', message: 'Completion attempt was not registered.' };
+        if (completionAttemptReady !== true) {
+          window.ContentUtils?.reportDispatchStage?.(MODEL, dispatchMeta, 'completion_preflight_degraded', {
+            outcome: 'degraded', reason: 'completion_runtime_unavailable'
+          });
+        }
         if (Array.isArray(attachments) && attachments.length) {
           let attachmentsOk = false;
           if (attachmentHandler?.attach) {
