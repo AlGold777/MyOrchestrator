@@ -1730,6 +1730,7 @@ const onRuntimeMessage = (message, sender, sendResponse) => {
         window.ContentUtils?.startActiveRequest?.();
         const acceptedMeta = message.meta || null;
         window.ContentUtils?.reportProviderPipelineState?.(MODEL, acceptedMeta, 'composer', true);
+        window.ContentUtils?.reportDispatchStage?.(MODEL, acceptedMeta, 'command_accepted');
         // Acknowledge command ownership immediately. Holding the message port
         // open through background-tab throttling made background classify the
         // still-running adapter as dead and schedule a second dispatch.

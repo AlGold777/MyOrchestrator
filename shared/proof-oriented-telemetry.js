@@ -140,6 +140,8 @@
     POST_TERMINAL_ANSWER_WINDOW_CLOSED: 'OBSERVATION_INTERVAL_CLOSED',
     PROVIDER_FINISH_REASON: 'GENERATION_SIGNAL_CHANGED'
     , ATTEMPT_CONTEXT_CAPTURED: 'ATTEMPT_CONTEXT_CAPTURED'
+    , COMPLETION_ATTEMPT_ACCEPTED: 'ATTEMPT_CONTEXT_CAPTURED'
+    , COMPLETION_ATTEMPT_REJECTED: 'ATTEMPT_CONTEXT_CAPTURED'
     , WITNESS_OBSERVED: 'WITNESS_OBSERVED'
     , GENERATION_OBSERVED: 'GENERATION_OBSERVED'
     , OWNERSHIP_CONFIRMED: 'OWNERSHIP_CONFIRMED'
@@ -202,6 +204,8 @@
     ANSWER_DELIVERY_REJECTED: { kind: 'delivery', state: 'rejected', outcome: 'rejected' },
     PROVIDER_FINISH_REASON: { kind: 'provider_terminal', state: 'completed' }
     , ATTEMPT_CONTEXT_CAPTURED: { kind: 'attempt_context', state: 'captured' }
+    , COMPLETION_ATTEMPT_ACCEPTED: { kind: 'attempt_authority', state: 'accepted' }
+    , COMPLETION_ATTEMPT_REJECTED: { kind: 'attempt_authority', state: 'rejected' }
     , WITNESS_OBSERVED: { kind: 'completion_witness', state: 'observed' }
     , GENERATION_OBSERVED: { kind: 'generation_start', state: 'started' }
     , OWNERSHIP_CONFIRMED: { kind: 'candidate_identity', state: 'current_dispatch' }

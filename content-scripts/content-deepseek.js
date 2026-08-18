@@ -1603,12 +1603,27 @@ const buildLifecycleContext = (prompt = '', extra = {}) => ({
 
       if (msg?.type === 'GET_ANSWER' || msg?.type === 'GET_FINAL_ANSWER') {
         const responseType = msg.type === 'GET_ANSWER' ? 'LLM_RESPONSE' : 'FINAL_LLM_RESPONSE';
+        if (!String(msg.prompt || '').trim()) {
+          sendResponse?.({ ok: false, accepted: false, status: 'rejected', reason: 'empty_prompt' });
+          return false;
+        }
+        sendResponse?.({
+          ok: true,
+          accepted: true,
+          status: 'accepted',
+          dispatchId: msg.meta?.dispatchId || null,
+          attemptId: msg.meta?.attemptId || null,
+          tabSessionId: msg.meta?.tabSessionId || null
+        });
+        const releaseActive = () => window.ContentUtils?.stopActiveRequest?.();
+        window.ContentUtils?.startActiveRequest?.();
+        window.ContentUtils?.reportProviderPipelineState?.(MODEL, msg.meta || null, 'composer', true);
+        window.ContentUtils?.reportDispatchStage?.(MODEL, msg.meta || null, 'command_accepted');
 
         injectAndGetResponse(msg.prompt, { autoNotify: false, responseType, attachments: msg.attachments || [], meta: msg.meta || null })
           .then((resp) => {
             if (msg.isFireAndForget) {
               console.log('[DeepSeek] Fire-and-forget processed');
-              sendResponse?.({ status: 'success_fire_and_forget' });
               return;
             }
 
@@ -1630,11 +1645,9 @@ const buildLifecycleContext = (prompt = '', extra = {}) => ({
                 ? Object.assign({}, msg.meta || {}, { responseMeta: payload.meta })
                 : (msg.meta || null)
             });
-            sendResponse?.({ status: 'success' });
           })
           .catch((err) => {
             if (err?.code === 'background-force-stop') {
-              sendResponse?.({ status: 'force_stopped' });
               return;
             }
             const errorMessage = err?.message || String(err) || 'Unknown error';
@@ -1645,9 +1658,13 @@ const buildLifecycleContext = (prompt = '', extra = {}) => ({
               error: { type: err?.type || 'generic_error', message: errorMessage },
               meta: msg.meta || null
             });
-            sendResponse?.({ status: 'error', message: errorMessage });
+          })
+          .finally(() => {
+            window.ContentUtils?.reportProviderPipelineState?.(MODEL, msg.meta || null, 'composer', false);
+            window.ContentUtils?.reportProviderPipelineState?.(MODEL, msg.meta || null, 'answer_collection', false);
+            releaseActive();
           });
-        return true;
+        return false;
       }
 
       if (msg.action === 'injectPrompt' || msg.action === 'sendPrompt' || msg.action === 'REQUEST_LLM_RESPONSE') {

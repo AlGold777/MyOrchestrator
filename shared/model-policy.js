@@ -15,7 +15,7 @@
     preferredTransport: 'web_ui',
     apiDirectAllowed: true,
     apiSupportsAttachments: false,
-    supportsSendOnlyRecovery: false
+    supportsSendOnlyRecovery: true
   });
 
   const MODEL_POLICIES = Object.freeze({

@@ -256,6 +256,27 @@ describe('lifecycle sender gate', () => {
     expect(context.jobState.llms.GPT.promptSubmittedAt).toBeTruthy();
   });
 
+  test('Completion authority is recovered from persisted run state after worker memory loss', async () => {
+    const { context, sendMessage } = createRouterSandbox();
+    await sendMessage({
+      type: 'LLM_COMPLETION_ATTEMPT', llmName: 'GPT',
+      meta: { ...META, terminalResult: null, rolloutMode: 'enforced' }
+    }, BOUND_SENDER);
+    expect(context.jobState.llms.GPT.completionAuthorityAttempt).toEqual(expect.objectContaining({
+      dispatchId: META.dispatchId
+    }));
+
+    context.__completionAuthorityAttempts.clear();
+    const response = await sendMessage({
+      type: 'LLM_RESPONSE', llmName: 'GPT', answer: 'restored authority answer',
+      meta: { ...META, completionTerminalResult: META.terminalResult }
+    }, BOUND_SENDER);
+    expect(response).toEqual(expect.objectContaining({ status: 'response_handled' }));
+    expect(context.CompletionAuthorityRegistry.get('GPT')).toEqual(expect.objectContaining({
+      dispatchId: META.dispatchId
+    }));
+  });
+
   test('LLM_RESPONSE from a foreign tab never reaches handleLLMResponse', async () => {
     const { context, sendMessage } = createRouterSandbox();
     const rejected = await sendMessage({ type: 'LLM_RESPONSE', llmName: 'GPT', answer: 'stale text' }, FOREIGN_SENDER);
@@ -272,7 +293,7 @@ describe('lifecycle sender gate', () => {
     expect(context.handleLLMResponse).toHaveBeenCalledWith('GPT', 'real text', null, acceptedMeta, '');
   });
 
-  test('enforced completion authority rejects a legacy success without SUCCESS_TERMINAL', async () => {
+  test('registered authority admits an answer for downstream verification when terminal observation is missing', async () => {
     const { context, sendMessage } = createRouterSandbox();
     await sendMessage({
       type: 'LLM_COMPLETION_ATTEMPT', llmName: 'GPT',
@@ -281,11 +302,11 @@ describe('lifecycle sender gate', () => {
     const response = await sendMessage({
       type: 'LLM_RESPONSE', llmName: 'GPT', answer: 'legacy fallback answer', meta: { ...META, terminalResult: null }
     }, BOUND_SENDER);
-    expect(response).toEqual(expect.objectContaining({ status: 'response_rejected', reason: 'missing_success_terminal_authority' }));
-    expect(context.handleLLMResponse).not.toHaveBeenCalled();
+    expect(response).toEqual(expect.objectContaining({ status: 'response_handled' }));
+    expect(context.handleLLMResponse).toHaveBeenCalled();
   });
 
-  test('shadow label cannot authorize legacy delivery by itself', async () => {
+  test('registered shadow attempt also defers terminal certainty to downstream verification', async () => {
     const { context, sendMessage } = createRouterSandbox();
     await sendMessage({
       type: 'LLM_COMPLETION_ATTEMPT', llmName: 'GPT',
@@ -294,7 +315,24 @@ describe('lifecycle sender gate', () => {
     const response = await sendMessage({
       type: 'LLM_RESPONSE', llmName: 'GPT', answer: 'shadow legacy answer', meta: { ...META, terminalResult: null }
     }, BOUND_SENDER);
-    expect(response).toEqual(expect.objectContaining({ status: 'response_rejected', reason: 'missing_success_terminal_authority' }));
+    expect(response).toEqual(expect.objectContaining({ status: 'response_handled' }));
+    expect(context.handleLLMResponse).toHaveBeenCalled();
+  });
+
+  test('an explicit failed Completion terminal still blocks answer delivery', async () => {
+    const { context, sendMessage } = createRouterSandbox();
+    await sendMessage({
+      type: 'LLM_COMPLETION_ATTEMPT', llmName: 'GPT',
+      meta: { ...META, terminalResult: null, rolloutMode: 'enforced', protocolVersion: '2.1.0' }
+    }, BOUND_SENDER);
+    const response = await sendMessage({
+      type: 'LLM_RESPONSE', llmName: 'GPT', answer: 'failed terminal answer',
+      meta: { ...META, terminalResult: { status: 'FAILED_TERMINAL' } }
+    }, BOUND_SENDER);
+    expect(response).toEqual(expect.objectContaining({
+      status: 'response_rejected',
+      reason: 'completion_terminal_failed'
+    }));
     expect(context.handleLLMResponse).not.toHaveBeenCalled();
   });
 

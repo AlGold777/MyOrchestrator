@@ -144,6 +144,37 @@
     }
   };
 
+  const sendRuntimeMessageForAck = (message, {
+    acceptedStatus,
+    timeoutMs = 5000,
+    attempts = 2
+  } = {}) => {
+    const run = (attempt) => new Promise((resolve) => {
+      let settled = false;
+      const finish = (result) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeoutId);
+        resolve(result);
+      };
+      const timeoutId = setTimeout(() => finish({ ok: false, reason: 'ack_timeout' }), timeoutMs);
+      const sent = safeRuntimeSendMessage(message, (response) => {
+        const ok = response?.status === acceptedStatus;
+        finish({
+          ok,
+          reason: ok ? null : (response?.reason || response?.status || 'ack_rejected'),
+          response: response || null
+        });
+      });
+      if (!sent) finish({ ok: false, reason: 'runtime_send_failed' });
+    }).then(async (result) => {
+      if (result.ok || attempt >= attempts) return result;
+      await sleep(100 * attempt);
+      return run(attempt + 1);
+    });
+    return run(1);
+  };
+
   // Purpose: keep track of dispatch metadata for correlating telemetry.
   let storedSessionId = null;
   let storedRunSessionId = null;
@@ -600,25 +631,116 @@
         capturedAt: Date.now()
       };
     } catch (_) {}
-    return new Promise((resolve) => {
-      let settled = false;
-      const finish = (value) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timeoutId);
-        resolve(value);
-      };
-      const timeoutId = setTimeout(() => finish(false), 1500);
-      const sent = safeRuntimeSendMessage({
+    const baselineAck = await sendRuntimeMessageForAck({
         type: 'DISPATCH_BASELINE_CAPTURED',
         llmName,
         meta: meta && typeof meta === 'object' ? meta : null,
         signature,
         anchorAnswerCount
-      }, (response) => finish(response?.status === 'dispatch_baseline_ack'));
-      if (!sent) finish(false);
-    });
+      }, {
+        acceptedStatus: 'dispatch_baseline_ack',
+        timeoutMs: 5000,
+        attempts: 2
+      });
+    try {
+      window.__LLMDispatchPreflight = {
+        llmName,
+        dispatchId: meta?.dispatchId || null,
+        ok: baselineAck.ok === true,
+        reason: baselineAck.reason || null,
+        capturedAt: Date.now()
+      };
+    } catch (_) {}
+    return baselineAck.ok === true;
   };
+
+  const recoverPreparedComposerSend = async (llmName, prompt, meta = {}) => {
+    const expected = normalizeForPaste(prompt);
+    if (!expected) return { ok: false, status: 'send_only_rejected', reason: 'empty_prompt' };
+    const candidates = Array.from(document.querySelectorAll([
+      'textarea:not([disabled])',
+      '[contenteditable="true"][role="textbox"]',
+      '[contenteditable="true"]'
+    ].join(',')));
+    const composer = candidates.find((element) => (
+      element?.isConnected
+      && isElementInteractable(element)
+      && pasteMatchesPrompt(readInputValue(element), prompt)
+    ));
+    if (!composer) {
+      return { ok: false, status: 'send_only_rejected', reason: 'visible_current_composer_prompt_mismatch' };
+    }
+    reportDispatchStage(llmName, meta, 'send_only_recovery_started', {
+      composerVisible: true,
+      composerConnected: true
+    });
+    const noLongerPrepared = () => !pasteMatchesPrompt(readInputValue(composer), prompt);
+    try {
+      composer.focus?.({ preventScroll: true });
+    } catch (_) { try { composer.focus?.(); } catch (_) {} }
+    try {
+      composer.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'Enter', code: 'Enter', ctrlKey: true, bubbles: true, cancelable: true
+      }));
+      composer.dispatchEvent(new KeyboardEvent('keyup', {
+        key: 'Enter', code: 'Enter', ctrlKey: true, bubbles: true, cancelable: true
+      }));
+    } catch (_) {}
+    await sleep(600);
+    let method = 'ctrl_enter';
+    if (!noLongerPrepared()) {
+      const buttons = Array.from(document.querySelectorAll([
+        'button[data-testid*="send" i]',
+        'button[aria-label*="send" i]',
+        'button[title*="send" i]',
+        'button[type="submit"]'
+      ].join(',')));
+      const button = buttons.find((candidate) => (
+        candidate?.isConnected
+        && isElementInteractable(candidate)
+        && !candidate.disabled
+        && candidate.getAttribute?.('aria-disabled') !== 'true'
+      ));
+      if (button) {
+        try { button.click(); } catch (_) {}
+        method = 'send_button';
+      }
+      await sleep(1200);
+    }
+    if (!noLongerPrepared()) {
+      reportDispatchStage(llmName, meta, 'send_only_recovery_failed', {
+        outcome: 'failed', reason: 'send_not_observed'
+      });
+      return { ok: false, status: 'send_only_failed', reason: 'send_not_observed' };
+    }
+    const submissionMeta = ensureDispatchMeta(meta, llmName) || meta || {};
+    reportDispatchStage(llmName, submissionMeta, 'send_only_recovery_completed', {
+      outcome: 'confirmed', reason: method
+    });
+    safeRuntimeSendMessage({
+      type: 'PROMPT_SUBMITTED',
+      llmName,
+      ts: Date.now(),
+      meta: submissionMeta
+    });
+    return { ok: true, status: 'send_only_confirmed', method };
+  };
+
+  try {
+    chrome.runtime.onMessage?.addListener?.((message, _sender, sendResponse) => {
+      if (message?.type !== 'RECOVER_PROVIDER_SEND') return false;
+      const llmName = String(message.llmName || '');
+      if (!llmName || llmName === 'Grok' || llmName === 'Perplexity') return false;
+      recoverPreparedComposerSend(llmName, message.prompt, message.meta || {})
+        .then((result) => sendResponse?.(result))
+        .catch((error) => sendResponse?.({
+          ok: false,
+          status: 'send_only_failed',
+          reason: error?.message || 'send_only_runtime_error'
+        }));
+      return true;
+    });
+  } catch (_) {}
 
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
@@ -1179,6 +1301,7 @@
     setMainBridgeToken,
     getPipelineRunId,
     safeRuntimeSendMessage,
+    sendRuntimeMessageForAck,
     storeSessionId,
     storeDispatchMeta,
     getSessionId,
@@ -1191,6 +1314,7 @@
     reportDispatchStage,
     reportProviderPipelineState,
     reportDispatchBaseline,
+    recoverPreparedComposerSend,
     isBaselineEquivalent,
     detectProviderErrorSurface,
     requestFocusFromBackground,

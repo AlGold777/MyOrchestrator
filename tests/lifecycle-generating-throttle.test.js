@@ -37,10 +37,14 @@ describe('lifecycle ANSWER_GENERATING telemetry throttle', () => {
     sentMessages = [];
     global.chrome.runtime.sendMessage = (message, callback) => {
       sentMessages.push(message);
-      if (typeof callback === 'function') callback({});
+      if (typeof callback === 'function') callback(message?.type === 'LLM_COMPLETION_ATTEMPT'
+        ? { status: 'completion_attempt_recorded' }
+        : {});
     };
     window.chrome = global.chrome;
     loadScript('content-utils/response-lifecycle-detector.js');
+    const startLifecycle = window.ResponseLifecycleDetector.startResponseLifecycleTracking;
+    window.ResponseLifecycleDetector.startResponseLifecycleTracking = (options) => startLifecycle({ ...options, activateObservation: true });
   });
 
   const generatingMessages = () => sentMessages.filter((message) => (

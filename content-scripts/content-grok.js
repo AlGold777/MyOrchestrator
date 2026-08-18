@@ -2067,6 +2067,9 @@
           composerConnected: composer?.isConnected === true,
           composerVisible: isElementInteractable(composer)
         });
+        const baselineSnapshot = buildBaselineSnapshot();
+        const completionAttemptReady = await window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, baselineSnapshot.text || '');
+        if (completionAttemptReady !== true) throw { type: 'completion_runtime_unavailable', message: 'Completion attempt was not registered.' };
 
         if (Array.isArray(attachments) && attachments.length) {
           let attachmentsOk = false;
@@ -2217,9 +2220,6 @@
           console.warn('[content-grok] composer snapshot failed', snapErr);
         }
         activity.heartbeat(0.4, { phase: 'typing' });
-        const baselineSnapshot = buildBaselineSnapshot();
-        const completionAttemptReady = await window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, baselineSnapshot.text || '');
-        if (completionAttemptReady !== true) throw { type: 'completion_runtime_unavailable', message: 'Completion attempt was not registered.' };
         const committedComposer = await waitForGrokComposerCommit(composer, prompt, 5000, 250);
         window.ContentUtils?.reportPromptInsertion?.(MODEL, dispatchMeta, {
           state: committedComposer ? 'inserted' : 'failed',
@@ -2753,6 +2753,7 @@
         const releaseActive = () => window.ContentUtils?.stopActiveRequest?.();
         window.ContentUtils?.startActiveRequest?.();
         window.ContentUtils?.reportProviderPipelineState?.(MODEL, acceptedMeta || msg.meta || null, 'composer', true);
+        window.ContentUtils?.reportDispatchStage?.(MODEL, acceptedMeta || msg.meta || null, 'command_accepted');
         injectAndGetResponse(msg.prompt, msg.attachments, msg.meta || null)
           .then((resp) => {
             if (msg.isFireAndForget) {

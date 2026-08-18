@@ -5663,6 +5663,7 @@ async function dispatchRound1Sequentially(selectedLLMs, prompt, attachments = []
       postCommandFocusHoldMs: resolveRound1PostCommandFocusHoldMs(llmName),
       progressFocusExtensionMs: ROUND1_PROGRESS_FOCUS_EXTENSION_MS,
       skipTypingGuard: true,
+      requireCommandAcceptance: true,
       resetStateAfterSend: false
     });
     const elapsed = Date.now() - roundStart;

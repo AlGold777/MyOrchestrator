@@ -29,10 +29,14 @@ describe('lifecycle stuck-busy handling', () => {
     sentMessages = [];
     global.chrome.runtime.sendMessage = (message, callback) => {
       sentMessages.push(message);
-      if (typeof callback === 'function') callback({});
+      if (typeof callback === 'function') callback(message?.type === 'LLM_COMPLETION_ATTEMPT'
+        ? { status: 'completion_attempt_recorded' }
+        : {});
     };
     window.chrome = global.chrome;
     loadScript('content-utils/response-lifecycle-detector.js');
+    const startLifecycle = window.ResponseLifecycleDetector.startResponseLifecycleTracking;
+    window.ResponseLifecycleDetector.startResponseLifecycleTracking = (options) => startLifecycle({ ...options, activateObservation: true });
   });
 
   const readyEvents = () => sentMessages.filter((m) => m?.type === 'LLM_RESPONSE_READY');

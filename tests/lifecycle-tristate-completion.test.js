@@ -33,10 +33,14 @@ describe('tri-state completion (stop-button)', () => {
     sentMessages = [];
     global.chrome.runtime.sendMessage = (message, callback) => {
       sentMessages.push(message);
-      if (typeof callback === 'function') callback({});
+      if (typeof callback === 'function') callback(message?.type === 'LLM_COMPLETION_ATTEMPT'
+        ? { status: 'completion_attempt_recorded' }
+        : {});
     };
     window.chrome = global.chrome;
     loadScript('content-utils/response-lifecycle-detector.js');
+    const startLifecycle = window.ResponseLifecycleDetector.startResponseLifecycleTracking;
+    window.ResponseLifecycleDetector.startResponseLifecycleTracking = (options) => startLifecycle({ ...options, activateObservation: true });
     loadScript('content-scripts/answer-pipeline-selectors.js');
     loadScript('content-scripts/turn-resolver.js');
     loadScript('content-scripts/answer-structure.js');
@@ -89,7 +93,7 @@ describe('tri-state completion (stop-button)', () => {
     loadScript('content-utils/response-lifecycle-detector.js');
     const detector = window.ResponseLifecycleDetector;
     const result = await detector.startResponseLifecycleTracking({
-      modelName: 'GPT', dispatchId: 'mandatory-authority', runSessionId: 77, promptSubmittedAt: Date.now()
+      modelName: 'GPT', dispatchId: 'mandatory-authority', runSessionId: 77, promptSubmittedAt: Date.now(), activateObservation: true
     });
     expect(result.ok).toBe(true);
     expect(detector.getCompletionSnapshot({ modelName: 'GPT', dispatchId: 'mandatory-authority' }).rolloutMode)

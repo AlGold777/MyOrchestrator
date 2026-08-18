@@ -404,10 +404,25 @@
     }
     if (message.type === 'GET_ANSWER' || message.type === 'GET_FINAL_ANSWER') {
       const responseType = message.type === 'GET_FINAL_ANSWER' ? 'FINAL_LLM_RESPONSE' : 'LLM_RESPONSE';
+      if (!String(message.prompt || '').trim()) {
+        sendResponse?.({ ok: false, accepted: false, status: 'rejected', reason: 'empty_prompt' });
+        return false;
+      }
+      sendResponse?.({
+        ok: true,
+        accepted: true,
+        status: 'accepted',
+        dispatchId: message.meta?.dispatchId || null,
+        attemptId: message.meta?.attemptId || null,
+        tabSessionId: message.meta?.tabSessionId || null
+      });
+      const releaseActive = () => window.ContentUtils?.stopActiveRequest?.();
+      window.ContentUtils?.startActiveRequest?.();
+      window.ContentUtils?.reportProviderPipelineState?.(MODEL, message.meta || null, 'composer', true);
+      window.ContentUtils?.reportDispatchStage?.(MODEL, message.meta || null, 'command_accepted');
       injectAndGetResponse(message.prompt, { attachments: message.attachments || [], meta: message.meta || null })
         .then((payload) => {
           if (!message.isFireAndForget) emitAnswer(responseType, payload, message.meta);
-          sendResponse?.({ status: message.isFireAndForget ? 'success_fire_and_forget' : 'success' });
         })
         .catch((err) => {
           const errorMessage = err?.message || String(err);
@@ -416,9 +431,13 @@
             html: '',
             error: { type: err?.type || 'generic_error', message: errorMessage }
           }, message.meta);
-          sendResponse?.({ status: 'error', message: errorMessage });
+        })
+        .finally(() => {
+          window.ContentUtils?.reportProviderPipelineState?.(MODEL, message.meta || null, 'composer', false);
+          window.ContentUtils?.reportProviderPipelineState?.(MODEL, message.meta || null, 'answer_collection', false);
+          releaseActive();
         });
-      return true;
+      return false;
     }
     if (message.action === 'getResponses') {
       const latest = readLatestResponse();

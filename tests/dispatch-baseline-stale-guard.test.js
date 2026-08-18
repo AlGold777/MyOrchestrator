@@ -135,13 +135,27 @@ describe('dispatch baseline stale guard (follow-up false-green)', () => {
       DEEPSEEK_SRC, PERPLEXITY_SRC, ZAI_SRC, KIMI_SRC].forEach((source) => {
       expect(source).toMatch(/await window\.ContentUtils\?\.reportDispatchBaseline\?\./);
     });
-    expect(UTILS_SRC).toContain("response?.status === 'dispatch_baseline_ack'");
-    expect(UTILS_SRC).toContain('setTimeout(() => finish(false), 1500)');
+    expect(UTILS_SRC).toContain("acceptedStatus: 'dispatch_baseline_ack'");
+    expect(UTILS_SRC).toContain('timeoutMs: 5000');
+    expect(UTILS_SRC).toContain('attempts: 2');
+    expect(UTILS_SRC).not.toContain('setTimeout(() => finish(false), 1500)');
     expect(UTILS_SRC).toContain('const lifecycleStart = await Promise.resolve(start.call(lifecycle');
     expect(UTILS_SRC).toContain('if (lifecycleStart?.ok !== true) return false');
     [CHATGPT_SRC, CLAUDE_SRC, GEMINI_SRC, GROK_SRC, LECHAT_SRC, QWEN_SRC,
       DEEPSEEK_SRC, PERPLEXITY_SRC, ZAI_SRC, KIMI_SRC].forEach((source) => {
       expect(source).toContain("if (completionAttemptReady !== true) throw { type: 'completion_runtime_unavailable'");
+    });
+  });
+
+  test('all provider transactions complete preflight before attachment or prompt side effects', () => {
+    [CHATGPT_SRC, CLAUDE_SRC, GEMINI_SRC, GROK_SRC, LECHAT_SRC, QWEN_SRC,
+      DEEPSEEK_SRC, PERPLEXITY_SRC, ZAI_SRC, KIMI_SRC].forEach((source) => {
+      const preflightAt = source.indexOf('reportDispatchBaseline');
+      const attachmentAt = source.indexOf('attachmentHandler?.attach');
+      const insertionAt = source.indexOf('reportPromptInsertion');
+      expect(preflightAt).toBeGreaterThan(-1);
+      expect(attachmentAt).toBeGreaterThan(preflightAt);
+      expect(insertionAt).toBeGreaterThan(preflightAt);
     });
   });
 

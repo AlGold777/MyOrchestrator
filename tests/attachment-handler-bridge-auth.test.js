@@ -243,11 +243,13 @@ describe('attachment bridge authentication', () => {
     // retry. Retrying belongs to the cascade, which observes whether the file
     // landed and moves to the next vector if it did not.
     const pasteTargets = [];
+    const body = { innerText: '' };
     const composer = {
       isConnected: true,
       focus() {},
       dispatchEvent(event) {
         pasteTargets.push(event?.type);
+        if (event?.type === 'paste') body.innerText = 'evidence.txt';
         return true;
       }
     };
@@ -263,7 +265,7 @@ describe('attachment bridge authentication', () => {
       DragEvent: class { constructor(type) { this.type = type; } },
       chrome: { runtime: { sendMessage() {}, lastError: null } },
       document: {
-        body: { innerText: '' },
+        body,
         querySelectorAll: () => emptyList,
         querySelector: (selector) => (String(selector).includes('chat-input-editor') ? composer : null)
       }
@@ -278,10 +280,11 @@ describe('attachment bridge authentication', () => {
     const result = await sandbox.AttachmentHandler.attach(
       'Kimi',
       [{ name: 'evidence.txt', type: 'text/plain', base64: 'data:text/plain;base64,eA==' }],
-      { timeoutMs: 300, dispatchEvidenceSettleMs: 0, pollMs: 50 }
+      { timeoutMs: 300, settleMs: 0, dispatchEvidenceSettleMs: 0, pollMs: 50 }
     );
 
     expect(result.success).toBe(true);
+    expect(result).toEqual(expect.objectContaining({ delivered: true, uploadSettled: true, ready: true }));
     expect(pasteTargets.filter((type) => type === 'paste')).toHaveLength(1);
     expect(BRIDGE_SRC).not.toContain('el.dispatchEvent(evPaste);\n            el.dispatchEvent(evPaste);');
   });

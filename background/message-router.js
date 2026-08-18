@@ -1144,10 +1144,26 @@ const validateLifecycleCorrelation = (llmName, message, messageType) => {
 
 const completionAuthorityKey = (llmName) => String(llmName || '').trim();
 
+const getPersistedCompletionAuthorityAttempt = (llmName) => {
+    const key = completionAuthorityKey(llmName);
+    const persisted = key ? jobState?.llms?.[key]?.completionAuthorityAttempt : null;
+    return persisted && typeof persisted === 'object' ? persisted : null;
+};
+
+const getCompletionAuthorityAttempt = (llmName) => {
+    const key = completionAuthorityKey(llmName);
+    if (!key) return null;
+    const inMemory = completionAuthorityAttempts.get(key) || null;
+    if (inMemory) return inMemory;
+    const persisted = getPersistedCompletionAuthorityAttempt(key);
+    if (persisted) completionAuthorityAttempts.set(key, persisted);
+    return persisted;
+};
+
 const recordCompletionAuthorityAttempt = (llmName, meta = {}) => {
     const key = completionAuthorityKey(llmName);
     if (!key) return null;
-    const previous = completionAuthorityAttempts.get(key) || {};
+    const previous = getCompletionAuthorityAttempt(key) || {};
     const nextDispatchId = meta.dispatchId || previous.dispatchId || null;
     const sameAttempt = Boolean(previous.dispatchId && nextDispatchId
         && String(previous.dispatchId) === String(nextDispatchId));
@@ -1163,13 +1179,18 @@ const recordCompletionAuthorityAttempt = (llmName, meta = {}) => {
         updatedAt: Date.now()
     };
     completionAuthorityAttempts.set(key, next);
+    const entry = jobState?.llms?.[key];
+    if (entry) {
+        entry.completionAuthorityAttempt = next;
+        try { saveJobState(jobState); } catch (_) {}
+    }
     return next;
 };
 
 const validateCompletionAuthorityDelivery = (llmName, message = {}) => {
     if (message.error || !String(message.answer || '').trim()) return { ok: true, reason: 'non_success_payload' };
     const meta = message.meta && typeof message.meta === 'object' ? message.meta : {};
-    const authority = completionAuthorityAttempts.get(completionAuthorityKey(llmName)) || null;
+    const authority = getCompletionAuthorityAttempt(llmName);
     const incomingDispatchId = meta.dispatchId || null;
     if (!authority) return { ok: false, reason: 'completion_attempt_unregistered' };
     if (authority.dispatchId && !incomingDispatchId) {
@@ -1183,19 +1204,37 @@ const validateCompletionAuthorityDelivery = (llmName, message = {}) => {
         return { ok: true, reason: `${rolloutMode}_explicit_legacy_delivery` };
     }
     const terminalResult = meta.completionTerminalResult || meta.terminalResult || authority.terminalResult || null;
-    return terminalResult?.status === 'SUCCESS_TERMINAL'
-        ? { ok: true, reason: 'success_terminal_authority' }
-        : { ok: false, reason: 'missing_success_terminal_authority' };
+    if (terminalResult?.status === 'SUCCESS_TERMINAL') {
+        return { ok: true, reason: 'success_terminal_authority' };
+    }
+    const explicitlyFailed = new Set(['FAILED_TERMINAL', 'STALLED', 'INTERRUPTED', 'CANCELLED']);
+    if (explicitlyFailed.has(String(terminalResult?.status || ''))) {
+        return { ok: false, reason: 'completion_terminal_failed' };
+    }
+    // Attempt authority proves that this payload belongs to the live dispatch;
+    // terminal certainty is a separate answer-quality decision. Treating an
+    // uncertain/missing terminal as an irreversible transport rejection lost
+    // complete late answers when observers were throttled. The normal answer
+    // verification/finalization gates still decide whether the payload can win.
+    return { ok: true, reason: 'attempt_authority_pending_terminal_verification' };
 };
 
 self.CompletionAuthorityRegistry = Object.freeze({
     recordAttempt: recordCompletionAuthorityAttempt,
     validateDelivery: validateCompletionAuthorityDelivery,
     get(llmName) {
-        return completionAuthorityAttempts.get(completionAuthorityKey(llmName)) || null;
+        return getCompletionAuthorityAttempt(llmName);
     },
     clear(llmName) {
-        return completionAuthorityAttempts.delete(completionAuthorityKey(llmName));
+        const key = completionAuthorityKey(llmName);
+        const deleted = completionAuthorityAttempts.delete(key);
+        const entry = jobState?.llms?.[key];
+        if (entry?.completionAuthorityAttempt) {
+            delete entry.completionAuthorityAttempt;
+            try { saveJobState(jobState); } catch (_) {}
+            return true;
+        }
+        return deleted;
     }
 });
 
@@ -1403,6 +1442,8 @@ if (typeof chrome !== 'undefined' && chrome?.runtime) {
 
 const DIAG_PINNED_LABELS = new Set([
     'ATTEMPT_CONTEXT_CAPTURED',
+    'COMPLETION_ATTEMPT_ACCEPTED',
+    'COMPLETION_ATTEMPT_REJECTED',
     'GENERATION_OBSERVED',
     'OWNERSHIP_CONFIRMED',
     'OWNERSHIP_CONFLICT',
@@ -2000,17 +2041,41 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             case 'LLM_COMPLETION_ATTEMPT': {
                 const senderGate = validateLifecycleSender(message.llmName, sender, 'LLM_COMPLETION_ATTEMPT', message.meta || {});
                 if (!senderGate.ok) {
+                    emitTelemetry(message.llmName || 'SYSTEM', 'COMPLETION_ATTEMPT_REJECTED', {
+                        level: 'warning',
+                        details: senderGate.reason,
+                        meta: { reason: senderGate.reason, ...deliveryIdentityMeta(message.meta || {}) },
+                        force: true
+                    });
                     sendResponse({ status: 'completion_attempt_rejected', reason: senderGate.reason });
                     break;
                 }
                 const correlationGate = validateLifecycleCorrelation(message.llmName, message, 'LLM_COMPLETION_ATTEMPT');
                 if (!correlationGate.ok) {
+                    emitTelemetry(message.llmName || 'SYSTEM', 'COMPLETION_ATTEMPT_REJECTED', {
+                        level: 'warning',
+                        details: correlationGate.reason,
+                        meta: { reason: correlationGate.reason, ...deliveryIdentityMeta(message.meta || {}) },
+                        force: true
+                    });
                     sendResponse({ status: 'completion_attempt_rejected', reason: correlationGate.reason });
                     break;
                 }
                 const authority = recordCompletionAuthorityAttempt(message.llmName, message.meta || {});
-                sendResponse({ status: 'completion_attempt_recorded', rolloutMode: authority?.rolloutMode || null });
-                break;
+                Promise.resolve(saveJobState(jobState)).catch(() => {}).finally(() => {
+                    emitTelemetry(message.llmName, 'COMPLETION_ATTEMPT_ACCEPTED', {
+                        level: 'info',
+                        details: 'completion_attempt_recorded',
+                        meta: {
+                            authorityAccepted: true,
+                            rolloutMode: authority?.rolloutMode || null,
+                            ...deliveryIdentityMeta(message.meta || {})
+                        },
+                        force: true
+                    });
+                    sendResponse({ status: 'completion_attempt_recorded', rolloutMode: authority?.rolloutMode || null });
+                });
+                return true;
             }
 
             case 'LLM_COMPLETION_TERMINAL': {

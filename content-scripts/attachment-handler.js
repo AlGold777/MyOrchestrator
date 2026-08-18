@@ -453,8 +453,7 @@
       // attachment path; the "+" control next to the composer opens the file
       // input used by the `input` fallback.
       strategies: ['paste', 'input'],
-      dispatchIsEvidence: true,
-      dispatchEvidenceSettleMs: 1200,
+      settleMs: 1200,
       pasteSelectors: [
         '.chat-input-editor[contenteditable="true"]',
         '.chat-input-editor',
@@ -548,7 +547,7 @@
         : (base.scaleTimeoutByFileCount !== false),
       settleMs: Number.isFinite(overrides.settleMs)
         ? overrides.settleMs
-        : (Number.isFinite(base.settleMs) ? base.settleMs : 0),
+        : (Number.isFinite(base.settleMs) ? base.settleMs : 1000),
       inputEvidenceSettleMs: Number.isFinite(overrides.inputEvidenceSettleMs)
         ? overrides.inputEvidenceSettleMs
         : (Number.isFinite(base.inputEvidenceSettleMs) ? base.inputEvidenceSettleMs : 0),
@@ -1021,12 +1020,12 @@
 
   const attach = async (model, attachments = [], overrides = {}) => {
     if (!attachments || !attachments.length) {
-      return { success: true, uploadedCount: 0, failedFiles: [], reason: 'NO_ATTACHMENTS' };
+      return { success: true, delivered: true, uploadSettled: true, ready: true, evidence: 'not_required', uploadedCount: 0, failedFiles: [], reason: 'NO_ATTACHMENTS' };
     }
     const config = resolveConfig(model, overrides);
     const files = hydrateAttachments(attachments).slice(0, config.maxFiles);
     if (!files.length) {
-      return { success: false, uploadedCount: 0, failedFiles: attachments, reason: 'NO_FILES' };
+      return { success: false, delivered: false, uploadSettled: false, ready: false, evidence: null, uploadedCount: 0, failedFiles: attachments, reason: 'NO_FILES' };
     }
     if (config.sequentialFiles === true && files.length > 1) {
       const limitedAttachments = attachments.slice(0, files.length);
@@ -1057,7 +1056,7 @@
           filename: limitedAttachments[index]?.name || null
         });
       }
-      return { success: true, uploadedCount, failedFiles: [], reason: 'SEQUENTIAL_CONFIRMED' };
+      return { success: true, delivered: true, uploadSettled: true, ready: true, evidence: 'sequential_confirmation', uploadedCount, failedFiles: [], reason: 'SEQUENTIAL_CONFIRMED' };
     }
     let attached = false;
     let attempted = false;
@@ -1287,6 +1286,10 @@
     if (!attached) {
       return {
         success: false,
+        delivered: false,
+        uploadSettled: false,
+        ready: false,
+        evidence: null,
         uploadedCount: 0,
         failedFiles: attachments,
         reason: attempted ? 'TIMEOUT' : 'MANUAL_REQUIRED'
@@ -1301,7 +1304,16 @@
         ts: Date.now()
       });
     } catch (_) {}
-    return { success: true, uploadedCount: files.length, failedFiles: [], reason: 'OK' };
+    return {
+      success: true,
+      delivered: true,
+      uploadSettled: true,
+      ready: true,
+      evidence: 'provider_observation',
+      uploadedCount: files.length,
+      failedFiles: [],
+      reason: 'OK'
+    };
   };
 
   global.AttachmentHandler = {

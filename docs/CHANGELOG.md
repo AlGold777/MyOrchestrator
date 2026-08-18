@@ -1,5 +1,15 @@
 # CHANGELOG — Project
 
+### 2026-08-18 — Восстановлена атомарная Completion/attachment transaction, version 2.81.348
+
+- Completion preflight теперь получает correlated background ACK до любых изменений composer; baseline ACK имеет bounded retry вместо ложного 1.5-секундного отказа.
+- Регистрация attempt отделена от наблюдения: baseline и observer вооружаются до Send, но generation clocks запускаются только после `PROMPT_SUBMITTED`.
+- Все десять provider adapters сразу подтверждают принятие команды, а Round 1 требует этот ACK и удерживает focus lease до подтверждённого Send либо terminal transaction failure. Вставка prompt больше не освобождает focus.
+- Completion authority сохраняется в run state и восстанавливается после перезапуска MV3 worker. Неопределённый observer terminal больше не уничтожает связанный полный ответ: его проверяет обычная answer-finalization policy; явно failed terminal остаётся запретом.
+- Attachment confirmation больше не считает сам факт dispatch доказательством доставки Kimi, ждёт стабильное upload evidence и возвращает раздельные `delivered`, `uploadSettled` и `ready`.
+- Если готовый draft не подтвердил Send, общий bounded send-only recovery проверяет точное совпадение prompt и не повторяет attachment или insertion.
+- Добавлены исполняемые тесты delayed ACK, two-phase lifecycle, worker restart, send-only recovery, focus boundary и command acceptance для десяти providers.
+
 ### 2026-08-17 — Kimi переехал на kimi.ai, version 2.81.347
 
 - Kimi target URL, host permissions, content-script matches, host detection и

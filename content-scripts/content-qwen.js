@@ -2716,6 +2716,16 @@ const keepAliveMutex = (() => {
             meta: { dispatchId: dispatchMeta?.dispatchId || null }
           });
           activity.heartbeat(0.3, { phase: 'composer-ready' });
+          qwenScope = resolveQwenChatRoot(composer);
+          const baselineUserCount = getUserMessages(qwenScope).length;
+          baselineContainerCount = getMessageContainers(qwenScope).length;
+          const assistantMessages = getAssistantMessages(qwenScope);
+          baselineAssistantCount = assistantMessages.length;
+          baselineAssistantText = assistantMessages.length
+            ? extractMessageText(assistantMessages[assistantMessages.length - 1])
+            : '';
+          const completionAttemptReady = await window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, baselineAssistantText);
+          if (completionAttemptReady !== true) throw { type: 'completion_runtime_unavailable', message: 'Completion attempt was not registered.' };
 
           if (Array.isArray(context.attachments) && context.attachments.length) {
             if (!attachmentHandler?.attach) {
@@ -2783,17 +2793,6 @@ const keepAliveMutex = (() => {
             meta: { dispatchId: dispatchMeta?.dispatchId || null, valueLength: String(validationText || '').length }
           });
           activity.heartbeat(0.4, { phase: 'typing' });
-          qwenScope = resolveQwenChatRoot(composer);
-          const baselineUserCount = getUserMessages(qwenScope).length;
-          baselineContainerCount = getMessageContainers(qwenScope).length;
-          const assistantMessages = getAssistantMessages(qwenScope);
-          baselineAssistantCount = assistantMessages.length;
-          baselineAssistantText = assistantMessages.length
-            ? extractMessageText(assistantMessages[assistantMessages.length - 1])
-            : '';
-          const completionAttemptReady = await window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, baselineAssistantText);
-          if (completionAttemptReady !== true) throw { type: 'completion_runtime_unavailable', message: 'Completion attempt was not registered.' };
-
           emitDiagnostic({
             type: 'DISPATCH',
             label: 'Qwen send attempt',
@@ -3001,27 +3000,40 @@ const keepAliveMutex = (() => {
       if (msg?.type === 'GET_ANSWER' || msg?.type === 'GET_FINAL_ANSWER') {
         lastPromptText = String(msg.prompt || lastPromptText || '');
         currentRequestContext = { isEvaluator: Boolean(msg.isEvaluator), attachments: msg.attachments || [], meta: msg.meta || null };
+        if (!String(msg.prompt || '').trim()) {
+          sendResponse?.({ ok: false, accepted: false, status: 'rejected', reason: 'empty_prompt' });
+          return false;
+        }
+        sendResponse?.({
+          ok: true,
+          accepted: true,
+          status: 'accepted',
+          dispatchId: msg.meta?.dispatchId || null,
+          attemptId: msg.meta?.attemptId || null,
+          tabSessionId: msg.meta?.tabSessionId || null
+        });
         const releaseActive = () => window.ContentUtils?.stopActiveRequest?.();
         window.ContentUtils?.startActiveRequest?.();
+        window.ContentUtils?.reportProviderPipelineState?.(MODEL, msg.meta || null, 'composer', true);
+        window.ContentUtils?.reportDispatchStage?.(MODEL, msg.meta || null, 'command_accepted');
         injectAndGetResponse(msg.prompt, currentRequestContext)
           .then(() => {
             if (msg.isFireAndForget) {
               console.log('[content-qwen] Fire-and-forget request processed. Not sending response back.');
-              sendResponse?.({ status: 'success_fire_and_forget' });
               return;
             }
-            sendResponse?.({ status: 'success' });
           })
           .catch((err) => {
             if (err?.code === 'background-force-stop') {
-              sendResponse?.({ status: 'force_stopped' });
               return;
             }
-            const errorMessage = err?.message || String(err) || 'Unknown error in content-qwen';
-            sendResponse?.({ status: 'error', message: errorMessage });
           })
-          .finally(releaseActive);
-        return true;
+          .finally(() => {
+            window.ContentUtils?.reportProviderPipelineState?.(MODEL, msg.meta || null, 'composer', false);
+            window.ContentUtils?.reportProviderPipelineState?.(MODEL, msg.meta || null, 'answer_collection', false);
+            releaseActive();
+          });
+        return false;
       }
 
       if (msg.action === 'injectPrompt' || msg.action === 'sendPrompt' || msg.action === 'REQUEST_LLM_RESPONSE') {

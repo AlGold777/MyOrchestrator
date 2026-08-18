@@ -57,17 +57,17 @@ describe('Round 1 prompt insertion focus boundary', () => {
     // previous extension step -- a stalled provider cannot keep the tab pinned
     // on a report it filed once.
     expect(SOURCE).toContain('const stageIsCurrent = entry.providerDispatchStageDispatchId === dispatchId');
-    expect(SOURCE).toContain('if (!stageIsCurrent || stageAt < progressFloorAt) break;');
+    expect(SOURCE).toContain('if (!composerTransactionActive && (!stageIsCurrent || stageAt < progressFloorAt)) break;');
     expect(SOURCE).toContain('progressFloorAt = Date.now();');
     expect(SOURCE).toContain("boundary.reason === 'hold_elapsed'");
     expect(SOURCE).toContain('extendableStages.has(progressStage)');
     expect(SOURCE).toContain("reason: extendedBoundary.reason === 'hold_elapsed'");
     expect(SOURCE).toContain("? 'progress_extension_elapsed'");
-    // Bounded: every path through the loop is capped, and only an in-flight
-    // attachment may extend repeatedly. Everything else keeps a single step,
-    // because its ceiling is one progressFocusExtensionMs.
+    // Bounded: the composer transaction owns focus until submit, but the same
+    // attachment ceiling prevents a stalled provider from pinning it forever.
     expect(SOURCE).toContain('if (extendedMs >= ceilingMs) break;');
-    expect(SOURCE).toContain('const ceilingMs = attachmentInFlight ? attachmentCeilingMs : progressFocusExtensionMs;');
+    expect(SOURCE).toContain('const composerTransactionActive = entry.providerComposerTransactionActive === true');
+    expect(SOURCE).toContain('(composerTransactionActive || attachmentInFlight)');
     expect(SOURCE).toContain('const attachmentInFlight = progressStage === ATTACHMENT_PROGRESS_STAGE;');
     expect(SOURCE).toContain('ATTACHMENT_FOCUS_EXTENSION_CEILING_MS');
     // The waiter has to outlast the longest reachable hold, or an
@@ -98,17 +98,23 @@ describe('Round 1 prompt insertion focus boundary', () => {
     });
   });
 
-  test.each([
-    ['inserted', 'prompt_inserted'],
-    ['failed', 'insertion_failed']
-  ])('releases focus on a correlated %s outcome', async (insertionState, reason) => {
+  test('prompt insertion is progress and does not release focus before Send', async () => {
     const runtime = buildRuntime();
     const neverSubmitted = new Promise(() => {});
     await expect(runtime.waitBoundary(
       neverSubmitted,
-      Promise.resolve({ insertionState }),
+      Promise.resolve({ insertionState: 'inserted' }),
+      25
+    )).resolves.toMatchObject({ reason: 'hold_elapsed' });
+  });
+
+  test('a failed insertion releases focus as a terminal transaction failure', async () => {
+    const runtime = buildRuntime();
+    await expect(runtime.waitBoundary(
+      new Promise(() => {}),
+      Promise.resolve({ insertionState: 'failed' }),
       1000
-    )).resolves.toMatchObject({ reason });
+    )).resolves.toMatchObject({ reason: 'insertion_failed' });
   });
 
   test('caps focus independently of the longer submit watchdog', async () => {

@@ -126,6 +126,7 @@ function scheduleProviderSendOnlyRecovery(llmName, options = {}) {
         await dispatchSleepMs(250);
         return sendMessageWithTimeout(tabId, llmName, {
           type: 'RECOVER_PROVIDER_SEND',
+          llmName,
           prompt: self.TransportPolicy?.resolvePromptForModel
             ? self.TransportPolicy.resolvePromptForModel(jobState?.session?.promptsByModel, llmName, jobState.prompt)
             : jobState.prompt,
@@ -709,14 +710,13 @@ async function waitForPromptFocusBoundary(submitWaiter, insertionWaiter, holdMs)
   const never = () => new Promise(() => {});
   return Promise.race([
     Promise.resolve(submitWaiter).then((payload) => (
-      payload ? { reason: 'submit_confirmed', payload } : never()
+      payload?.ok === true
+        ? { reason: 'submit_confirmed', payload }
+        : (payload ? { reason: 'submit_failed', payload } : never())
     )),
     Promise.resolve(insertionWaiter).then((payload) => (
-      payload
-        ? {
-            reason: payload.insertionState === 'inserted' ? 'prompt_inserted' : 'insertion_failed',
-            payload
-          }
+      payload && payload.insertionState !== 'inserted'
+        ? { reason: 'insertion_failed', payload }
         : never()
     )),
     dispatchSleepMs(Math.max(0, Number(holdMs) || 0)).then(() => ({ reason: 'hold_elapsed', payload: null }))
@@ -1522,7 +1522,6 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
 
       if (machine) {
         machine.ready();
-        machine.submit();
       }
 
       waiter = waitForPromptSubmitted(llmName, dispatchId, submitTimeoutMs);
@@ -1594,6 +1593,7 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
         });
       };
       let commandDeliveryResult = null;
+      let providerTransactionBoundary = null;
       if (needsFocus) {
         entry.focusSwitches = Number(entry.focusSwitches || 0) + 1;
         if (jobState?.session) {
@@ -1643,14 +1643,20 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
               const stageAt = Number(entry.providerDispatchStageAt || 0);
               const stageIsCurrent = entry.providerDispatchStageDispatchId === dispatchId;
               progressIsCurrent = stageIsCurrent && stageAt >= holdStartedAt;
+              const composerTransactionActive = entry.providerComposerTransactionActive === true
+                && entry.providerComposerTransactionDispatchId === dispatchId;
               // Stale or foreign progress ends the hold, so a stalled provider
-              // cannot keep the tab pinned on a report it filed once.
-              if (!stageIsCurrent || stageAt < progressFloorAt) break;
+              // cannot keep the tab pinned on a report it filed once. A live
+              // composer lease is the exception: preflight/background ACK may
+              // legitimately be quiet, and remains bounded by the same ceiling.
+              if (!composerTransactionActive && (!stageIsCurrent || stageAt < progressFloorAt)) break;
               const attachmentInFlight = progressStage === ATTACHMENT_PROGRESS_STAGE;
-              if (!attachmentInFlight && !extendableStages.has(progressStage)) break;
+              if (!composerTransactionActive && !attachmentInFlight && !extendableStages.has(progressStage)) break;
               // Everything except an in-flight attachment keeps the historical
               // single extension: ceiling equals one step.
-              const ceilingMs = attachmentInFlight ? attachmentCeilingMs : progressFocusExtensionMs;
+              const ceilingMs = (composerTransactionActive || attachmentInFlight)
+                ? attachmentCeilingMs
+                : progressFocusExtensionMs;
               if (extendedMs >= ceilingMs) break;
               const stepMs = Math.min(progressFocusExtensionMs, ceilingMs - extendedMs);
               progressFloorAt = Date.now();
@@ -1684,6 +1690,7 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
                 submitConfirmed: boundary.reason === 'submit_confirmed'
               }
             });
+            providerTransactionBoundary = boundary;
           }
         });
         //-- 3.1. Учитываем minFocusHoldMs для retry --//
@@ -1761,6 +1768,12 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
           return { ok: false, accepted: false, dispatchId, reason: reasonCode };
         }
       }
+      if (['submit_failed', 'insertion_failed'].includes(providerTransactionBoundary?.reason)) {
+        const reasonCode = providerTransactionBoundary?.payload?.reason || providerTransactionBoundary.reason;
+        if (machine?.isInProgress?.()) machine.error({ error: reasonCode, code: 'PROVIDER_TRANSACTION_FAILED' });
+        return { ok: false, accepted: true, dispatchId, reason: reasonCode };
+      }
+      if (machine?.isInProgress?.()) machine.submit();
       //-- 2.1. Если Round 1 (skipSubmitWait), выходим сразу после клика, не блокируя очередь --//
       if (options.skipSubmitWait) {
         const dispatchAlreadyConfirmed = entry.confirmedDispatchId === dispatchId

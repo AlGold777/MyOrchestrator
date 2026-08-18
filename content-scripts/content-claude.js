@@ -1891,6 +1891,16 @@ function isLikelyClaudeModelLabel(text = '') {
         const inputArea = await findAndCacheElement('inputField', inputSelectors);
         telemetry.composerFound = Date.now();
         emitTiming('Composer found', { composer: describeNode(inputArea) });
+        let baselineElement = findClaudeLastAssistantTurn();
+        let baselineText = baselineElement ? extractResponseText(baselineElement) : '';
+        if (!baselineElement) {
+          const baselineCandidate = selectLatestAssistantCandidate(collectClaudeResponseElements(), '', '', null);
+          baselineElement = baselineCandidate?.element || null;
+          baselineText = baselineCandidate?.text || '';
+        }
+        claudeDispatchBaseline = baselineText || '';
+        const completionAttemptReady = await window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, claudeDispatchBaseline);
+        if (completionAttemptReady !== true) throw { type: 'completion_runtime_unavailable', message: 'Completion attempt was not registered.' };
         
         if (Array.isArray(attachments) && attachments.length) {
           let attachmentsOk = false;
@@ -1988,24 +1998,6 @@ function isLikelyClaudeModelLabel(text = '') {
             level: 'info'
           });
         }
-
-        let baselineElement = findClaudeLastAssistantTurn();
-        let baselineText = baselineElement ? extractResponseText(baselineElement) : '';
-        if (!baselineElement) {
-          const baselineCandidate = selectLatestAssistantCandidate(
-            collectClaudeResponseElements(),
-            '',
-            '',
-            null
-          );
-          baselineElement = baselineCandidate?.element || null;
-          baselineText = baselineCandidate?.text || '';
-        }
-        // Expose the baseline to the ping/getResponses path so it can reject the
-        // prior answer until a new one streams in.
-        claudeDispatchBaseline = baselineText || '';
-        const completionAttemptReady = await window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, claudeDispatchBaseline);
-        if (completionAttemptReady !== true) throw { type: 'completion_runtime_unavailable', message: 'Completion attempt was not registered.' };
 
         // 2.81.117: composer clearing/shortening and a disabled Send button no
         // longer confirm submission — the button is disabled precisely because the
@@ -2413,12 +2405,26 @@ function isLikelyClaudeModelLabel(text = '') {
 
       if (message?.type === 'GET_ANSWER' || message?.type === 'GET_FINAL_ANSWER') {
         isEvaluatorMode = Boolean(message.isEvaluator);
+        const acceptedMeta = message.meta || null;
+        if (!String(message.prompt || '').trim()) {
+          sendResponse({ ok: false, accepted: false, status: 'rejected', reason: 'empty_prompt' });
+          return false;
+        }
+        sendResponse({
+          ok: true,
+          accepted: true,
+          status: 'accepted',
+          dispatchId: acceptedMeta?.dispatchId || null,
+          attemptId: acceptedMeta?.attemptId || null,
+          tabSessionId: acceptedMeta?.tabSessionId || null
+        });
         const releaseActive = () => window.ContentUtils?.stopActiveRequest?.();
         window.ContentUtils?.startActiveRequest?.();
+        window.ContentUtils?.reportProviderPipelineState?.(MODEL, acceptedMeta, 'composer', true);
+        window.ContentUtils?.reportDispatchStage?.(MODEL, acceptedMeta, 'command_accepted');
         injectAndGetResponse(message.prompt, message.attachments, message.meta || null)
           .then((resp) => {
             if (message.isFireAndForget) {
-              sendResponse({ status: 'success_fire_and_forget' });
               return;
             }
             
@@ -2452,11 +2458,9 @@ function isLikelyClaudeModelLabel(text = '') {
               });
             }
             
-            sendResponse({ status: 'success' });
           })
           .catch((err) => {
             if (err?.code === 'background-force-stop') {
-              sendResponse({ status: 'force_stopped' });
               return;
             }
             const errorMessage = err?.message || String(err) || 'Unknown error in content-claude';
@@ -2481,10 +2485,13 @@ function isLikelyClaudeModelLabel(text = '') {
               });
             }
             
-            sendResponse({ status: 'error', message: errorMessage });
           })
-          .finally(releaseActive);
-        return true;
+          .finally(() => {
+            window.ContentUtils?.reportProviderPipelineState?.(MODEL, acceptedMeta, 'composer', false);
+            window.ContentUtils?.reportProviderPipelineState?.(MODEL, acceptedMeta, 'answer_collection', false);
+            releaseActive();
+          });
+        return false;
       }
 
       if (message?.action === 'getResponses') {

@@ -1165,6 +1165,9 @@ const chatgptScrollCoordinator = window.ScrollCoordinator
         }
         
         console.log('[CONTENT-GPT] Input field found. Injecting prompt...');
+        const preDispatchBaseline = grabLatestAssistantMarkup().text || '';
+        const completionAttemptReady = await window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, preDispatchBaseline);
+        if (completionAttemptReady !== true) throw { type: 'completion_runtime_unavailable', message: 'Completion attempt was not registered.' };
         if (Array.isArray(attachments) && attachments.length) {
           let attachmentsOk = false;
           if (attachmentHandler?.attach) {
@@ -1224,10 +1227,6 @@ const chatgptScrollCoordinator = window.ScrollCoordinator
         console.log('[CONTENT-GPT] Prompt injected, waiting for UI to update...');
         await sleep(120);
         await sleep(2000);
-
-        const preDispatchBaseline = grabLatestAssistantMarkup().text || '';
-        const completionAttemptReady = await window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, preDispatchBaseline);
-        if (completionAttemptReady !== true) throw { type: 'completion_runtime_unavailable', message: 'Completion attempt was not registered.' };
 
         // Ищем кнопку отправки с РАСШИРЕННЫМИ селекторами
         const sendButtonSelectors = [
@@ -1587,13 +1586,26 @@ const chatgptScrollCoordinator = window.ScrollCoordinator
       isEvaluatorMode = message.isEvaluator || false;
       console.log(`[CONTENT-GPT] Received ${message.type}, isEvaluator: ${isEvaluatorMode}`);
       const dispatchMeta = message?.meta && typeof message.meta === 'object' ? message.meta : null;
+      if (!String(message.prompt || '').trim()) {
+        sendResponse({ ok: false, accepted: false, status: 'rejected', reason: 'empty_prompt' });
+        return false;
+      }
+      sendResponse({
+        ok: true,
+        accepted: true,
+        status: 'accepted',
+        dispatchId: dispatchMeta?.dispatchId || null,
+        attemptId: dispatchMeta?.attemptId || null,
+        tabSessionId: dispatchMeta?.tabSessionId || null
+      });
       const releaseActive = () => window.ContentUtils?.stopActiveRequest?.();
       window.ContentUtils?.startActiveRequest?.();
+      window.ContentUtils?.reportProviderPipelineState?.(MODEL, dispatchMeta, 'composer', true);
+      window.ContentUtils?.reportDispatchStage?.(MODEL, dispatchMeta, 'command_accepted');
 
       injectAndGetResponse(message.prompt, message.attachments, message.meta || null)
         .then((resp) => {
           if (message.isFireAndForget) {
-              sendResponse({ status: 'success_fire_and_forget' });
               return;
           }
           
@@ -1623,11 +1635,9 @@ const chatgptScrollCoordinator = window.ScrollCoordinator
               });
           }
           
-          sendResponse({ status: 'success' });
         })
         .catch((err) => {
           if (err?.code === 'background-force-stop') {
-              sendResponse({ status: 'force_stopped' });
               return;
           }
           const errorMessage = err.message || err?.message || String(err);
@@ -1645,10 +1655,13 @@ const chatgptScrollCoordinator = window.ScrollCoordinator
               });
           }
           
-          sendResponse({ status: 'error', message: errorMessage });
         })
-        .finally(releaseActive);
-      return true; // Важно для асинхронной обработки
+        .finally(() => {
+          window.ContentUtils?.reportProviderPipelineState?.(MODEL, dispatchMeta, 'composer', false);
+          window.ContentUtils?.reportProviderPipelineState?.(MODEL, dispatchMeta, 'answer_collection', false);
+          releaseActive();
+        });
+      return false;
     }
     
     return false;

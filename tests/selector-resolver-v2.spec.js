@@ -26,7 +26,11 @@ const flushAsync = async (ms = 0) => new Promise((resolve) => setTimeout(resolve
 const resetChrome = () => {
   global.chrome = {
     runtime: {
-      sendMessage: jest.fn(),
+      sendMessage: jest.fn((message, callback) => {
+        if (typeof callback === 'function') callback(message?.type === 'LLM_COMPLETION_ATTEMPT'
+          ? { status: 'completion_attempt_recorded' }
+          : {});
+      }),
       lastError: null,
       onMessage: {
         addListener: jest.fn()
@@ -83,6 +87,8 @@ const bootstrapModules = () => {
   loadScript('shared/selector-profile-lifecycle.js');
   loadScript('content-utils/selector-resolver-v2.js');
   loadScript('content-utils/response-lifecycle-detector.js');
+  const startLifecycle = window.ResponseLifecycleDetector.startResponseLifecycleTracking;
+  window.ResponseLifecycleDetector.startResponseLifecycleTracking = (options) => startLifecycle({ ...options, activateObservation: true });
 };
 
 describe('SelectorResolverV2 and ResponseLifecycleDetector', () => {

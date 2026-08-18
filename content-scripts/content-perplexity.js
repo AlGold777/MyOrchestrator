@@ -2052,6 +2052,7 @@ const onRuntimeMessage = (message, sender, sendResponse) => {
     const releaseActive = () => window.ContentUtils?.stopActiveRequest?.();
     window.ContentUtils?.startActiveRequest?.();
     window.ContentUtils?.reportProviderPipelineState?.(MODEL, message.meta || null, 'composer', true);
+    window.ContentUtils?.reportDispatchStage?.(MODEL, message.meta || null, 'command_accepted');
     injectAndGetResponse(message.prompt, message.attachments, message.meta || null)
       .then(result => {
         if (message.isFireAndForget) {

@@ -74,6 +74,45 @@
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  function sendRuntimeMessageForAck(message, {
+    acceptedStatus,
+    timeoutMs = 5000,
+    attempts = 2
+  } = {}) {
+    const run = (attempt) => new Promise((resolve) => {
+      let settled = false;
+      const finish = (result) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(result);
+      };
+      const timer = setTimeout(() => finish({ ok: false, reason: 'ack_timeout' }), timeoutMs);
+      try {
+        chrome.runtime.sendMessage(message, (response) => {
+          const runtimeError = chrome.runtime?.lastError?.message || '';
+          if (runtimeError) {
+            finish({ ok: false, reason: runtimeError });
+            return;
+          }
+          const ok = response?.status === acceptedStatus;
+          finish({
+            ok,
+            reason: ok ? null : (response?.reason || response?.status || 'ack_rejected'),
+            response: response || null
+          });
+        });
+      } catch (error) {
+        finish({ ok: false, reason: error?.message || 'runtime_send_failed' });
+      }
+    }).then(async (result) => {
+      if (result.ok || attempt >= attempts) return result;
+      await sleep(100 * attempt);
+      return run(attempt + 1);
+    });
+    return run(1);
+  }
+
   function isTrackerActive(tracker) {
     return !!tracker && tracker.state !== 'CANCELLED' && tracker.cancelledAt == null;
   }
@@ -1014,6 +1053,12 @@
       traceId,
       startedAt: Date.now(),
       promptSubmittedAt,
+      observationStartedAt: null,
+      observationPromise: null,
+      attemptAuthorityAcceptedAt: null,
+      attemptAuthorityResponse: null,
+      lifecycleSettings: null,
+      completionRolloutMode: null,
       baselineElement: baselineSnapshot?.element || null,
       baselineTextHash: shortHash(normalizeText(baselineSnapshot?.text || '')),
       baselineTextLength: Number(baselineSnapshot?.textLength || 0),
@@ -1027,7 +1072,7 @@
       lastTextHash: null,
       lastTextLength: 0,
       stableSince: Date.now(),
-      state: 'PROMPT_SUBMITTED',
+      state: 'ATTEMPT_PREPARED',
       latestAnswerEl: null,
       latestAnswerText: '',
       mutationCount: 0,
@@ -1803,7 +1848,14 @@
     const dispatchId = String(options?.dispatchId || 'unbound');
     const flightKey = `${modelName}:${dispatchId}`;
     const activeFlight = trackerStartFlights.get(flightKey);
-    if (activeFlight) return activeFlight;
+    if (activeFlight) {
+      return activeFlight.then((result) => {
+        if (options.activateObservation === true && result?.ok && result?.tracker) {
+          return activateResponseLifecycleTracking(result.tracker, options);
+        }
+        return result;
+      });
+    }
     const flight = startResponseLifecycleTrackingInternal(options)
       .finally(() => {
         if (trackerStartFlights.get(flightKey) === flight) trackerStartFlights.delete(flightKey);
@@ -1823,7 +1875,8 @@
     promptSubmittedAt = Date.now(),
     traceId = null,
     baselineText = null,
-    turnAnchor = null
+    turnAnchor = null,
+    activateObservation = false
   }) {
     const activeTracker = trackers.get(modelName);
     const sameDispatch = !!activeTracker
@@ -1834,6 +1887,9 @@
         || activeTracker.generationEpoch === null || activeTracker.generationEpoch === undefined
         || Number(activeTracker.generationEpoch) === Number(generationEpoch));
     if (sameDispatch) {
+      if (activateObservation === true) {
+        return activateResponseLifecycleTracking(activeTracker, { promptSubmittedAt });
+      }
       return { ok: true, reused: true, tracker: activeTracker };
     }
 
@@ -1889,42 +1945,51 @@
       stopResponseLifecycleTracking({ modelName, dispatchId, runSessionId, reason: 'completion_protocol_unavailable' });
       return { ok: false, reason: 'completion_protocol_unavailable' };
     }
-    tracker.completionSession = new CompletionProtocol.CompletionSession(Object.freeze({
-      runSessionId: tracker.runSessionId,
-      dispatchId: tracker.dispatchId,
-      generationEpoch: tracker.generationEpoch,
-      promptSubmittedAt: tracker.promptSubmittedAt,
-      baselineAnswerSignature: tracker.baselineTextHash,
-      anchorAnswerCount: tracker.turnAnchor,
-      provider: platformForModel(modelName)
-    }), {
-      attemptId: tracker.traceId || tracker.dispatchId || `${modelName}:${tracker.promptSubmittedAt}`,
-      rolloutMode: CompletionProtocol.CompletionRollout.normalize(settings.completionProtocolV2),
-      confirmationWindowMs: Number(settings.producerConfirmationWindowMs || settings.stableMs || 1500),
-      timeouts: {
-        progressTimeoutMs: Number(settings.progressTimeoutMs || settings.answerCompleteTimeoutMs),
-        producerStuckTimeoutMs: Number(settings.producerStuckTimeoutMs || settings.answerCompleteTimeoutMs),
-        hardAttemptTimeoutMs: Math.max(Number(settings.answerCompleteTimeoutMs || 0), Number(window.AnswerPipelineConfig?.streaming?.adaptiveTimeout?.hardMax || 0))
-      },
-      onTransition: (transition) => emitCompletionTransition(tracker, transition)
+    tracker.lifecycleSettings = settings;
+    tracker.completionRolloutMode = CompletionProtocol.CompletionRollout.normalize(settings.completionProtocolV2);
+    const authorityAck = await sendRuntimeMessageForAck({
+      type: 'LLM_COMPLETION_ATTEMPT',
+      llmName: modelName,
+      meta: {
+        runSessionId: tracker.runSessionId,
+        dispatchId: tracker.dispatchId,
+        generationEpoch: tracker.generationEpoch,
+        rolloutMode: tracker.completionRolloutMode,
+        protocolVersion: CompletionProtocol?.version || null
+      }
+    }, {
+      acceptedStatus: 'completion_attempt_recorded',
+      timeoutMs: 5000,
+      attempts: 2
     });
-    try {
-      chrome.runtime.sendMessage({
-        type: 'LLM_COMPLETION_ATTEMPT',
-        llmName: modelName,
-        meta: {
-          runSessionId: tracker.runSessionId,
-          dispatchId: tracker.dispatchId,
-          generationEpoch: tracker.generationEpoch,
-          rolloutMode: tracker.completionSession.rolloutMode,
-          protocolVersion: CompletionProtocol?.version || null
-        }
+    if (!authorityAck.ok) {
+      emitLifecycleTelemetry('COMPLETION_ATTEMPT_BOOTSTRAP_FAILED', {
+        modelName,
+        state: 'ERROR',
+        runSessionId,
+        dispatchId,
+        phaseEvidence: { reason: authorityAck.reason || 'authority_ack_failed', runtime: completionRuntimeDescriptor() }
       });
-    } catch (_) {}
+      stopResponseLifecycleTracking({ modelName, dispatchId, runSessionId, reason: 'authority_ack_failed' });
+      return { ok: false, reason: authorityAck.reason || 'authority_ack_failed' };
+    }
+    tracker.attemptAuthorityAcceptedAt = Date.now();
+    tracker.attemptAuthorityResponse = authorityAck.response || null;
     emitLifecycleTelemetry('ATTEMPT_CONTEXT_CAPTURED', {
       modelName,
       state: tracker.state,
-      phaseEvidence: { attemptContext: tracker.completionSession.context }
+      phaseEvidence: {
+        attemptContext: {
+          runSessionId: tracker.runSessionId,
+          dispatchId: tracker.dispatchId,
+          generationEpoch: tracker.generationEpoch,
+          baselineAnswerSignature: tracker.baselineTextHash,
+          anchorAnswerCount: tracker.turnAnchor,
+          provider: platformForModel(modelName)
+        },
+        authorityAccepted: true,
+        observationArmed: false
+      }
     });
     const previouslyRegistered = registeredCandidates.get(modelName);
     if (previouslyRegistered?.traceId && traceId && String(previouslyRegistered.traceId) !== String(traceId)) {
@@ -1945,12 +2010,57 @@
     } else {
       attachTrackerObserver(tracker, document.body);
     }
-    waitForAnswerStart({
-      modelName,
-      promptSubmittedAt,
+    if (activateObservation === true) {
+      return activateResponseLifecycleTracking(tracker, { promptSubmittedAt });
+    }
+    return { ok: true, tracker, authorityAccepted: true, observationArmed: false };
+  }
+
+  function activateResponseLifecycleTracking(tracker, options = {}) {
+    if (!tracker || !isTrackerActive(tracker)) return trackerCancelledResult(tracker);
+    if (!tracker.attemptAuthorityAcceptedAt) return { ok: false, reason: 'attempt_authority_unconfirmed' };
+    if (tracker.observationPromise) {
+      return { ok: true, reused: true, tracker, observationArmed: true };
+    }
+    const settings = tracker.lifecycleSettings || RESPONSE_LIFECYCLE_DEFAULTS;
+    const submittedAt = Number(options.promptSubmittedAt || Date.now());
+    tracker.promptSubmittedAt = submittedAt;
+    tracker.observationStartedAt = Date.now();
+    tracker.state = 'PROMPT_SUBMITTED';
+    tracker.completionSession = new CompletionProtocol.CompletionSession(Object.freeze({
+      runSessionId: tracker.runSessionId,
+      dispatchId: tracker.dispatchId,
+      generationEpoch: tracker.generationEpoch,
+      promptSubmittedAt: submittedAt,
+      baselineAnswerSignature: tracker.baselineTextHash,
+      anchorAnswerCount: tracker.turnAnchor,
+      provider: platformForModel(tracker.modelName)
+    }), {
+      attemptId: tracker.traceId || tracker.dispatchId || `${tracker.modelName}:${submittedAt}`,
+      rolloutMode: tracker.completionRolloutMode || CompletionProtocol.CompletionRollout.normalize(settings.completionProtocolV2),
+      confirmationWindowMs: Number(settings.producerConfirmationWindowMs || settings.stableMs || 1500),
+      timeouts: {
+        progressTimeoutMs: Number(settings.progressTimeoutMs || settings.answerCompleteTimeoutMs),
+        producerStuckTimeoutMs: Number(settings.producerStuckTimeoutMs || settings.answerCompleteTimeoutMs),
+        hardAttemptTimeoutMs: Math.max(Number(settings.answerCompleteTimeoutMs || 0), Number(window.AnswerPipelineConfig?.streaming?.adaptiveTimeout?.hardMax || 0))
+      },
+      onTransition: (transition) => emitCompletionTransition(tracker, transition)
+    });
+    emitLifecycleTelemetry('ATTEMPT_CONTEXT_CAPTURED', {
+      modelName: tracker.modelName,
+      state: tracker.state,
+      phaseEvidence: {
+        attemptContext: tracker.completionSession.context,
+        authorityAccepted: true,
+        observationArmed: true
+      }
+    });
+    tracker.observationPromise = waitForAnswerStart({
+      modelName: tracker.modelName,
+      promptSubmittedAt: submittedAt,
       timeoutMs: settings.answerStartTimeoutMs,
       pollIntervalMs: Math.min(settings.pollIntervalMs, 500),
-      traceId
+      traceId: tracker.traceId
     }).then((startResult) => {
       if (!startResult?.ok) {
         if (isTrackerActive(tracker) && tracker.completionSession) {
@@ -1970,36 +2080,36 @@
         || 0
       );
       return waitForAnswerComplete({
-        modelName,
+        modelName: tracker.modelName,
         timeoutMs: Math.max(
           Number(settings.answerCompleteTimeoutMs || 0),
           pipelineHardMaxMs
         ),
         stableMs: settings.stableMs,
         pollIntervalMs: settings.pollIntervalMs,
-        traceId
+        traceId: tracker.traceId
       });
     }).catch((err) => {
       emitLifecycleTelemetry('LIFECYCLE_TRACKING_ERROR', {
-        modelName,
+        modelName: tracker.modelName,
         state: 'ERROR',
         confidence: 0
       });
       try {
         chrome.runtime.sendMessage({
           type: 'LLM_DIAGNOSTIC_EVENT',
-          llmName: modelName,
+          llmName: tracker.modelName,
           event: {
             type: 'LIFECYCLE',
             label: 'LIFECYCLE_TRACKING_ERROR',
             level: 'warning',
             details: err?.message || String(err),
-            meta: { modelName, traceId }
+            meta: { modelName: tracker.modelName, traceId: tracker.traceId }
           }
         });
       } catch (_) {}
     });
-    return { ok: true, tracker };
+    return { ok: true, tracker, observationArmed: true };
   }
 
   function stopResponseLifecycleTracking({
@@ -2072,7 +2182,8 @@
           documentInstanceId: message?.meta?.documentInstanceId || lifecycleDocumentInstanceId,
           navigationEpoch: message?.meta?.navigationEpoch ?? lifecycleNavigationEpoch,
           promptSubmittedAt: Date.now(),
-          traceId: message?.meta?.traceId || message?.meta?.dispatchId || null
+          traceId: message?.meta?.traceId || message?.meta?.dispatchId || null,
+          activateObservation: true
         })).catch(() => {});
         return result;
       }
@@ -2179,6 +2290,7 @@
   const ResponseLifecycleDetector = {
     createTracker,
     startResponseLifecycleTracking,
+    activateResponseLifecycleTracking,
     stopResponseLifecycleTracking,
     detectGenerationState: detectGeneratingIndicators,
     detectGeneratingIndicators,
