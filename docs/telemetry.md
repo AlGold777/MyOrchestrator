@@ -1688,12 +1688,12 @@ Purpose: complete trace from tab open to prompt confirmation.
 - `ATTACH_CANDIDATE` / `TAB_ATTACHED` / `ATTACH_REJECTED` - attach flow and rejection.
 - `TAB_READY_CHECK` / `TAB_READY_WAIT_END` / `TAB_READY_FAIL` - tab readiness (load/reload).
 - `TAB_DISCARDED_RELOAD` - discarded tab recovery.
-- `DISPATCH_LOCK_ACQUIRE` / `DISPATCH_START` / `DISPATCH_SEND` - queue and send phase. `DISPATCH_SEND` carries the pre-send split: `readyWaitMs` total, of which `tabReadyMs` (tab load/reload), `ackWaitMs` (ready/ACK handshake) and `noFocusProbeMs` (no-focus probe).
+- `DISPATCH_LOCK_ACQUIRE` / `DISPATCH_START` / `DISPATCH_COMMAND_ACCEPTED` / `DISPATCH_SEND` - queue and send phase. `DISPATCH_COMMAND_ACCEPTED` proves that the content script owns the correlated transaction. `DISPATCH_SEND` is emitted only when the provider adapter reports `send_action_requested`; it carries the earlier readiness split (`readyWaitMs`, `tabReadyMs`, `ackWaitMs`, `noFocusProbeMs`) without misclassifying command delivery as a physical Send action.
 - `READY_REANNOUNCE_REQUESTED` - background asked an open page to replay `SCRIPT_READY` because worker memory held no correlated handshake.
 - `PRE_INSERTION_FAILURE_DEFERRED` - a dispatch failed before the prompt reached the composer; the terminal is deferred once so the Round 2 repair can re-dispatch. Meta: `reason`, `failureClass`, `deferredFinalStatus`, `attempt`.
 - `FINALIZATION_DECISION` - meta carries `decisionReasons` (why a finalization was blocked), `liftedDecisionReasons` and `acceptedOnStableEvidence` (strict-verification blocker lifted on stable, identity-matched evidence).
 - `PROMPT_SUBMITTED_ACCEPTED` / `PROMPT_SUBMITTED_REJECTED` / `PROMPT_SUBMITTED_STALE` - submit confirmation handling.
-- `PROMPT_SUBMITTED_TIMEOUT` - submit confirmation timeout (no signal received).
+- `PROMPT_SUBMITTED_TIMEOUT` - submit confirmation timeout (no signal received); its budget starts at provider `send_action_requested`, never during attachment upload or composer preparation.
 - `PIPELINE_START` / `PREPARATION_*` / `STREAMING_*` / `FINALIZATION_*` / `PIPELINE_COMPLETE` / `PIPELINE_ERROR` - content pipeline phases.
 - `STOP_DISAPPEARED` - stop button vanished (completion heuristic).
 - `SCRIPT_HEALTH_FAIL` - health check failure.

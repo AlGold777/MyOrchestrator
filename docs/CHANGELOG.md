@@ -1,5 +1,13 @@
 # CHANGELOG — Project
 
+### 2026-08-18 — Исправлена causal boundary отправки, version 2.81.349
+
+- Completion authority ACK возвращается сразу после correlated in-memory acceptance и больше не блокируется полной записью `jobState`; durability выполняется асинхронно.
+- Submit-confirmation timeout регистрируется заранее, но запускается только на фактическом provider stage `send_action_requested`; загрузка attachment и подготовка composer больше не расходуют его бюджет.
+- `DISPATCH_COMMAND_ACCEPTED` теперь отдельно фиксирует доставку команды content script, а canonical `DISPATCH_SEND` означает реальный provider Send action, а не намерение background.
+- Perplexity один раз пересоздаёт сериализованную debugger session, если SPA navigation инвалидировала её непосредственно перед trusted Send.
+- Добавлены runtime-регрессии для blocked persistence ACK, delayed waiter arm, provider Send boundary и Perplexity debugger-session reacquire. Полный набор: 247 suites, 1902 tests.
+
 ### 2026-08-18 — Восстановлена атомарная Completion/attachment transaction, version 2.81.348
 
 - Completion preflight теперь получает correlated background ACK до любых изменений composer; baseline ACK имеет bounded retry вместо ложного 1.5-секундного отказа.
