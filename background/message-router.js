@@ -120,6 +120,7 @@ const ensureCompletionRuntimeInTab = (tabId, llmName) => {
     completionRuntimeRepairFlights.set(numericTabId, flight);
     return flight;
 };
+self.ensureCompletionRuntimeInTab = ensureCompletionRuntimeInTab;
 
 try {
     chrome.tabs?.onRemoved?.addListener?.((tabId) => {

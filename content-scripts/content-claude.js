@@ -2113,11 +2113,15 @@ function isLikelyClaudeModelLabel(text = '') {
         // retries prevents a fast Claude UI transition from becoming the new
         // baseline and being mistaken for "send not confirmed".
         const sendBaseline = captureClaudeSendBaseline(inputArea);
+        window.ContentUtils?.reportDispatchStage?.(MODEL, dispatchMeta, 'send_action_requested');
         await tryEnterSend({ ctrlKey: true });
         let sendButton = null;
         let sentConfirmed = await confirmClaudeSend(sendBaseline, inputArea);
 
         if (!sentConfirmed) {
+          window.ContentUtils?.reportDispatchStage?.(MODEL, dispatchMeta, 'send_action_failed', {
+            outcome: 'unconfirmed', reason: 'send_not_confirmed'
+          });
           console.log('[content-claude] Ctrl+Enter not confirmed, searching send button (fast)');
           activity.heartbeat(0.45, { phase: 'send-button-search' });
           sendButton = await findAndCacheElement('sendButton', sendButtonSelectors, 1500).catch(() => null);
@@ -2159,6 +2163,9 @@ function isLikelyClaudeModelLabel(text = '') {
           });
           activity.heartbeat(0.55, { phase: 'send-confirmation-deferred' });
         } else {
+          window.ContentUtils?.reportDispatchStage?.(MODEL, dispatchMeta, 'send_action_completed', {
+            outcome: 'confirmed'
+          });
           telemetry.sendConfirmed = Date.now();
           emitTiming('Send confirmed', {
             confirmMs: telemetry.sendConfirmed - (telemetry.sendStart || telemetry.start)

@@ -1577,14 +1577,22 @@ const hydrateAttachments = (raw = []) =>
         activity.heartbeat(0.45, { phase: 'typing' });
 
         let submitOutcome;
+        window.ContentUtils?.reportDispatchStage?.(MODEL, dispatchMeta, 'send_action_requested');
         try {
           submitOutcome = await sendComposer(composer, prompt);
         } catch (sendError) {
+          window.ContentUtils?.reportDispatchStage?.(MODEL, dispatchMeta, 'send_action_failed', {
+            outcome: 'failed', reason: sendError?.type || sendError?.message || 'send_failed'
+          });
           reportSubmitMethod('none', 'none', sendError?.attempts || []);
           throw sendError;
         }
         const submitMethod = submitOutcome?.method || 'unknown';
         const submitEvidence = submitOutcome?.evidence || 'none';
+        window.ContentUtils?.reportDispatchStage?.(MODEL, dispatchMeta, 'send_action_completed', {
+          outcome: submitEvidence === 'direct' ? 'confirmed' : 'unconfirmed',
+          reason: submitMethod
+        });
         reportSubmitMethod(submitMethod, submitEvidence, submitOutcome?.attempts);
         activity.heartbeat(0.6, { phase: 'send-dispatched' });
         try {

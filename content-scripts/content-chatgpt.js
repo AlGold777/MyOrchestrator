@@ -1226,7 +1226,7 @@ const chatgptScrollCoordinator = window.ScrollCoordinator
 
         console.log('[CONTENT-GPT] Prompt injected, waiting for UI to update...');
         await sleep(120);
-        await sleep(2000);
+        await sleep(200);
 
         // Ищем кнопку отправки с РАСШИРЕННЫМИ селекторами
         const sendButtonSelectors = [
@@ -1319,6 +1319,7 @@ const chatgptScrollCoordinator = window.ScrollCoordinator
 
         let sendButton = null;
         let confirmed = false;
+        window.ContentUtils?.reportDispatchStage?.(MODEL, dispatchMeta, 'send_action_requested');
         // With an attachment ChatGPT may keep Send disabled while its upload card
         // settles. Keyboard submission during that window can leave the add-file
         // overlay open. Wait for the real enabled Send control and click it first.
@@ -1353,6 +1354,9 @@ const chatgptScrollCoordinator = window.ScrollCoordinator
           confirmed = await confirmChatgptSend();
         }
         if (!confirmed) {
+          window.ContentUtils?.reportDispatchStage?.(MODEL, dispatchMeta, 'send_action_failed', {
+            outcome: 'failed', reason: 'send_not_confirmed'
+          });
           // Wait a bit for Send to become enabled after React state updates
           console.log('[CONTENT-GPT] Looking for send button...');
           activity.heartbeat(0.45, { phase: 'send-button-search' });
@@ -1401,6 +1405,9 @@ const chatgptScrollCoordinator = window.ScrollCoordinator
           });
           throw { type: 'send_failed', message: 'ChatGPT send not confirmed' };
         }
+        window.ContentUtils?.reportDispatchStage?.(MODEL, dispatchMeta, 'send_action_completed', {
+          outcome: 'confirmed'
+        });
         activity.heartbeat(0.5, { phase: 'send-dispatched' });
         emitDiagnostic({
           type: 'DISPATCH',

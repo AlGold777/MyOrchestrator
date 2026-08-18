@@ -14,6 +14,7 @@ const ROUND1_BEFORE_SEND_MS = 500;
 //- 1.2. Round 1 sends the command quickly, but confirmation is handled explicitly in Round 2. -//
 const ROUND1_POST_SEND_MS = 500;
 const ROUND1_PRIORITY_MODELS = Object.freeze(['Qwen']);
+const ROUND1_DEFERRED_MODELS = Object.freeze(['Kimi', 'Z.ai']);
 const ROUND1_POST_COMMAND_FOCUS_HOLD_MS = Object.freeze({
   Qwen: 6000
 });
@@ -4667,6 +4668,13 @@ function updateMv3SurvivalAlarm(state = jobState) {
 
 function rehydrateActiveJobRuntime(source = 'load_job_state') {
   if (mv3RehydrationInFlight) return false;
+  // A survival alarm can fire in the same live worker while Round 1 is
+  // awaiting a provider transaction. That is not a restart and must never
+  // clear round ownership or replace current dispatch identities.
+  if (self.__dispatchRoundsRuntimeActive === true) {
+    updateMv3SurvivalAlarm(jobState);
+    return false;
+  }
   if (!jobState?.session?.startTime || !jobState?.llms || !hasOpenModelRuns(jobState)) {
     updateMv3SurvivalAlarm(jobState);
     return false;
@@ -4796,6 +4804,11 @@ function rehydrateActiveJobRuntime(source = 'load_job_state') {
 if (typeof chrome !== 'undefined' && chrome?.alarms?.onAlarm?.addListener) {
   chrome.alarms.onAlarm.addListener((alarm) => {
     if (alarm?.name !== MV3_SURVIVAL_ALARM) return;
+    if (self.__dispatchRoundsRuntimeActive === true
+      || (jobState?.session?.roundsInProgress === true && hasOpenModelRuns(jobState))) {
+      updateMv3SurvivalAlarm(jobState);
+      return;
+    }
     loadJobState()
       .catch((err) => console.warn('[BACKGROUND] MV3 survival alarm failed', err));
   });
@@ -4838,6 +4851,7 @@ async function saveJobState(state) {
 
 async function loadJobState() {
   try {
+    if (self.__dispatchRoundsRuntimeActive === true) return;
     const saved = await CompressedStorage.get('jobState');
     if (saved) {
       jobState = saved;
@@ -5587,12 +5601,19 @@ async function recoverRound1TabReadiness(llmName, prompt, attachments = [], sess
 const orderRound1Models = (selectedLLMs = []) => {
   const source = Array.isArray(selectedLLMs) ? selectedLLMs.filter(Boolean) : [];
   const priorityRank = new Map(ROUND1_PRIORITY_MODELS.map((name, index) => [name, index]));
+  const deferredRank = new Map(ROUND1_DEFERRED_MODELS.map((name, index) => [name, index]));
   return source
     .map((name, index) => ({ name, index }))
     .sort((a, b) => {
       const rankA = priorityRank.has(a.name) ? priorityRank.get(a.name) : Number.MAX_SAFE_INTEGER;
       const rankB = priorityRank.has(b.name) ? priorityRank.get(b.name) : Number.MAX_SAFE_INTEGER;
-      return rankA === rankB ? a.index - b.index : rankA - rankB;
+      if (rankA !== rankB) return rankA - rankB;
+      const deferredA = deferredRank.has(a.name) ? deferredRank.get(a.name) : -1;
+      const deferredB = deferredRank.has(b.name) ? deferredRank.get(b.name) : -1;
+      if (deferredA === -1 && deferredB !== -1) return -1;
+      if (deferredA !== -1 && deferredB === -1) return 1;
+      if (deferredA !== deferredB) return deferredA - deferredB;
+      return a.index - b.index;
     })
     .map(({ name }) => name);
 };
@@ -6565,6 +6586,7 @@ async function dispatchRound3CollectAnswers(selectedLLMs, sessionId) {
 //-- 3.1. Исправленное расписание: Round 0-1-2-3-4 с правильным порядком --//
 //-- 6.1. Флаг активности Rounds для защиты от supervisor --//
 async function runDispatchRounds(selectedLLMs, prompt, forceNewTabs, attachments = [], options = {}) {
+  self.__dispatchRoundsRuntimeActive = true;
   let bootstrapSignalled = false;
   const signalBootstrap = (result = true) => {
     if (bootstrapSignalled) return;
@@ -6756,6 +6778,7 @@ async function runDispatchRounds(selectedLLMs, prompt, forceNewTabs, attachments
     schedulePromptDispatchSupervisor();
   } finally {
     signalBootstrap(false);
+    self.__dispatchRoundsRuntimeActive = false;
     //-- 6.2. Снимаем флаг активности Rounds --//
     if (jobState?.session) {
       jobState.session.roundsInProgress = false;

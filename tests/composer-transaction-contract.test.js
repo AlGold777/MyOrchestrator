@@ -4,6 +4,25 @@ const path = require('path');
 const read = (file) => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
 
 describe('composer transaction contract', () => {
+  test.each([
+    ['GPT', 'content-scripts/content-chatgpt.js'],
+    ['Claude', 'content-scripts/content-claude.js'],
+    ['DeepSeek', 'content-scripts/content-deepseek.js'],
+    ['Gemini', 'content-scripts/content-gemini.js'],
+    ['Grok', 'content-scripts/content-grok.js'],
+    ['Le Chat', 'content-scripts/content-lechat.js'],
+    ['Perplexity', 'content-scripts/content-perplexity.js'],
+    ['Qwen', 'content-scripts/content-qwen.js']
+  ])('%s publishes provider Send action between Completion preflight and submit confirmation', (_name, file) => {
+    const source = read(file);
+    const preflightAt = source.indexOf('reportDispatchBaseline');
+    const sendAt = source.indexOf("'send_action_requested'", preflightAt);
+    const submittedAt = source.indexOf("type: 'PROMPT_SUBMITTED'", sendAt);
+    expect(preflightAt).toBeGreaterThan(-1);
+    expect(sendAt).toBeGreaterThan(preflightAt);
+    expect(submittedAt).toBeGreaterThan(sendAt);
+  });
+
   test('shared paste transaction rejects and avoids duplicated prompt bodies', async () => {
     delete window.ContentUtils;
     window.eval(read('content-scripts/content-utils.js'));

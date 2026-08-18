@@ -10,7 +10,9 @@ const ORCH_SRC = fs.readFileSync(path.join(__dirname, '..', 'background', 'job-o
 describe('MV3 reconcile wiring', () => {
   test('survival alarm reconciles via loadJobState', () => {
     expect(ORCH_SRC).toContain("alarm?.name !== MV3_SURVIVAL_ALARM");
-    expect(ORCH_SRC).toMatch(/MV3_SURVIVAL_ALARM[\s\S]{0,200}loadJobState\(\)/);
+    expect(ORCH_SRC).toMatch(/MV3_SURVIVAL_ALARM[\s\S]{0,500}loadJobState\(\)/);
+    expect(ORCH_SRC).toContain('self.__dispatchRoundsRuntimeActive === true');
+    expect(ORCH_SRC).toContain('jobState?.session?.roundsInProgress === true && hasOpenModelRuns(jobState)');
   });
 
   test('onStartup triggers an immediate reconcile (no up-to-30s gap on cold start)', () => {
@@ -28,6 +30,12 @@ describe('MV3 reconcile wiring', () => {
   test('rehydration clears a persisted roundsInProgress lock', () => {
     expect(ORCH_SRC).toMatch(/jobState\.session\.roundsInProgress === true[\s\S]{0,180}jobState\.session\.roundsInProgress = false/);
     expect(ORCH_SRC).toContain('roundsRecoveredFromStuckAt');
+  });
+
+  test('live Round 1 cannot be overwritten by an alarm storage reload', () => {
+    expect(ORCH_SRC).toMatch(/async function loadJobState\(\) \{[\s\S]{0,100}if \(self\.__dispatchRoundsRuntimeActive === true\) return/);
+    expect(ORCH_SRC).toMatch(/async function runDispatchRounds[\s\S]{0,180}self\.__dispatchRoundsRuntimeActive = true/);
+    expect(ORCH_SRC).toMatch(/finally \{[\s\S]{0,100}self\.__dispatchRoundsRuntimeActive = false/);
   });
 
   test('rehydration re-arms script runtime hard-stops for submitted open models', () => {

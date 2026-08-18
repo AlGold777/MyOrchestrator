@@ -26,7 +26,7 @@ describe('provider dispatch stage telemetry', () => {
     ]);
   });
 
-  test('Grok and Perplexity publish composer, insertion and send stages', () => {
+  test('Grok and Perplexity publish full composer, insertion and send stages', () => {
     for (const file of ['content-grok.js', 'content-perplexity.js']) {
       const source = read('content-scripts', file);
       expect(source).toContain("reportStage('composer_transaction_started')");
@@ -35,6 +35,19 @@ describe('provider dispatch stage telemetry', () => {
       expect(source).toContain("reportStage('send_action_requested')");
       expect(source).toContain("reportStage('send_action_completed'");
     }
+  });
+
+  test.each([
+    'content-chatgpt.js',
+    'content-claude.js',
+    'content-deepseek.js',
+    'content-gemini.js',
+    'content-lechat.js',
+    'content-qwen.js'
+  ])('%s publishes the physical Send boundary', (file) => {
+    const source = read('content-scripts', file);
+    expect(source).toContain("'send_action_requested'");
+    expect(source).toContain("'send_action_completed'");
   });
 
   test('stage messages require bound-tab and dispatch correlation', () => {

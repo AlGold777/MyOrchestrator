@@ -1334,7 +1334,7 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
         }
         activity.heartbeat(0.4, { phase: 'typing' });
 
-        await sleep(2000);
+        await sleep(200);
 
         // 2.81.117: composer clearing, a disabled Send button and any page-wide
         // loading element used to confirm submission. All three are satisfied by
@@ -1390,6 +1390,7 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
         };
 
         let geminiSubmitMethod = 'none';
+        window.ContentUtils?.reportDispatchStage?.(MODEL, dispatchMeta, 'send_action_requested');
         const runSendStrategy = async (strategy, action, sendButtonCandidate = null, timeout = 3500) => {
             geminiSubmitMethod = strategy;
             emitGeminiDiagnostic({
@@ -1466,6 +1467,9 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
             });
         }
         if (!confirmed) {
+            window.ContentUtils?.reportDispatchStage?.(MODEL, dispatchMeta, 'send_action_failed', {
+                outcome: 'unconfirmed', reason: 'send_not_confirmed'
+            });
             console.log('[content-gemini] Trusted Send not confirmed, looking for send button');
             activity.heartbeat(0.55, { phase: 'send-button-search' });
             sendButton = await findAndCacheElement('sendButton', sendButtonSelectors).catch(() => null);
@@ -1534,6 +1538,10 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
                     composerLength: readComposerText(inputField).length,
                     button: describeGeminiNode(sendButton)
                 }
+            });
+        } else {
+            window.ContentUtils?.reportDispatchStage?.(MODEL, dispatchMeta, 'send_action_completed', {
+                outcome: 'confirmed', reason: geminiSubmitMethod
             });
         }
         activity.heartbeat(0.6, { phase: 'send-dispatched' });

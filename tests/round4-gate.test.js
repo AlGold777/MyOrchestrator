@@ -116,7 +116,7 @@ describe('round1 dispatch ordering', () => {
     expect(Array.from(context.orderRound1Models([
       'GPT', 'Gemini', 'Claude', 'Grok', 'Z.ai', 'Qwen', 'DeepSeek', 'Le Chat', 'Perplexity'
     ]))).toEqual([
-      'Qwen', 'GPT', 'Gemini', 'Claude', 'Grok', 'Z.ai', 'DeepSeek', 'Le Chat', 'Perplexity'
+      'Qwen', 'GPT', 'Gemini', 'Claude', 'Grok', 'DeepSeek', 'Le Chat', 'Perplexity', 'Z.ai'
     ]);
   });
 });

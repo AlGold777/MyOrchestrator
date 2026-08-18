@@ -2800,6 +2800,7 @@ const keepAliveMutex = (() => {
             level: 'info',
             meta: { dispatchId: dispatchMeta?.dispatchId || null, baselineUserCount }
           });
+          window.ContentUtils?.reportDispatchStage?.(MODEL, dispatchMeta, 'send_action_requested');
           try {
             await sendComposer(composer, {
               prompt,
@@ -2816,6 +2817,9 @@ const keepAliveMutex = (() => {
             });
             throw err;
           }
+          window.ContentUtils?.reportDispatchStage?.(MODEL, dispatchMeta, 'send_action_completed', {
+            outcome: 'confirmed'
+          });
           activity.heartbeat(0.5, { phase: 'send-dispatched' });
           emitDiagnostic({
             type: 'DISPATCH',

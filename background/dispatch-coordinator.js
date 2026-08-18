@@ -123,12 +123,9 @@ function scheduleProviderSendOnlyRecovery(llmName, options = {}) {
     const tabId = resolveBoundTabIdForDispatch(llmName, liveEntry);
     if (!isValidTabId(tabId)) return;
     const previousTab = await getActiveTabSnapshot();
-    let automationVisitStarted = false;
-    const automationManager = (self.startAutomationVisit && self.endAutomationVisit) ? self : null;
     let result = null;
     try {
       result = await withPromptDispatchFocusLock(async () => {
-        if (automationManager) automationVisitStarted = automationManager.startAutomationVisit(tabId, llmName);
         await activateTabForDispatch(tabId);
         await dispatchSleepMs(250);
         return sendMessageWithTimeout(tabId, llmName, {
@@ -144,7 +141,6 @@ function scheduleProviderSendOnlyRecovery(llmName, options = {}) {
     } catch (error) {
       result = { ok: false, status: 'recovery_transport_failed', reason: error?.message || 'unknown_error' };
     } finally {
-      if (automationManager && automationVisitStarted) automationManager.endAutomationVisit(llmName);
       if (previousTab?.id && previousTab.id !== tabId) restoreFocusIfStillOnDispatchTab(tabId, previousTab);
     }
     emitTelemetry(llmName, 'PROVIDER_DISPATCH_STAGE_OBSERVED', {
@@ -1358,7 +1354,21 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
           meta: { dispatchId, dispatchReason: reason, tabId }
         });
       } else {
-        readyOk = await waitForScriptReady(tabId, llmName, { timeoutMs: READY_ACK_TIMEOUT_MS, intervalMs: 250 });
+        // SCRIPT_READY is a tab/runtime capability, not a per-dispatch
+        // transaction. Requiring a replayed two-way handshake here cost six
+        // seconds on every hidden provider tab. Probe/repair Completion directly
+        // and use the provider's synchronous health PONG; exact dispatch
+        // ownership is proven later by COMMAND_ACCEPTED.
+        const runtimeGate = typeof self.ensureCompletionRuntimeInTab === 'function'
+          ? await self.ensureCompletionRuntimeInTab(tabId, llmName)
+          : null;
+        const adapterHealthy = runtimeGate?.ok === true && typeof self.checkScriptHealth === 'function'
+          ? await self.checkScriptHealth(tabId, llmName, { silent: true })
+          : false;
+        readyOk = runtimeGate?.ok === true && adapterHealthy === true;
+        if (!readyOk && runtimeGate == null) {
+          readyOk = await waitForScriptReady(tabId, llmName, { timeoutMs: READY_ACK_TIMEOUT_MS, intervalMs: 250 });
+        }
       }
       if (!readyOk) {
         broadcastDiagnostic(llmName, {
@@ -1599,8 +1609,6 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
       let previousTab = null;
       let restoreTimer = null;
       let restoreMaxTimer = null;
-      let automationVisitStarted = false;
-      const automationManager = (self.startAutomationVisit && self.endAutomationVisit) ? self : null;
       const answerCommand = {
         type: 'GET_ANSWER',
         prompt,
@@ -1677,9 +1685,6 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
           jobState.session.focusSwitches = Number(jobState.session.focusSwitches || 0) + 1;
         }
         previousTab = await getActiveTabSnapshot();
-        if (automationManager) {
-          automationVisitStarted = automationManager.startAutomationVisit(tabId, llmName);
-        }
         await withPromptDispatchFocusLock(async () => {
           await activateTabForDispatch(tabId);
           if (options.deferSendMs) {
@@ -1816,9 +1821,6 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
       }
       if (!options.skipFocusRestore && needsFocus && previousTab?.id) {
         restoreFocusIfStillOnDispatchTab(tabId, previousTab);
-      }
-      if (automationManager && automationVisitStarted) {
-        automationManager.endAutomationVisit(llmName);
       }
       if (requireCommandAcceptance) {
         const acceptance = commandDeliveryResult?.response || null;

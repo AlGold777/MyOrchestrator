@@ -1440,10 +1440,17 @@ const buildLifecycleContext = (prompt = '', extra = {}) => ({
           activity.heartbeat(0.45, { phase: 'typing-complete' });
           
           console.log('[DeepSeek] Sending...');
+          window.ContentUtils?.reportDispatchStage?.(MODEL, dispatchMeta, 'send_action_requested');
           const sendConfirmed = await sendComposer(composer);
           if (!sendConfirmed) {
+            window.ContentUtils?.reportDispatchStage?.(MODEL, dispatchMeta, 'send_action_failed', {
+              outcome: 'failed', reason: 'send_not_confirmed'
+            });
             throw { type: 'send_failed', message: 'DeepSeek send not confirmed' };
           }
+          window.ContentUtils?.reportDispatchStage?.(MODEL, dispatchMeta, 'send_action_completed', {
+            outcome: 'confirmed'
+          });
           activity.heartbeat(0.55, { phase: 'send-dispatched' });
           try { chrome.runtime.sendMessage({ type: 'PROMPT_SUBMITTED', llmName: MODEL, ts: Date.now(), meta: dispatchMeta }); } catch (_) {}
           
