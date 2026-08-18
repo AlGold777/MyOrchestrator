@@ -24,6 +24,8 @@ Production default — `enforced`: сохранённые ранее `enabled:fa
 
 Readiness изолирован по модели: Round 0 не ждёт общий барьер всех вкладок, а обновление расширения не перезагружает provider pages. Page/runtime recovery выполняется перед dispatch конкретной модели.
 
+Перед provider command background напрямую проверяет и при необходимости восстанавливает Completion runtime, затем получает быстрый provider health PONG. Старый `SCRIPT_READY` replay остаётся только fallback для runtime без direct probe и не добавляет фиксированные шесть секунд каждой вкладке. MV3 survival reconcile не имеет права читать persisted state поверх активного in-memory Round 1.
+
 Composer transaction имеет обязательный порядок:
 
 ```text

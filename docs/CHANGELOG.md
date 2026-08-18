@@ -1,5 +1,14 @@
 # CHANGELOG — Project
 
+### 2026-08-18 — Устранена многоминутная задержка Round 1, version 2.81.350
+
+- MV3 survival alarm больше не загружает сохранённый `jobState` поверх активного Round 1 и не снимает `roundsInProgress`; это исключает параллельный `retry_supervisor`, замену dispatch identity и повторные попытки до первой отправки.
+- Dispatch не ждёт шестисекундный replay `SCRIPT_READY` на каждой уже рабочей вкладке: Completion runtime проверяется/восстанавливается напрямую, provider adapter подтверждается быстрым health PONG, а exact ownership — `COMMAND_ACCEPTED`.
+- Observation/human-presence lease удалён из критического focus section provider Send: его 12-секундный hard cap больше не переключает вкладку на Results посреди composer transaction.
+- GPT и Gemini не имеют искусственной двухсекундной паузы после подтверждённой вставки prompt.
+- GPT, Claude, DeepSeek, Gemini, Le Chat и Qwen публикуют `send_action_requested/completed/failed`; submit timeout и canonical `DISPATCH_SEND` теперь работают для всех рассматриваемых providers.
+- Kimi и Z.ai перенесены в конец Round 1 и не задерживают отправку в остальные модели.
+
 ### 2026-08-18 — Исправлена causal boundary отправки, version 2.81.349
 
 - Completion authority ACK возвращается сразу после correlated in-memory acceptance и больше не блокируется полной записью `jobState`; durability выполняется асинхронно.

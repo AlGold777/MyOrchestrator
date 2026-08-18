@@ -1694,6 +1694,7 @@ Purpose: complete trace from tab open to prompt confirmation.
 - `FINALIZATION_DECISION` - meta carries `decisionReasons` (why a finalization was blocked), `liftedDecisionReasons` and `acceptedOnStableEvidence` (strict-verification blocker lifted on stable, identity-matched evidence).
 - `PROMPT_SUBMITTED_ACCEPTED` / `PROMPT_SUBMITTED_REJECTED` / `PROMPT_SUBMITTED_STALE` - submit confirmation handling.
 - `PROMPT_SUBMITTED_TIMEOUT` - submit confirmation timeout (no signal received); its budget starts at provider `send_action_requested`, never during attachment upload or composer preparation.
+- `send_action_requested/completed/failed` публикуются всеми production adapters. Отсутствующий `DISPATCH_SEND` после `DISPATCH_COMMAND_ACCEPTED` означает, что transaction не достигла физического Send action, а не пробел telemetry.
 - `PIPELINE_START` / `PREPARATION_*` / `STREAMING_*` / `FINALIZATION_*` / `PIPELINE_COMPLETE` / `PIPELINE_ERROR` - content pipeline phases.
 - `STOP_DISAPPEARED` - stop button vanished (completion heuristic).
 - `SCRIPT_HEALTH_FAIL` - health check failure.
