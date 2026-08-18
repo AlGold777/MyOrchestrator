@@ -80,9 +80,12 @@ describe('provider submit proof contract', () => {
       expect(owning.length).toBeGreaterThan(0);
       // The oracle may live in the shared block that matches every provider page,
       // so accept it there as well as in the provider-specific block.
-      const shared = blocks[0] || {};
-      const loaded = (shared.js || []).includes('shared/provider-submit-confirmation.js')
-        || owning.some((block) => (block.js || []).includes('shared/provider-submit-confirmation.js'));
+      const loaded = blocks.some((block) => (
+        (block.matches || []).some((pattern) => owning.some((owner) => (
+          (owner.matches || []).some((ownerPattern) => ownerPattern === pattern)
+        )))
+        && (block.js || []).includes('shared/provider-submit-confirmation.js')
+      )) || owning.some((block) => (block.js || []).includes('shared/provider-submit-confirmation.js'));
       expect(loaded).toBe(true);
     });
   });

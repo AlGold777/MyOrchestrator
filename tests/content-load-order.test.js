@@ -27,9 +27,15 @@ const topLevelDeclarations = (relFile) => {
 };
 
 const contentBlocks = manifest.content_scripts || [];
-// Block 0 matches every provider; each later block targets one provider. The
-// set actually co-injected on a provider page is block0 ∪ that block.
-const baseBlock = contentBlocks[0];
+const baseBlock = contentBlocks.find((block) => (
+  (block.js || []).includes('content-scripts/content-bootstrap.js')
+  && (block.js || []).includes('content-scripts/content-utils.js')
+));
+const providerBlocks = contentBlocks.filter((block) => block !== baseBlock && (block.js || []).some((file) => (
+  /^content-scripts\/content-[a-z0-9-]+\.js$/i.test(file)
+  && !file.endsWith('/content-bridge.js')
+  && !file.endsWith('/content-bootstrap.js')
+)));
 const { COMMON_FILES } = require('../scripts/build-bundles');
 
 describe('content-script load-order contract', () => {
@@ -70,8 +76,8 @@ describe('content-script load-order contract', () => {
   test('no top-level const/let/class collisions within any co-injected page set', () => {
     // For each provider page: shared block + that provider's block.
     const offenders = [];
-    for (let i = 1; i < contentBlocks.length; i++) {
-      const loaded = [...baseBlock.js, ...(contentBlocks[i].js || [])];
+    for (const block of providerBlocks) {
+      const loaded = [...baseBlock.js, ...(block.js || [])];
       const owners = new Map();
       for (const rel of loaded) {
         for (const name of topLevelDeclarations(rel)) {
@@ -81,7 +87,7 @@ describe('content-script load-order contract', () => {
       }
       for (const [name, set] of owners) {
         if (set.size > 1) {
-          offenders.push(`page#${i} ${name} <- ${[...set].join(', ')}`);
+          offenders.push(`${(block.matches || [])[0] || 'unknown-page'} ${name} <- ${[...set].join(', ')}`);
         }
       }
     }

@@ -10,8 +10,9 @@ describe('Z.ai integration contract', () => {
     const manifest = JSON.parse(read('manifest.json'));
     const pattern = '*://chat.z.ai/*';
     expect(manifest.host_permissions).toContain(pattern);
-    expect(manifest.content_scripts[0].matches).toContain(pattern);
-    expect(manifest.content_scripts[0].js).toContain('selectors/zai.config.js');
+    const sharedBlock = manifest.content_scripts.find((entry) => entry.js?.includes('selectors/zai.config.js'));
+    expect(sharedBlock).toBeTruthy();
+    expect(sharedBlock.matches).toContain(pattern);
     const adapterBlock = manifest.content_scripts.find((entry) => entry.js?.includes('content-scripts/content-zai.js'));
     expect(adapterBlock).toBeTruthy();
     expect(adapterBlock.matches).toEqual([pattern]);
