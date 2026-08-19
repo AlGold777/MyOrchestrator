@@ -6591,6 +6591,7 @@ async function dispatchRound3CollectAnswers(selectedLLMs, sessionId) {
 //-- 6.1. Флаг активности Rounds для защиты от supervisor --//
 async function runDispatchRounds(selectedLLMs, prompt, forceNewTabs, attachments = [], options = {}) {
   self.__dispatchRoundsRuntimeActive = true;
+  const sessionId = getActiveSessionId();
   let bootstrapSignalled = false;
   const signalBootstrap = (result = true) => {
     if (bootstrapSignalled) return;
@@ -6603,8 +6604,6 @@ async function runDispatchRounds(selectedLLMs, prompt, forceNewTabs, attachments
     await saveJobState(jobState);
   };
   try {
-    const sessionId = getActiveSessionId();
-    
     // Устанавливаем флаг активности Rounds
     if (jobState?.session) {
       jobState.session.roundsInProgress = true;
@@ -6779,6 +6778,32 @@ async function runDispatchRounds(selectedLLMs, prompt, forceNewTabs, attachments
 
   } catch (err) {
     console.error('[BACKGROUND] Round sequencing failed:', err);
+    // The retry supervisor must never invent attempt #1 for models that Round 1
+    // did not reach. Keep initial-dispatch ownership here and resume only the
+    // untouched tail, sequentially, under the existing roundsInProgress guard.
+    const untouchedModels = (Array.isArray(selectedLLMs) ? selectedLLMs : []).filter((llmName) => {
+      const entry = jobState?.llms?.[llmName];
+      return entry && Number(entry.dispatchAttempts || 0) === 0 && !entry.lastDispatchMeta?.dispatchId;
+    });
+    if (untouchedModels.length && (!sessionId || isSessionActive(sessionId))) {
+      emitTelemetry('ROUNDS', 'ROUND1_RECOVERY_RESUME', {
+        level: 'warning',
+        details: err?.message || String(err),
+        meta: { sessionId, untouchedModels },
+        force: true
+      });
+      try {
+        await dispatchRound1Sequentially(
+          untouchedModels,
+          prompt,
+          attachments,
+          sessionId,
+          { ...options, resume: true }
+        );
+      } catch (resumeErr) {
+        console.error('[BACKGROUND] Round 1 recovery resume failed:', resumeErr);
+      }
+    }
     schedulePromptDispatchSupervisor();
   } finally {
     signalBootstrap(false);

@@ -926,9 +926,12 @@ function hasPendingPromptDispatches() {
     const boundTabId = resolveBoundTabIdForDispatch(llmName, entry);
     if (!isValidTabId(boundTabId)) return false;
     const attempts = entry.dispatchAttempts || 0;
-    const now = Date.now();
-    if (entry.retryAfterAt && now < entry.retryAfterAt) return false;
-    return attempts < DISPATCH_MAX_ATTEMPTS;
+    // The supervisor owns retries only. Initial dispatch remains exclusively
+    // owned by Round 1; otherwise a stalled first provider causes the
+    // supervisor to start every untouched model concurrently.
+    const hasScheduledRetry = Number(entry.retryAfterAt || 0) > 0
+      && entry.lastDispatchError != null;
+    return attempts > 0 && attempts < DISPATCH_MAX_ATTEMPTS && hasScheduledRetry;
   });
 }
 
@@ -950,6 +953,7 @@ function countPendingRetries() {
     if (!isValidTabId(boundTabId)) continue;
     const attempts = entry.dispatchAttempts || 0;
     if (attempts >= DISPATCH_MAX_ATTEMPTS || attempts === 0) continue;
+    if (!(Number(entry.retryAfterAt || 0) > 0 && entry.lastDispatchError != null)) continue;
     if (isTypingGuardActive(entry)) continue;
     if (entry.retryAfterAt && now < entry.retryAfterAt) continue;
 
@@ -978,7 +982,10 @@ function schedulePromptDispatchSupervisor() {
     const conservative = self.ModelPolicy?.modelUsesConservativeDispatch
       ? self.ModelPolicy.modelUsesConservativeDispatch(llmName)
       : CONSERVATIVE_MODELS.includes(llmName);
-    return conservative && (entry.dispatchAttempts || 0) > 0;
+    return conservative
+      && (entry.dispatchAttempts || 0) > 0
+      && Number(entry.retryAfterAt || 0) > 0
+      && entry.lastDispatchError != null;
   });
 
   const adaptiveTick = (hasConservativePending || pendingRetries === 0)
@@ -988,13 +995,13 @@ function schedulePromptDispatchSupervisor() {
   const timer = dispatchRegisterSessionTimer(setTimeout(() => {
     promptDispatchSupervisorTimer = null;
     dispatchDeregisterSessionTimer(timer);
-    runPromptDispatchSupervisor();
+    void runPromptDispatchSupervisor();
   }, adaptiveTick));
   promptDispatchSupervisorTimer = timer;
 }
 
 //-- 5.1. Supervisor: защита от конкуренции с Rounds --//
-function runPromptDispatchSupervisor() {
+async function runPromptDispatchSupervisor() {
   if (!jobState?.llms) return;
   if (promptDispatchInProgress > 0) {
     schedulePromptDispatchSupervisor();
@@ -1020,7 +1027,8 @@ function runPromptDispatchSupervisor() {
     const tabId = resolveBoundTabIdForDispatch(llmName, entry);
     if (!isValidTabId(tabId)) continue;
     const attempts = entry.dispatchAttempts || 0;
-    if (attempts >= DISPATCH_MAX_ATTEMPTS) continue;
+    if (attempts <= 0 || attempts >= DISPATCH_MAX_ATTEMPTS) continue;
+    if (!(Number(entry.retryAfterAt || 0) > 0 && entry.lastDispatchError != null)) continue;
     if (attempts > 0 && isTypingGuardActive(entry)) continue;
     if (entry.retryAfterAt && now < entry.retryAfterAt) continue;
     if (entry.recoveryDeniedUntil && now < entry.recoveryDeniedUntil) continue;
@@ -1029,10 +1037,14 @@ function runPromptDispatchSupervisor() {
     const lastAt = entry.lastDispatchAt || 0;
     if (now - lastAt < backoff) continue;
     //-- 2.1. Retry supervisor с удержанием фокуса --//
-    dispatchPromptToTab(llmName, tabId, jobState.prompt, jobState.attachments || [], 'retry_supervisor', {
+    // One retry transaction at a time. Starting all eligible retries in the
+    // same tick replaces dispatch identities before older provider signals can
+    // be correlated and turns valid confirmations into dispatch_mismatch.
+    await dispatchPromptToTab(llmName, tabId, jobState.prompt, jobState.attachments || [], 'retry_supervisor', {
       deferSendMs: 500,
       minFocusHoldMs: RETRY_FOCUS_HOLD_MS
     });
+    break;
   }
   schedulePromptDispatchSupervisor();
 }
@@ -1059,6 +1071,21 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
   if (reason !== 'perplexity_paywall_resume'
     && isTransientBlockerDispatchSuspended(llmName, entry)) {
     return { ok: false, deferred: true, reason: 'transient_blocker_active' };
+  }
+  const currentDispatchId = entry?.lastDispatchMeta?.dispatchId || null;
+  const currentProviderStage = String(entry?.providerDispatchStage || '');
+  if (recoveryDispatch
+    && currentDispatchId
+    && entry.providerSendActionObservedDispatchId === currentDispatchId
+    && currentProviderStage !== 'send_action_failed'
+    && !entry.promptSubmittedAt) {
+    emitTelemetry(llmName, 'DISPATCH_DEFERRED_SEND_ACTION_OBSERVED', {
+      level: 'info',
+      details: reason,
+      meta: { tabId, dispatchReason: reason, dispatchId: currentDispatchId, providerStage: currentProviderStage || null },
+      force: true
+    });
+    return { ok: false, deferred: true, reason: 'send_action_pending_confirmation' };
   }
   const recoveryIntent = options.recoveryIntent || (
     reason === 'manual_resend' || reason === 'round2_repair'
@@ -1723,6 +1750,13 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
             while (progressFocusExtensionMs > 0
               && (boundary.reason === 'hold_elapsed' || boundary.reason === 'progress_extension_elapsed')) {
               progressStage = String(entry.providerDispatchStage || '');
+              const sendActionObserved = entry.providerSendActionObservedDispatchId === dispatchId
+                || progressStage === 'send_action_requested'
+                || progressStage === 'send_action_completed';
+              if (sendActionObserved) {
+                boundary = { reason: 'send_action_observed', payload: { dispatchId, stage: progressStage } };
+                break;
+              }
               const stageAt = Number(entry.providerDispatchStageAt || 0);
               const stageIsCurrent = entry.providerDispatchStageDispatchId === dispatchId;
               progressIsCurrent = stageIsCurrent && stageAt >= holdStartedAt;
@@ -1737,7 +1771,7 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
               if (!composerTransactionActive && !attachmentInFlight && !extendableStages.has(progressStage)) break;
               // Everything except an in-flight attachment keeps the historical
               // single extension: ceiling equals one step.
-              const ceilingMs = (composerTransactionActive || attachmentInFlight)
+              const ceilingMs = attachmentInFlight
                 ? attachmentCeilingMs
                 : progressFocusExtensionMs;
               if (extendedMs >= ceilingMs) break;

@@ -63,16 +63,23 @@ describe('Round 1 prompt insertion focus boundary', () => {
     expect(SOURCE).toContain('extendableStages.has(progressStage)');
     expect(SOURCE).toContain("reason: extendedBoundary.reason === 'hold_elapsed'");
     expect(SOURCE).toContain("? 'progress_extension_elapsed'");
-    // Bounded: the composer transaction owns focus until submit, but the same
-    // attachment ceiling prevents a stalled provider from pinning it forever.
+    // The long ceiling belongs only to attachment upload. A composer lease by
+    // itself must not pin the provider throughout answer collection.
     expect(SOURCE).toContain('if (extendedMs >= ceilingMs) break;');
     expect(SOURCE).toContain('const composerTransactionActive = entry.providerComposerTransactionActive === true');
-    expect(SOURCE).toContain('(composerTransactionActive || attachmentInFlight)');
+    expect(SOURCE).toContain('const ceilingMs = attachmentInFlight');
+    expect(SOURCE).not.toContain('const ceilingMs = (composerTransactionActive || attachmentInFlight)');
     expect(SOURCE).toContain('const attachmentInFlight = progressStage === ATTACHMENT_PROGRESS_STAGE;');
     expect(SOURCE).toContain('ATTACHMENT_FOCUS_EXTENSION_CEILING_MS');
     // The waiter has to outlast the longest reachable hold, or an
     // attachment-extended hold can never resolve as an insertion.
     expect(SOURCE).toContain('Math.max(progressFocusExtensionMs, ATTACHMENT_FOCUS_EXTENSION_CEILING_MS)');
+  });
+
+  test('observed provider Send ends the focus extension', () => {
+    expect(SOURCE).toContain('entry.providerSendActionObservedDispatchId === dispatchId');
+    expect(SOURCE).toContain("progressStage === 'send_action_requested'");
+    expect(SOURCE).toContain("boundary = { reason: 'send_action_observed'");
   });
 
   test('insertion waiters resolve only for the exact model and dispatch', async () => {

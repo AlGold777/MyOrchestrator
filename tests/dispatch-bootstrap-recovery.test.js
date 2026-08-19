@@ -83,4 +83,16 @@ describe('existing-page dispatch bootstrap recovery', () => {
     expect(round1Source).toContain('entry.lastDispatchMeta?.dispatchId');
     expect(round1Source).toContain("reason: 'resume_previous_attempt'");
   });
+
+  test('round failure resumes untouched initial dispatches inside Round 1', () => {
+    const roundsSource = ORCHESTRATOR_SOURCE.slice(
+      ORCHESTRATOR_SOURCE.indexOf('async function runDispatchRounds'),
+      ORCHESTRATOR_SOURCE.indexOf('function collectResponses')
+    );
+
+    expect(roundsSource).toContain('const untouchedModels =');
+    expect(roundsSource).toContain('Number(entry.dispatchAttempts || 0) === 0');
+    expect(roundsSource).toContain('await dispatchRound1Sequentially(');
+    expect(roundsSource).toContain('ROUND1_RECOVERY_RESUME');
+  });
 });
