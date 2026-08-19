@@ -40,15 +40,15 @@ const buildRuntime = () => {
 };
 
 describe('Round 1 prompt insertion focus boundary', () => {
-  test('Round 1 uses an eight-second insertion cap, not model submit timeouts', () => {
+  test('Round 1 uses a short insertion cap, not model submit timeouts', () => {
     const resolver = ORCHESTRATOR.slice(
       ORCHESTRATOR.indexOf('const resolveRound1PostCommandFocusHoldMs'),
       ORCHESTRATOR.indexOf('async function dispatchRound1Sequentially')
     );
-    expect(ORCHESTRATOR).toContain('const ROUND1_PROMPT_INSERTION_FOCUS_HOLD_MS = 8000');
+    expect(ORCHESTRATOR).toContain('const ROUND1_PROMPT_INSERTION_FOCUS_HOLD_MS = 1500');
     expect(resolver).toContain('ROUND1_PROMPT_INSERTION_FOCUS_HOLD_MS');
     expect(resolver).not.toContain('getPromptSubmitTimeoutMs');
-    expect(ORCHESTRATOR).toContain('const ROUND1_PROGRESS_FOCUS_EXTENSION_MS = 5000');
+    expect(ORCHESTRATOR).toContain('const ROUND1_PROGRESS_FOCUS_EXTENSION_MS = 1500');
     expect(ORCHESTRATOR).toContain('progressFocusExtensionMs: ROUND1_PROGRESS_FOCUS_EXTENSION_MS');
   });
 

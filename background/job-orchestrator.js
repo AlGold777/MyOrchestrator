@@ -16,10 +16,14 @@ const ROUND1_POST_SEND_MS = 500;
 const ROUND1_PRIORITY_MODELS = Object.freeze(['Qwen']);
 const ROUND1_DEFERRED_MODELS = Object.freeze(['Kimi', 'Z.ai']);
 const ROUND1_POST_COMMAND_FOCUS_HOLD_MS = Object.freeze({
-  Qwen: 6000
+  Qwen: 1500
 });
-const ROUND1_PROMPT_INSERTION_FOCUS_HOLD_MS = 8000;
-const ROUND1_PROGRESS_FOCUS_EXTENSION_MS = 5000;
+// Keep the ordinary Round 1 composer transaction short.  A provider Send
+// action is normally completed in this window; longer focus is reserved for
+// the attachment progress path below, which extends only while upload stages
+// are actively reporting.
+const ROUND1_PROMPT_INSERTION_FOCUS_HOLD_MS = 1500;
+const ROUND1_PROGRESS_FOCUS_EXTENSION_MS = 1500;
 const ROUND_PROVIDER_PIPELINE_OWNERSHIP_TTL_MS = 180000;
 const ROUND2_VISIT_COUNT = 2;
 const ROUND2_VISIT_MIN_MS = 5000;

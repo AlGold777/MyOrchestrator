@@ -62,7 +62,7 @@ describe('TransportPolicy promptsByModel', () => {
     const coordinator = fs.readFileSync(path.join(__dirname, '..', 'background', 'dispatch-coordinator.js'), 'utf8');
     expect(orchestrator).toContain("const ROUND1_PRIORITY_MODELS = Object.freeze(['Qwen']);");
     expect(orchestrator).toContain('postCommandFocusHoldMs: resolveRound1PostCommandFocusHoldMs(llmName)');
-    expect(orchestrator).toContain('const ROUND1_PROMPT_INSERTION_FOCUS_HOLD_MS = 8000');
+    expect(orchestrator).toContain('const ROUND1_PROMPT_INSERTION_FOCUS_HOLD_MS = 1500');
     expect(coordinator).toContain("emitTelemetry(llmName, 'DISPATCH_POST_COMMAND_FOCUS_HOLD'");
     expect(coordinator).toContain('waitForPromptFocusBoundary(');
     expect(coordinator).toContain('insertionWaiter');
