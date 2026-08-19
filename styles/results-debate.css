@@ -922,27 +922,38 @@ body.llm-stream-preview-open .llm-results .llm-panel.llm-panel-session-restored:
 }
 
 .response-find-replace {
-  width: min(360px, calc(100vw - 32px));
-  padding: 0;
+  position: absolute;
+  z-index: 20;
+  top: 6px;
+  right: 8px;
+  width: min(660px, calc(100% - 16px));
+  box-sizing: border-box;
+  padding: 4px;
   border: 1px solid #cbd5e1;
-  border-radius: 10px;
-  box-shadow: 0 12px 36px rgba(15, 23, 42, .2);
-  color: #172033;
+  border-radius: 5px;
+  background: #f8fafc;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, .18);
+  color: #334155;
 }
-.response-find-replace::backdrop { background: rgba(15, 23, 42, .18); }
-.response-find-replace-form { display: grid; gap: 10px; padding: 14px; }
-.response-find-replace header,
-.response-find-replace footer { display: flex; align-items: center; gap: 8px; }
-.response-find-replace header { justify-content: space-between; }
-.response-find-replace header button { border: 0; background: transparent; font-size: 20px; cursor: pointer; }
-.response-find-replace label { display: grid; gap: 4px; font-size: 12px; color: #526174; }
-.response-find-replace input[type="search"],
-.response-find-replace input[type="text"] { min-width: 0; padding: 7px 9px; border: 1px solid #cbd5e1; border-radius: 6px; color: #172033; }
-.response-find-replace-case { display: flex !important; align-items: center; }
-.response-find-replace output { min-height: 16px; font-size: 12px; color: #526174; }
-.response-find-replace footer { justify-content: flex-end; flex-wrap: wrap; }
-.response-find-replace footer button { padding: 6px 9px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; cursor: pointer; }
-.response-find-replace footer button:last-child { color: #fff; border-color: #2563eb; background: #2563eb; }
+.response-find-replace[hidden] { display: none; }
+.response-find-replace-row { display: flex; align-items: center; min-height: 30px; gap: 3px; }
+.response-find-replace-row-secondary { margin-top: 3px; }
+.response-find-replace-row-secondary[hidden] { display: none; }
+.response-find-replace input { min-width: 0; height: 28px; box-sizing: border-box; border: 1px solid #cbd5e1; border-radius: 3px; background: #fff; color: #172033; font: inherit; font-size: 14px; padding: 3px 8px; }
+.response-find-replace-find-row input { flex: 1 1 auto; }
+.response-find-replace-row-secondary input { flex: 1 1 auto; margin-right: auto; }
+.response-find-replace button { flex: 0 0 28px; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 3px; background: transparent; color: #526174; cursor: pointer; font: inherit; font-size: 16px; line-height: 1; }
+.response-find-replace button:hover { background: #e2e8f0; color: #172033; }
+.response-find-replace-toggle { border: 1px solid transparent !important; font-size: 24px !important; }
+.response-find-replace-toggle:focus-visible,
+.response-find-replace input:focus-visible,
+.response-find-replace button:focus-visible { outline: 2px solid #60a5fa; outline-offset: 1px; }
+.response-find-replace-case[aria-pressed="true"] { background: #dbeafe; color: #1d4ed8; }
+.response-find-replace output { flex: 0 1 100px; min-width: 72px; overflow: hidden; color: #64748b; font-size: 12px; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
+.response-find-replace-action { border: 1px solid #cbd5e1 !important; background: #fff !important; font-size: 12px !important; }
+.response-find-replace-toggle-placeholder { flex: 0 0 28px; width: 28px; }
+.llm-panel:has(.response-find-replace),
+.debate-model-card:has(.response-find-replace) { position: relative; }
 
 /* -- 3. Кнопка копирования — внутренняя, справа -- */
 /* -- 1. Убираем контур вокруг кнопки копирования, делаем минималистично -- */

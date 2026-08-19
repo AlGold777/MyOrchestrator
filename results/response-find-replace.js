@@ -1,9 +1,8 @@
 (function installResponseFindReplace(root) {
     'use strict';
 
-    const DIALOG_ID = 'response-find-replace-dialog';
     const SCOPE_SELECTOR = '.output, .debate-model-card-output';
-    let dialog = null;
+    let panel = null;
     let activeScope = null;
     let currentMatch = -1;
     let matches = [];
@@ -11,45 +10,58 @@
     const textOf = (scope) => String(scope?.innerText || scope?.textContent || '');
     const escapeRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-    function ensureDialog() {
-        if (dialog) return dialog;
-        dialog = document.createElement('dialog');
-        dialog.id = DIALOG_ID;
-        dialog.className = 'response-find-replace';
-        dialog.innerHTML = `
-            <form method="dialog" class="response-find-replace-form">
-                <header><strong>Найти и заменить</strong><button type="button" data-fr-close aria-label="Закрыть">×</button></header>
-                <label>Найти<input name="find" type="search" autocomplete="off" spellcheck="false"></label>
-                <label>Заменить на<input name="replace" type="text" autocomplete="off" spellcheck="false"></label>
-                <label class="response-find-replace-case"><input name="matchCase" type="checkbox"> Учитывать регистр</label>
-                <output data-fr-status aria-live="polite"></output>
-                <footer>
-                    <button type="button" data-fr-next>Следующее</button>
-                    <button type="button" data-fr-one>Заменить</button>
-                    <button type="button" data-fr-all>Заменить все</button>
-                </footer>
-            </form>`;
-        document.body.appendChild(dialog);
-        dialog.addEventListener('click', (event) => {
-            if (event.target === dialog || event.target.closest('[data-fr-close]')) close();
-            const button = event.target.closest('button');
-            if (!button) return;
-            if (button.matches('[data-fr-next]')) selectNext();
-            if (button.matches('[data-fr-one]')) replaceOne();
-            if (button.matches('[data-fr-all]')) replaceAll();
+    function ensurePanel() {
+        if (panel) return panel;
+        panel = document.createElement('div');
+        panel.id = 'response-find-replace-panel';
+        panel.className = 'response-find-replace';
+        panel.hidden = true;
+        panel.innerHTML = `
+            <div class="response-find-replace-row response-find-replace-find-row">
+                <button type="button" class="response-find-replace-toggle" data-fr-toggle aria-expanded="false" aria-label="Show replace field" title="Show replace field">›</button>
+                <input name="find" type="search" placeholder="Find" autocomplete="off" spellcheck="false" aria-label="Find">
+                <button type="button" class="response-find-replace-case" data-fr-case aria-pressed="false" aria-label="Match case" title="Match case">Aa</button>
+                <output data-fr-status aria-live="polite">No results</output>
+                <button type="button" class="response-find-replace-nav" data-fr-prev aria-label="Previous match" title="Previous match">↑</button>
+                <button type="button" class="response-find-replace-nav" data-fr-next aria-label="Next match" title="Next match">↓</button>
+                <button type="button" class="response-find-replace-menu" data-fr-menu aria-label="Replace actions" title="Replace actions">☰</button>
+                <button type="button" class="response-find-replace-close" data-fr-close aria-label="Close" title="Close">×</button>
+            </div>
+            <div class="response-find-replace-row response-find-replace-row-secondary" data-fr-replace-row hidden>
+                <span class="response-find-replace-toggle-placeholder" aria-hidden="true"></span>
+                <input name="replace" type="text" placeholder="Replace" autocomplete="off" spellcheck="false" aria-label="Replace">
+                <button type="button" class="response-find-replace-action" data-fr-one aria-label="Replace current match" title="Replace current match">ab</button>
+                <button type="button" class="response-find-replace-action" data-fr-all aria-label="Replace all matches" title="Replace all matches">aᵇ</button>
+            </div>`;
+        document.body.appendChild(panel);
+        panel.addEventListener('click', handleClick);
+        panel.querySelector('[name="find"]').addEventListener('input', refresh);
+        panel.querySelector('[data-fr-case]').addEventListener('click', () => {
+            const button = panel.querySelector('[data-fr-case]');
+            const active = button.getAttribute('aria-pressed') !== 'true';
+            button.setAttribute('aria-pressed', String(active));
+            refresh();
         });
-        dialog.querySelectorAll('input').forEach((input) => input.addEventListener('input', refresh));
-        return dialog;
+        panel.querySelector('[name="replace"]').addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') replaceOne();
+        });
+        panel.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') close();
+        });
+        return panel;
     }
 
-    function input(name) { return dialog?.querySelector(`[name="${name}"]`); }
-    function status(message) { const node = dialog?.querySelector('[data-fr-status]'); if (node) node.textContent = message; }
+    function input(name) { return panel?.querySelector(`[name="${name}"]`); }
+    function status(message) {
+        const node = panel?.querySelector('[data-fr-status]');
+        if (node) node.textContent = message;
+    }
 
     function collectMatches() {
         const find = String(input('find')?.value || '');
         if (!activeScope || !find) return [];
-        const flags = input('matchCase')?.checked ? 'g' : 'gi';
-        const regex = new RegExp(escapeRegExp(find), flags);
+        const matchCase = panel?.querySelector('[data-fr-case]')?.getAttribute('aria-pressed') === 'true';
+        const regex = new RegExp(escapeRegExp(find), matchCase ? 'g' : 'gi');
         const found = [];
         const walker = document.createTreeWalker(activeScope, NodeFilter.SHOW_TEXT);
         let node;
@@ -65,7 +77,11 @@
     }
 
     function selectMatch(index) {
-        if (!matches.length) { currentMatch = -1; status('Совпадений нет'); return; }
+        if (!matches.length) {
+            currentMatch = -1;
+            status('No results');
+            return;
+        }
         currentMatch = (index + matches.length) % matches.length;
         const match = matches[currentMatch];
         const selection = window.getSelection();
@@ -75,10 +91,9 @@
         selection.removeAllRanges();
         selection.addRange(range);
         match.node.parentElement?.scrollIntoView?.({ block: 'nearest' });
-        status(`${currentMatch + 1} из ${matches.length}`);
+        status(`${currentMatch + 1} of ${matches.length}`);
     }
 
-    function selectNext() { selectMatch(currentMatch + 1); }
     function refresh() {
         matches = collectMatches();
         selectMatch(matches.length ? Math.min(Math.max(currentMatch, 0), matches.length - 1) : 0);
@@ -94,7 +109,7 @@
 
     function replaceOne() {
         const match = matches[currentMatch];
-        if (!match) { status('Совпадений нет'); return; }
+        if (!match) { status('No results'); return; }
         const replacement = String(input('replace')?.value || '');
         match.node.nodeValue = `${match.node.nodeValue.slice(0, match.start)}${replacement}${match.node.nodeValue.slice(match.end)}`;
         dispatchChange();
@@ -105,8 +120,8 @@
         const find = String(input('find')?.value || '');
         if (!activeScope || !find) return;
         const replacement = String(input('replace')?.value || '');
-        const flags = input('matchCase')?.checked ? 'g' : 'gi';
-        const regex = new RegExp(escapeRegExp(find), flags);
+        const matchCase = panel?.querySelector('[data-fr-case]')?.getAttribute('aria-pressed') === 'true';
+        const regex = new RegExp(escapeRegExp(find), matchCase ? 'g' : 'gi');
         let count = 0;
         const walker = document.createTreeWalker(activeScope, NodeFilter.SHOW_TEXT);
         const nodes = [];
@@ -119,22 +134,59 @@
         });
         if (count) dispatchChange();
         refresh();
-        status(count ? `Заменено: ${count}` : 'Совпадений нет');
+        if (count) status(`Replaced ${count}`);
+    }
+
+    function setExpanded(expanded) {
+        const replaceRow = panel?.querySelector('[data-fr-replace-row]');
+        const toggle = panel?.querySelector('[data-fr-toggle]');
+        if (!replaceRow || !toggle) return;
+        replaceRow.hidden = !expanded;
+        toggle.setAttribute('aria-expanded', String(expanded));
+        toggle.setAttribute('aria-label', expanded ? 'Hide replace field' : 'Show replace field');
+        toggle.title = expanded ? 'Hide replace field' : 'Show replace field';
+        toggle.textContent = expanded ? '⌄' : '›';
+    }
+
+    function handleClick(event) {
+        const button = event.target.closest('button');
+        if (!button || !panel.contains(button)) return;
+        if (button.matches('[data-fr-toggle]')) {
+            const row = panel.querySelector('[data-fr-replace-row]');
+            setExpanded(row.hidden);
+            if (!row.hidden) input('replace')?.focus();
+        } else if (button.matches('[data-fr-case]')) {
+            return;
+        } else if (button.matches('[data-fr-prev]')) {
+            selectMatch(currentMatch - 1);
+        } else if (button.matches('[data-fr-next]')) {
+            selectMatch(currentMatch + 1);
+        } else if (button.matches('[data-fr-one]')) {
+            replaceOne();
+        } else if (button.matches('[data-fr-all]')) {
+            replaceAll();
+        } else if (button.matches('[data-fr-close]')) {
+            close();
+        }
     }
 
     function close() {
-        dialog?.close?.();
+        if (panel) panel.hidden = true;
         activeScope = null;
         matches = [];
         currentMatch = -1;
     }
 
     function open(scope) {
+        if (!scope) return;
         activeScope = scope;
-        const view = ensureDialog();
+        const host = scope.closest?.('.llm-panel, .debate-model-card') || scope.parentElement;
+        const view = ensurePanel();
+        if (host && view.parentElement !== host) host.appendChild(view);
+        view.hidden = false;
         currentMatch = -1;
-        if (!view.open) view.show();
         input('find')?.focus();
+        input('find')?.select?.();
         refresh();
     }
 
@@ -142,11 +194,16 @@
         const direct = target?.closest?.(SCOPE_SELECTOR);
         if (direct) return direct;
         const card = target?.closest?.('.llm-panel, .debate-model-card');
-        return card?.querySelector?.(SCOPE_SELECTOR) || null;
+        return card?.querySelector?.(SCOPE_SELECTOR) || activeScope;
     }
 
     function init() {
         document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape' && panel && !panel.hidden) {
+                event.preventDefault();
+                close();
+                return;
+            }
             if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'f') return;
             const scope = resolveScope(event.target);
             if (!scope) return;
