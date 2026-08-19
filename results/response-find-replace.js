@@ -24,7 +24,6 @@
                 <output data-fr-status aria-live="polite">No results</output>
                 <button type="button" class="response-find-replace-nav" data-fr-prev aria-label="Previous match" title="Previous match">↑</button>
                 <button type="button" class="response-find-replace-nav" data-fr-next aria-label="Next match" title="Next match">↓</button>
-                <button type="button" class="response-find-replace-menu" data-fr-menu aria-label="Replace actions" title="Replace actions">☰</button>
                 <button type="button" class="response-find-replace-close" data-fr-close aria-label="Close" title="Close">×</button>
             </div>
             <div class="response-find-replace-row response-find-replace-row-secondary" data-fr-replace-row hidden>
