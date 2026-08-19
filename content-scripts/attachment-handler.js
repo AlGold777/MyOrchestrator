@@ -149,17 +149,14 @@
     },
     Gemini: {
       // Arbitrary files cannot be represented faithfully with the Web Clipboard
-      // API (Finder/Explorer uses native file-reference clipboard formats). Ask
-      // the background worker to materialize the bytes and use CDP's trusted
-      // DOM.setFileInputFiles path instead.
-      // 2.81.195: the debugger permission exists only for the scoped Le Chat and
-      // Perplexity submit routes. Attachment CDP RPCs remain policy-disabled, so
-      // every strategy list must retain native input/drop fallbacks.
+      // API (Finder/Explorer uses native file-reference clipboard formats). Use
+      // page-scoped drop, paste and input fallbacks; browser-level debugging is
+      // intentionally unavailable.
       // 2.81.304: `paste` added and `input` moved last. Gemini had no paste
       // vector at all, though paste is what actually delivers on Kimi, and it
       // had `input` -- the one the GPT note above calls out as making the chip
       // appear while the upload never completes -- ahead of `drop`.
-      strategies: ['cdp-file-input', 'drop', 'paste', 'input'],
+      strategies: ['drop', 'paste', 'input'],
       // Raised with the vector count and because confirmation is now real work
       // rather than a formality; 12 s could not even cover this provider's own
       // 15 s input-evidence settle.
@@ -226,7 +223,7 @@
     },
     Perplexity: {
       // 2.81.116: fallback added, see the Gemini note above.
-      strategies: ['provider-cdp-file-input', 'input'],
+      strategies: ['input'],
       settleMs: 1200,
       // Perplexity's paid-plan modal can briefly render generic upload classes.
       // Those transient nodes are not attachment evidence: a file chip,
@@ -260,11 +257,9 @@
     },
     Qwen: {
       // Current Qwen UI exposes one stable native contract:
-      // <input id="filesUpload" multiple type="file">. Assign files to that
-      // exact input through trusted CDP instead of synthetic drop/paste/menu UI.
-      // 2.81.116: fallback added, see the Gemini note above. The same stable
-      // native contract named in the comment is used directly by the `input`
-      // strategy, which needs no debugger permission.
+      // <input id="filesUpload" multiple type="file">. Use that stable native
+      // contract through the page's input strategy; browser-level debugging is
+      // intentionally unavailable.
       //
       // 2.81.302: that left Qwen as the only provider with no synthetic-event
       // vector at all, so its whole cascade was CDP plus `input` -- and `input`
@@ -278,7 +273,7 @@
       // how the duplicate surfaced), and `drop` is what DeepSeek and Le Chat
       // use and what the GPT note calls "the same vector that fixed Qwen".
       // `input` stays last precisely because it is the least trustworthy.
-      strategies: ['qwen-cdp-file-input', 'drop', 'paste', 'input'],
+      strategies: ['drop', 'paste', 'input'],
       dropSelectors: [
         'textarea[placeholder*="Ask me anything" i]',
         'textarea.ant-input',
@@ -414,7 +409,7 @@
       // into a delivery, and Z.ai kept sending the prompt with no file. settleMs
       // is what the old dispatchEvidenceSettleMs was really buying -- a moment
       // for the chip to render -- so it moves here as a real settle.
-      strategies: ['provider-cdp-file-input', 'paste', 'drop', 'input'],
+      strategies: ['paste', 'drop', 'input'],
       timeoutMs: 40000,
       settleMs: 1200,
       pasteSelectors: [
@@ -1086,9 +1081,8 @@
       ? (config.timeoutMs || DEFAULT_TIMEOUT_MS)
       : (config.timeoutMs || DEFAULT_TIMEOUT_MS) * Math.max(1, expectedCount);
     // The budget bounds how long we WAIT FOR EVIDENCE, not total elapsed time. A
-    // wall-clock deadline taken at entry also charged the dispatch itself, and a
-    // CDP dispatch materializes the file to disk, opens a debugger session and can
-    // probe for an upload trigger a dozen times. Run 1786138588032: Qwen inserted
+    // wall-clock deadline taken at entry also charged the dispatch itself. Run
+    // 1786138588032: Qwen inserted
     // neither the file nor the prompt, because dispatch had eaten enough of the
     // deadline that every remaining slice fell under Qwen's own 10 s
     // inputEvidenceSettleMs — confirmation was arithmetically impossible, all three
@@ -1134,10 +1128,9 @@
         cascadeRemainingMs: Math.max(0, cascadeBudgetMs - confirmSpentMs),
         vectorsLeftAfterThis
       });
-      // A strategy that throws must not abort the remaining strategies: a missing
-      // API (for example chrome.debugger after the permission was removed) surfaces
-      // as a thrown TypeError, and letting it propagate would kill the whole
-      // attachment chain and with it the prompt dispatch.
+      // A strategy that throws must not abort the remaining strategies; letting
+      // one vector fail would otherwise kill the whole attachment chain and with
+      // it the prompt dispatch.
       let dispatchResult;
       try {
         dispatchResult = await dispatchFn();

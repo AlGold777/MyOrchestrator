@@ -17,6 +17,10 @@ const trustedInputFlightsByTab = new Map();
 const geminiAttachmentFlightsByTab = new Map();
 const qwenAttachmentFlightsByTab = new Map();
 const providerAttachmentFlightsByTab = new Map();
+// Browser-level debugging is permanently disabled. Keep this guard in the
+// transport itself so a future permission/configuration change cannot bring
+// back Chrome's "started debugging this browser" notification.
+const BROWSER_DEBUGGING_DISABLED = true;
 const debuggerSessionQueuesByTab = new Map();
 const completionAuthorityAttempts = self.__completionAuthorityAttempts || new Map();
 self.__completionAuthorityAttempts = completionAuthorityAttempts;
@@ -194,6 +198,10 @@ const ENABLED_DEBUGGER_RPC_TYPES = new Set([
 ]);
 
 const callChromeDebugger = (method, ...args) => new Promise((resolve, reject) => {
+    if (BROWSER_DEBUGGING_DISABLED) {
+        reject(new Error('browser_debugging_disabled'));
+        return;
+    }
     try {
         chrome.debugger[method](...args, (result) => {
             const err = chrome.runtime.lastError;

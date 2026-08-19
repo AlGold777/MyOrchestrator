@@ -61,10 +61,10 @@ describe('prompt-echo / suspect is not a green answer (preservation path)', () =
     expect(GROK_SRC).not.toContain('await humanoid.typeText(composer, prompt');
   });
 
-  test('the packaged extension scopes chrome.debugger to named provider submission RPCs', () => {
-    expect(MANIFEST.permissions).toContain('debugger');
-    expect(ROUTER_SRC).toContain("const ENABLED_DEBUGGER_RPC_TYPES = new Set([\n    'PROVIDER_TRUSTED_SEND_REQUEST',\n    'KIMI_TRUSTED_SEND_REQUEST',\n    'KIMI_TRUSTED_INPUT_REQUEST',\n    'PERPLEXITY_TRUSTED_ENTER_REQUEST'");
-    expect(ROUTER_SRC).toContain('DEBUGGER_RPC_TYPES.has(message?.type) && !ENABLED_DEBUGGER_RPC_TYPES.has(message.type)');
+  test('the packaged extension cannot use chrome.debugger', () => {
+    expect(MANIFEST.permissions).not.toContain('debugger');
+    expect(ROUTER_SRC).toContain('const BROWSER_DEBUGGING_DISABLED = true;');
+    expect(ROUTER_SRC).toContain("reject(new Error('browser_debugging_disabled'))");
   });
 
   test('Grok waits through a five-second full-prompt commit window before send', () => {

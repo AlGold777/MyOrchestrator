@@ -1,5 +1,16 @@
 # Codex phase change log
 
+## 2.81.354 — Permanently remove browser debugging
+
+- Removed the `debugger` permission from the manifest.
+- Added a fail-closed guard in the background transport before any access to
+  `chrome.debugger`, so browser-level debugging cannot be re-enabled by a
+  future configuration change.
+- Removed CDP attachment strategies; attachments now use page, input, drop or
+  paste fallbacks only.
+- Updated the architecture and permission documentation to state that A_Fable
+  cannot produce Chrome's “started debugging this browser” notification.
+
 ## 2.81.282 — Recovery paths stop being provider-specific
 
 - Run 1785853347152 lost three of four models to three different mechanisms with

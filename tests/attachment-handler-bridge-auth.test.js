@@ -78,13 +78,12 @@ describe('attachment bridge authentication', () => {
     expect(UTILS_SRC).toContain('window.__LLMMainBridgeToken = mainBridgeToken');
   });
 
-  test('Gemini uses CDP file-input attachment without the system clipboard', () => {
+  test('Gemini uses non-CDP attachment fallbacks without the system clipboard', () => {
     const geminiConfig = HANDLER_SRC.slice(
       HANDLER_SRC.indexOf('Gemini: {'),
       HANDLER_SRC.indexOf('Perplexity: {')
     );
-    // CDP first, but never CDP-only: see the note in attachment-handler.js (2.81.116).
-    expect(geminiConfig).toMatch(/strategies: \['cdp-file-input',/);
+    expect(geminiConfig).not.toContain('cdp-file-input');
     expect(geminiConfig).toContain("'input'");
     // Both synthetic-event vectors are present, and `input` is last: it is the
     // one the GPT note calls out as making the chip appear while the upload
@@ -435,9 +434,9 @@ describe('attachment bridge authentication', () => {
     expect(orchestrator.indexOf('const providerPipelineActive')).toBeLessThan(orchestrator.indexOf("canRepairDispatchInRound2(llmName)"));
   });
 
-  test('Le Chat, Perplexity and Kimi use the only enabled sender-gated debugger routes', () => {
+  test('Le Chat, Perplexity and Kimi keep page fallbacks while debugger stays disabled', () => {
     const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'manifest.json'), 'utf8'));
-    expect(manifest.permissions).toContain('debugger');
+    expect(manifest.permissions).not.toContain('debugger');
     expect(PROVIDER_SOURCES['Le Chat']).toContain("type: 'PROVIDER_TRUSTED_SEND_REQUEST'");
     expect(PROVIDER_SOURCES.Perplexity).toContain("type: 'PERPLEXITY_TRUSTED_ENTER_REQUEST'");
     expect(PROVIDER_SOURCES.Perplexity).toContain("type: 'PROVIDER_TRUSTED_SEND_REQUEST'");
@@ -448,9 +447,8 @@ describe('attachment bridge authentication', () => {
     expect(ROUTER_SRC).toContain("!/^https:\\/\\/(?:www\\.)?kimi\\.ai\\//i.test(senderUrl)");
     expect(ROUTER_SRC).toContain("'PROVIDER_TRUSTED_SEND_FAILED'");
     expect(ROUTER_SRC).toContain("'PROVIDER_TRUSTED_ENTER_FAILED'");
-    expect(ROUTER_SRC).toContain("debuggerApiAvailable: typeof chrome.debugger?.attach === 'function'");
-    expect(ROUTER_SRC).toContain("const ENABLED_DEBUGGER_RPC_TYPES = new Set([\n    'PROVIDER_TRUSTED_SEND_REQUEST',\n    'KIMI_TRUSTED_SEND_REQUEST',\n    'KIMI_TRUSTED_INPUT_REQUEST',\n    'PERPLEXITY_TRUSTED_ENTER_REQUEST'");
-    expect(ROUTER_SRC).toContain("reason: 'debugger_route_disabled'");
+    expect(ROUTER_SRC).toContain('const BROWSER_DEBUGGING_DISABLED = true;');
+    expect(ROUTER_SRC).toContain("reject(new Error('browser_debugging_disabled'))");
   });
 
   // 2.81.286 amends the 2.81.195 contract. The point of that correction was to

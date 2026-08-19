@@ -57,8 +57,7 @@ describe('Z.ai integration contract', () => {
     const adapter = read('content-scripts/content-zai.js');
     const handler = read('content-scripts/attachment-handler.js');
     const zaiConfig = handler.slice(handler.indexOf("'Z.ai': {"));
-    // CDP first, but never CDP-only: see the note in attachment-handler.js (2.81.116).
-    expect(zaiConfig).toMatch(/strategies: \['provider-cdp-file-input',/);
+    expect(zaiConfig).toMatch(/strategies: \['paste', 'drop', 'input'\]/);
     expect(zaiConfig).toContain("'paste'");
     expect(adapter).toContain('attachments: message.attachments || []');
     expect(adapter).toContain('attachmentHandler.attach(MODEL, options.attachments)');

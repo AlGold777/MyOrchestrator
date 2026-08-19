@@ -315,11 +315,10 @@ Every provider may publish the same dispatch-stage contract:
 stage-specific failure. These facts and the Round 1 focus boundary are retained
 in canonical evidence with exact dispatch identity.
 
-Trusted browser input has a single debugger owner per `tabId`. Native input,
-Enter, Send and attachment RPCs enqueue through the same manager; only that
-manager may attach or detach Chrome Debugger. Provider helpers operate inside
-the granted session and release their remote objects before the manager hands
-the tab to the next operation. Operations on different tabs remain concurrent.
+Browser-level debugging is intentionally unavailable. Provider input, Enter,
+Send and attachment delivery use page-scoped DOM, bridge, input, drop or paste
+paths and never attach Chrome Debugger. Operations on different tabs remain
+concurrent.
 When New pages is disabled, Round 0 acquires independent existing pages in
 parallel so the bootstrap fits inside the MV3 service-worker lifetime. The
 results-page start request remains open until this acquisition and Round 1
@@ -787,7 +786,7 @@ reacquiring their live composer and for provider-specific send evidence.
   `Input.insertText`), waits for React to settle, reacquires the live composer
   and reruns the same exact-prompt predicate. It cannot proceed to Send solely
   because text was briefly visible. Background then focuses that matching live
-  composer and dispatches one native Enter through the debugger input domain.
+  composer and dispatches one page-scoped native Enter attempt.
   If no submission evidence appears while the same prompt remains, the only
   fallback is a sender-gated trusted click on an enabled Send/Submit/Ask control
   discovered in the matching composer's nearest ownership scopes. Candidate
@@ -816,14 +815,10 @@ reacquiring their live composer and for provider-specific send evidence.
   restored in `finally`; this requires the explicit `downloads.ui` permission.
   Suppression failure is fail-closed (`download_ui_suppression_unavailable`): no
   internal download may start and Chrome's download bubble must not open.
-- Trusted attachment delivery may use the background `chrome.debugger` API
-  (CDP) for a provider tab. Chrome can therefore show its browser-level
-  “debugging this browser” notification; that notification is expected and is
-  not evidence that the extension is watching the user's screen or actions.
-  The debugger scope is limited to the bound provider tab and the current
-  dispatch: DOM/file-input or chooser commands and their result are read, then
-  the debugger target is detached in `finally`. No screenshots, keystroke
-  stream or unrelated tabs are collected by this transport.
+- Trusted attachment delivery never uses the background `chrome.debugger` API.
+  It stays within the provider page and uses the available DOM, bridge, input,
+  drop or paste strategies. The extension has no `debugger` permission, so it
+  cannot produce Chrome's browser-level debugging notification.
 - Before Perplexity composer discovery, the adapter may dismiss a page-owned
   modal only when the dialog text explicitly identifies an upgrade/plan/package
   promotion and it exposes an explicit Close/Dismiss/Not now control. File menus,
