@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-08-20 — Round 1 sprint получает приоритет над фоновыми действиями, version 2.81.360
+
+- Для текстового Round 1 добавлен общий sprint-state с владельцем текущей provider-вкладки; `NEED_FOCUS` от других вкладок блокируется без активации.
+- Send-only recovery и retry supervisor откладываются на время sprint и повторно проверяются после его завершения.
+- Pre-warm вкладок не запускается во время Round 1, других rounds или активной prompt dispatch.
+
 ### 2026-08-20 — Ускорена Round 1 отправка, version 2.81.359
 
 - Обычные текстовые запросы Round 1 используют fast actuation path: фокус, команда и Send ограничены двухсекундным interaction deadline.

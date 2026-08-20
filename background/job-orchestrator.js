@@ -5669,8 +5669,48 @@ function abortRound1FastActuation(llmName, tabId, dispatchId, reason = 'round1_a
   } catch (_) {}
 }
 
+const round1SprintState = {
+  active: false,
+  sessionId: null,
+  ownerLlmName: null,
+  ownerTabId: null
+};
+
+function beginRound1Sprint(sessionId = null) {
+  round1SprintState.active = true;
+  round1SprintState.sessionId = sessionId || jobState?.session?.startTime || null;
+  round1SprintState.ownerLlmName = null;
+  round1SprintState.ownerTabId = null;
+}
+
+function endRound1Sprint() {
+  round1SprintState.active = false;
+  round1SprintState.sessionId = null;
+  round1SprintState.ownerLlmName = null;
+  round1SprintState.ownerTabId = null;
+  self.flushDeferredProviderSendOnlyRecoveries?.();
+}
+
+function setRound1SprintOwner(llmName, tabId) {
+  if (!round1SprintState.active) return false;
+  round1SprintState.ownerLlmName = llmName || null;
+  round1SprintState.ownerTabId = isValidTabId(tabId) ? tabId : null;
+  return true;
+}
+
+function getRound1SprintState() {
+  return { ...round1SprintState };
+}
+
+function isRound1SprintActive() {
+  return round1SprintState.active === true;
+}
+
 async function dispatchRound1Sequentially(selectedLLMs, prompt, attachments = [], sessionId, options = {}) {
-  for (const llmName of orderRound1Models(selectedLLMs)) {
+  const sprintEnabled = !Array.isArray(attachments) || attachments.length === 0;
+  if (sprintEnabled) beginRound1Sprint(sessionId);
+  try {
+    for (const llmName of orderRound1Models(selectedLLMs)) {
     if (sessionId && !isSessionActive(sessionId)) return false;
     let entry = jobState?.llms?.[llmName];
     if (!entry) {
@@ -5714,6 +5754,7 @@ async function dispatchRound1Sequentially(selectedLLMs, prompt, attachments = []
       continue;
     }
     endMeta.tabId = tabId;
+    if (sprintEnabled) setRound1SprintOwner(llmName, tabId);
     const dispatchTab = await getTabSafe(tabId);
     initRequestMetadata(llmName, tabId, dispatchTab?.url || dispatchTab?.pendingUrl || '');
     const isTextOnly = !Array.isArray(attachments) || attachments.length === 0;
@@ -5803,7 +5844,10 @@ async function dispatchRound1Sequentially(selectedLLMs, prompt, attachments = []
     });
     endBudgetPhase(llmName, 'dispatch');
   }
-  return true;
+    return true;
+  } finally {
+    if (sprintEnabled) endRound1Sprint();
+  }
 }
 
 async function focusTabForVerification(llmName, tabId, durationMs, sessionId) {
@@ -10308,6 +10352,9 @@ function sendCleanupCommand(llmName) {
   self.getRound2SubmitConfirmationState = getRound2SubmitConfirmationState;
   self.waitForRound2SubmitConfirmation = waitForRound2SubmitConfirmation;
   self.orderRound1Models = orderRound1Models;
+  self.getRound1SprintState = getRound1SprintState;
+  self.isRound1SprintActive = isRound1SprintActive;
+  self.setRound1SprintOwner = setRound1SprintOwner;
   self.isRound2DelayedConfirmationState = isRound2DelayedConfirmationState;
   self.shouldInferSubmitFromAnswerEvidence = shouldInferSubmitFromAnswerEvidence;
   self.inferPromptSubmittedFromAnswerEvidence = inferPromptSubmittedFromAnswerEvidence;

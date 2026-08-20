@@ -9,6 +9,7 @@ var promptSubmitWaiters = new Map();
 var promptSubmitWaiterArms = new Map();
 var promptInsertionWaiters = new Map();
 var providerSendOnlyRecoveryTimers = new Map();
+var deferredProviderSendOnlyRecoveries = new Map();
 var promptDispatchSupervisorTimer = null;
 //- 2.1. Лимит ожидания сигнала из контента -//
 const PROMPT_SUBMIT_TIMEOUT_MS = TimingConfig.getTiming('promptSubmitTimeoutMs', 15000);
@@ -121,6 +122,17 @@ function scheduleProviderSendOnlyRecovery(llmName, options = {}) {
       || liveEntry.confirmedDispatchId === dispatchId) return;
     if (String(liveEntry.providerDispatchStage || '') !== 'send_action_failed'
       || liveEntry.providerDispatchStageDispatchId !== dispatchId) return;
+    if (self.isRound1SprintActive?.() === true) {
+      deferredProviderSendOnlyRecoveries.set(llmName, {
+        dispatchId,
+        reason: options.reason || 'round1_sprint_deferred'
+      });
+      emitTelemetry(llmName, 'PROVIDER_SEND_ONLY_RECOVERY_DEFERRED', {
+        details: 'round1_sprint_active',
+        meta: { dispatchId, reason: options.reason || 'round1_sprint_deferred' }
+      });
+      return;
+    }
     const tabId = resolveBoundTabIdForDispatch(llmName, liveEntry);
     if (!isValidTabId(tabId)) return;
     const previousTab = await getActiveTabSnapshot();
@@ -160,6 +172,26 @@ function scheduleProviderSendOnlyRecovery(llmName, options = {}) {
   }, delayMs));
   providerSendOnlyRecoveryTimers.set(llmName, timer);
   return true;
+}
+
+function flushDeferredProviderSendOnlyRecoveries() {
+  if (self.isRound1SprintActive?.() === true) return false;
+  const deferred = Array.from(deferredProviderSendOnlyRecoveries.entries());
+  deferredProviderSendOnlyRecoveries.clear();
+  for (const [llmName, item] of deferred) {
+    const entry = jobState?.llms?.[llmName];
+    const dispatchId = item?.dispatchId || null;
+    if (!entry || !dispatchId || entry.promptSubmittedAt || entry.confirmedDispatchId === dispatchId) continue;
+    if (entry.lastDispatchMeta?.dispatchId !== dispatchId) continue;
+    if (String(entry.providerDispatchStage || '') !== 'send_action_failed'
+      || entry.providerDispatchStageDispatchId !== dispatchId) continue;
+    scheduleProviderSendOnlyRecovery(llmName, {
+      dispatchId,
+      reason: item.reason || 'round1_sprint_deferred',
+      delayMs: 500
+    });
+  }
+  return deferred.length > 0;
 }
 
 const dispatchSessionTimerManager = (() => {
@@ -978,6 +1010,7 @@ function countPendingRetries() {
 }
 
 function schedulePromptDispatchSupervisor() {
+  if (self.isRound1SprintActive?.() === true) return;
   if (promptDispatchSupervisorTimer) return;
   if (!hasPendingPromptDispatches()) return;
 
@@ -1012,6 +1045,7 @@ function schedulePromptDispatchSupervisor() {
 //-- 5.1. Supervisor: защита от конкуренции с Rounds --//
 async function runPromptDispatchSupervisor() {
   if (!jobState?.llms) return;
+  if (self.isRound1SprintActive?.() === true) return;
   if (promptDispatchInProgress > 0) {
     schedulePromptDispatchSupervisor();
     return;
@@ -2672,6 +2706,7 @@ self.promptSubmitWaiters = promptSubmitWaiters;
 self.promptSubmitWaiterArms = promptSubmitWaiterArms;
 self.promptInsertionWaiters = promptInsertionWaiters;
 self.providerSendOnlyRecoveryTimers = providerSendOnlyRecoveryTimers;
+self.deferredProviderSendOnlyRecoveries = deferredProviderSendOnlyRecoveries;
 self.getRetryBackoffForModel = getRetryBackoffForModel;
 self.getConnectionRetryDelaysForModel = getConnectionRetryDelaysForModel;
 self.withPromptDispatchLock = withPromptDispatchLock;
@@ -2685,6 +2720,7 @@ self.waitForPromptInsertion = waitForPromptInsertion;
 self.waitForPromptFocusBoundary = waitForPromptFocusBoundary;
 self.scheduleProviderSendOnlyRecovery = scheduleProviderSendOnlyRecovery;
 self.cancelProviderSendOnlyRecovery = cancelProviderSendOnlyRecovery;
+self.flushDeferredProviderSendOnlyRecoveries = flushDeferredProviderSendOnlyRecoveries;
 self.getPromptSubmitTimeoutMs = getPromptSubmitTimeoutMs;
 self.sendMessageWithTimeout = sendMessageWithTimeout;
 self.normalizePageReadyState = normalizePageReadyState;
