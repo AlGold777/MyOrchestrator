@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-08-20 — Ужесточена граница dispatch и подтверждения отправки, version 2.81.358
+
+- Готовность provider page теперь проверяется fail-closed; после активации вкладки выполняется свежий focused readiness probe до `GET_ANSWER`.
+- Round 1 ожидает коррелированное подтверждение `PROMPT_SUBMITTED`, а ACK принятия команды больше не считается успешной отправкой.
+- `machine.submit()` выполняется только для текущего dispatch после подтверждения, а send-only recovery запускается только при явном `send_action_failed`.
+
 ### 2026-08-19 — Compact response find bar, version 2.81.357
 
 - Удалена дублирующая иконка `Replace actions` из верхней строки.
