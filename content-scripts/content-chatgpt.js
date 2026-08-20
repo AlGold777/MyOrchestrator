@@ -1314,8 +1314,6 @@ const chatgptScrollCoordinator = window.ScrollCoordinator
             if (stopBtn && isElementInteractable(stopBtn)) return true;
             const after = document.querySelectorAll('[data-message-author-role="user"]').length;
             if (after > preSendUserCount) return true;
-            const val = String(inputField.value ?? inputField.textContent ?? '').trim();
-            if (!val.length) return true;
             await sleep(120);
           }
           return false;
