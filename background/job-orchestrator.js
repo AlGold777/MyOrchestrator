@@ -5674,13 +5674,14 @@ async function dispatchRound1Sequentially(selectedLLMs, prompt, attachments = []
     endMeta.tabId = tabId;
     const dispatchTab = await getTabSafe(tabId);
     initRequestMetadata(llmName, tabId, dispatchTab?.url || dispatchTab?.pendingUrl || '');
-    //- 1.1. Round 1: режим "Спринт". Не ждем подтверждения, чтобы Gemini и Claude получили промпт мгновенно -//
+    // Round 1 is sequential: readiness and correlated submit evidence are
+    // required before the next model starts its dispatch transaction.
     const modelPrompt = resolvePromptForDispatch(llmName, prompt);
-    await dispatchPromptToTab(llmName, tabId, modelPrompt, attachments, 'round1', {
+    const dispatchResult = await dispatchPromptToTab(llmName, tabId, modelPrompt, attachments, 'round1', {
       forceFocus: true,
-      skipNoFocusProbe: true,
+      skipNoFocusProbe: false,
       skipFocusRestore: true,
-      skipSubmitWait: true,
+      skipSubmitWait: false,
       deferSendMs: ROUND1_BEFORE_SEND_MS,
       // Keep the provider foregrounded until correlated insertion or submit
       // evidence arrives, capped independently of the longer submit watchdog.
@@ -5691,14 +5692,12 @@ async function dispatchRound1Sequentially(selectedLLMs, prompt, attachments = []
       requireCommandAcceptance: true,
       resetStateAfterSend: false
     });
-    const elapsed = Date.now() - roundStart;
-    const targetMs = ROUND1_BEFORE_SEND_MS + ROUND1_POST_SEND_MS;
-    await orchestratorSleepMs(Math.max(0, targetMs - elapsed));
     const postDispatchEntry = jobState?.llms?.[llmName] || entry;
-    const confirmedByContent = !!postDispatchEntry?.promptSubmittedAt && postDispatchEntry?.submitSource === 'content';
-    endMeta.reason = confirmedByContent ? 'prompt_confirmed' : 'awaiting_submit_confirmation';
-    endDetails = confirmedByContent ? 'prompt confirmed' : 'dispatch command sent (awaiting confirmation)';
-    endLevel = confirmedByContent ? 'success' : 'info';
+    const confirmedByContent = dispatchResult?.confirmed === true
+      && dispatchResult?.dispatchId === postDispatchEntry?.lastDispatchMeta?.dispatchId;
+    endMeta.reason = confirmedByContent ? 'prompt_confirmed' : (dispatchResult?.reason || 'dispatch_failed');
+    endDetails = confirmedByContent ? 'prompt confirmed' : `dispatch failed: ${endMeta.reason}`;
+    endLevel = confirmedByContent ? 'success' : 'warning';
     emitModelRoundTelemetry(llmName, 1, 'END', endDetails, {
       level: endLevel,
       meta: {
@@ -6202,7 +6201,7 @@ async function dispatchRound2Verification(selectedLLMs, sessionId) {
             }
             await dispatchPromptToTab(llmName, tabId, resolvePromptForDispatch(llmName, jobState.prompt), jobState.attachments || [], 'round2_repair_pre_visit', {
               forceFocus: true,
-              skipNoFocusProbe: true,
+              skipNoFocusProbe: false,
               deferSendMs: 250,
               skipSubmitWait: false,
               skipTypingGuard: true,
@@ -6404,7 +6403,7 @@ async function dispatchRound2Verification(selectedLLMs, sessionId) {
             }
             await dispatchPromptToTab(llmName, tabId, resolvePromptForDispatch(llmName, jobState.prompt), jobState.attachments || [], 'round2_repair', {
               forceFocus: true,
-              skipNoFocusProbe: true,
+              skipNoFocusProbe: false,
               deferSendMs: 500,
               skipSubmitWait: false,
               skipTypingGuard: true,

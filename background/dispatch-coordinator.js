@@ -119,7 +119,8 @@ function scheduleProviderSendOnlyRecovery(llmName, options = {}) {
     const liveDispatchId = liveEntry?.lastDispatchMeta?.dispatchId || null;
     if (!liveEntry || liveDispatchId !== dispatchId || liveEntry.promptSubmittedAt
       || liveEntry.confirmedDispatchId === dispatchId) return;
-    if (!['prompt_inserted', 'send_action_failed'].includes(String(liveEntry.providerDispatchStage || ''))) return;
+    if (String(liveEntry.providerDispatchStage || '') !== 'send_action_failed'
+      || liveEntry.providerDispatchStageDispatchId !== dispatchId) return;
     const tabId = resolveBoundTabIdForDispatch(llmName, liveEntry);
     if (!isValidTabId(tabId)) return;
     const previousTab = await getActiveTabSnapshot();
@@ -511,7 +512,10 @@ function normalizePageReadyState(response = null) {
     ? raw.pageReady
     : (typeof raw.ready === 'boolean' ? raw.ready : null);
   const composerReady = typeof raw.composerReady === 'boolean' ? raw.composerReady : null;
-  const requiresFocus = raw.requiresFocus === true || raw.timeout === true || Boolean(raw.error);
+  const explicitReady = status === 'ready' || status === 'ready_no_focus'
+    || (pageReady === true && composerReady === true);
+  let requiresFocus = raw.requiresFocus === true || raw.timeout === true || Boolean(raw.error)
+    || (!explicitReady && pageReady === null && composerReady === null);
   const blockerPolicy = self.PageBlockerPolicy?.classify
     ? self.PageBlockerPolicy.classify({ status, reason: raw.reason, blockers })
     : null;
@@ -535,24 +539,29 @@ function normalizePageReadyState(response = null) {
     'unsupported_page'
   ]);
 
-  let ok = true;
-  let reason = 'ready';
+  let ok = explicitReady;
+  let reason = explicitReady ? 'ready' : (requiresFocus ? 'requires_focus' : 'unknown');
   if (blockerPolicy?.blocker && blockerPolicy.terminal) {
     ok = false;
+    requiresFocus = false;
     reason = blockerPolicy.blocker;
   } else if (terminalStatuses.has(status)) {
     ok = false;
+    requiresFocus = false;
     reason = status;
   } else {
     const blocker = blockers.find((item) => terminalBlockers.has(item));
     if (blocker) {
       ok = false;
+      requiresFocus = false;
       reason = blocker;
     } else if (pageReady === false) {
       ok = false;
+      requiresFocus = false;
       reason = raw.reason || 'page_not_ready';
     } else if (composerReady === false && !requiresFocus) {
       ok = false;
+      requiresFocus = false;
       reason = raw.reason || 'composer_not_ready';
     }
   }
@@ -1358,7 +1367,7 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
         if (machine) {
           machine.error({ error: readiness.reason || 'tab_not_ready', code: 'TAB_NOT_READY' });
         }
-        return;
+        return { ok: false, accepted: false, dispatchId, reason: readiness.reason || 'tab_not_ready' };
       }
       broadcastDiagnostic(llmName, {
         type: 'DISPATCH',
@@ -1498,6 +1507,7 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
       } catch (_) {}
 
       let needsFocus = false;
+      let focusedReadinessChecked = false;
       let noFocusResponse = null;
       if (options.skipNoFocusProbe) {
         needsFocus = true;
@@ -1521,7 +1531,8 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
       if (options.forceFocus) {
         needsFocus = true;
       }
-      const pageReadyState = normalizePageReadyState(noFocusResponse);
+      let pageReadyState = normalizePageReadyState(noFocusResponse);
+      needsFocus = pageReadyState.requiresFocus || options.forceFocus === true;
       emitTelemetry(llmName, 'PAGE_READY_STATE', {
         level: pageReadyState.ok ? 'info' : 'warning',
         details: pageReadyState.reason || 'ready',
@@ -1538,7 +1549,7 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
           source: pageReadyState.source
         }
       });
-      if (!pageReadyState.ok) {
+      if (!pageReadyState.ok && !pageReadyState.requiresFocus) {
         entry.lastPageReadyState = {
           ok: false,
           reason: pageReadyState.reason,
@@ -1605,7 +1616,64 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
         if (machine) {
           machine.error({ error: pageReadyState.reason || 'page_not_ready', code: 'PAGE_NOT_READY' });
         }
-        return;
+        return { ok: false, accepted: false, dispatchId, reason: pageReadyState.reason || 'page_not_ready' };
+      }
+
+      let previousTab = null;
+      if (needsFocus) {
+        previousTab = await getActiveTabSnapshot();
+        await withPromptDispatchFocusLock(async () => {
+          entry.focusSwitches = Number(entry.focusSwitches || 0) + 1;
+          if (jobState?.session) {
+            jobState.session.focusSwitches = Number(jobState.session.focusSwitches || 0) + 1;
+          }
+          await activateTabForDispatch(tabId);
+          if (options.deferSendMs) await dispatchSleepMs(options.deferSendMs);
+          const focusedResponse = await sendMessageWithTimeout(tabId, llmName, {
+            type: 'GET_ANSWER_NO_FOCUS',
+            prompt,
+            attachments,
+            meta: { dispatchReason: reason, sessionId, pipelineRunId, ...dispatchIdentityMeta }
+          }, NO_FOCUS_TIMEOUT_MS);
+          pageReadyState = normalizePageReadyState(focusedResponse);
+          focusedReadinessChecked = true;
+        });
+        emitTelemetry(llmName, 'PAGE_READY_STATE_FOCUSED', {
+          level: pageReadyState.ok ? 'info' : 'warning',
+          details: pageReadyState.reason,
+          meta: { ...dispatchIdentityMeta, dispatchReason: reason, tabId,
+            status: pageReadyState.status, requiresFocus: pageReadyState.requiresFocus }
+        });
+        if (!pageReadyState.ok) {
+          entry.lastPageReadyState = { ...pageReadyState, checkedAt: Date.now(), dispatchId };
+          emitTelemetry(llmName, 'PAGE_READY_BLOCKED', {
+            level: 'warning', details: pageReadyState.reason || 'page_not_ready',
+            meta: { dispatchId, dispatchReason: reason, tabId,
+              status: pageReadyState.status, blockers: pageReadyState.blockers,
+              blockerPolicy: pageReadyState.blockerPolicy || null, focused: true }
+          });
+          if (pageReadyState.blockerPolicy?.retryable !== false) {
+            scheduleDispatchRetry(entry, llmName, { type: 'page_not_ready', reason: pageReadyState.reason });
+          } else if (typeof handleLLMResponse === 'function') {
+            handleLLMResponse(llmName, '', {
+              type: 'user_action_required',
+              message: pageReadyState.reason || 'User action required before dispatch'
+            }, {
+              dispatchId,
+              sessionId,
+              runSessionId: sessionId,
+              responseMeta: {
+                failureClass: 'page_readiness',
+                blockerPolicy: pageReadyState.blockerPolicy || null,
+                source: 'focused_page_ready_blocked'
+              }
+            }, '');
+          }
+          if (machine?.isInProgress?.()) {
+            machine.error({ error: pageReadyState.reason || 'page_not_ready', code: 'PAGE_NOT_READY' });
+          }
+          return { ok: false, accepted: false, dispatchId, reason: pageReadyState.reason || 'page_not_ready' };
+        }
       }
 
       if (machine) {
@@ -1633,7 +1701,6 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
       }
       const readyWaitMs = Math.max(0, Date.now() - lockAcquiredAt);
 
-      let previousTab = null;
       let restoreTimer = null;
       let restoreMaxTimer = null;
       const answerCommand = {
@@ -1706,7 +1773,7 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
       };
       let commandDeliveryResult = null;
       let providerTransactionBoundary = null;
-      if (needsFocus) {
+      if (needsFocus && !focusedReadinessChecked) {
         entry.focusSwitches = Number(entry.focusSwitches || 0) + 1;
         if (jobState?.session) {
           jobState.session.focusSwitches = Number(jobState.session.focusSwitches || 0) + 1;
@@ -1888,7 +1955,6 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
         if (machine?.isInProgress?.()) machine.error({ error: reasonCode, code: 'PROVIDER_TRANSACTION_FAILED' });
         return { ok: false, accepted: true, dispatchId, reason: reasonCode };
       }
-      if (machine?.isInProgress?.()) machine.submit();
       //-- 2.1. Если Round 1 (skipSubmitWait), выходим сразу после клика, не блокируя очередь --//
       if (options.skipSubmitWait) {
         const dispatchAlreadyConfirmed = entry.confirmedDispatchId === dispatchId
@@ -1925,17 +1991,22 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
           response: commandDeliveryResult?.response || null
         };
       }
-      const submittedOk = submittedPayload === true || (submittedPayload && submittedPayload.ok === true);
+      const submittedDispatchId = submittedPayload && typeof submittedPayload === 'object'
+        ? submittedPayload.dispatchId || submittedPayload.meta?.dispatchId : dispatchId;
+      const submittedOk = (submittedPayload === true || (submittedPayload && submittedPayload.ok === true))
+        && submittedDispatchId === dispatchId;
       if (submittedOk) {
         entry.promptSubmittedAt = Date.now();
         entry.awaitingSubmitConfirmation = false;
         entry.awaitingSubmitConfirmationAt = null;
         entry.awaitingSubmitConfirmationDispatchId = null;
+        if (machine?.isInProgress?.()) machine.submit();
         broadcastDiagnostic(llmName, { type: 'DISPATCH', label: 'Prompt submitted (confirmed)', level: 'success' });
         armScriptRuntimeHardStopForConfirmedPrompt(llmName, {
           dispatchId: entry?.confirmedDispatchId || dispatchId || null,
           tabId
         });
+        return { ok: true, confirmed: true, dispatchId, reason: 'prompt_confirmed' };
       } else if (submittedPayload && submittedPayload.busy) {
         broadcastDiagnostic(llmName, { type: 'DISPATCH', label: 'Content script busy — no retry', level: 'warning' });
       } else {
@@ -1959,6 +2030,7 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
         if (machine) {
           machine.error({ error: 'prompt_submit_timeout', code: 'PROMPT_SUBMIT_TIMEOUT' });
         }
+        return { ok: false, confirmed: false, dispatchId, reason: 'submit_timeout' };
       }
     } catch (err) {
       console.warn('[DISPATCH] dispatchPromptToTab failed', llmName, err);
@@ -2126,7 +2198,7 @@ function sendMessageSafely(tabId, llmName, message, attempt = 1, onSettled = nul
           force: true
         });
         settle({ ok: false, stale: true, reason: 'stale_send_callback' });
-        return;
+        return { ok: false, accepted: false, dispatchId, reason: pageReadyState.reason || 'page_not_ready' };
       }
       if (isTerminalLlmEntry(liveEntry)) {
         appendLogEntry(llmName, {
