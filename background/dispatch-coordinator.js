@@ -2198,7 +2198,7 @@ function sendMessageSafely(tabId, llmName, message, attempt = 1, onSettled = nul
           force: true
         });
         settle({ ok: false, stale: true, reason: 'stale_send_callback' });
-        return { ok: false, accepted: false, dispatchId, reason: pageReadyState.reason || 'page_not_ready' };
+        return;
       }
       if (isTerminalLlmEntry(liveEntry)) {
         appendLogEntry(llmName, {
