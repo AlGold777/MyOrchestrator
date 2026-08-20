@@ -7,8 +7,54 @@
     const speedMode = !!window.__PRAGMATIST_SPEED_MODE;
     const factor = speedMode ? 0.35 : 1;
     const minMs = speedMode ? 25 : 0;
-    const finalMs = Math.max(minMs, baseMs * factor);
+    const fastMeta = window.__LLM_FAST_DISPATCH_META;
+    const fastDeadlineAt = Number(fastMeta?.interactionDeadlineAt || 0);
+    const remainingFastMs = fastDeadlineAt ? Math.max(0, fastDeadlineAt - Date.now()) : Number.POSITIVE_INFINITY;
+    const finalMs = Math.min(Math.max(minMs, baseMs * factor), remainingFastMs);
     return new Promise((resolve) => setTimeout(resolve, finalMs));
+  };
+
+  const fastDispatchAborts = new Map();
+  const FAST_DISPATCH_ABORT_TTL_MS = 60000;
+  const pruneFastDispatchAborts = () => {
+    const now = Date.now();
+    for (const [dispatchId, abortedAt] of fastDispatchAborts.entries()) {
+      if (now - abortedAt > FAST_DISPATCH_ABORT_TTL_MS) fastDispatchAborts.delete(dispatchId);
+    }
+  };
+  const abortFastDispatch = (meta = {}) => {
+    const dispatchId = String(meta?.dispatchId || '');
+    if (!dispatchId) return false;
+    pruneFastDispatchAborts();
+    fastDispatchAborts.set(dispatchId, Date.now());
+    return true;
+  };
+  const isFastDispatchAborted = (meta = {}) => {
+    const dispatchId = String(meta?.dispatchId || '');
+    if (!dispatchId) return false;
+    pruneFastDispatchAborts();
+    return fastDispatchAborts.has(dispatchId);
+  };
+  const getInteractionDeadlineAt = (meta = {}) => {
+    const value = Number(meta?.interactionDeadlineAt || 0);
+    return Number.isFinite(value) && value > 0 ? value : 0;
+  };
+  const isRound1FastDispatch = (meta = {}) => meta?.round1FastDispatch === true
+    && getInteractionDeadlineAt(meta) > 0;
+  const getInteractionRemainingMs = (meta = {}) => {
+    const deadlineAt = getInteractionDeadlineAt(meta);
+    return deadlineAt ? Math.max(0, deadlineAt - Date.now()) : Number.POSITIVE_INFINITY;
+  };
+  const canActuateDispatch = (llmName, meta = {}, stage = 'actuation') => {
+    if (!isRound1FastDispatch(meta)) return true;
+    const dispatchId = String(meta?.dispatchId || '');
+    if (isFastDispatchAborted(meta) || Date.now() >= getInteractionDeadlineAt(meta)) {
+      reportDispatchStage(llmName, meta, 'fast_dispatch_timeout', {
+        outcome: 'failed', reason: `deadline_before_${stage}`, remainingMs: 0, dispatchId
+      });
+      return false;
+    }
+    return true;
   };
 
   const buildResponseMeta = (metadata = null, options = {}) => {
@@ -218,6 +264,7 @@
 
   const ensureDispatchMeta = (meta, llmName) => {
     const base = meta && typeof meta === 'object' ? Object.assign({}, meta) : {};
+    if (base.round1FastDispatch === true) window.__LLM_FAST_DISPATCH_META = base;
     storeDispatchMeta(base);
     const runSessionId = base.runSessionId || storedRunSessionId || getSessionId();
     if (runSessionId) {
@@ -1294,6 +1341,12 @@
 
   window.ContentUtils = {
     sleep,
+    abortFastDispatch,
+    isFastDispatchAborted,
+    getInteractionDeadlineAt,
+    getInteractionRemainingMs,
+    isRound1FastDispatch,
+    canActuateDispatch,
     buildResponseMeta,
     isElementInteractable,
     isExtensionContextValid,

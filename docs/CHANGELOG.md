@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-08-20 — Ускорена Round 1 отправка, version 2.81.359
+
+- Обычные текстовые запросы Round 1 используют fast actuation path: фокус, команда и Send ограничены двухсекундным interaction deadline.
+- Планировщик ждёт `send_action_requested`, затем удерживает provider ещё 5 секунд; `PROMPT_SUBMITTED` остаётся асинхронным evidence plane.
+- Добавлены коррелированные fast-abort/deadline guards и ускорена Qwen-отправка без прежней двухсекундной задержки.
+
 ### 2026-08-20 — Ужесточена граница dispatch и подтверждения отправки, version 2.81.358
 
 - Готовность provider page теперь проверяется fail-closed; после активации вкладки выполняется свежий focused readiness probe до `GET_ANSWER`.

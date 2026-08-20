@@ -1062,6 +1062,9 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
   if (!llmName || !isValidTabId(tabId) || !prompt) return;
   const entry = jobState?.llms?.[llmName];
   if (!entry) return;
+  const fastRound1 = reason === 'round1'
+    && options.fastActuation === true
+    && (!Array.isArray(attachments) || attachments.length === 0);
   const recoveryDispatch = ['retry_supervisor', 'round2_repair', 'round2_repair_pre_visit'].includes(reason);
   if (recoveryDispatch && isProviderPipelineOwnershipActive(entry)) {
     emitTelemetry(llmName, 'DISPATCH_DEFERRED_PROVIDER_PIPELINE_ACTIVE', {
@@ -1175,7 +1178,7 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
     return;
   }
   //-- 1.1. Быстрая проверка связи перед захватом фокуса (без агрессивного reload в Round1) --//
-  const isAlive = await new Promise(r => {
+  const isAlive = fastRound1 ? true : await new Promise(r => {
     chrome.tabs.sendMessage(tabId, { type: 'HEALTH_CHECK_PING' }, resp => {
       if (chrome.runtime.lastError || !resp) r(false); else r(true);
     });
@@ -1350,6 +1353,65 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
     try {
       if (machine) {
         machine.activate({ tabId });
+      }
+      if (fastRound1) {
+        const focusSettleMs = Math.max(0, Math.min(150, Number(options.focusSettleMs ?? 75)));
+        const actuationDeadlineMs = Math.max(250, Number(options.actuationDeadlineMs || 2000));
+        const commandAckTimeoutMs = Math.max(100, Number(options.commandAckTimeoutMs || 750));
+        let focusActivatedAt = 0;
+        let interactionDeadlineAt = 0;
+        let commandDeliveredAt = 0;
+        let commandDeliveryResult = null;
+        await withPromptDispatchFocusLock(async () => {
+          await activateTabForDispatch(tabId);
+          focusActivatedAt = Date.now();
+          interactionDeadlineAt = focusActivatedAt + actuationDeadlineMs;
+          if (focusSettleMs > 0) {
+            await dispatchSleepMs(Math.min(focusSettleMs, Math.max(0, interactionDeadlineAt - Date.now())));
+          }
+          if (Date.now() >= interactionDeadlineAt) return;
+          const readyInfo = self.ReadySignalManager?.getReadyInfo
+            ? self.ReadySignalManager.getReadyInfo(tabId) : null;
+          const answerCommand = {
+            type: 'GET_ANSWER', prompt, attachments,
+            meta: { dispatchReason: reason, runSessionId: sessionId, sessionId, pipelineRunId,
+              ...dispatchIdentityMeta, tabSessionId: readyInfo?.tabSessionId || null,
+              round1FastDispatch: true, focusActivatedAt, interactionDeadlineAt }
+          };
+          commandDeliveredAt = Date.now();
+          commandDeliveryResult = await sendMessageWithTimeout(tabId, llmName, answerCommand,
+            Math.max(1, Math.min(commandAckTimeoutMs, Math.max(1, interactionDeadlineAt - Date.now()))));
+        });
+        const accepted = commandDeliveryResult?.accepted === true
+          && commandDeliveryResult?.dispatchId === dispatchId;
+        entry.fastRound1 = { dispatchId, focusActivatedAt, interactionDeadlineAt, commandDeliveredAt,
+          commandAcceptedAt: accepted ? Date.now() : null };
+        if (accepted) {
+          entry.lastCommandAcceptedAt = Date.now();
+          entry.lastCommandAcceptedDispatchId = dispatchId;
+          entry.awaitingSubmitConfirmation = true;
+          entry.awaitingSubmitConfirmationAt = Date.now();
+          entry.awaitingSubmitConfirmationDispatchId = dispatchId;
+          emitTelemetry(llmName, 'DISPATCH_COMMAND_ACCEPTED', {
+            details: 'round1_fast_path',
+            meta: { ...dispatchIdentityMeta, dispatchReason: reason, tabId, round1FastDispatch: true,
+              focusActivatedAt, commandDeliveredAt, interactionDeadlineAt, focusToCommandMs: commandDeliveredAt - focusActivatedAt }
+          });
+          void Promise.resolve(self.ensureCompletionRuntimeInTab?.(tabId, llmName)).catch(() => {});
+        } else {
+          const failureReason = commandDeliveryResult?.reason || commandDeliveryResult?.error
+            || (Date.now() >= interactionDeadlineAt ? 'round1_actuation_timeout' : 'command_not_accepted');
+          entry.fastRound1.failureReason = failureReason;
+          emitTelemetry(llmName, 'DISPATCH_COMMAND_NOT_ACCEPTED', {
+            level: 'warning', details: failureReason,
+            meta: { ...dispatchIdentityMeta, dispatchReason: reason, tabId, round1FastDispatch: true,
+              focusActivatedAt, commandDeliveredAt, interactionDeadlineAt }, force: true
+          });
+        }
+        saveJobState(jobState);
+        return { ok: accepted, accepted, confirmed: false, dispatchId,
+          reason: accepted ? 'command_accepted' : (commandDeliveryResult?.reason || commandDeliveryResult?.error || 'command_not_accepted'),
+          focusActivatedAt, commandDeliveredAt, interactionDeadlineAt, response: commandDeliveryResult };
       }
       const tabReadyStartedAt = Date.now();
       const readiness = await ensureTabReadyForDispatch(tabId, llmName, { reason });

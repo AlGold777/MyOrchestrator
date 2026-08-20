@@ -9,10 +9,12 @@ if (!self.__JOB_ORCHESTRATOR_INITIALIZED__) {
 const ROUND0_OPEN_STAGGER_MS = 1000;
 const ROUND0_BIND_WAIT_TIMEOUT_MS = 15000;
 const ROUND0_BIND_POLL_MS = 250;
-//- 1.1. Сокращаем подготовку -//
+const ROUND1_ACTUATION_DEADLINE_MS = 2000;
+const ROUND1_DWELL_AFTER_SEND_MS = 5000;
+const ROUND1_SEND_STAGE_POLL_MS = 40;
+const ROUND1_FAST_FOCUS_SETTLE_MS = 75;
+const ROUND1_FAST_COMMAND_ACK_TIMEOUT_MS = 750;
 const ROUND1_BEFORE_SEND_MS = 500;
-//- 1.2. Round 1 sends the command quickly, but confirmation is handled explicitly in Round 2. -//
-const ROUND1_POST_SEND_MS = 500;
 const ROUND1_PRIORITY_MODELS = Object.freeze(['Qwen']);
 const ROUND1_DEFERRED_MODELS = Object.freeze(['Kimi', 'Z.ai']);
 const ROUND1_POST_COMMAND_FOCUS_HOLD_MS = Object.freeze({
@@ -5627,6 +5629,46 @@ const resolveRound1PostCommandFocusHoldMs = (llmName) => Math.max(
   ROUND1_PROMPT_INSERTION_FOCUS_HOLD_MS
 );
 
+const ROUND1_FAST_FAILURE_STAGES = new Set([
+  'send_action_failed',
+  'insertion_failed',
+  'prompt_insertion_failed',
+  'fast_dispatch_timeout'
+]);
+
+async function waitForRound1SendAction(llmName, dispatchId, interactionDeadlineAt) {
+  while (Date.now() < interactionDeadlineAt) {
+    const entry = jobState?.llms?.[llmName];
+    if (!entry) return { ok: false, reason: 'model_state_missing' };
+    if (entry.providerSendActionObservedDispatchId === dispatchId
+      && Number(entry.providerSendActionObservedAt || 0) > 0) {
+      return { ok: true, reason: 'send_action_requested', sendActionAt: Number(entry.providerSendActionObservedAt) };
+    }
+    if (entry.confirmedDispatchId === dispatchId && Number(entry.promptSubmittedAt || 0) > 0) {
+      return { ok: true, reason: 'submit_confirmed', sendActionAt: Number(entry.providerSendActionObservedAt || entry.promptSubmittedAt) };
+    }
+    if (entry.providerDispatchStageDispatchId === dispatchId
+      && ROUND1_FAST_FAILURE_STAGES.has(String(entry.providerDispatchStage || ''))) {
+      return { ok: false, reason: String(entry.providerDispatchStage) };
+    }
+    const remainingMs = interactionDeadlineAt - Date.now();
+    if (remainingMs <= 0) break;
+    await orchestratorSleepMs(Math.min(ROUND1_SEND_STAGE_POLL_MS, remainingMs));
+  }
+  return { ok: false, reason: 'round1_actuation_timeout' };
+}
+
+function abortRound1FastActuation(llmName, tabId, dispatchId, reason = 'round1_actuation_timeout') {
+  try {
+    chrome.tabs.sendMessage(tabId, {
+      type: 'ROUND1_FAST_ABORT',
+      llmName,
+      reason,
+      meta: { dispatchId, runSessionId: jobState?.session?.startTime || null }
+    }, () => chrome.runtime.lastError);
+  } catch (_) {}
+}
+
 async function dispatchRound1Sequentially(selectedLLMs, prompt, attachments = [], sessionId, options = {}) {
   for (const llmName of orderRound1Models(selectedLLMs)) {
     if (sessionId && !isSessionActive(sessionId)) return false;
@@ -5674,24 +5716,74 @@ async function dispatchRound1Sequentially(selectedLLMs, prompt, attachments = []
     endMeta.tabId = tabId;
     const dispatchTab = await getTabSafe(tabId);
     initRequestMetadata(llmName, tabId, dispatchTab?.url || dispatchTab?.pendingUrl || '');
-    // Round 1 is sequential: readiness and correlated submit evidence are
-    // required before the next model starts its dispatch transaction.
+    const isTextOnly = !Array.isArray(attachments) || attachments.length === 0;
     const modelPrompt = resolvePromptForDispatch(llmName, prompt);
     const dispatchResult = await dispatchPromptToTab(llmName, tabId, modelPrompt, attachments, 'round1', {
       forceFocus: true,
-      skipNoFocusProbe: false,
+      skipNoFocusProbe: isTextOnly,
       skipFocusRestore: true,
-      skipSubmitWait: false,
-      deferSendMs: ROUND1_BEFORE_SEND_MS,
+      skipSubmitWait: isTextOnly,
+      deferSendMs: isTextOnly ? 0 : ROUND1_BEFORE_SEND_MS,
       // Keep the provider foregrounded until correlated insertion or submit
       // evidence arrives, capped independently of the longer submit watchdog.
       // Switching immediately throttles the provider's composer timers.
-      postCommandFocusHoldMs: resolveRound1PostCommandFocusHoldMs(llmName),
-      progressFocusExtensionMs: ROUND1_PROGRESS_FOCUS_EXTENSION_MS,
+      postCommandFocusHoldMs: isTextOnly ? 0 : resolveRound1PostCommandFocusHoldMs(llmName),
+      progressFocusExtensionMs: isTextOnly ? 0 : ROUND1_PROGRESS_FOCUS_EXTENSION_MS,
       skipTypingGuard: true,
       requireCommandAcceptance: true,
-      resetStateAfterSend: false
+      resetStateAfterSend: false,
+      fastActuation: isTextOnly,
+      actuationDeadlineMs: ROUND1_ACTUATION_DEADLINE_MS,
+      focusSettleMs: ROUND1_FAST_FOCUS_SETTLE_MS,
+      commandAckTimeoutMs: ROUND1_FAST_COMMAND_ACK_TIMEOUT_MS
     });
+
+    if (isTextOnly) {
+      const fastDispatchId = dispatchResult?.dispatchId
+        || jobState?.llms?.[llmName]?.lastDispatchMeta?.dispatchId || null;
+      if (!dispatchResult?.accepted || !fastDispatchId) {
+        abortRound1FastActuation(llmName, tabId, fastDispatchId, dispatchResult?.reason || 'command_not_accepted');
+        emitModelRoundTelemetry(llmName, 1, 'END', 'fast dispatch command failed', {
+          level: 'warning',
+          meta: { tabId, dispatchId: fastDispatchId, reason: dispatchResult?.reason || 'command_not_accepted', durationMs: Date.now() - roundStart }
+        });
+        endBudgetPhase(llmName, 'dispatch');
+        continue;
+      }
+      const interactionDeadlineAt = Number(dispatchResult.interactionDeadlineAt)
+        || Number(dispatchResult.focusActivatedAt || Date.now()) + ROUND1_ACTUATION_DEADLINE_MS;
+      const sendBoundary = await waitForRound1SendAction(llmName, fastDispatchId, interactionDeadlineAt);
+      if (!sendBoundary.ok) {
+        abortRound1FastActuation(llmName, tabId, fastDispatchId, sendBoundary.reason);
+        emitModelRoundTelemetry(llmName, 1, 'END', 'fast actuation timeout', {
+          level: 'warning',
+          meta: { tabId, dispatchId: fastDispatchId, reason: sendBoundary.reason, durationMs: Date.now() - roundStart }
+        });
+        endBudgetPhase(llmName, 'dispatch');
+        continue;
+      }
+      const sendActionAt = Number(sendBoundary.sendActionAt || Date.now());
+      const focusActivatedAt = Number(dispatchResult.focusActivatedAt || 0);
+      const focusToSendMs = focusActivatedAt ? sendActionAt - focusActivatedAt : null;
+      emitTelemetry(llmName, 'DISPATCH_SEND', {
+        details: 'round1_fast_send_boundary',
+        meta: { tabId, dispatchId: fastDispatchId, dispatchReason: 'round1', round1FastDispatch: true,
+          focusActivatedAt: focusActivatedAt || null, sendActionAt, focusToSendMs }
+      });
+      await orchestratorSleepMs(Math.max(0, sendActionAt + ROUND1_DWELL_AFTER_SEND_MS - Date.now()));
+      const postDispatchEntry = jobState?.llms?.[llmName] || entry;
+      const confirmed = postDispatchEntry?.confirmedDispatchId === fastDispatchId
+        && Number(postDispatchEntry?.promptSubmittedAt || 0) > 0;
+      emitModelRoundTelemetry(llmName, 1, 'END', confirmed ? 'prompt confirmed; dwell complete' : 'send observed; submit evidence pending', {
+        level: confirmed ? 'success' : 'info',
+        meta: { tabId, dispatchId: fastDispatchId, reason: confirmed ? 'prompt_confirmed' : 'send_action_observed',
+          focusActivatedAt: focusActivatedAt || null, sendActionAt, focusToSendMs,
+          sendToRoundEndMs: Date.now() - sendActionAt, promptSubmittedAt: postDispatchEntry?.promptSubmittedAt || null,
+          submitSource: postDispatchEntry?.submitSource || null, durationMs: Date.now() - roundStart }
+      });
+      endBudgetPhase(llmName, 'dispatch');
+      continue;
+    }
     const postDispatchEntry = jobState?.llms?.[llmName] || entry;
     const confirmedByContent = dispatchResult?.confirmed === true
       && dispatchResult?.dispatchId === postDispatchEntry?.lastDispatchMeta?.dispatchId;
