@@ -1010,7 +1010,7 @@ function countPendingRetries() {
 }
 
 function schedulePromptDispatchSupervisor() {
-  if (self.isRound1SprintActive?.() === true) return;
+  if (self.isRound1SprintActive?.() === true || jobState?.session?.roundsInProgress === true) return;
   if (promptDispatchSupervisorTimer) return;
   if (!hasPendingPromptDispatches()) return;
 
@@ -2141,11 +2141,13 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
       }
       return { ok: false, accepted: false, reason: err?.message || String(err) };
     } finally {
-      try {
-        saveJobState(jobState);
-      } catch (_) {}
+      if (!fastRound1) {
+        try {
+          saveJobState(jobState);
+        } catch (_) {}
+      }
       promptDispatchInProgress = Math.max(0, promptDispatchInProgress - 1);
-      schedulePromptDispatchSupervisor();
+      if (!jobState?.session?.roundsInProgress) schedulePromptDispatchSupervisor();
     }
   });
 }

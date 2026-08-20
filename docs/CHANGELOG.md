@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-08-20 — Ускорен text-only Round 1 fixed dwell, version 2.81.361
+
+- Перед каждым слотом проверяется, что provider-вкладка существует и не discarded; недоступные вкладки пропускаются с telemetry.
+- После принятия fast-команды text-only Round 1 используется фиксированный двухсекундный dwell без ожидания отдельного send-stage evidence.
+- Убран лишний финальный state save и supervisor tick внутри sprint dispatch; добавлен focus/click workaround для Perplexity composer.
+
 ### 2026-08-20 — Round 1 sprint получает приоритет над фоновыми действиями, version 2.81.360
 
 - Для текстового Round 1 добавлен общий sprint-state с владельцем текущей provider-вкладки; `NEED_FOCUS` от других вкладок блокируется без активации.

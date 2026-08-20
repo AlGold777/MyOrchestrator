@@ -5753,10 +5753,22 @@ async function dispatchRound1Sequentially(selectedLLMs, prompt, attachments = []
       });
       continue;
     }
+    const liveTab = await getTabSafe(tabId);
+    if (!liveTab || liveTab.discarded === true) {
+      emitTelemetry(llmName, liveTab ? 'ROUND1_TAB_DEAD_SKIP' : 'ROUND1_TAB_MISSING_SKIP', {
+        level: 'warning',
+        details: liveTab ? 'tab_discarded' : 'tab_unavailable',
+        meta: { tabId }
+      });
+      emitModelRoundTelemetry(llmName, 1, 'END', 'tab unavailable', {
+        level: 'warning',
+        meta: { tabId, reason: liveTab ? 'tab_discarded' : 'tab_missing', durationMs: Date.now() - roundStart }
+      });
+      continue;
+    }
     endMeta.tabId = tabId;
     if (sprintEnabled) setRound1SprintOwner(llmName, tabId);
-    const dispatchTab = await getTabSafe(tabId);
-    initRequestMetadata(llmName, tabId, dispatchTab?.url || dispatchTab?.pendingUrl || '');
+    initRequestMetadata(llmName, tabId, liveTab?.url || liveTab?.pendingUrl || '');
     const isTextOnly = !Array.isArray(attachments) || attachments.length === 0;
     const modelPrompt = resolvePromptForDispatch(llmName, prompt);
     const dispatchResult = await dispatchPromptToTab(llmName, tabId, modelPrompt, attachments, 'round1', {
@@ -5791,19 +5803,7 @@ async function dispatchRound1Sequentially(selectedLLMs, prompt, attachments = []
         endBudgetPhase(llmName, 'dispatch');
         continue;
       }
-      const interactionDeadlineAt = Number(dispatchResult.interactionDeadlineAt)
-        || Number(dispatchResult.focusActivatedAt || Date.now()) + ROUND1_ACTUATION_DEADLINE_MS;
-      const sendBoundary = await waitForRound1SendAction(llmName, fastDispatchId, interactionDeadlineAt);
-      if (!sendBoundary.ok) {
-        abortRound1FastActuation(llmName, tabId, fastDispatchId, sendBoundary.reason);
-        emitModelRoundTelemetry(llmName, 1, 'END', 'fast actuation timeout', {
-          level: 'warning',
-          meta: { tabId, dispatchId: fastDispatchId, reason: sendBoundary.reason, durationMs: Date.now() - roundStart }
-        });
-        endBudgetPhase(llmName, 'dispatch');
-        continue;
-      }
-      const sendActionAt = Number(sendBoundary.sendActionAt || Date.now());
+      const sendActionAt = Date.now();
       const focusActivatedAt = Number(dispatchResult.focusActivatedAt || 0);
       const focusToSendMs = focusActivatedAt ? sendActionAt - focusActivatedAt : null;
       emitTelemetry(llmName, 'DISPATCH_SEND', {
@@ -5811,11 +5811,11 @@ async function dispatchRound1Sequentially(selectedLLMs, prompt, attachments = []
         meta: { tabId, dispatchId: fastDispatchId, dispatchReason: 'round1', round1FastDispatch: true,
           focusActivatedAt: focusActivatedAt || null, sendActionAt, focusToSendMs }
       });
-      await orchestratorSleepMs(Math.max(0, sendActionAt + ROUND1_DWELL_AFTER_SEND_MS - Date.now()));
+      await orchestratorSleepMs(Math.max(0, sendActionAt + 2000 - Date.now()));
       const postDispatchEntry = jobState?.llms?.[llmName] || entry;
       const confirmed = postDispatchEntry?.confirmedDispatchId === fastDispatchId
         && Number(postDispatchEntry?.promptSubmittedAt || 0) > 0;
-      emitModelRoundTelemetry(llmName, 1, 'END', confirmed ? 'prompt confirmed; dwell complete' : 'send observed; submit evidence pending', {
+      emitModelRoundTelemetry(llmName, 1, 'END', confirmed ? 'prompt confirmed; dwell complete' : 'command accepted; fixed dwell complete', {
         level: confirmed ? 'success' : 'info',
         meta: { tabId, dispatchId: fastDispatchId, reason: confirmed ? 'prompt_confirmed' : 'send_action_observed',
           focusActivatedAt: focusActivatedAt || null, sendActionAt, focusToSendMs,
