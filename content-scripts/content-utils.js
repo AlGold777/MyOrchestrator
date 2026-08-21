@@ -613,6 +613,7 @@
   // normalization MUST match normalizeAnswerSignatureBg in the orchestrator.
   const reportDispatchBaseline = async (llmName, meta, baselineText = '') => {
     if (!llmName) return false;
+    const fastRound1 = meta?.round1FastDispatch === true;
     const signature = normalizeForPaste(baselineText);
     const lifecycle = window.LLMExtension?.ResponseLifecycleDetector || window.ResponseLifecycleDetector;
     let anchorAnswerCount = null;
@@ -630,7 +631,7 @@
     try {
       const start = lifecycle?.startResponseLifecycleTracking;
       if (typeof start !== 'function') return false;
-      const lifecycleStart = await Promise.resolve(start.call(lifecycle, {
+      const lifecycleStartPromise = Promise.resolve(start.call(lifecycle, {
         modelName: llmName,
         dispatchId: meta?.dispatchId || null,
         runSessionId: meta?.runSessionId || meta?.sessionId || null,
@@ -639,7 +640,12 @@
         baselineText: String(baselineText || ''),
         turnAnchor: anchorAnswerCount
       }));
-      if (lifecycleStart?.ok !== true) return false;
+      if (fastRound1) {
+        void lifecycleStartPromise.catch(() => {});
+      } else {
+        const lifecycleStart = await lifecycleStartPromise;
+        if (lifecycleStart?.ok !== true) return false;
+      }
     } catch (_) {
       return false;
     }
@@ -678,7 +684,7 @@
         capturedAt: Date.now()
       };
     } catch (_) {}
-    const baselineAck = await sendRuntimeMessageForAck({
+    const baselineAckPromise = sendRuntimeMessageForAck({
         type: 'DISPATCH_BASELINE_CAPTURED',
         llmName,
         meta: meta && typeof meta === 'object' ? meta : null,
@@ -689,15 +695,26 @@
         timeoutMs: 5000,
         attempts: 2
       });
-    try {
-      window.__LLMDispatchPreflight = {
-        llmName,
-        dispatchId: meta?.dispatchId || null,
-        ok: baselineAck.ok === true,
-        reason: baselineAck.reason || null,
-        capturedAt: Date.now()
-      };
-    } catch (_) {}
+    const recordBaselineAck = (baselineAck) => {
+      try {
+        window.__LLMDispatchPreflight = {
+          llmName,
+          dispatchId: meta?.dispatchId || null,
+          ok: baselineAck?.ok === true,
+          reason: baselineAck?.reason || null,
+          capturedAt: Date.now()
+        };
+      } catch (_) {}
+      return baselineAck?.ok === true;
+    };
+    if (fastRound1) {
+      void baselineAckPromise
+        .then(recordBaselineAck)
+        .catch(() => recordBaselineAck({ ok: false, reason: 'baseline_ack_exception' }));
+      return true;
+    }
+    const baselineAck = await baselineAckPromise;
+    recordBaselineAck(baselineAck);
     return baselineAck.ok === true;
   };
 

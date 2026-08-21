@@ -1,5 +1,10 @@
 # CHANGELOG — Project
 
+### 2026-08-21 — Ускорена Gemini text-only actuation, version 2.81.362
+
+- Lifecycle detector и baseline capture запускаются до Send, но authority/ACK больше не блокируют fast Round 1.
+- Для fast Round 1 fallback-ввод Gemini выполняется атомарно, без посимвольного WPM pacing.
+
 ### 2026-08-20 — Ускорен text-only Round 1 fixed dwell, version 2.81.361
 
 - Перед каждым слотом проверяется, что provider-вкладка существует и не discarded; недоступные вкладки пропускаются с telemetry.
