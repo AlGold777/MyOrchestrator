@@ -9,6 +9,7 @@ var promptSubmitWaiters = new Map();
 var promptSubmitWaiterArms = new Map();
 var promptInsertionWaiters = new Map();
 var providerSendOnlyRecoveryTimers = new Map();
+var deferredProviderSendOnlyRecoveries = new Map();
 var promptDispatchSupervisorTimer = null;
 //- 2.1. Лимит ожидания сигнала из контента -//
 const PROMPT_SUBMIT_TIMEOUT_MS = TimingConfig.getTiming('promptSubmitTimeoutMs', 15000);
@@ -119,7 +120,19 @@ function scheduleProviderSendOnlyRecovery(llmName, options = {}) {
     const liveDispatchId = liveEntry?.lastDispatchMeta?.dispatchId || null;
     if (!liveEntry || liveDispatchId !== dispatchId || liveEntry.promptSubmittedAt
       || liveEntry.confirmedDispatchId === dispatchId) return;
-    if (!['prompt_inserted', 'send_action_failed'].includes(String(liveEntry.providerDispatchStage || ''))) return;
+    if (String(liveEntry.providerDispatchStage || '') !== 'send_action_failed'
+      || liveEntry.providerDispatchStageDispatchId !== dispatchId) return;
+    if (self.isRound1SprintActive?.() === true) {
+      deferredProviderSendOnlyRecoveries.set(llmName, {
+        dispatchId,
+        reason: options.reason || 'round1_sprint_deferred'
+      });
+      emitTelemetry(llmName, 'PROVIDER_SEND_ONLY_RECOVERY_DEFERRED', {
+        details: 'round1_sprint_active',
+        meta: { dispatchId, reason: options.reason || 'round1_sprint_deferred' }
+      });
+      return;
+    }
     const tabId = resolveBoundTabIdForDispatch(llmName, liveEntry);
     if (!isValidTabId(tabId)) return;
     const previousTab = await getActiveTabSnapshot();
@@ -159,6 +172,26 @@ function scheduleProviderSendOnlyRecovery(llmName, options = {}) {
   }, delayMs));
   providerSendOnlyRecoveryTimers.set(llmName, timer);
   return true;
+}
+
+function flushDeferredProviderSendOnlyRecoveries() {
+  if (self.isRound1SprintActive?.() === true) return false;
+  const deferred = Array.from(deferredProviderSendOnlyRecoveries.entries());
+  deferredProviderSendOnlyRecoveries.clear();
+  for (const [llmName, item] of deferred) {
+    const entry = jobState?.llms?.[llmName];
+    const dispatchId = item?.dispatchId || null;
+    if (!entry || !dispatchId || entry.promptSubmittedAt || entry.confirmedDispatchId === dispatchId) continue;
+    if (entry.lastDispatchMeta?.dispatchId !== dispatchId) continue;
+    if (String(entry.providerDispatchStage || '') !== 'send_action_failed'
+      || entry.providerDispatchStageDispatchId !== dispatchId) continue;
+    scheduleProviderSendOnlyRecovery(llmName, {
+      dispatchId,
+      reason: item.reason || 'round1_sprint_deferred',
+      delayMs: 500
+    });
+  }
+  return deferred.length > 0;
 }
 
 const dispatchSessionTimerManager = (() => {
@@ -511,7 +544,10 @@ function normalizePageReadyState(response = null) {
     ? raw.pageReady
     : (typeof raw.ready === 'boolean' ? raw.ready : null);
   const composerReady = typeof raw.composerReady === 'boolean' ? raw.composerReady : null;
-  const requiresFocus = raw.requiresFocus === true || raw.timeout === true || Boolean(raw.error);
+  const explicitReady = status === 'ready' || status === 'ready_no_focus'
+    || (pageReady === true && composerReady === true);
+  let requiresFocus = raw.requiresFocus === true || raw.timeout === true || Boolean(raw.error)
+    || (!explicitReady && pageReady === null && composerReady === null);
   const blockerPolicy = self.PageBlockerPolicy?.classify
     ? self.PageBlockerPolicy.classify({ status, reason: raw.reason, blockers })
     : null;
@@ -535,24 +571,29 @@ function normalizePageReadyState(response = null) {
     'unsupported_page'
   ]);
 
-  let ok = true;
-  let reason = 'ready';
+  let ok = explicitReady;
+  let reason = explicitReady ? 'ready' : (requiresFocus ? 'requires_focus' : 'unknown');
   if (blockerPolicy?.blocker && blockerPolicy.terminal) {
     ok = false;
+    requiresFocus = false;
     reason = blockerPolicy.blocker;
   } else if (terminalStatuses.has(status)) {
     ok = false;
+    requiresFocus = false;
     reason = status;
   } else {
     const blocker = blockers.find((item) => terminalBlockers.has(item));
     if (blocker) {
       ok = false;
+      requiresFocus = false;
       reason = blocker;
     } else if (pageReady === false) {
       ok = false;
+      requiresFocus = false;
       reason = raw.reason || 'page_not_ready';
     } else if (composerReady === false && !requiresFocus) {
       ok = false;
+      requiresFocus = false;
       reason = raw.reason || 'composer_not_ready';
     }
   }
@@ -969,6 +1010,7 @@ function countPendingRetries() {
 }
 
 function schedulePromptDispatchSupervisor() {
+  if (self.isRound1SprintActive?.() === true || jobState?.session?.roundsInProgress === true) return;
   if (promptDispatchSupervisorTimer) return;
   if (!hasPendingPromptDispatches()) return;
 
@@ -1003,6 +1045,7 @@ function schedulePromptDispatchSupervisor() {
 //-- 5.1. Supervisor: защита от конкуренции с Rounds --//
 async function runPromptDispatchSupervisor() {
   if (!jobState?.llms) return;
+  if (self.isRound1SprintActive?.() === true) return;
   if (promptDispatchInProgress > 0) {
     schedulePromptDispatchSupervisor();
     return;
@@ -1053,6 +1096,9 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
   if (!llmName || !isValidTabId(tabId) || !prompt) return;
   const entry = jobState?.llms?.[llmName];
   if (!entry) return;
+  const fastRound1 = reason === 'round1'
+    && options.fastActuation === true
+    && (!Array.isArray(attachments) || attachments.length === 0);
   const recoveryDispatch = ['retry_supervisor', 'round2_repair', 'round2_repair_pre_visit'].includes(reason);
   if (recoveryDispatch && isProviderPipelineOwnershipActive(entry)) {
     emitTelemetry(llmName, 'DISPATCH_DEFERRED_PROVIDER_PIPELINE_ACTIVE', {
@@ -1166,7 +1212,7 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
     return;
   }
   //-- 1.1. Быстрая проверка связи перед захватом фокуса (без агрессивного reload в Round1) --//
-  const isAlive = await new Promise(r => {
+  const isAlive = fastRound1 ? true : await new Promise(r => {
     chrome.tabs.sendMessage(tabId, { type: 'HEALTH_CHECK_PING' }, resp => {
       if (chrome.runtime.lastError || !resp) r(false); else r(true);
     });
@@ -1342,6 +1388,65 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
       if (machine) {
         machine.activate({ tabId });
       }
+      if (fastRound1) {
+        const focusSettleMs = Math.max(0, Math.min(150, Number(options.focusSettleMs ?? 75)));
+        const actuationDeadlineMs = Math.max(250, Number(options.actuationDeadlineMs || 2000));
+        const commandAckTimeoutMs = Math.max(100, Number(options.commandAckTimeoutMs || 750));
+        let focusActivatedAt = 0;
+        let interactionDeadlineAt = 0;
+        let commandDeliveredAt = 0;
+        let commandDeliveryResult = null;
+        await withPromptDispatchFocusLock(async () => {
+          await activateTabForDispatch(tabId);
+          focusActivatedAt = Date.now();
+          interactionDeadlineAt = focusActivatedAt + actuationDeadlineMs;
+          if (focusSettleMs > 0) {
+            await dispatchSleepMs(Math.min(focusSettleMs, Math.max(0, interactionDeadlineAt - Date.now())));
+          }
+          if (Date.now() >= interactionDeadlineAt) return;
+          const readyInfo = self.ReadySignalManager?.getReadyInfo
+            ? self.ReadySignalManager.getReadyInfo(tabId) : null;
+          const answerCommand = {
+            type: 'GET_ANSWER', prompt, attachments,
+            meta: { dispatchReason: reason, runSessionId: sessionId, sessionId, pipelineRunId,
+              ...dispatchIdentityMeta, tabSessionId: readyInfo?.tabSessionId || null,
+              round1FastDispatch: true, focusActivatedAt, interactionDeadlineAt }
+          };
+          commandDeliveredAt = Date.now();
+          commandDeliveryResult = await sendMessageWithTimeout(tabId, llmName, answerCommand,
+            Math.max(1, Math.min(commandAckTimeoutMs, Math.max(1, interactionDeadlineAt - Date.now()))));
+        });
+        const accepted = commandDeliveryResult?.accepted === true
+          && commandDeliveryResult?.dispatchId === dispatchId;
+        entry.fastRound1 = { dispatchId, focusActivatedAt, interactionDeadlineAt, commandDeliveredAt,
+          commandAcceptedAt: accepted ? Date.now() : null };
+        if (accepted) {
+          entry.lastCommandAcceptedAt = Date.now();
+          entry.lastCommandAcceptedDispatchId = dispatchId;
+          entry.awaitingSubmitConfirmation = true;
+          entry.awaitingSubmitConfirmationAt = Date.now();
+          entry.awaitingSubmitConfirmationDispatchId = dispatchId;
+          emitTelemetry(llmName, 'DISPATCH_COMMAND_ACCEPTED', {
+            details: 'round1_fast_path',
+            meta: { ...dispatchIdentityMeta, dispatchReason: reason, tabId, round1FastDispatch: true,
+              focusActivatedAt, commandDeliveredAt, interactionDeadlineAt, focusToCommandMs: commandDeliveredAt - focusActivatedAt }
+          });
+          void Promise.resolve(self.ensureCompletionRuntimeInTab?.(tabId, llmName)).catch(() => {});
+        } else {
+          const failureReason = commandDeliveryResult?.reason || commandDeliveryResult?.error
+            || (Date.now() >= interactionDeadlineAt ? 'round1_actuation_timeout' : 'command_not_accepted');
+          entry.fastRound1.failureReason = failureReason;
+          emitTelemetry(llmName, 'DISPATCH_COMMAND_NOT_ACCEPTED', {
+            level: 'warning', details: failureReason,
+            meta: { ...dispatchIdentityMeta, dispatchReason: reason, tabId, round1FastDispatch: true,
+              focusActivatedAt, commandDeliveredAt, interactionDeadlineAt }, force: true
+          });
+        }
+        saveJobState(jobState);
+        return { ok: accepted, accepted, confirmed: false, dispatchId,
+          reason: accepted ? 'command_accepted' : (commandDeliveryResult?.reason || commandDeliveryResult?.error || 'command_not_accepted'),
+          focusActivatedAt, commandDeliveredAt, interactionDeadlineAt, response: commandDeliveryResult };
+      }
       const tabReadyStartedAt = Date.now();
       const readiness = await ensureTabReadyForDispatch(tabId, llmName, { reason });
       const tabReadyMs = Date.now() - tabReadyStartedAt;
@@ -1358,7 +1463,7 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
         if (machine) {
           machine.error({ error: readiness.reason || 'tab_not_ready', code: 'TAB_NOT_READY' });
         }
-        return;
+        return { ok: false, accepted: false, dispatchId, reason: readiness.reason || 'tab_not_ready' };
       }
       broadcastDiagnostic(llmName, {
         type: 'DISPATCH',
@@ -1498,6 +1603,7 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
       } catch (_) {}
 
       let needsFocus = false;
+      let focusedReadinessChecked = false;
       let noFocusResponse = null;
       if (options.skipNoFocusProbe) {
         needsFocus = true;
@@ -1521,7 +1627,8 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
       if (options.forceFocus) {
         needsFocus = true;
       }
-      const pageReadyState = normalizePageReadyState(noFocusResponse);
+      let pageReadyState = normalizePageReadyState(noFocusResponse);
+      needsFocus = pageReadyState.requiresFocus || options.forceFocus === true;
       emitTelemetry(llmName, 'PAGE_READY_STATE', {
         level: pageReadyState.ok ? 'info' : 'warning',
         details: pageReadyState.reason || 'ready',
@@ -1538,7 +1645,7 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
           source: pageReadyState.source
         }
       });
-      if (!pageReadyState.ok) {
+      if (!pageReadyState.ok && !pageReadyState.requiresFocus) {
         entry.lastPageReadyState = {
           ok: false,
           reason: pageReadyState.reason,
@@ -1605,7 +1712,64 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
         if (machine) {
           machine.error({ error: pageReadyState.reason || 'page_not_ready', code: 'PAGE_NOT_READY' });
         }
-        return;
+        return { ok: false, accepted: false, dispatchId, reason: pageReadyState.reason || 'page_not_ready' };
+      }
+
+      let previousTab = null;
+      if (needsFocus) {
+        previousTab = await getActiveTabSnapshot();
+        await withPromptDispatchFocusLock(async () => {
+          entry.focusSwitches = Number(entry.focusSwitches || 0) + 1;
+          if (jobState?.session) {
+            jobState.session.focusSwitches = Number(jobState.session.focusSwitches || 0) + 1;
+          }
+          await activateTabForDispatch(tabId);
+          if (options.deferSendMs) await dispatchSleepMs(options.deferSendMs);
+          const focusedResponse = await sendMessageWithTimeout(tabId, llmName, {
+            type: 'GET_ANSWER_NO_FOCUS',
+            prompt,
+            attachments,
+            meta: { dispatchReason: reason, sessionId, pipelineRunId, ...dispatchIdentityMeta }
+          }, NO_FOCUS_TIMEOUT_MS);
+          pageReadyState = normalizePageReadyState(focusedResponse);
+          focusedReadinessChecked = true;
+        });
+        emitTelemetry(llmName, 'PAGE_READY_STATE_FOCUSED', {
+          level: pageReadyState.ok ? 'info' : 'warning',
+          details: pageReadyState.reason,
+          meta: { ...dispatchIdentityMeta, dispatchReason: reason, tabId,
+            status: pageReadyState.status, requiresFocus: pageReadyState.requiresFocus }
+        });
+        if (!pageReadyState.ok) {
+          entry.lastPageReadyState = { ...pageReadyState, checkedAt: Date.now(), dispatchId };
+          emitTelemetry(llmName, 'PAGE_READY_BLOCKED', {
+            level: 'warning', details: pageReadyState.reason || 'page_not_ready',
+            meta: { dispatchId, dispatchReason: reason, tabId,
+              status: pageReadyState.status, blockers: pageReadyState.blockers,
+              blockerPolicy: pageReadyState.blockerPolicy || null, focused: true }
+          });
+          if (pageReadyState.blockerPolicy?.retryable !== false) {
+            scheduleDispatchRetry(entry, llmName, { type: 'page_not_ready', reason: pageReadyState.reason });
+          } else if (typeof handleLLMResponse === 'function') {
+            handleLLMResponse(llmName, '', {
+              type: 'user_action_required',
+              message: pageReadyState.reason || 'User action required before dispatch'
+            }, {
+              dispatchId,
+              sessionId,
+              runSessionId: sessionId,
+              responseMeta: {
+                failureClass: 'page_readiness',
+                blockerPolicy: pageReadyState.blockerPolicy || null,
+                source: 'focused_page_ready_blocked'
+              }
+            }, '');
+          }
+          if (machine?.isInProgress?.()) {
+            machine.error({ error: pageReadyState.reason || 'page_not_ready', code: 'PAGE_NOT_READY' });
+          }
+          return { ok: false, accepted: false, dispatchId, reason: pageReadyState.reason || 'page_not_ready' };
+        }
       }
 
       if (machine) {
@@ -1633,7 +1797,6 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
       }
       const readyWaitMs = Math.max(0, Date.now() - lockAcquiredAt);
 
-      let previousTab = null;
       let restoreTimer = null;
       let restoreMaxTimer = null;
       const answerCommand = {
@@ -1706,7 +1869,7 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
       };
       let commandDeliveryResult = null;
       let providerTransactionBoundary = null;
-      if (needsFocus) {
+      if (needsFocus && !focusedReadinessChecked) {
         entry.focusSwitches = Number(entry.focusSwitches || 0) + 1;
         if (jobState?.session) {
           jobState.session.focusSwitches = Number(jobState.session.focusSwitches || 0) + 1;
@@ -1888,7 +2051,6 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
         if (machine?.isInProgress?.()) machine.error({ error: reasonCode, code: 'PROVIDER_TRANSACTION_FAILED' });
         return { ok: false, accepted: true, dispatchId, reason: reasonCode };
       }
-      if (machine?.isInProgress?.()) machine.submit();
       //-- 2.1. Если Round 1 (skipSubmitWait), выходим сразу после клика, не блокируя очередь --//
       if (options.skipSubmitWait) {
         const dispatchAlreadyConfirmed = entry.confirmedDispatchId === dispatchId
@@ -1925,17 +2087,22 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
           response: commandDeliveryResult?.response || null
         };
       }
-      const submittedOk = submittedPayload === true || (submittedPayload && submittedPayload.ok === true);
+      const submittedDispatchId = submittedPayload && typeof submittedPayload === 'object'
+        ? submittedPayload.dispatchId || submittedPayload.meta?.dispatchId : dispatchId;
+      const submittedOk = (submittedPayload === true || (submittedPayload && submittedPayload.ok === true))
+        && submittedDispatchId === dispatchId;
       if (submittedOk) {
         entry.promptSubmittedAt = Date.now();
         entry.awaitingSubmitConfirmation = false;
         entry.awaitingSubmitConfirmationAt = null;
         entry.awaitingSubmitConfirmationDispatchId = null;
+        if (machine?.isInProgress?.()) machine.submit();
         broadcastDiagnostic(llmName, { type: 'DISPATCH', label: 'Prompt submitted (confirmed)', level: 'success' });
         armScriptRuntimeHardStopForConfirmedPrompt(llmName, {
           dispatchId: entry?.confirmedDispatchId || dispatchId || null,
           tabId
         });
+        return { ok: true, confirmed: true, dispatchId, reason: 'prompt_confirmed' };
       } else if (submittedPayload && submittedPayload.busy) {
         broadcastDiagnostic(llmName, { type: 'DISPATCH', label: 'Content script busy — no retry', level: 'warning' });
       } else {
@@ -1959,6 +2126,7 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
         if (machine) {
           machine.error({ error: 'prompt_submit_timeout', code: 'PROMPT_SUBMIT_TIMEOUT' });
         }
+        return { ok: false, confirmed: false, dispatchId, reason: 'submit_timeout' };
       }
     } catch (err) {
       console.warn('[DISPATCH] dispatchPromptToTab failed', llmName, err);
@@ -1973,11 +2141,13 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
       }
       return { ok: false, accepted: false, reason: err?.message || String(err) };
     } finally {
-      try {
-        saveJobState(jobState);
-      } catch (_) {}
+      if (!fastRound1) {
+        try {
+          saveJobState(jobState);
+        } catch (_) {}
+      }
       promptDispatchInProgress = Math.max(0, promptDispatchInProgress - 1);
-      schedulePromptDispatchSupervisor();
+      if (!jobState?.session?.roundsInProgress) schedulePromptDispatchSupervisor();
     }
   });
 }
@@ -2538,6 +2708,7 @@ self.promptSubmitWaiters = promptSubmitWaiters;
 self.promptSubmitWaiterArms = promptSubmitWaiterArms;
 self.promptInsertionWaiters = promptInsertionWaiters;
 self.providerSendOnlyRecoveryTimers = providerSendOnlyRecoveryTimers;
+self.deferredProviderSendOnlyRecoveries = deferredProviderSendOnlyRecoveries;
 self.getRetryBackoffForModel = getRetryBackoffForModel;
 self.getConnectionRetryDelaysForModel = getConnectionRetryDelaysForModel;
 self.withPromptDispatchLock = withPromptDispatchLock;
@@ -2551,6 +2722,7 @@ self.waitForPromptInsertion = waitForPromptInsertion;
 self.waitForPromptFocusBoundary = waitForPromptFocusBoundary;
 self.scheduleProviderSendOnlyRecovery = scheduleProviderSendOnlyRecovery;
 self.cancelProviderSendOnlyRecovery = cancelProviderSendOnlyRecovery;
+self.flushDeferredProviderSendOnlyRecoveries = flushDeferredProviderSendOnlyRecoveries;
 self.getPromptSubmitTimeoutMs = getPromptSubmitTimeoutMs;
 self.sendMessageWithTimeout = sendMessageWithTimeout;
 self.normalizePageReadyState = normalizePageReadyState;

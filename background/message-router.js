@@ -3643,6 +3643,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     break;
                 }
 
+                if (self.isRound1SprintActive?.() === true) {
+                    const sprintState = self.getRound1SprintState?.() || {};
+                    const isOwner = sprintState.ownerLlmName === llmName
+                        && sprintState.ownerTabId === tabId;
+                    if (isOwner) {
+                        sendResponse({ status: 'focus_ack_sprint_owner' });
+                    } else {
+                        emitTelemetry(llmName, 'NEED_FOCUS_DENIED_ROUND1_SPRINT', {
+                            details: 'round1_sprint_owned_by_other_tab',
+                            meta: { tabId, ownerLlmName: sprintState.ownerLlmName || null, ownerTabId: sprintState.ownerTabId || null, reason }
+                        });
+                        sendResponse({ status: 'focus_denied_round1_sprint' });
+                    }
+                    break;
+                }
+
                 globalThis.LLMLog?.debug?.(`[NEED_FOCUS] Activating tab ${tabId} for ${llmName} (reason: ${reason})`);
                 if (typeof self.activateTabForDispatch === 'function') {
                     self.activateTabForDispatch(tabId);
@@ -4482,10 +4498,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             case 'CLEAR_DIAG_EVENTS': {
                 (async () => {
                     try {
+                        // A results-page reload is a new user-run boundary. Clearing
+                        // diagnostics alone leaves the old orchestrator, timers, and
+                        // provider content scripts alive, so the next prompt can be
+                        // rejected as RUN_ALREADY_ACTIVE. Manual telemetry clearing
+                        // keeps its existing non-destructive behavior.
+                        const pageReload = message?.reason === 'page_reload';
+                        if (pageReload && typeof self.stopAllProcesses === 'function') {
+                            self.stopAllProcesses('results_page_reload', {
+                                closeTabs: false,
+                                preserveTabBindings: true
+                            });
+                        }
                         await writeDiagnosticsEventsToStorage([]);
                         await self.ProofTelemetryLedger?.clear?.(null);
                         const runtimeCleared = clearDiagnosticsRuntimeLogs();
-                        sendResponse({ success: true, runtimeCleared });
+                        sendResponse({ success: true, runtimeCleared, runtimeStopped: pageReload });
                     } catch (err) {
                         sendResponse({ success: false, error: err?.message || String(err) });
                     }

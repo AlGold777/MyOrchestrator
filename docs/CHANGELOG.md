@@ -1,5 +1,47 @@
 # CHANGELOG — Project
 
+### 2026-08-21 — Ускорен первый dispatch после reload страницы, version 2.81.364
+
+- После reload сохраняются привязки существующих provider-вкладок, но их старые
+  content-script процессы останавливаются.
+- Первый новый запрос переиспользует очищенные вкладки вместо последовательного
+  открытия всех моделей заново.
+
+### 2026-08-21 — Полная остановка запуска при reload страницы, version 2.81.363
+
+- Перезагрузка `result_new.html` или `pipeline_panel.html` теперь останавливает
+  orchestrator, таймеры и content-scripts старого запуска перед очисткой telemetry.
+- Ручная очистка telemetry по-прежнему не останавливает активный запуск.
+
+### 2026-08-21 — Ускорена Gemini text-only actuation, version 2.81.362
+
+- Lifecycle detector и baseline capture запускаются до Send, но authority/ACK больше не блокируют fast Round 1.
+- Для fast Round 1 fallback-ввод Gemini выполняется атомарно, без посимвольного WPM pacing.
+
+### 2026-08-20 — Ускорен text-only Round 1 fixed dwell, version 2.81.361
+
+- Перед каждым слотом проверяется, что provider-вкладка существует и не discarded; недоступные вкладки пропускаются с telemetry.
+- После принятия fast-команды text-only Round 1 используется фиксированный двухсекундный dwell без ожидания отдельного send-stage evidence.
+- Убран лишний финальный state save и supervisor tick внутри sprint dispatch; добавлен focus/click workaround для Perplexity composer.
+
+### 2026-08-20 — Round 1 sprint получает приоритет над фоновыми действиями, version 2.81.360
+
+- Для текстового Round 1 добавлен общий sprint-state с владельцем текущей provider-вкладки; `NEED_FOCUS` от других вкладок блокируется без активации.
+- Send-only recovery и retry supervisor откладываются на время sprint и повторно проверяются после его завершения.
+- Pre-warm вкладок не запускается во время Round 1, других rounds или активной prompt dispatch.
+
+### 2026-08-20 — Ускорена Round 1 отправка, version 2.81.359
+
+- Обычные текстовые запросы Round 1 используют fast actuation path: фокус, команда и Send ограничены двухсекундным interaction deadline.
+- Планировщик ждёт `send_action_requested`, затем удерживает provider ещё 5 секунд; `PROMPT_SUBMITTED` остаётся асинхронным evidence plane.
+- Добавлены коррелированные fast-abort/deadline guards и ускорена Qwen-отправка без прежней двухсекундной задержки.
+
+### 2026-08-20 — Ужесточена граница dispatch и подтверждения отправки, version 2.81.358
+
+- Готовность provider page теперь проверяется fail-closed; после активации вкладки выполняется свежий focused readiness probe до `GET_ANSWER`.
+- Round 1 ожидает коррелированное подтверждение `PROMPT_SUBMITTED`, а ACK принятия команды больше не считается успешной отправкой.
+- `machine.submit()` выполняется только для текущего dispatch после подтверждения, а send-only recovery запускается только при явном `send_action_failed`.
+
 ### 2026-08-19 — Compact response find bar, version 2.81.357
 
 - Удалена дублирующая иконка `Replace actions` из верхней строки.
