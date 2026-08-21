@@ -54,6 +54,13 @@ describe('extension reload state reset', () => {
     expect(resultsSource).toContain("detail: { source: 'extension_reload_reconcile' }");
   });
 
+  test('results page reload stops the previous orchestrator before clearing telemetry', () => {
+    const routerSource = read('background/message-router.js');
+    expect(routerSource).toMatch(/case 'CLEAR_DIAG_EVENTS':[\s\S]*?message\?\.reason === 'page_reload'/);
+    expect(routerSource).toContain("self.stopAllProcesses('results_page_reload', { closeTabs: false })");
+    expect(routerSource).toContain('runtimeStopped: pageReload');
+  });
+
   test('telemetry UI drops its in-page cache on runtime reset', () => {
     const devtoolsSource = read('results-devtools.js');
     expect(devtoolsSource).toContain("document.addEventListener('extension-runtime-reset'");

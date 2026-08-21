@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-08-21 — Полная остановка запуска при reload страницы, version 2.81.363
+
+- Перезагрузка `result_new.html` или `pipeline_panel.html` теперь останавливает
+  orchestrator, таймеры и content-scripts старого запуска перед очисткой telemetry.
+- Ручная очистка telemetry по-прежнему не останавливает активный запуск.
+
 ### 2026-08-21 — Ускорена Gemini text-only actuation, version 2.81.362
 
 - Lifecycle detector и baseline capture запускаются до Send, но authority/ACK больше не блокируют fast Round 1.

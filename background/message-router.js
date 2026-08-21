@@ -4498,10 +4498,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             case 'CLEAR_DIAG_EVENTS': {
                 (async () => {
                     try {
+                        // A results-page reload is a new user-run boundary. Clearing
+                        // diagnostics alone leaves the old orchestrator, timers, and
+                        // provider content scripts alive, so the next prompt can be
+                        // rejected as RUN_ALREADY_ACTIVE. Manual telemetry clearing
+                        // keeps its existing non-destructive behavior.
+                        const pageReload = message?.reason === 'page_reload';
+                        if (pageReload && typeof self.stopAllProcesses === 'function') {
+                            self.stopAllProcesses('results_page_reload', { closeTabs: false });
+                        }
                         await writeDiagnosticsEventsToStorage([]);
                         await self.ProofTelemetryLedger?.clear?.(null);
                         const runtimeCleared = clearDiagnosticsRuntimeLogs();
-                        sendResponse({ success: true, runtimeCleared });
+                        sendResponse({ success: true, runtimeCleared, runtimeStopped: pageReload });
                     } catch (err) {
                         sendResponse({ success: false, error: err?.message || String(err) });
                     }
