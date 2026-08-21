@@ -4922,8 +4922,8 @@ function persistPipelineControlState(nextControl = null) {
   void self.PipelineFSM.persistControlState(control);
 }
 
-function stopAllProcesses(reason = 'unspecified', { closeTabs = false } = {}) {
-  globalThis.LLMLog?.debug?.(`[BACKGROUND] stopAllProcesses: reason=${reason}, closeTabs=${closeTabs}`);
+function stopAllProcesses(reason = 'unspecified', { closeTabs = false, preserveTabBindings = false } = {}) {
+  globalThis.LLMLog?.debug?.(`[BACKGROUND] stopAllProcesses: reason=${reason}, closeTabs=${closeTabs}, preserveTabBindings=${preserveTabBindings}`);
   // Purpose: cancel orchestrator waits tied to the previous session immediately.
   abortOrchestratorOperations(reason);
   resetOrchestratorAbortController();
@@ -4997,9 +4997,11 @@ function stopAllProcesses(reason = 'unspecified', { closeTabs = false } = {}) {
   jobMetadata.clear();
   Object.keys(llmRequestMap).forEach((key) => delete llmRequestMap[key]);
   // Purpose: clear the tab registry without blocking stop cleanup.
-  void TabMapManager.clear().catch((err) => {
-    console.warn('[BACKGROUND] TabMapManager.clear failed:', err);
-  });
+  if (!preserveTabBindings) {
+    void TabMapManager.clear().catch((err) => {
+      console.warn('[BACKGROUND] TabMapManager.clear failed:', err);
+    });
+  }
 
   const timers = Array.from(postSuccessScrollTimers.values());
   postSuccessScrollTimers.clear();

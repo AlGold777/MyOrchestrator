@@ -57,8 +57,10 @@ describe('extension reload state reset', () => {
   test('results page reload stops the previous orchestrator before clearing telemetry', () => {
     const routerSource = read('background/message-router.js');
     expect(routerSource).toMatch(/case 'CLEAR_DIAG_EVENTS':[\s\S]*?message\?\.reason === 'page_reload'/);
-    expect(routerSource).toContain("self.stopAllProcesses('results_page_reload', { closeTabs: false })");
+    expect(routerSource).toContain("self.stopAllProcesses('results_page_reload'");
+    expect(routerSource).toContain('preserveTabBindings: true');
     expect(routerSource).toContain('runtimeStopped: pageReload');
+    expect(read('results.js')).toContain('newPagesCheckbox.checked = !isPageReloadNavigation();');
   });
 
   test('telemetry UI drops its in-page cache on runtime reset', () => {

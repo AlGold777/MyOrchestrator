@@ -4505,7 +4505,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                         // keeps its existing non-destructive behavior.
                         const pageReload = message?.reason === 'page_reload';
                         if (pageReload && typeof self.stopAllProcesses === 'function') {
-                            self.stopAllProcesses('results_page_reload', { closeTabs: false });
+                            self.stopAllProcesses('results_page_reload', {
+                                closeTabs: false,
+                                preserveTabBindings: true
+                            });
                         }
                         await writeDiagnosticsEventsToStorage([]);
                         await self.ProofTelemetryLedger?.clear?.(null);
