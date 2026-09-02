@@ -1,5 +1,10 @@
 # CHANGELOG — Project
 
+### 2026-08-21 — Ожидание готовности provider перед text-only Round 1, version 2.81.365
+
+- Перед fast dispatch проверяется cached или свежий `SCRIPT_READY` через `ReadySignalManager`.
+- При timeout слот Round 1 пропускается без повторного dispatch, чтобы исключить startup race и duplicate send.
+
 ### 2026-08-21 — Ускорен первый dispatch после reload страницы, version 2.81.364
 
 - После reload сохраняются привязки существующих provider-вкладок, но их старые

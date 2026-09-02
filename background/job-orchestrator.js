@@ -15,6 +15,7 @@ const ROUND1_SEND_STAGE_POLL_MS = 40;
 const ROUND1_FAST_FOCUS_SETTLE_MS = 75;
 const ROUND1_FAST_COMMAND_ACK_TIMEOUT_MS = 750;
 const ROUND1_BEFORE_SEND_MS = 500;
+const ROUND1_PROVIDER_READY_TIMEOUT_MS = 2000;
 const ROUND1_PRIORITY_MODELS = Object.freeze(['Qwen']);
 const ROUND1_DEFERRED_MODELS = Object.freeze(['Kimi', 'Z.ai']);
 const ROUND1_POST_COMMAND_FOCUS_HOLD_MS = Object.freeze({
@@ -5660,6 +5661,26 @@ async function waitForRound1SendAction(llmName, dispatchId, interactionDeadlineA
   return { ok: false, reason: 'round1_actuation_timeout' };
 }
 
+async function waitForRound1ProviderReady(
+  llmName,
+  tabId,
+  timeoutMs = ROUND1_PROVIDER_READY_TIMEOUT_MS
+) {
+  if (!llmName || !Number.isInteger(tabId) || tabId <= 0) return false;
+
+  const existing = self.ReadySignalManager?.getReadyInfo?.(tabId) || null;
+  if (existing?.llmName === llmName) return true;
+
+  if (typeof self.ReadySignalManager?.waitForReady !== 'function') return false;
+
+  try {
+    const info = await self.ReadySignalManager.waitForReady(tabId, timeoutMs);
+    return info?.llmName === llmName;
+  } catch (_) {
+    return false;
+  }
+}
+
 function abortRound1FastActuation(llmName, tabId, dispatchId, reason = 'round1_actuation_timeout') {
   try {
     chrome.tabs.sendMessage(tabId, {
@@ -5772,6 +5793,38 @@ async function dispatchRound1Sequentially(selectedLLMs, prompt, attachments = []
     if (sprintEnabled) setRound1SprintOwner(llmName, tabId);
     initRequestMetadata(llmName, tabId, liveTab?.url || liveTab?.pendingUrl || '');
     const isTextOnly = !Array.isArray(attachments) || attachments.length === 0;
+    if (isTextOnly) {
+      const readyStartedAt = Date.now();
+      const providerReady = await waitForRound1ProviderReady(
+        llmName,
+        tabId,
+        ROUND1_PROVIDER_READY_TIMEOUT_MS
+      );
+      emitTelemetry(llmName, providerReady
+        ? 'ROUND1_PROVIDER_READY'
+        : 'ROUND1_PROVIDER_READY_TIMEOUT', {
+        level: providerReady ? 'info' : 'warning',
+        details: providerReady ? 'script_ready' : 'script_ready_timeout',
+        meta: {
+          tabId,
+          waitMs: Date.now() - readyStartedAt,
+          timeoutMs: ROUND1_PROVIDER_READY_TIMEOUT_MS
+        },
+        force: !providerReady
+      });
+      if (!providerReady) {
+        emitModelRoundTelemetry(llmName, 1, 'END', 'provider receiver not ready', {
+          level: 'warning',
+          meta: {
+            tabId,
+            reason: 'provider_receiver_not_ready',
+            durationMs: Date.now() - roundStart
+          }
+        });
+        endBudgetPhase(llmName, 'dispatch');
+        continue;
+      }
+    }
     const modelPrompt = resolvePromptForDispatch(llmName, prompt);
     const dispatchResult = await dispatchPromptToTab(llmName, tabId, modelPrompt, attachments, 'round1', {
       forceFocus: true,
