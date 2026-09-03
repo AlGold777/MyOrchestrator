@@ -172,10 +172,9 @@
     }
     const deadline = Date.now() + 5000;
     while (!stopped && Date.now() < deadline) {
-      const value = String(composer?.value || composer?.textContent || '').trim();
       const userTurns = document.querySelectorAll('[data-message-author-role="user"], [data-role="user"], .chat-user').length;
       const generating = !!document.querySelector('button[aria-label*="stop" i], [data-generating="true"], [data-streaming="true"], [aria-busy="true"]');
-      if (!value || userTurns > beforeUserTurns || generating) return true;
+      if (userTurns > beforeUserTurns || generating) return true;
       await sleep(120);
     }
     return false;

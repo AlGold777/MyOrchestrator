@@ -7,8 +7,54 @@
     const speedMode = !!window.__PRAGMATIST_SPEED_MODE;
     const factor = speedMode ? 0.35 : 1;
     const minMs = speedMode ? 25 : 0;
-    const finalMs = Math.max(minMs, baseMs * factor);
+    const fastMeta = window.__LLM_FAST_DISPATCH_META;
+    const fastDeadlineAt = Number(fastMeta?.interactionDeadlineAt || 0);
+    const remainingFastMs = fastDeadlineAt ? Math.max(0, fastDeadlineAt - Date.now()) : Number.POSITIVE_INFINITY;
+    const finalMs = Math.min(Math.max(minMs, baseMs * factor), remainingFastMs);
     return new Promise((resolve) => setTimeout(resolve, finalMs));
+  };
+
+  const fastDispatchAborts = new Map();
+  const FAST_DISPATCH_ABORT_TTL_MS = 60000;
+  const pruneFastDispatchAborts = () => {
+    const now = Date.now();
+    for (const [dispatchId, abortedAt] of fastDispatchAborts.entries()) {
+      if (now - abortedAt > FAST_DISPATCH_ABORT_TTL_MS) fastDispatchAborts.delete(dispatchId);
+    }
+  };
+  const abortFastDispatch = (meta = {}) => {
+    const dispatchId = String(meta?.dispatchId || '');
+    if (!dispatchId) return false;
+    pruneFastDispatchAborts();
+    fastDispatchAborts.set(dispatchId, Date.now());
+    return true;
+  };
+  const isFastDispatchAborted = (meta = {}) => {
+    const dispatchId = String(meta?.dispatchId || '');
+    if (!dispatchId) return false;
+    pruneFastDispatchAborts();
+    return fastDispatchAborts.has(dispatchId);
+  };
+  const getInteractionDeadlineAt = (meta = {}) => {
+    const value = Number(meta?.interactionDeadlineAt || 0);
+    return Number.isFinite(value) && value > 0 ? value : 0;
+  };
+  const isRound1FastDispatch = (meta = {}) => meta?.round1FastDispatch === true
+    && getInteractionDeadlineAt(meta) > 0;
+  const getInteractionRemainingMs = (meta = {}) => {
+    const deadlineAt = getInteractionDeadlineAt(meta);
+    return deadlineAt ? Math.max(0, deadlineAt - Date.now()) : Number.POSITIVE_INFINITY;
+  };
+  const canActuateDispatch = (llmName, meta = {}, stage = 'actuation') => {
+    if (!isRound1FastDispatch(meta)) return true;
+    const dispatchId = String(meta?.dispatchId || '');
+    if (isFastDispatchAborted(meta) || Date.now() >= getInteractionDeadlineAt(meta)) {
+      reportDispatchStage(llmName, meta, 'fast_dispatch_timeout', {
+        outcome: 'failed', reason: `deadline_before_${stage}`, remainingMs: 0, dispatchId
+      });
+      return false;
+    }
+    return true;
   };
 
   const buildResponseMeta = (metadata = null, options = {}) => {
@@ -218,6 +264,7 @@
 
   const ensureDispatchMeta = (meta, llmName) => {
     const base = meta && typeof meta === 'object' ? Object.assign({}, meta) : {};
+    if (base.round1FastDispatch === true) window.__LLM_FAST_DISPATCH_META = base;
     storeDispatchMeta(base);
     const runSessionId = base.runSessionId || storedRunSessionId || getSessionId();
     if (runSessionId) {
@@ -566,6 +613,7 @@
   // normalization MUST match normalizeAnswerSignatureBg in the orchestrator.
   const reportDispatchBaseline = async (llmName, meta, baselineText = '') => {
     if (!llmName) return false;
+    const fastRound1 = meta?.round1FastDispatch === true;
     const signature = normalizeForPaste(baselineText);
     const lifecycle = window.LLMExtension?.ResponseLifecycleDetector || window.ResponseLifecycleDetector;
     let anchorAnswerCount = null;
@@ -583,7 +631,7 @@
     try {
       const start = lifecycle?.startResponseLifecycleTracking;
       if (typeof start !== 'function') return false;
-      const lifecycleStart = await Promise.resolve(start.call(lifecycle, {
+      const lifecycleStartPromise = Promise.resolve(start.call(lifecycle, {
         modelName: llmName,
         dispatchId: meta?.dispatchId || null,
         runSessionId: meta?.runSessionId || meta?.sessionId || null,
@@ -592,7 +640,12 @@
         baselineText: String(baselineText || ''),
         turnAnchor: anchorAnswerCount
       }));
-      if (lifecycleStart?.ok !== true) return false;
+      if (fastRound1) {
+        void lifecycleStartPromise.catch(() => {});
+      } else {
+        const lifecycleStart = await lifecycleStartPromise;
+        if (lifecycleStart?.ok !== true) return false;
+      }
     } catch (_) {
       return false;
     }
@@ -631,7 +684,7 @@
         capturedAt: Date.now()
       };
     } catch (_) {}
-    const baselineAck = await sendRuntimeMessageForAck({
+    const baselineAckPromise = sendRuntimeMessageForAck({
         type: 'DISPATCH_BASELINE_CAPTURED',
         llmName,
         meta: meta && typeof meta === 'object' ? meta : null,
@@ -642,15 +695,26 @@
         timeoutMs: 5000,
         attempts: 2
       });
-    try {
-      window.__LLMDispatchPreflight = {
-        llmName,
-        dispatchId: meta?.dispatchId || null,
-        ok: baselineAck.ok === true,
-        reason: baselineAck.reason || null,
-        capturedAt: Date.now()
-      };
-    } catch (_) {}
+    const recordBaselineAck = (baselineAck) => {
+      try {
+        window.__LLMDispatchPreflight = {
+          llmName,
+          dispatchId: meta?.dispatchId || null,
+          ok: baselineAck?.ok === true,
+          reason: baselineAck?.reason || null,
+          capturedAt: Date.now()
+        };
+      } catch (_) {}
+      return baselineAck?.ok === true;
+    };
+    if (fastRound1) {
+      void baselineAckPromise
+        .then(recordBaselineAck)
+        .catch(() => recordBaselineAck({ ok: false, reason: 'baseline_ack_exception' }));
+      return true;
+    }
+    const baselineAck = await baselineAckPromise;
+    recordBaselineAck(baselineAck);
     return baselineAck.ok === true;
   };
 
@@ -1294,6 +1358,12 @@
 
   window.ContentUtils = {
     sleep,
+    abortFastDispatch,
+    isFastDispatchAborted,
+    getInteractionDeadlineAt,
+    getInteractionRemainingMs,
+    isRound1FastDispatch,
+    canActuateDispatch,
     buildResponseMeta,
     isElementInteractable,
     isExtensionContextValid,

@@ -1591,13 +1591,17 @@ const keepAliveMutex = (() => {
     return Boolean(btn && isElementInteractable(btn) && hasExplicitQwenSendIdentity(btn));
   }
 
-  async function resolveSendButton(referenceInput) {
+  async function resolveSendButton(referenceInput, options = {}) {
+    const fastMode = options.fastMode === true;
+    const deadlineAt = Number(options.interactionDeadlineAt || 0);
+    const remainingMs = () => deadlineAt ? Math.max(0, deadlineAt - Date.now()) : Number.POSITIVE_INFINITY;
+    if (fastMode && remainingMs() <= 50) return null;
     if (window.SelectorFinder?.findOrDetectSelector) {
       try {
         const result = await window.SelectorFinder.findOrDetectSelector({
           modelName: MODEL,
           elementType: 'sendButton',
-          timeout: 12000,
+          timeout: fastMode ? Math.max(50, Math.min(300, remainingMs())) : 12000,
           referenceElement: referenceInput || null
         });
         if (isSafeQwenSendControl(result?.element)) {
@@ -1680,7 +1684,14 @@ const keepAliveMutex = (() => {
 
   // Отправка промпта - проверенные селекторы Qwen
   async function sendComposer(input, options = {}) {
+    const dispatchMeta = options?.meta || null;
+    const fastMode = window.ContentUtils?.isRound1FastDispatch?.(dispatchMeta) === true;
+    const remainingMs = () => window.ContentUtils?.getInteractionRemainingMs
+      ? window.ContentUtils.getInteractionRemainingMs(dispatchMeta) : Number.POSITIVE_INFINITY;
+    const canActuate = (stage) => window.ContentUtils?.canActuateDispatch
+      ? window.ContentUtils.canActuateDispatch(MODEL, dispatchMeta, stage) : true;
     const dispatchEnter = (mods = {}) => {
+      if (!canActuate('send_action')) return false;
       input.dispatchEvent(new KeyboardEvent('keydown', {
         key: 'Enter',
         code: 'Enter',
@@ -1712,13 +1723,13 @@ const keepAliveMutex = (() => {
     };
 
     const confirmQwenSend = async (sendBtn, timeout = 2000) => {
-      const deadline = Date.now() + timeout;
+      const deadline = Date.now() + Math.min(timeout, remainingMs());
       while (Date.now() < deadline) {
         const typing = document.querySelector('[aria-busy="true"], .loading, .spinner, [data-streaming="true"]');
         if (typing) return true;
         if (sendBtn && (sendBtn.disabled || sendBtn.getAttribute?.('aria-disabled') === 'true')) return true;
         if (hasSubmittedUserMessage()) return true;
-        await sleep(120);
+        await sleep(Math.min(50, remainingMs()));
       }
       return false;
     };
@@ -1740,13 +1751,42 @@ const keepAliveMutex = (() => {
 
     let sendBtn = null;
 
-    await sleep(2000);
+    if (fastMode) {
+      if (!canActuate('send_action')) throw { type: 'fast_dispatch_timeout', message: 'Qwen fast deadline before send' };
+      await sleep(Math.min(50, remainingMs()));
+      if (!canActuate('send_action')) throw { type: 'fast_dispatch_timeout', message: 'Qwen fast deadline before first gesture' };
+      window.ContentUtils?.reportDispatchStage?.(MODEL, dispatchMeta, 'send_action_requested', {
+        method: 'ctrl_enter', round1FastDispatch: true
+      });
+      dispatchEnter({ ctrlKey: true });
+      let confirmed = await confirmQwenSend(null, 325);
+      if (!confirmed && remainingMs() > 150 && canActuate('send_button_fallback')) {
+        sendBtn = await resolveSendButton(input, { fastMode: true, interactionDeadlineAt: window.ContentUtils?.getInteractionDeadlineAt?.(dispatchMeta) || 0 });
+        if (isSafeQwenSendControl(sendBtn) && !sendBtn.disabled && canActuate('send_button_click')) {
+          await qwenHumanClick(sendBtn);
+          confirmed = await confirmQwenSend(sendBtn, 325);
+        }
+      }
+      if (!confirmed && remainingMs() > 100 && canActuate('enter_fallback')) {
+        dispatchEnter();
+        confirmed = await confirmQwenSend(null, Math.min(250, remainingMs()));
+      }
+      if (!confirmed) {
+        window.ContentUtils?.reportDispatchStage?.(MODEL, dispatchMeta, remainingMs() <= 0 ? 'fast_dispatch_timeout' : 'send_action_failed', {
+          outcome: 'failed', reason: remainingMs() <= 0 ? 'round1_actuation_deadline' : 'qwen_fast_send_not_observed', round1FastDispatch: true
+        });
+        throw { type: 'send_failed', message: 'Qwen fast send not confirmed' };
+      }
+      return true;
+    }
+
+    await sleep(50);
 
     // Strategy 1: Ctrl+Enter
     dispatchEnter({ ctrlKey: true });
     let confirmed = await confirmQwenSend(null);
     if (!confirmed) {
-      sendBtn = await resolveSendButton(input);
+          sendBtn = await resolveSendButton(input);
       if (isSafeQwenSendControl(sendBtn) && !sendBtn.disabled) {
         await qwenHumanClick(sendBtn);
         console.log('[content-qwen] Send button clicked');
@@ -1769,7 +1809,7 @@ const keepAliveMutex = (() => {
       // then retry the same composer-scoped, fail-closed send-button discovery.
       startDriftFallback('medium');
       await sleep(220);
-      const emergencySend = await resolveSendButton(input);
+          const emergencySend = await resolveSendButton(input);
       if (isSafeQwenSendControl(emergencySend) && !emergencySend.disabled) {
         await qwenHumanClick(emergencySend);
         confirmed = await confirmQwenSend(emergencySend, 3000);
@@ -2680,12 +2720,14 @@ const keepAliveMutex = (() => {
       let baselineAssistantCount = 0;
       let baselineContainerCount = 0;
       try {
-        await sleep(1000);
+        await sleep(dispatchMeta?.round1FastDispatch === true
+          ? Math.min(50, window.ContentUtils?.getInteractionRemainingMs?.(dispatchMeta) || 50)
+          : 1000);
           activity.heartbeat(0.15, { phase: 'composer-search' });
 
           // Находим поле ввода (проверенные селекторы Qwen)
           let composer = discoverComposer();
-          if (!composer) {
+          if (!composer && dispatchMeta?.round1FastDispatch !== true) {
             composer = await findAndCacheElement('qwen_composer', [
               'textarea[placeholder*="Ask me anything"]',
               'textarea[placeholder*="ask"]',
@@ -2706,7 +2748,7 @@ const keepAliveMutex = (() => {
             }
           }
           if (!composer) {
-            throw { type: 'selector_not_found', message: 'Qwen input field not writable' };
+            throw { type: dispatchMeta?.round1FastDispatch === true ? 'fast_dispatch_timeout' : 'selector_not_found', message: 'Qwen input field not writable' };
           }
           emitDiagnostic({
             type: 'DISPATCH',
@@ -2724,7 +2766,9 @@ const keepAliveMutex = (() => {
           baselineAssistantText = assistantMessages.length
             ? extractMessageText(assistantMessages[assistantMessages.length - 1])
             : '';
-          const completionAttemptReady = await window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, baselineAssistantText);
+          const completionAttemptReady = dispatchMeta?.round1FastDispatch === true
+            ? true
+            : await window.ContentUtils?.reportDispatchBaseline?.(MODEL, dispatchMeta, baselineAssistantText);
           if (completionAttemptReady !== true) {
             window.ContentUtils?.reportDispatchStage?.(MODEL, dispatchMeta, 'completion_preflight_degraded', {
               outcome: 'degraded', reason: 'completion_runtime_unavailable'
@@ -2758,6 +2802,10 @@ const keepAliveMutex = (() => {
             }
           }
 
+          if (window.ContentUtils?.canActuateDispatch
+            && !window.ContentUtils.canActuateDispatch(MODEL, dispatchMeta, 'prompt_insert')) {
+            throw { type: 'fast_dispatch_timeout', message: 'Round 1 deadline exceeded before prompt insertion' };
+          }
           const pasteOk = window.ContentUtils?.pasteTextFirst
             ? await window.ContentUtils.pasteTextFirst(composer, prompt)
             : false;
@@ -2768,10 +2816,11 @@ const keepAliveMutex = (() => {
             level: 'info',
             meta: { dispatchId: dispatchMeta?.dispatchId || null, pasteOk }
           });
-          if (!pasteOk) {
+          if (!pasteOk && dispatchMeta?.round1FastDispatch !== true) {
             await typePrompt(composer, prompt);
           }
-          let validationText = await waitForComposerValue(composer, { retries: 7, delay: 250 });
+          let validationText = await waitForComposerValue(composer, dispatchMeta?.round1FastDispatch === true
+            ? { retries: 2, delay: 50 } : { retries: 7, delay: 250 });
           const normalizedPromptHead = normalizeForComparison(prompt).slice(0, 120);
           let normalizedValue = normalizeForComparison(validationText);
           if (!normalizedValue.length || (normalizedPromptHead && !normalizedValue.includes(normalizedPromptHead))) {
@@ -2804,12 +2853,16 @@ const keepAliveMutex = (() => {
             level: 'info',
             meta: { dispatchId: dispatchMeta?.dispatchId || null, baselineUserCount }
           });
-          window.ContentUtils?.reportDispatchStage?.(MODEL, dispatchMeta, 'send_action_requested');
+          if (!(dispatchMeta?.round1FastDispatch === true)) {
+            window.ContentUtils?.reportDispatchStage?.(MODEL, dispatchMeta, 'send_action_requested');
+          }
           try {
             await sendComposer(composer, {
               prompt,
               scope: qwenScope,
-              baselineUserCount
+              baselineUserCount,
+              meta: dispatchMeta,
+              interactionDeadlineAt: dispatchMeta?.interactionDeadlineAt || 0
             });
           } catch (err) {
             emitDiagnostic({
