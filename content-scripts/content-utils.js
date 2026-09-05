@@ -446,21 +446,32 @@
     if (!payload) return false;
     const existing = readInputValue(element);
     if (pasteMatchesPrompt(existing, payload)) return true;
-    // Each strategy owns a fresh empty composer. Never stack several insertion
-    // strategies into the same draft.
-    clearComposerForPrompt(element);
+    // Replace the editor selection atomically. Clearing a controlled rich
+    // editor through textContent leaves its framework state holding the old
+    // draft; the next native insert can then append to that restored draft.
+    const selectForReplacement = () => {
+      if ('value' in element) return clearComposerForPrompt(element);
+      try { element.focus?.({ preventScroll: true }); } catch (_) { element.focus?.(); }
+      const doc = element.ownerDocument || document;
+      const range = doc.createRange();
+      range.selectNodeContents(element);
+      const selection = doc.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+    };
+    selectForReplacement();
     try {
       const doc = element.ownerDocument || document;
       doc.execCommand?.('insertText', false, payload);
     } catch (e) { console.warn('[ContentUtils] Fast-track failed', e); }
     await sleep(60);
+    if (element.isConnected === false) return false;
     if (pasteMatchesPrompt(readInputValue(element), payload)) return true;
 
-    clearComposerForPrompt(element);
+    selectForReplacement();
     try {
       const dt = new DataTransfer();
       dt.setData('text/plain', payload);
-      dt.setData('text/html', payload);
       const ev = new ClipboardEvent('paste', { bubbles: true, cancelable: true });
       if (!ev.clipboardData) {
         try { Object.defineProperty(ev, 'clipboardData', { value: dt }); } catch (_) {}
@@ -468,9 +479,10 @@
       element.dispatchEvent(ev);
     } catch (_) {}
     await sleep(80);
+    if (element.isConnected === false) return false;
     if (pasteMatchesPrompt(readInputValue(element), payload)) return true;
 
-    clearComposerForPrompt(element);
+    selectForReplacement();
     try {
       const doc = element.ownerDocument || document;
       doc?.execCommand?.('insertText', false, payload);
@@ -540,19 +552,26 @@
     const payload = String(prompt || '');
     if (!element || !payload) return { ok: false, reason: 'missing_composer_or_prompt', value: '' };
     const fallback = typeof options.fallback === 'function' ? options.fallback : null;
+    const resolveLive = () => {
+      if (typeof options.resolveComposer === 'function') element = options.resolveComposer() || element;
+      return element?.isConnected === false ? null : element;
+    };
     const attempts = Math.max(1, Number(options.attempts || 2));
     for (let attempt = 0; attempt < attempts; attempt += 1) {
-      const pasted = await pasteTextFirst(element, payload);
+      if (!resolveLive()) return { ok: false, reason: 'composer_detached', value: '' };
+      await pasteTextFirst(element, payload);
+      if (!resolveLive()) continue;
       let current = readInputValue(element);
-      if (pasted && pasteMatchesPrompt(current, payload)) {
-        return { ok: true, method: 'paste', value: current, attempt };
+      if (pasteMatchesPrompt(current, payload)) {
+        return { ok: true, method: 'paste', value: current, attempt, composer: element };
       }
       if (fallback) {
         await fallback(element, payload, { attempt });
         await sleep(Number(options.settleMs || 120));
+        if (!resolveLive()) continue;
         current = readInputValue(element);
         if (pasteMatchesPrompt(current, payload)) {
-          return { ok: true, method: 'fallback', value: current, attempt };
+          return { ok: true, method: 'fallback', value: current, attempt, composer: element };
         }
       }
     }

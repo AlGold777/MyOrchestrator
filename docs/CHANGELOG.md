@@ -6637,3 +6637,8 @@ Backlog `what-to-do.md`, батч 1 (UI + Финализация).
 - Shadow comparison теперь сохраняется как canonical audit-событие, а переходы critical capability health — как `OBSERVER_HEALTH_OBSERVED` с дедупликацией неизменившихся состояний.
 - `PRODUCER_TERMINAL` больше не приравнивается к provider finish reason Tier 4; составной V2 `SUCCESS_TERMINAL` формирует Tier 3 и корректные completion axes.
 - Повторная идентичная ownership-проверка больше не создаёт телеметрический шум.
+# 2026-09-05 — Make controlled composer replacement framework-safe, version 2.81.364
+
+- Re-resolve live composer nodes during prompt preparation and avoid DOM-clearing that can restore stale framework state.
+- Respect editor-owned `beforeinput` handling and prevent duplicate native insertion/fallback paths.
+- Verify the replacement composer before accepting prompt preparation, including Kimi and Perplexity flows.

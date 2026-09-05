@@ -17,6 +17,44 @@ describe('Perplexity composer transaction', () => {
     window.eval(SOURCE);
   });
 
+  test('editor-owned beforeinput inserts once without a second native insertion', async () => {
+    document.body.innerHTML = '<div contenteditable="true">old draft</div>';
+    const composer = document.querySelector('[contenteditable]');
+    const prompt = 'Divide 144 by 12';
+    const previous = document.execCommand;
+    document.execCommand = jest.fn(() => { composer.textContent += prompt; return true; });
+    composer.addEventListener('beforeinput', event => {
+      event.preventDefault();
+      composer.textContent = event.data;
+    });
+    try {
+      const result = await window.PerplexityComposerTransaction.insert(composer, prompt, { sleep: async () => {} });
+      expect(result.ok).toBe(true);
+      expect(composer.textContent).toBe(prompt);
+      expect(document.execCommand).not.toHaveBeenCalled();
+    } finally { document.execCommand = previous; }
+  });
+
+  test('live replacement proves insertion even when the detached node reports failure', async () => {
+    document.body.innerHTML = '<form><textarea></textarea><button type="submit">Send</button></form>';
+    setRect(document.querySelector('textarea'));
+    setRect(document.querySelector('button'));
+    const prompt = 'Divide 144 by 12';
+    const result = await window.PerplexityComposerTransaction.prepare({ doc: document, prompt,
+      selectors: ['textarea'], sleep: async () => {}, attempts: 1,
+      insertStrategy: async old => {
+        const replacement = document.createElement('textarea');
+        replacement.value = prompt;
+        setRect(replacement);
+        old.replaceWith(replacement);
+        return { ok: false, reason: 'old_node_empty' };
+      }
+    });
+    expect(result.ok).toBe(true);
+    expect(result.composer).toBe(document.querySelector('textarea'));
+    expect(result.history[0].nodeReplaced).toBe(true);
+  });
+
   test('selects the composer owned by the search form instead of an extension editor', () => {
     document.body.innerHTML = `
       <aside id="llm-notes-sidebar"><div contenteditable="true" role="textbox"></div></aside>

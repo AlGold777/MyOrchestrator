@@ -246,12 +246,16 @@
         range?.selectNodeContents(sel);
         selection?.removeAllRanges?.();
         if (range) selection?.addRange?.(range);
+        let editorHandled = false;
         try {
-          sel.dispatchEvent(new InputEvent('beforeinput', {
+          const beforeInput = new InputEvent('beforeinput', {
             bubbles: true, cancelable: true, composed: true,
             inputType: 'insertReplacementText', data: text
-          }));
+          });
+          sel.dispatchEvent(beforeInput);
+          editorHandled = beforeInput.defaultPrevented;
         } catch (_) {}
+        if (editorHandled) return;
         const inserted = doc.execCommand?.('insertText', false, text) === true;
         if (!inserted && !String(sel.innerText || sel.textContent || '').includes(text)) {
           sel.textContent = text;

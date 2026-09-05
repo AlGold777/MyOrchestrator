@@ -204,10 +204,7 @@
   // duplication pasteTextFirst's own attempts may have left behind.
   const insertPrompt = async (composer, prompt) => {
     composer.focus?.();
-    const pasted = window.ContentUtils?.pasteTextFirst
-      ? await window.ContentUtils.pasteTextFirst(composer, prompt)
-      : false;
-    if (pasted) return;
+    // ensurePromptPrepared already ran the paste transaction for this attempt.
     await requestTrustedInput(prompt);
   };
 
@@ -329,6 +326,7 @@
     const prepared = window.ContentUtils?.ensurePromptPrepared
       ? await window.ContentUtils.ensurePromptPrepared(composer, prompt, {
           fallback: (input, text) => insertPrompt(input, text),
+          resolveComposer: () => findFirst(COMPOSER_SELECTORS),
           attempts: 2,
           settleMs: 150
         })
@@ -344,6 +342,7 @@
     if (!prepared.ok) {
       throw { type: 'prompt_injection_failed', message: `Kimi prompt preparation failed: ${prepared.reason}` };
     }
+    composer = prepared.composer || composer;
     const sendConfirmed = await sendPrompt(composer);
     if (!sendConfirmed) throw { type: 'send_failed', message: 'Kimi send not confirmed' };
     try { chrome.runtime.sendMessage({ type: 'PROMPT_SUBMITTED', llmName: MODEL, ts: Date.now(), meta }); } catch (_) {}

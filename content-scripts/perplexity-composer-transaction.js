@@ -259,7 +259,7 @@
   const insert = async (element, prompt, options = {}) => {
     const sleep = options.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     if (!element || !prompt) return { ok: false, reason: 'missing_composer_or_prompt' };
-    clear(element);
+    if ('value' in element) clear(element);
     try { element.focus?.({ preventScroll: true }); } catch (_) { element.focus?.(); }
     let method = 'unknown';
     if ('value' in element) {
@@ -278,12 +278,16 @@
         const selection = doc.getSelection?.();
         const range = doc.createRange?.();
         range?.selectNodeContents(element);
-        range?.collapse(false);
         selection?.removeAllRanges?.();
         if (range) selection?.addRange?.(range);
-        element.dispatchEvent(new InputEvent('beforeinput', {
+        const beforeInput = new InputEvent('beforeinput', {
           bubbles: true, cancelable: true, composed: true, inputType: 'insertText', data: prompt
-        }));
+        });
+        element.dispatchEvent(beforeInput);
+        if (beforeInput.defaultPrevented) {
+          await sleep(Number(options.settleMs || 160));
+          return { ok: promptMatches(read(element), prompt), method: 'editor_beforeinput', value: read(element) };
+        }
         // 2.81.122: execCommand reports success even when the tab holds no focus
         // and nothing was actually inserted. The old guard trusted that return
         // value, so the range fallback never ran and the draft stayed empty.
@@ -339,18 +343,20 @@
         ? live.element
         : (composer.isConnected && promptMatches(read(composer), prompt) ? composer : null);
       const sendControl = acceptedComposer ? resolveSendControl(acceptedComposer) : null;
-      const accepted = Boolean(result?.ok && acceptedComposer && sendControl && isVisible(sendControl));
+      // Frameworks may replace the node during insertion. The current owned
+      // editor and its Send control are the proof, not the old node's verdict.
+      const accepted = Boolean(acceptedComposer && sendControl && isVisible(sendControl));
       history.push({
         attempt,
         insertMethod: result?.method || null,
-        inserted: result?.ok === true,
+        inserted: Boolean(acceptedComposer),
         nodeReplaced: !!live.element && live.element !== composer,
         sendControlReady: !!sendControl && isVisible(sendControl),
         selected: describe(acceptedComposer || live.element || composer, live.score),
         candidates: live.diagnostics
       });
       if (accepted) {
-        return { ok: true, method: result.method, composer: acceptedComposer, sendControl, history };
+        return { ok: true, method: result?.method || 'live_composer_verified', composer: acceptedComposer, sendControl, history };
       }
       await wait(settleMs);
     }
