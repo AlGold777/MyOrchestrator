@@ -1253,7 +1253,7 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
         answerSelectors: this.config.answerSelectors,
         selectorAllowed: (selector) => !circuit || circuit.shouldUse(selector, this.platform, 'answer') !== false,
         anchorAnswerCount: this.anchorAnswerCount,
-        minimumTextLength: 5,
+        minimumTextLength: 1,
         candidateEligible: ({ node, text }) => {
           const role = String(node?.getAttribute?.('data-role') || node?.getAttribute?.('data-message-author-role') || '').toLowerCase();
           const identity = `${node?.id || ''} ${node?.className || ''}`.toLowerCase();

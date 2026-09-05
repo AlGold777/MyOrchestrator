@@ -82,3 +82,9 @@ describe('per-platform generation signal', () => {
     ]);
   });
 });
+
+test('stop control inside an aria-hidden ancestor cannot keep generation active', () => {
+  document.body.innerHTML = '<section aria-hidden="true"><button>Stop</button></section>';
+  makeVisible(document.querySelector('button'));
+  expect(GenerationSignal.inspect({ document, view: window, selectors: { stopButton: 'button' } }).active).toBe(false);
+});

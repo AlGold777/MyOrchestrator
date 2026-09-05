@@ -1,5 +1,12 @@
 # CHANGELOG — Project
 
+### 2026-09-05 — Latest answer and completion scope, version 2.81.359
+
+- Keep full primary answers when secondary selectors match nested fragments; exclude user/hidden descendants in the shared resolver.
+- Resolve short nonempty answers consistently in watcher, pipeline and lifecycle verification.
+- Ignore completion/regenerate controls belonging to earlier answers and hidden ancestor stop controls.
+- Added runtime regressions for multi-turn completion, extraction consistency and short latest answers.
+
 ### 2026-09-05 — Prompt interaction latency, version 2.81.358
 
 - Removed repeated whole-page scroll settlement from composer insertion/click.

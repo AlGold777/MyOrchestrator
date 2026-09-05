@@ -145,10 +145,10 @@ describe('copy button completion signal', () => {
 
     expect(watcher.detectCopyButtonNearLatestAnswer()).toBe(false);
     expect(watcher.lastCopyButtonMeta).toMatchObject({
-      found: true,
+      found: false,
       valid: false,
       copyType: 'rejected',
-      reason: 'user_scope'
+      reason: 'no_answer_element'
     });
   });
 
@@ -205,5 +205,25 @@ describe('copy button completion signal', () => {
         })
       })
     }));
+  });
+});
+
+
+describe('completion evidence belongs to the latest answer', () => {
+  beforeEach(() => { bootstrapWatcher(); setVisibleRects(); });
+  test('previous regenerate control cannot complete the new turn', () => {
+    document.body.innerHTML = `<article data-role="assistant">Old answer<button aria-label="Regenerate">Retry</button></article>
+      <article data-role="assistant">New answer</article>`;
+    const watcher = new window.AnswerPipeline.UnifiedAnswerCompletionWatcher('chatgpt', { llmName: 'GPT' });
+    expect(watcher.detectCompletionIndicator()).toBe(false);
+    expect(watcher.detectRegenerateVisible()).toBe(false);
+    document.querySelectorAll('article')[1].insertAdjacentHTML('beforeend', '<button aria-label="Regenerate">Retry</button>');
+    expect(watcher.detectCompletionIndicator()).toBe(true);
+    expect(watcher.detectRegenerateVisible()).toBe(true);
+  });
+  test('short latest answer is resolved instead of a longer old answer', () => {
+    document.body.innerHTML = '<article data-role="assistant">Long old answer</article><article data-role="assistant">42</article>';
+    const watcher = new window.AnswerPipeline.UnifiedAnswerCompletionWatcher('chatgpt', { llmName: 'GPT' });
+    expect(watcher.getAnswerElement().textContent).toBe('42');
   });
 });

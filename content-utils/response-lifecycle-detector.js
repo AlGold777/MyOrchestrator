@@ -303,7 +303,7 @@
       selectors,
       document,
       anchorAnswerCount: Math.max(0, Number(turnAnchor || 0)),
-      minimumTextLength: 5
+      minimumTextLength: 1
     });
   }
 

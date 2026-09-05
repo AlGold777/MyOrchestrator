@@ -155,6 +155,10 @@
       const node = pool[index];
       const text = String(readNodeText(node) || '').trim();
       if (text.length < minimumTextLength) continue;
+      if (node.closest?.('[hidden], [aria-hidden="true"], [inert], [data-role="user"], [data-message-author-role="user"], [data-author-role="user"]')) {
+        rejectedCandidates.push(node);
+        continue;
+      }
       if (String(options.platform || '').toLowerCase() === 'kimi' && isKimiReasoningNode(node)) {
         rejectedCandidates.push(node);
         continue;
@@ -173,6 +177,25 @@
       }
     }
     if (!answerNode && minimumTextLength <= 0) answerNode = pool[pool.length - 1] || null;
+
+    // A configured fallback may match a paragraph/code block inside the exact
+    // answer. DOM order puts that fragment last, but it is not a newer turn.
+    if (answerNode && metadataByElement.get(answerNode)?.sourceKind === 'secondary') {
+      const enclosing = pool.filter((node) => node !== answerNode
+        && metadataByElement.get(node)?.sourceKind === 'primary'
+        && node.contains(answerNode) && !rejectedCandidates.includes(node));
+      for (let index = enclosing.length - 1; index >= 0; index -= 1) {
+        const node = enclosing[index];
+        const text = String(readNodeText(node) || '').trim();
+        if (text.length < minimumTextLength) continue;
+        if (candidateEligible) {
+          try { if (candidateEligible({ node, text, index: pool.indexOf(node), pool }) === false) continue; }
+          catch (_) { continue; }
+        }
+        answerNode = node;
+        break;
+      }
+    }
 
     const answerMeta = answerNode ? metadataByElement.get(answerNode) || null : null;
     const rootSelectors = selectorList(selectors.messageRoot);

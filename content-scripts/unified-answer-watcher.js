@@ -1101,7 +1101,7 @@
         selectors: this.selectors,
         answerSelectors: this.options.answerSelectors,
         anchorAnswerCount: this.anchorAnswerCount,
-        minimumTextLength: 5,
+        minimumTextLength: 1,
         selectorAllowed: (selector) => !window.SelectorCircuit
           || window.SelectorCircuit.shouldUse(selector, this.platform, 'answer') !== false,
         queryAll: (selector) => deepQuery?.all?.(selector) || this.safeQueryAll(selector),
@@ -1122,13 +1122,28 @@
       return window.AnswerStructure?.linearizeText?.(element) || '';
     }
 
+    isCurrentTurnCompletionControl(el, currentRoot) {
+      if (!currentRoot || !el || el.closest?.('[hidden], [aria-hidden="true"], [inert], pre, code')
+        || el.disabled || el.getAttribute?.('aria-disabled') === 'true') return false;
+      for (const selector of this.normalizeSelectorList(this.selectors.messageRoot)) {
+        let owner = null;
+        try { owner = el.closest(selector); } catch (_) {}
+        if (owner && owner !== currentRoot && !currentRoot.contains(owner)) return false;
+      }
+      return true;
+    }
+
     detectCompletionIndicator() {
       const completionSelectors = this.filterSelectors(this.selectors.completionIndicators, 'completion');
       if (!completionSelectors.length) return false;
       const circuit = window.SelectorCircuit;
+      this.getAnswerElement();
+      const currentRoot = this.lastTurnResolution?.messageRoot;
+      if (!currentRoot) return false;
       return completionSelectors.some((selector) => {
         const nodes = this.safeQueryAll(selector);
         const found = Array.from(nodes).some((el) => {
+          if (!this.isCurrentTurnCompletionControl(el, currentRoot)) return false;
           const rect = el.getBoundingClientRect();
           const style = window.getComputedStyle(el);
           return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
@@ -1403,11 +1418,14 @@
     detectRegenerateVisible() {
       const regenSelectors = this.getRegenerateSelectors();
       if (!regenSelectors.length) return false;
+      this.getAnswerElement();
+      const currentRoot = this.lastTurnResolution?.messageRoot;
       let match = null;
       for (const selector of regenSelectors) {
         this.lastRegenerateSelectorAttempt = selector;
-        const node = this.safeQuery(selector);
-        const visible = node ? this.isElementVisible(node) : false;
+        const node = Array.from(this.safeQueryAll(selector)).find((candidate) =>
+          this.isCurrentTurnCompletionControl(candidate, currentRoot) && this.isElementVisible(candidate));
+        const visible = Boolean(node);
         const disabled = node?.disabled
           || node?.getAttribute?.('aria-disabled') === 'true'
           || node?.getAttribute?.('data-disabled') === 'true';

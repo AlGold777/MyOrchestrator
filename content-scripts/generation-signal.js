@@ -9,6 +9,7 @@
 
   function isAvailable(node) {
     if (!node || node.nodeType !== 1) return false;
+    if (node.closest?.('[hidden], [aria-hidden="true"], [inert]')) return false;
     return node.hidden !== true
       && node.disabled !== true
       && node.getAttribute?.('disabled') === null

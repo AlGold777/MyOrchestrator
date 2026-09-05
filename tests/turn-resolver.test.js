@@ -175,3 +175,29 @@ describe('authoritative turn resolver', () => {
     expect(result.messageRoot.contains(result.answerNode)).toBe(true);
   });
 });
+
+describe('latest full answer over configured fragments', () => {
+  test('secondary paragraph cannot truncate the newest primary answer', () => {
+    document.body.innerHTML = '<article class="answer">Old answer</article><article class="answer"><p>First paragraph</p><p>Final paragraph</p></article>';
+    const turn = TurnResolver.resolveTurn({ document,
+      selectors: { lastMessage: '.answer', messageRoot: '.answer' },
+      answerSelectors: ['p'], anchorAnswerCount: 1 });
+    expect(turn.answerNode).toBe(document.querySelectorAll('.answer')[1]);
+    expect(turn.resolution).toBe('exact');
+    expect(turn.answerNode.textContent).toContain('First paragraph');
+    expect(turn.answerNode.textContent).toContain('Final paragraph');
+  });
+  test('a genuinely newer fallback answer is not replaced by an older primary', () => {
+    document.body.innerHTML = '<article class="answer">Old answer</article><section><p>New answer</p></section>';
+    const turn = TurnResolver.resolveTurn({ document,
+      selectors: { lastMessage: '.answer', messageRoot: 'article, section' }, answerSelectors: ['p'] });
+    expect(turn.answerNode.textContent).toBe('New answer');
+    expect(turn.resolution).toBe('fallback');
+  });
+  test('broad fallback excludes paragraphs in user messages and hidden templates', () => {
+    document.body.innerHTML = '<article class="answer">New answer</article><section data-role="user"><p>User prompt</p></section><section hidden><p>Template answer</p></section>';
+    const turn = TurnResolver.resolveTurn({ document,
+      selectors: { lastMessage: '.answer', messageRoot: 'article' }, answerSelectors: ['p'] });
+    expect(turn.answerNode.textContent).toBe('New answer');
+  });
+});

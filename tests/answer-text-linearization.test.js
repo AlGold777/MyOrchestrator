@@ -79,6 +79,22 @@ describe('authoritative answer text linearization', () => {
     expect(extracted).toBe(watched);
     expect(watched).not.toContain('reasoning');
     expect(watched).not.toContain('copy');
+
+    // A newer answer with a broadly configured paragraph selector must travel
+    // through the same resolver in both observation and extraction.
+    document.querySelector('main').insertAdjacentHTML('beforeend',
+      '<article class="answer-root"><p>First new paragraph</p><p>Last new paragraph</p></article>');
+    watcher.options.answerSelectors = ['p'];
+    pipeline.config.answerSelectors = ['p'];
+    const latest = document.querySelectorAll('.answer-root')[1];
+    expect(watcher.getAnswerElement()).toBe(latest);
+    expect(pipeline.getAnswerElement()).toBe(latest);
+    expect(pipeline.extractText(pipeline.getAnswerElement())).toBe('First new paragraph Last new paragraph');
+    latest.textContent = '42';
+    expect(watcher.getAnswerElement()).toBe(latest);
+    expect(pipeline.getAnswerElement()).toBe(latest);
+    expect(pipeline.extractText(latest)).toBe('42');
+
   });
 
   test('stable thinking tail cannot finish the watcher while filtered answer keeps growing', async () => {
