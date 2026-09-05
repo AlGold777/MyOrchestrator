@@ -563,6 +563,11 @@ Claude снимаются один раз до первой попытки Send.
 
 ### Composer interaction
 
+Health PING перед dispatch ограничен `READY_ACK_TIMEOUT_MS` (`6000ms`),
+обычная проверка здоровья — `15000ms`. Recovery reload ограничен `30000ms`
+включая подготовительную паузу `500ms` и ожидание Chrome API; отсчёт начинается
+до запроса reload, а не после разрешения его Promise.
+
 Перед вставкой и кликом Humanoid прокручивает только невидимую цель через native
 instant scroll. Ожидание settlement страницы (до `5000ms` на каждый lookAt)
 в этом пути удалено. Вставка вызывает один click/moveTo/lookAt вместо двух lookAt.

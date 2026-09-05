@@ -1,5 +1,10 @@
 # CHANGELOG — Project
 
+### 2026-09-05 — Bound remaining dispatch health waits, version 2.81.362
+
+- Health callbacks now have a deadline; silent dispatch probes use the ready ACK budget.
+- Reload recovery arms its listener and deadline before requesting reload, handling both hung API promises and immediate completion events. Late callbacks cannot settle a timed-out operation twice.
+
 ### 2026-09-05 — Persist completion authority across worker restart, version 2.81.361
 
 - Storage compaction now retains the accepted completion attempt, run identity and pending answer dispatch binding. A restarted worker can validate an already registered answer without dropping its text as `completion_attempt_unregistered`.

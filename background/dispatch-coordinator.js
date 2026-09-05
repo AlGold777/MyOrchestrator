@@ -1391,7 +1391,7 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
           ? await self.ensureCompletionRuntimeInTab(tabId, llmName)
           : null;
         const adapterHealthy = runtimeGate?.ok === true && typeof self.checkScriptHealth === 'function'
-          ? await self.checkScriptHealth(tabId, llmName, { silent: true })
+          ? await self.checkScriptHealth(tabId, llmName, { silent: true, timeoutMs: READY_ACK_TIMEOUT_MS })
           : false;
         readyOk = runtimeGate?.ok === true && adapterHealthy === true;
         if (!readyOk && runtimeGate == null) {

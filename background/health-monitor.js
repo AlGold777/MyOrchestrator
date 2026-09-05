@@ -198,10 +198,21 @@ function stopHeartbeatMonitor() {
   }
 }
 
-async function checkScriptHealth(tabId, llmName, { silent = false } = {}) {
+async function checkScriptHealth(tabId, llmName, { silent = false, timeoutMs = HEALTH_CHECK_TIMEOUT_MS } = {}) {
   return new Promise((resolve) => {
+    let settled = false;
+    const finish = (healthy) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(healthy);
+    };
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    try {
     chrome.tabs.sendMessage(tabId, { type: 'HEALTH_CHECK_PING', pingId: `health_${Date.now()}` }, (response) => {
-      if (chrome.runtime.lastError || !response) {
+      const runtimeError = chrome.runtime.lastError;
+      if (settled) return;
+      if (runtimeError || !response) {
         if (!silent) {
           const errMsg = chrome.runtime.lastError?.message || 'no response';
           emitTelemetry(llmName, 'SCRIPT_HEALTH_FAIL', {
@@ -211,14 +222,17 @@ async function checkScriptHealth(tabId, llmName, { silent = false } = {}) {
           });
           console.warn(`[BACKGROUND] Script health check failed for ${llmName}`);
         }
-        resolve(false);
+        finish(false);
         return;
       }
       if (!silent) {
         globalThis.LLMLog?.debug?.(`[BACKGROUND] Script healthy for ${llmName}`);
       }
-      resolve(true);
+      finish(true);
     });
+    } catch (_) {
+      finish(false);
+    }
   });
 }
 
@@ -316,42 +330,41 @@ async function reinjectScript(tabId, llmName) {
   });
 
   try {
-    chrome.tabs.sendMessage(tabId, { type: 'FORCE_CLEANUP' }).catch(() => {});
-    await awaitSessionDelay(500);
-    await chrome.tabs.reload(tabId);
-
     return new Promise((resolve) => {
       let reloadTimer = null;
+      let settled = false;
+      let reloadRequested = false;
+      const finish = (ok, reason) => {
+        if (settled) return;
+        settled = true;
+        chrome.tabs.onUpdated.removeListener(listener);
+        clearTimeout(reloadTimer);
+        healthDeregisterSessionTimer(reloadTimer);
+        emitTelemetry(llmName, 'SCRIPT_REINJECT_RESULT', {
+          details: reason,
+          level: ok ? 'info' : 'warning',
+          meta: { tabId, scriptFile, ok, reason }
+        });
+        resolve(ok);
+      };
       const listener = (changedTabId, changeInfo) => {
-        if (changedTabId === tabId && changeInfo.status === 'complete') {
-          chrome.tabs.onUpdated.removeListener(listener);
-          globalThis.LLMLog?.debug?.(`[BACKGROUND] Tab ${tabId} reloaded, script auto-injected via manifest`);
-          emitTelemetry(llmName, 'SCRIPT_REINJECT_RESULT', {
-            details: 'ok',
-            meta: { tabId, scriptFile, ok: true }
-          });
-          if (reloadTimer) {
-            clearTimeout(reloadTimer);
-            healthDeregisterSessionTimer(reloadTimer);
-            reloadTimer = null;
-          }
-          resolve(true);
+        if (reloadRequested && changedTabId === tabId && changeInfo.status === 'complete') {
+          finish(true, 'ok');
         }
       };
       chrome.tabs.onUpdated.addListener(listener);
-
-      reloadTimer = healthRegisterSessionTimer(setTimeout(() => {
-        chrome.tabs.onUpdated.removeListener(listener);
-        emitTelemetry(llmName, 'SCRIPT_REINJECT_RESULT', {
-          details: 'timeout',
-          level: 'warning',
-          meta: { tabId, scriptFile, ok: false, reason: 'timeout' }
-        });
-        if (reloadTimer) {
-          healthDeregisterSessionTimer(reloadTimer);
-        }
-        resolve(false);
-      }, 30000));
+      reloadTimer = healthRegisterSessionTimer(setTimeout(() => finish(false, 'timeout'), 30000));
+      // Arm before requesting reload: a hanging API promise must not hold the
+      // dispatch queue, and a fast complete event must not escape the listener.
+      void (async () => {
+        try {
+          chrome.tabs.sendMessage(tabId, { type: 'FORCE_CLEANUP' }).catch(() => {});
+          await awaitSessionDelay(500);
+          if (settled) return;
+          reloadRequested = true;
+          await chrome.tabs.reload(tabId);
+        } catch (_) { finish(false, 'exception'); }
+      })();
     });
   } catch (err) {
     console.error(`[BACKGROUND] Reinject failed for ${llmName}:`, err);
