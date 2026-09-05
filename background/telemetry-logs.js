@@ -100,17 +100,42 @@ async function writeDiagnosticsEvents(entries = []) {
 // snapshot. Keep all mutations on one chain and expose the same chain to the
 // message router so both ingestion paths share a single writer.
 let diagnosticsMutationChain = Promise.resolve();
+const diagnosticsMutationQueue = [];
+let diagnosticsDrainScheduled = false;
 function mutateDiagnosticsEventsConsistent(mutator) {
-  const operation = diagnosticsMutationChain
-    .catch(() => {})
-    .then(async () => {
-      const current = await readDiagnosticsEvents();
-      const next = await mutator(Array.isArray(current) ? current.slice() : []);
-      const payload = Array.isArray(next) ? next : current;
-      await writeDiagnosticsEvents(payload);
-      return payload;
+  const operation = new Promise((resolve, reject) => diagnosticsMutationQueue.push({ mutator, resolve, reject }));
+  if (!diagnosticsDrainScheduled) {
+    diagnosticsDrainScheduled = true;
+    diagnosticsMutationChain = diagnosticsMutationChain.catch(() => {}).then(async () => {
+      try {
+        while (diagnosticsMutationQueue.length) {
+          // Read/expand and compress/write once per burst, not once per event.
+          // Provider ACKs share this worker with diagnostics. Recompressing the
+          // entire 1.5 MB ring for each row blocked those ACKs and their timers.
+          let current;
+          try { current = await readDiagnosticsEvents(); }
+          catch (error) {
+            diagnosticsMutationQueue.splice(0).forEach((item) => item.reject(error));
+            continue;
+          }
+          const batch = diagnosticsMutationQueue.splice(0);
+          let payload = Array.isArray(current) ? current : [];
+          const applied = [];
+          for (const item of batch) {
+            try {
+              const next = await item.mutator(payload.slice());
+              if (Array.isArray(next)) payload = next;
+              applied.push(item);
+            } catch (error) { item.reject(error); }
+          }
+          try {
+            if (applied.length) await writeDiagnosticsEvents(payload);
+            applied.forEach((item) => item.resolve(payload));
+          } catch (error) { applied.forEach((item) => item.reject(error)); }
+        }
+      } finally { diagnosticsDrainScheduled = false; }
     });
-  diagnosticsMutationChain = operation.then(() => undefined, () => undefined);
+  }
   return operation;
 }
 

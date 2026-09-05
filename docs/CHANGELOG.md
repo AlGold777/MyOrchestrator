@@ -6637,6 +6637,12 @@ Backlog `what-to-do.md`, батч 1 (UI + Финализация).
 - Shadow comparison теперь сохраняется как canonical audit-событие, а переходы critical capability health — как `OBSERVER_HEALTH_OBSERVED` с дедупликацией неизменившихся состояний.
 - `PRODUCER_TERMINAL` больше не приравнивается к provider finish reason Tier 4; составной V2 `SUCCESS_TERMINAL` формирует Tier 3 и корректные completion axes.
 - Повторная идентичная ownership-проверка больше не создаёт телеметрический шум.
+### 2026-09-05 — Reduce worker storage pressure, version 2.81.366
+
+- Diagnostics events share a batch read/expand/compress/write while retaining ordered mutations and clear operations. A 200-event burst now uses one storage write.
+- Job-state writes coalesce synchronous bursts and serialize later snapshots. Message handlers no longer start full-state compression before returning an ACK; dispatch-intent awaiters still wait for persistence.
+- Tests cover concurrent appends, clear ordering, write failures, updates during writes, and durable command-intent waiting.
+
 ### 2026-09-05 — Restore first and short answer completion, version 2.81.365
 
 - Empty chat containers no longer count as a previous assistant response and hide the first generated answer.

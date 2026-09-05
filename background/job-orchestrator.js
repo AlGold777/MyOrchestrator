@@ -4846,7 +4846,27 @@ if (typeof chrome !== 'undefined' && chrome?.runtime?.onStartup?.addListener) {
 }
 
 //-- 11.1. Сохранение и загрузка jobState из storage --//
-async function saveJobState(state) {
+let jobStateSaveFlight = null;
+let pendingJobStateSave = null;
+function saveJobState(state) {
+  pendingJobStateSave = state;
+  if (!jobStateSaveFlight) {
+    // Defer compression out of message ACK handlers and coalesce their burst.
+    // Awaiters still wait for durable storage, including command-intent writes.
+    jobStateSaveFlight = Promise.resolve().then(async () => {
+      try {
+        while (pendingJobStateSave) {
+          const next = pendingJobStateSave;
+          pendingJobStateSave = null;
+          await persistJobStateSnapshot(next);
+        }
+      } finally { jobStateSaveFlight = null; }
+    });
+  }
+  return jobStateSaveFlight;
+}
+
+async function persistJobStateSnapshot(state) {
   try {
     const persisted = self.PipelineFSM?.compactJobStateForStorage
       ? self.PipelineFSM.compactJobStateForStorage(state)
