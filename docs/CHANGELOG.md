@@ -1,5 +1,10 @@
 # CHANGELOG — Project
 
+### 2026-09-05 — Persist completion authority across worker restart, version 2.81.361
+
+- Storage compaction now retains the accepted completion attempt, run identity and pending answer dispatch binding. A restarted worker can validate an already registered answer without dropping its text as `completion_attempt_unregistered`.
+- Regression replays Gemini attempt 4 through the production compactor and a fresh authority registry; mismatched and never-registered deliveries remain rejected.
+
 ### 2026-09-05 — Resume interrupted prompt dispatch, version 2.81.360
 
 - Bound completion runtime probes and repairs, inject immediately instead of waiting for document_idle, and bound the SCRIPT_READY announcement.
