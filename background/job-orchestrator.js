@@ -1593,6 +1593,22 @@ function hasRecoveryBudgetRemaining(llmName, entry, key, kind) {
   return Number(budget[field] || 0) < limit;
 }
 
+function isVerifiedCurrentAnswer(entry, text, verification, dispatchId) {
+  if (!entry?.promptSubmittedAt || !dispatchId || entry.confirmedDispatchId !== dispatchId) return false;
+  if (verification?.verified !== true || verification.resolution !== 'exact'
+    || verification.structuralComplete !== true || verification.generationActive !== false
+    || verification.lengthRegressionActive === true) return false;
+  const identity = self.AnswerVerification?.compareIdentity?.({
+    runSessionId: jobState?.session?.startTime,
+    dispatchId,
+    generationEpoch: entry.generationEpoch,
+    turnAnchor: entry.preDispatchAnswerNodeCount ?? entry.anchorAnswerCount ?? entry.baselineAnswerCount
+  }, verification, { strict: true });
+  const length = String(text || '').trim().length;
+  return identity?.ok === true && length > 0
+    && Number(verification.selectedLength) === length;
+}
+
 function validateMaterializedAnswerEvidence(llmName, text = '', meta = {}) {
   const value = String(text || '').trim();
   const source = meta?.source || 'unknown';
@@ -1600,7 +1616,8 @@ function validateMaterializedAnswerEvidence(llmName, text = '', meta = {}) {
     return { valid: false, rejectReason: 'empty', source, length: 0, hash: null, answerHash: null };
   }
   const hash = hashEvidenceText(value);
-  if (value.length < DOM_SNAPSHOT_RECOVERY_MIN_CHARS) {
+  const verified = isVerifiedCurrentAnswer(meta.entry, value, meta.answerVerification, meta.dispatchId);
+  if (value.length < DOM_SNAPSHOT_RECOVERY_MIN_CHARS && !verified) {
     return { valid: false, rejectReason: 'too_short', source, length: value.length, hash, answerHash: hash };
   }
   // Heuristic guard for DOM-extracted text (page error banners); not a status channel.
@@ -7387,7 +7404,10 @@ function buildFinalizationEvidence(llmName, entry, context = {}) {
   const lastDispatchAt = Number(entry?.lastDispatchAt || 0) || null;
   const lifecycleReadyAt = Number(entry?.lifecycleReadyAt || entry?.answerCompleteDetectedAt || 0) || null;
   const source = responseMeta?.source || responseMeta?.answerSource || context.responseSource || null;
-  const answerEvidence = context.answerEvidence || responseMeta?.answerEvidence || (self.AnswerEvidence?.buildAnswerEvidence?.({
+  const verifiedCurrentAnswer = isVerifiedCurrentAnswer(entry, answerText,
+    responseMeta.answerVerification || context.metaObj?.answerVerification || entry?.answerVerification, dispatchId);
+  const evidenceMinChars = verifiedCurrentAnswer ? 1 : DOM_SNAPSHOT_RECOVERY_MIN_CHARS;
+  const answerEvidence = (!verifiedCurrentAnswer && (context.answerEvidence || responseMeta?.answerEvidence)) || (self.AnswerEvidence?.buildAnswerEvidence?.({
     llmName,
     text: answerText,
     html: context.normalizedHtml || '',
@@ -7397,11 +7417,12 @@ function buildFinalizationEvidence(llmName, entry, context = {}) {
     attemptId: responseMeta.attemptId || context.metaObj?.attemptId || context.metaObj?.sourceRevisionId || null,
     tabId: entry?.tabId || null,
     promptConfirmed: context.sendConfirmed,
-    minChars: DOM_SNAPSHOT_RECOVERY_MIN_CHARS,
+    minChars: evidenceMinChars,
+    verifiedCurrentAnswer,
     stableMinChars: DEFER_STREAM_STABLE_FORCE_MIN_CHARS
   }) || null);
   const evidencePolicy = self.AnswerEvidence?.shouldFinalizeWithEvidence?.(answerEvidence, {
-    minChars: DOM_SNAPSHOT_RECOVERY_MIN_CHARS
+    minChars: evidenceMinChars
   }) || { ok: false };
   const answerLength = answerText.length;
   const promptEcho = isPromptEchoAnswerCandidate(answerText, jobState?.prompt || '');
@@ -7411,7 +7432,7 @@ function buildFinalizationEvidence(llmName, entry, context = {}) {
     minChars: DOM_SNAPSHOT_RECOVERY_MIN_CHARS
   }) || null;
   const explicitCandidateFresh = responseMeta.freshTurnEvidence === true;
-  const hasAcceptedAnswer = answerLength >= DOM_SNAPSHOT_RECOVERY_MIN_CHARS && !promptEcho && !staleBaseline && !error;
+  const hasAcceptedAnswer = answerLength >= evidenceMinChars && !promptEcho && !staleBaseline && !error;
   const hasPriorAnswer = Boolean(freshness?.fresh && String(entry?.answer || '').trim().length >= DOM_SNAPSHOT_RECOVERY_MIN_CHARS);
   const hasPendingFinalAnswer = Boolean(freshness?.fresh && String(entry?.pendingFinalAnswer || '').trim().length >= DOM_SNAPSHOT_RECOVERY_MIN_CHARS);
   const hasAnswerEvidence = hasAcceptedAnswer
@@ -7514,7 +7535,7 @@ function buildFinalizationEvidence(llmName, entry, context = {}) {
   });
   const terminalFailure = FAILURE_STATUSES.includes(finalStatus);
   const success = SUCCESS_STATUSES.includes(finalStatus);
-  const lengthPolicy = self.AnswerLengthPolicy?.evaluateTerminalAnswerLength?.(llmName, answerLength, { finalStatus })
+  const lengthPolicy = self.AnswerLengthPolicy?.evaluateTerminalAnswerLength?.(llmName, answerLength, { finalStatus, verifiedCurrentAnswer })
     || { policyRef: 'answer-length-policy@fallback', length: answerLength, minTerminalChars: DOM_SNAPSHOT_RECOVERY_MIN_CHARS, meetsTerminalMin: answerLength >= DOM_SNAPSHOT_RECOVERY_MIN_CHARS };
   const contradictions = [];
   // Run 1786280638177, Z.ai: 16 characters accepted as SUCCESS while the same

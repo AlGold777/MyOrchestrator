@@ -6637,7 +6637,14 @@ Backlog `what-to-do.md`, батч 1 (UI + Финализация).
 - Shadow comparison теперь сохраняется как canonical audit-событие, а переходы critical capability health — как `OBSERVER_HEALTH_OBSERVED` с дедупликацией неизменившихся состояний.
 - `PRODUCER_TERMINAL` больше не приравнивается к provider finish reason Tier 4; составной V2 `SUCCESS_TERMINAL` формирует Tier 3 и корректные completion axes.
 - Повторная идентичная ownership-проверка больше не создаёт телеметрический шум.
-# 2026-09-05 — Make controlled composer replacement framework-safe, version 2.81.364
+### 2026-09-05 — Restore first and short answer completion, version 2.81.365
+
+- Empty chat containers no longer count as a previous assistant response and hide the first generated answer.
+- Completion observes the same current turn as structural verification. Nonempty short responses retain their text, HTML and proof instead of being replaced by a broad DOM scrape.
+- A short response can pass materialization and finalization when exact current dispatch identity, confirmed submission, complete structure and inactive generation are verified. Unverified scrape thresholds remain enforced.
+- Lifecycle delivery now forwards the HTML captured with the completed text.
+
+### 2026-09-05 — Make controlled composer replacement framework-safe, version 2.81.364
 
 - Re-resolve live composer nodes during prompt preparation and avoid DOM-clearing that can restore stale framework state.
 - Respect editor-owned `beforeinput` handling and prevent duplicate native insertion/fallback paths.

@@ -895,6 +895,15 @@
   }
 
   async function getLatestAnswerSnapshot(modelName, traceId = null) {
+    const tracker = trackers.get(modelName);
+    const turn = resolveStructuralTurn(modelName, tracker?.turnAnchor || 0);
+    if (turn?.resolution === 'exact' && turn.answerNode) {
+      const rawText = window.AnswerStructure?.linearizeText?.(turn.answerNode)
+        || String(turn.answerNode.innerText || turn.answerNode.textContent || '').trim();
+      const text = normalizeText(rawText);
+      return { element: turn.answerNode, text, rawText, textLength: text.length,
+        method: 'current_turn', traceId };
+    }
     const resolver = window.LLMExtension?.SelectorResolverV2;
     const registered = registeredCandidates.get(modelName);
     const registeredMatchesTrace = !traceId || !registered?.traceId || String(registered.traceId) === String(traceId);
@@ -2189,7 +2198,9 @@
       }
       if ((message?.type === 'LLM_RESPONSE' || message?.type === 'FINAL_LLM_RESPONSE') && message.llmName && !message.error) {
         const answerText = normalizeText(message.answer || '');
-        if (answerText.length >= (window.LLMExtension?.SelectorResolverV2?.MIN_EXTRACTED_ANSWER_LENGTH_FOR_NO_FALLBACK || 80)) {
+        // A short answer is still an answer. Re-selecting it through a broad
+        // fallback changed the text while retaining the original proof/HTML.
+        if (answerText) {
           return originalSendMessage(message, cb);
         }
         Promise.resolve().then(async () => {

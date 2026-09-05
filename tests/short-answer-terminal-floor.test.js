@@ -8,6 +8,7 @@ const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 const SOURCES = [
   'shared/status-contract.js',
   'shared/answer-length-policy.js',
+  'shared/answer-verification.js',
   'shared/answer-evidence.js',
   'shared/finalization-controller.js',
   'shared/recovery-intent.js',
@@ -102,6 +103,30 @@ const evidenceFor = (context, answer, extra = {}) => context.buildFinalizationEv
 );
 
 describe('a manual ping cannot waive the absence of an answer', () => {
+  test('a proven short current-turn answer passes materialization and finalization', () => {
+    const { context } = createSandbox();
+    const entry = context.jobState.llms['Z.ai'];
+    const dispatchId = entry.lastDispatchMeta.dispatchId;
+    Object.assign(entry, { confirmedDispatchId: dispatchId, generationEpoch: 1, preDispatchAnswerNodeCount: 0 });
+    const proof = { verified: true, resolution: 'exact', structuralComplete: true,
+      generationActive: false, selectedLength: 1, runSessionId: 1786280638177,
+      dispatchId, generationEpoch: 1, turnAnchor: 0 };
+    expect(context.validateMaterializedAnswerEvidence('Z.ai', '2', {
+      entry, dispatchId, answerVerification: proof
+    }).valid).toBe(true);
+    const evidence = evidenceFor(context, '2', { manualRecovery: false,
+      responseMeta: { source: 'lifecycle_complete_snapshot', answerVerification: proof } });
+    expect(evidence.accepted).toBe(true);
+    expect(evidence.hasAcceptedAnswer).toBe(true);
+    expect(evidence.evidencePolicy.ok).toBe(true);
+    expect(evidence.lengthPolicy.meetsTerminalMin).toBe(true);
+    expect(context.validateMaterializedAnswerEvidence('Z.ai', '2', {
+      entry, dispatchId, answerVerification: { ...proof, generationEpoch: 2 }
+    }).valid).toBe(false);
+    expect(evidenceFor(context, '2', { manualRecovery: false,
+      responseMeta: { answerVerification: { ...proof, generationActive: true } }
+    }).accepted).toBe(false);
+  });
   test('16 characters are refused as a terminal success', () => {
     const { context } = createSandbox();
     const evidence = evidenceFor(context, 'Ответ: 16 симв.');

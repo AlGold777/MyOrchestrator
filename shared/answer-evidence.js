@@ -140,6 +140,7 @@
       && !unprovenResultType
       && (
         committedResultType
+        || input.verifiedCurrentAnswer === true
         || snapshotTerminalEligible
         || materializeTerminalEligible
         || panel

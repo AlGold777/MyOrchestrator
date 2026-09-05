@@ -16,7 +16,8 @@ const PLATFORM_HTML = {
   qwen: '<div class="qwen-chat-message qwen-chat-message-assistant"><div class="response-message-content"><div class="custom-qwen-markdown"><div class="qwen-markdown qwen-markdown-loose">answer</div></div></div></div>',
   deepseek: '<div class="message-item" data-role="assistant">answer</div>',
   lechat: '<div data-testid="lechat-response"><div class="prose">answer</div></div>',
-  zai: '<div id="message-1-start" class="chat-assistant markdown-prose">answer</div>'
+  zai: '<div id="message-1-start" class="chat-assistant markdown-prose">answer</div>',
+  kimi: '<div class="segment-assistant"><div class="markdown-container">answer</div></div>'
 };
 
 describe('authoritative turn resolver', () => {
@@ -177,6 +178,16 @@ describe('authoritative turn resolver', () => {
 });
 
 describe('latest full answer over configured fragments', () => {
+  test.each(Object.keys(PLATFORM_HTML))('%s starts at anchor zero on an empty chat with a composer', (platform) => {
+    const selectors = window.AnswerPipelineSelectors.PLATFORM_SELECTORS[platform];
+    document.body.innerHTML = '<main><form><div contenteditable="true">Ask anything</div></form></main>';
+    const before = TurnResolver.resolveTurn({ platform, selectors, document });
+    expect(before.candidates).toHaveLength(0);
+    document.querySelector('main').insertAdjacentHTML('afterbegin', PLATFORM_HTML[platform]);
+    const after = TurnResolver.resolveTurn({ platform, selectors, document, anchorAnswerCount: before.candidates.length });
+    expect(after.resolution).toBe('exact');
+    expect(after.answerNode.textContent).toBe('answer');
+  });
   test('secondary paragraph cannot truncate the newest primary answer', () => {
     document.body.innerHTML = '<article class="answer">Old answer</article><article class="answer"><p>First paragraph</p><p>Final paragraph</p></article>';
     const turn = TurnResolver.resolveTurn({ document,

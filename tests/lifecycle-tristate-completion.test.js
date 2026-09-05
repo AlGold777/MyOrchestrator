@@ -129,6 +129,38 @@ describe('tri-state completion (stop-button)', () => {
     ]);
   });
 
+  test('an empty-chat composer cannot hide the first short answer or rewrite its delivery', async () => {
+    loadScript('shared/answer-content-classifier.js');
+    const detector = window.ResponseLifecycleDetector;
+    document.body.innerHTML = '<main><form><textarea placeholder="Ask anything"></textarea></form></main>';
+    window.ContentUtils = { ensureDispatchMeta: (meta) => ({ ...meta, generationEpoch: 1 }) };
+    const tracked = await detector.startResponseLifecycleTracking({
+      modelName: 'GPT', dispatchId: 'first-short', runSessionId: 77,
+      generationEpoch: 1, baselineText: '', traceId: 'first-short'
+    });
+    expect(tracked.tracker.turnAnchor).toBe(0);
+    const answer = document.createElement('div');
+    answer.setAttribute('data-message-author-role', 'assistant');
+    answer.innerHTML = '<p><strong>2</strong></p>';
+    setRect(answer, { top: 300, left: 140, width: 720, height: 80 });
+    document.querySelector('main').prepend(answer);
+    detector.registerAnswerCandidate({ modelName: 'GPT', element: answer, traceId: 'first-short' });
+    await detector.waitForAnswerStart({ modelName: 'GPT', promptSubmittedAt: Date.now(), timeoutMs: 200, pollIntervalMs: 10, traceId: 'first-short' });
+    const completion = await detector.waitForAnswerComplete({ modelName: 'GPT', timeoutMs: 900, stableMs: 40, pollIntervalMs: 10 });
+    expect(completion).toEqual(expect.objectContaining({ ok: true }));
+    expect(readyEvents()).toEqual([expect.objectContaining({ answerText: '2', meta: expect.objectContaining({
+      extractionSnapshot: expect.objectContaining({ text: '2', html: '<p><strong>2</strong></p>' })
+    }) })]);
+    const broadResolver = jest.fn(async () => ({ ok: true, element: document.querySelector('main') }));
+    window.LLMExtension.SelectorResolverV2 = { resolveLatestAssistantAnswer: broadResolver };
+    const message = { type: 'LLM_RESPONSE', llmName: 'GPT', answer: '2', html: answer.innerHTML };
+    chrome.runtime.sendMessage(message);
+    expect(sentMessages).toContain(message);
+    expect(broadResolver).not.toHaveBeenCalled();
+    detector.stopResponseLifecycleTracking({ modelName: 'GPT', reason: 'test_done' });
+    delete window.ContentUtils;
+  });
+
   test('lifecycle completion carries strict structural proof for the anchored new turn', async () => {
     delete window.AnswerPipelineSelectors;
     delete window.TurnResolver;

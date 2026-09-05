@@ -50,7 +50,7 @@
     };
   }
 
-  function evaluateTerminalAnswerLength(llmName, length, { finalStatus } = {}) {
+  function evaluateTerminalAnswerLength(llmName, length, { finalStatus, verifiedCurrentAnswer = false } = {}) {
     const policy = getPolicy(llmName);
     const numericLength = Math.max(0, Number(length) || 0);
     const normalizedStatus = String(finalStatus || '').toUpperCase();
@@ -59,12 +59,13 @@
       llmName: llmName || null,
       length: numericLength,
       finalStatus: normalizedStatus || null,
-      minTerminalChars: policy.minTerminalChars,
+      minTerminalChars: verifiedCurrentAnswer ? 1 : policy.minTerminalChars,
       shortSuccessSuspectMaxChars: policy.shortSuccessSuspectMaxChars,
-      meetsTerminalMin: numericLength >= policy.minTerminalChars,
+      meetsTerminalMin: numericLength >= (verifiedCurrentAnswer ? 1 : policy.minTerminalChars),
       suspectShortSuccess: normalizedStatus === 'SUCCESS'
         && numericLength > 0
         && numericLength < policy.shortSuccessSuspectMaxChars
+        && !verifiedCurrentAnswer
     };
   }
 

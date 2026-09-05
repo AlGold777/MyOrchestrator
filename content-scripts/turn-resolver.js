@@ -124,16 +124,10 @@
     });
 
     let usedContainerFallback = false;
-    if (!candidates.length && selectors.answerContainer) {
-      const fallbackSelector = `${selectors.answerContainer} > :last-child`;
-      try {
-        const node = queryOne(fallbackSelector);
-        if (node) {
-          usedContainerFallback = true;
-          add(node, { selector: fallbackSelector, index: candidateSelectors.length, sourceKind: 'container_fallback' });
-        }
-      } catch (_) {}
-    }
+    // A conversation container is not an assistant turn. On a new chat this
+    // fallback counted the composer/main as answer #1, so the real first answer
+    // was excluded by the pre-send anchor. Only explicit answer selectors may
+    // contribute candidates (including configured secondary selectors).
 
     const sorted = sortDocumentOrder(candidates);
     const anchor = Math.max(0, Number(options.anchorAnswerCount || 0));

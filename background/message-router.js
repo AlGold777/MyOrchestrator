@@ -3941,7 +3941,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                             ? self.validateMaterializedAnswerEvidence(message.llmName, lifecycleAnswerText, {
                                 source: 'lifecycle_complete_snapshot',
                                 entry,
-                                dispatchId: lifecycleDispatchId
+                                dispatchId: lifecycleDispatchId,
+                                answerVerification: message?.meta?.answerVerification || null
                             })
                             : { valid: false, rejectReason: lifecycleAnswerText ? 'validator_unavailable' : 'empty' };
                         if (lifecycleValidation.valid) {
@@ -4101,7 +4102,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                                         extractionSnapshot: message?.meta?.extractionSnapshot || null
                                     }
                                 },
-                                ''
+                                message?.meta?.extractionSnapshot?.html || ''
                             );
                         }
                     }
