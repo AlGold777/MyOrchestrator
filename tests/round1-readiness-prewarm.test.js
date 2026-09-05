@@ -24,7 +24,7 @@ describe('Round 1 readiness isolation', () => {
     );
     expect(dispatch).toContain('await ensureTabReadyForDispatch(tabId, llmName, { reason })');
     expect(dispatch).toContain('await self.ensureCompletionRuntimeInTab(tabId, llmName)');
-    expect(dispatch).toContain('await self.checkScriptHealth(tabId, llmName, { silent: true })');
+    expect(dispatch).toContain('await self.checkScriptHealth(tabId, llmName, { silent: true, timeoutMs: READY_ACK_TIMEOUT_MS })');
     expect(dispatch).toContain('if (!readyOk && runtimeGate == null)');
     const tabManager = fs.readFileSync(
       path.join(__dirname, '..', 'background', 'tab-manager.js'),
