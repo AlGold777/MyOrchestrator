@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-09-05 — Restore complete run content and model plan, version 2.81.363
+
+- Session compaction applies the six-round tail limit only to round histories, preserving all selected models and tab bindings.
+- Default persistence no longer truncates prompts at 4,000 characters or answer text/HTML at 12,000. Explicit preview caps remain available; diagnostic histories remain bounded.
+- Persist generation epoch and the complete pre-dispatch baseline binding to retain stale-answer guards after restart.
+
 ### 2026-09-05 — Bound remaining dispatch health waits, version 2.81.362
 
 - Health callbacks now have a deadline; silent dispatch probes use the ready ACK budget.

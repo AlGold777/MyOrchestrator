@@ -35,3 +35,21 @@ test('restart does not invent authority for an unregistered attempt', () => {
     ok: false, reason: 'completion_attempt_unregistered'
   });
 });
+
+test('ten-model restart preserves the entire dispatch plan, prompt, answer and stale-answer boundary', () => {
+  const names = ['Qwen', 'GPT', 'Claude', 'Gemini', 'Grok', 'DeepSeek', 'Le Chat', 'Perplexity', 'Kimi', 'Z.ai'];
+  const answer = 'Full answer\n'.repeat(2000) + 'END-OF-ANSWER';
+  const prompt = 'Full prompt\n'.repeat(1000) + 'END-OF-PROMPT';
+  const identity = { dispatchId: 'dispatch-4', runSessionId: 1, generationEpoch: 4 };
+  const state = { prompt, session: { startTime: 1, selectedModels: names, boundTabIds: names.map((_, i) => i + 1) }, llms: { Gemini: {
+    answer, answerHtml: `<p>${answer}</p>`, pendingFinalAnswer: answer, generationEpoch: 4,
+    preDispatchAnswerSignature: 'previous turn', preDispatchAnswerHash: 'oldhash',
+    preDispatchAnswerDispatchId: identity.dispatchId, preDispatchAnswerCapturedAt: 123,
+    preDispatchAnswerNodeCount: 7, preDispatchAnswerNodeCountDispatchId: identity.dispatchId
+  } } };
+  const restored = JSON.parse(JSON.stringify(PipelineFSM.compactJobStateForStorage(state)));
+  expect(restored.session.selectedModels).toEqual(names);
+  expect(restored.session.boundTabIds).toHaveLength(10);
+  expect(restored.prompt).toBe(prompt);
+  for (const key of Object.keys(state.llms.Gemini)) expect(restored.llms.Gemini[key]).toEqual(state.llms.Gemini[key]);
+});

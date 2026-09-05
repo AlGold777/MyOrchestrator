@@ -18,9 +18,11 @@
   });
 
   const DEFAULT_LIMITS = Object.freeze({
-    maxAnswerChars: 12000,
-    maxHtmlChars: 12000,
-    maxTextChars: 4000,
+    // Authoritative run content must survive restart intact. Zero means no
+    // truncation; callers building previews may still opt into explicit caps.
+    maxAnswerChars: 0,
+    maxHtmlChars: 0,
+    maxTextChars: 0,
     maxLogEntries: 30,
     maxEventEntries: 24,
     maxListEntries: 20,
@@ -144,7 +146,7 @@
       ].forEach((key) => {
         if (typeof session[key] !== 'undefined') {
           const value = clonePlain(session[key]);
-          if (Array.isArray(value)) {
+          if (Array.isArray(value) && ['roundHistory', 'roundSnapshots', 'roundSummaries'].includes(key)) {
             next[key] = trimArrayTail(value, mergedLimits.maxRoundsRetained);
           } else if (value && typeof value === 'object' && key === 'pipelineControl') {
             next[key] = compactPayloadObject(value, mergedLimits.maxPayloadBytes);
@@ -188,6 +190,9 @@
         'lastRuntimeActivitySource', 'lastDispatchMeta', 'recentDispatchIds', 'typedCharacters',
         'dispatchCheckpoint', 'lastCommandAcceptedAt', 'lastCommandAcceptedDispatchId',
         'completionAuthorityAttempt', 'runIdentity', 'pendingFinalAnswerDispatchId',
+        'generationEpoch', 'preDispatchAnswerSignature', 'preDispatchAnswerHash',
+        'preDispatchAnswerDispatchId', 'preDispatchAnswerCapturedAt',
+        'preDispatchAnswerNodeCount', 'preDispatchAnswerNodeCountDispatchId',
         'messageSent', 'dispatchInFlight', 'dispatchState', 'typingActive', 'typingStartedAt',
         'typingEndedAt', 'typingGuardUntil', 'typingGuardReason', 'csBusyUntil',
         'lifecycleReadyAt', 'lifecycleReadyMeta', 'hardStopDeferredAt', 'hardStopDeferredDispatchId',
