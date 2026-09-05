@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-09-05 — Prompt interaction latency, version 2.81.358
+
+- Removed repeated whole-page scroll settlement from composer insertion/click.
+- Controlled text inputs use the native value setter; rejected instant insertion returns to provider recovery without slow character typing.
+- Regression tests cover suspended animation frames, controlled input notification and rejected insertion.
+
 ### 2026-08-19 — Compact response find bar, version 2.81.357
 
 - Удалена дублирующая иконка `Replace actions` из верхней строки.

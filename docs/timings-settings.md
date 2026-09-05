@@ -560,3 +560,11 @@ Claude снимаются один раз до первой попытки Send.
 | Pragmatist navigation poll fallback | `1000` | polling SPA navigation |
 | status indicator smoke test defer | `600` | debug-only auto smoke test delay |
 | object URL revoke after downloads | `0` или `1000` | освобождение blob URL после export/download |
+
+### Composer interaction
+
+Перед вставкой и кликом Humanoid прокручивает только невидимую цель через native
+instant scroll. Ожидание settlement страницы (до `5000ms` на каждый lookAt)
+в этом пути удалено. Вставка вызывает один click/moveTo/lookAt вместо двух lookAt.
+Неудачная целиковая вставка сразу передаёт ошибку provider fallback, без
+посимвольного ожидания, пропорционального длине запроса.
