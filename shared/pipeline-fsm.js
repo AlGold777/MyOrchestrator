@@ -186,6 +186,7 @@
         'dispatchSource', 'submitSource', 'status', 'statusReason', 'finalStatus', 'finalStatusRecorded',
         'finalizedAt', 'promptSubmittedAt', 'lastDispatchAt', 'lastRuntimeActivityAt',
         'lastRuntimeActivitySource', 'lastDispatchMeta', 'recentDispatchIds', 'typedCharacters',
+        'dispatchCheckpoint', 'lastCommandAcceptedAt', 'lastCommandAcceptedDispatchId',
         'messageSent', 'dispatchInFlight', 'dispatchState', 'typingActive', 'typingStartedAt',
         'typingEndedAt', 'typingGuardUntil', 'typingGuardReason', 'csBusyUntil',
         'lifecycleReadyAt', 'lifecycleReadyMeta', 'hardStopDeferredAt', 'hardStopDeferredDispatchId',

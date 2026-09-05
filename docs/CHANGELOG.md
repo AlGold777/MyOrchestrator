@@ -1,5 +1,13 @@
 # CHANGELOG — Project
 
+### 2026-09-05 — Resume interrupted prompt dispatch, version 2.81.360
+
+- Bound completion runtime probes and repairs, inject immediately instead of waiting for document_idle, and bound the SCRIPT_READY announcement.
+- Resume interrupted Round 0/1 for both new-tab and reuse modes, preserving existing conversation bindings.
+- Persist preparation versus command-delivery intent. Resume preparation-only attempts and untouched models; retain duplicate-send protection for confirmed and uncertain deliveries.
+- Regression coverage: loading/hung renderers, lost readiness acknowledgement, restart after the first three providers, both tab modes, and the remaining dispatch tail.
+- Investigation and browser verification: `docs/dispatch-recovery-2026-09-05.md`.
+
 ### 2026-09-05 — Latest answer and completion scope, version 2.81.359
 
 - Keep full primary answers when secondary selectors match nested fragments; exclude user/hidden descendants in the shared resolver.

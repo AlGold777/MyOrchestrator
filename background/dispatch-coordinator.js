@@ -1267,6 +1267,7 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
   };
   entry.lastDispatchAt = Date.now();
   entry.lastDispatchMeta = { dispatchReason: reason, sessionId, ...dispatchIdentityMeta };
+  entry.dispatchCheckpoint = { dispatchId, phase: 'preparing' };
   entry.answerVerification = null;
   if (self.AnswerVerification?.appendTimeline) {
     self.AnswerVerification.appendTimeline(entry, {
@@ -1308,7 +1309,7 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
       }
     }
   }
-  saveJobState(jobState);
+  await saveJobState(jobState);
     let submitTimeoutMs = getPromptSubmitTimeoutMs(llmName);
     if (llmName === 'Claude' && !options.skipTypingGuard) {
       const promptLength = String(prompt || '').length;
@@ -1687,7 +1688,14 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
         });
         return true;
       };
-      const deliverAnswerCommand = () => {
+      const deliverAnswerCommand = async () => {
+        // Persist intent before delivery: after a restart an uncertain send must
+        // be reconciled, while a preparation-only attempt can safely resume.
+        entry.dispatchCheckpoint = { dispatchId, phase: 'command_intent' };
+        await saveJobState(jobState);
+        if (capturedSessionId && jobState?.session?.startTime !== capturedSessionId) {
+          return { ok: false, stale: true, reason: 'session_mismatch' };
+        }
         if (!requireCommandAcceptance) {
           sendMessageSafely(tabId, llmName, answerCommand);
           return Promise.resolve({ ok: true, accepted: null, asynchronous: true });

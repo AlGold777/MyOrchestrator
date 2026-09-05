@@ -43,11 +43,27 @@ const isCompletionRuntimeHealthy = (runtime) => {
         && runtime?.protocolVersion === expected.protocolVersion;
 };
 
+// Readiness must not wait for document_idle or an unresponsive renderer.
+const completionRuntimeDeadline = async (operation, timeoutMs = 6000) => {
+    let timer;
+    try {
+        return await Promise.race([
+            Promise.resolve().then(operation),
+            new Promise((_, reject) => {
+                timer = setTimeout(() => reject(new Error('completion_runtime_timeout')), timeoutMs);
+            })
+        ]);
+    } finally {
+        clearTimeout(timer);
+    }
+};
+
 const probeCompletionRuntimeInTab = async (tabId) => {
     if (!Number.isInteger(Number(tabId)) || Number(tabId) <= 0 || !chrome?.scripting?.executeScript) return null;
     try {
-        const results = await chrome.scripting.executeScript({
+        const results = await completionRuntimeDeadline(() => chrome.scripting.executeScript({
             target: { tabId: Number(tabId) },
+            injectImmediately: true,
             func: () => {
                 const detector = window.LLMExtension?.ResponseLifecycleDetector || window.ResponseLifecycleDetector;
                 const protocol = window.CompletionProtocol;
@@ -61,7 +77,7 @@ const probeCompletionRuntimeInTab = async (tabId) => {
                         && typeof detector?.startResponseLifecycleTracking === 'function'
                 };
             }
-        });
+        }));
         return results?.find((item) => item?.result)?.result || null;
     } catch (_) {
         return null;
@@ -76,15 +92,16 @@ const ensureCompletionRuntimeInTab = (tabId, llmName) => {
         let runtime = await probeCompletionRuntimeInTab(numericTabId);
         if (!isCompletionRuntimeHealthy(runtime)) {
             try {
-                await chrome.scripting.executeScript({
+                await completionRuntimeDeadline(() => chrome.scripting.executeScript({
                     target: { tabId: numericTabId },
+                    injectImmediately: true,
                     files: [
                         'shared/completion-protocol.js',
                         'content-utils/selector-resolver-v2.js',
                         'content-utils/response-lifecycle-detector.js',
                         'content-scripts/content-bootstrap.js'
                     ]
-                });
+                }));
             } catch (error) {
                 emitTelemetry(llmName || 'SYSTEM', 'COMPLETION_RUNTIME_REPAIR_FAILED', {
                     level: 'error',
@@ -113,11 +130,11 @@ const ensureCompletionRuntimeInTab = (tabId, llmName) => {
             force: true
         });
         try {
-            await chrome.tabs.sendMessage(numericTabId, {
+            await completionRuntimeDeadline(() => chrome.tabs.sendMessage(numericTabId, {
                 type: 'REQUEST_SCRIPT_READY',
                 llmName,
                 reason: 'completion_runtime_verified'
-            });
+            }), 1000);
         } catch (_) {}
         return { ok: true, runtime };
     })().finally(() => completionRuntimeRepairFlights.delete(numericTabId));

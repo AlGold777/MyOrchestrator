@@ -4763,7 +4763,6 @@ function rehydrateActiveJobRuntime(source = 'load_job_state') {
       }
     });
     const shouldResumeBootstrap = clearedRoundsInProgress
-      && jobState.session.forceNewTabs === false
       && ['round0', 'round1'].includes(interruptedRoundPhase);
     if (shouldResumeBootstrap) {
       const selectedModels = Array.isArray(jobState.session.selectedModels)
@@ -5498,7 +5497,7 @@ async function runModelThroughTabs(llmName, prompt, forceNewTabs, attachments = 
 }
 
 //-- 3.1. Round 0: НЕ прерываем открытие вкладок при изменении sessionId --//
-async function openTabsSequentially(selectedLLMs, prompt, forceNewTabs, attachments = [], sessionId) {
+async function openTabsSequentially(selectedLLMs, prompt, forceNewTabs, attachments = [], sessionId, options = {}) {
   const capturedSessionId = sessionId; // Захватываем начальный sessionId
 
   // Existing pages are independent resources. Acquiring them concurrently
@@ -5507,6 +5506,8 @@ async function openTabsSequentially(selectedLLMs, prompt, forceNewTabs, attachme
   if (!forceNewTabs) {
     const acquisitions = selectedLLMs.map(async (llmName, index) => {
       if (capturedSessionId && jobState?.session?.startTime !== capturedSessionId) return false;
+      // Preserve the exact conversation binding across worker restarts.
+      if (options.resume === true && isValidTabId(resolveBoundTabIdForOrchestrator(llmName, jobState?.llms?.[llmName]))) return true;
       await startModelForLLM(llmName, prompt, false, attachments, { deferDispatch: true, sessionId });
       await waitForRound0Binding(llmName, sessionId, ROUND0_BIND_WAIT_TIMEOUT_MS);
       emitTelemetry(llmName, 'ROUND0_TAB_OPENED', {
@@ -5635,10 +5636,12 @@ async function dispatchRound1Sequentially(selectedLLMs, prompt, attachments = []
       ensureRoundEntries([llmName], 'round1_missing_entry');
       entry = jobState?.llms?.[llmName];
     }
-    if (!entry) continue;
+    if (!entry || isFinalizedEntry(entry)) continue;
+    const preparationInterrupted = entry.dispatchCheckpoint?.phase === 'preparing'
+      && entry.dispatchCheckpoint?.dispatchId === entry.lastDispatchMeta?.dispatchId;
     if (options.resume === true && (
       entry.promptSubmittedAt
-      || entry.lastDispatchMeta?.dispatchId
+      || (entry.lastDispatchMeta?.dispatchId && !preparationInterrupted)
       || (self.getDispatchFlags?.(llmName, entry)?.isSent === true)
     )) {
       emitModelRoundTelemetry(llmName, 1, 'END', 'resume skipped previous dispatch attempt', {
@@ -6623,7 +6626,7 @@ async function runDispatchRounds(selectedLLMs, prompt, forceNewTabs, attachments
     
       emitRoundEvent(0, 'START', 'opening tabs sequentially');
       // Round 0: Последовательное открытие вкладок (пауза 2с между вкладками)
-      await openTabsSequentially(selectedLLMs, prompt, forceNewTabs, attachments, sessionId);
+      await openTabsSequentially(selectedLLMs, prompt, forceNewTabs, attachments, sessionId, options);
       if (sessionId && !isSessionActive(sessionId)) return;
       emitRoundEvent(0, 'END', 'tabs acquired; readiness is checked per model', {
         totalModels: selectedLLMs.length,
