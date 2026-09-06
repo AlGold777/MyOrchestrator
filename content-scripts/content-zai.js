@@ -271,6 +271,7 @@
     if (!prepared.ok) {
       throw { type: 'prompt_injection_failed', message: `Z.ai prompt preparation failed: ${prepared.reason}` };
     }
+    window.ContentUtils?.reportDispatchStage?.(MODEL, meta, 'send_action_requested');
     const sendConfirmed = await sendPrompt(composer);
     if (!sendConfirmed) throw { type: 'send_failed', message: 'Z.ai send not confirmed' };
     try { chrome.runtime.sendMessage({ type: 'PROMPT_SUBMITTED', llmName: MODEL, ts: Date.now(), meta }); } catch (_) {}

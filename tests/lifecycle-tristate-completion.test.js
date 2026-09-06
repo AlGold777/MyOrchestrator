@@ -139,6 +139,12 @@ describe('tri-state completion (stop-button)', () => {
       generationEpoch: 1, baselineText: '', traceId: 'first-short'
     });
     expect(tracked.tracker.turnAnchor).toBe(0);
+    tracked.tracker.navigationUrl = 'https://chatgpt.com/';
+    detector.notePromptSendAttempt({ modelName: 'GPT', dispatchId: 'first-short', runSessionId: 77 });
+    window.dispatchEvent(new CustomEvent('LLM_CODEX_SPA_NAVIGATION', { detail: {
+      llmName: 'GPT', previousUrl: 'https://chatgpt.com/', nextUrl: 'https://chatgpt.com/c/first-short'
+    } }));
+    expect(detector.isTrackerActive(tracked.tracker)).toBe(true);
     const answer = document.createElement('div');
     answer.setAttribute('data-message-author-role', 'assistant');
     answer.innerHTML = '<p><strong>2</strong></p>';

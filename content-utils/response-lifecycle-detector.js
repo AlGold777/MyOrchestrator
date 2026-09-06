@@ -1059,6 +1059,9 @@
       candidateId,
       documentInstanceId,
       navigationEpoch,
+      navigationUrl: window.location.href,
+      sendActionAt: null,
+      preservedNavigation: null,
       traceId,
       startedAt: Date.now(),
       promptSubmittedAt,
@@ -2181,6 +2184,7 @@
     chrome.runtime.sendMessage = function patchedSendMessage(message, callback) {
       const cb = typeof callback === 'function' ? callback : null;
       if (message?.type === 'PROMPT_SUBMITTED' && message.llmName) {
+        notePromptSendAttempt({ ...message.meta, modelName: message.llmName });
         const result = originalSendMessage(message, cb);
         Promise.resolve().then(() => startResponseLifecycleTracking({
           modelName: message.llmName,
@@ -2247,8 +2251,8 @@
       chrome.runtime.onMessage?.addListener?.((message) => {
         const stopTypes = new Set(['STOP_AND_CLEANUP', 'SESSION_EXPIRED', 'SPA_NAVIGATION']);
         if (stopTypes.has(message?.type)) {
-          if (message?.type === 'SPA_NAVIGATION') lifecycleNavigationEpoch += 1;
-          stopResponseLifecycleTracking({ reason: String(message.type).toLowerCase() });
+          if (message?.type === 'SPA_NAVIGATION') handleSpaNavigation(message);
+          else stopResponseLifecycleTracking({ reason: String(message.type).toLowerCase() });
         } else if (message?.type === 'LATE_COLLECT_PING' || message?.action === 'LATE_COLLECT_PING') {
           wakeAllTrackers();
         } else if (message?.type === 'RESTORE_ATTEMPT' && message?.llmName) {
@@ -2257,9 +2261,8 @@
       });
     } catch (_) {}
     try {
-      window.addEventListener('LLM_CODEX_SPA_NAVIGATION', () => {
-        lifecycleNavigationEpoch += 1;
-        stopResponseLifecycleTracking({ reason: 'spa_navigation' });
+      window.addEventListener('LLM_CODEX_SPA_NAVIGATION', (event) => {
+        handleSpaNavigation(event.detail || {});
       }, { passive: true });
     } catch (_) {}
     try {
@@ -2267,6 +2270,78 @@
         if (document.visibilityState === 'visible') wakeAllTrackers();
       }, { passive: true });
     } catch (_) {}
+  }
+
+  // Creating a conversation changes the URL in the same document. It must not
+  // cancel the dispatch that caused it, or poison its completion authority.
+  // Keep this decision shared with provider cleanup and the base adapter.
+  const conversationRoutes = {
+    GPT: ['chatgpt.com', /^\/$/, /^\/c\/[^/]+$/],
+    Claude: ['claude.ai', /^\/(?:new)?$/, /^\/chat\/[^/]+$/],
+    Gemini: ['gemini.google.com', /^\/app$/, /^\/app\/[^/]+$/],
+    Grok: ['grok.com', /^\/$/, /^\/c\/[^/]+$/],
+    DeepSeek: ['chat.deepseek.com', /^\/(?:a\/chat)?$/, /^\/a\/chat\/s\/[^/]+$/],
+    'Le Chat': ['chat.mistral.ai', /^\/(?:chat)?$/, /^\/chat\/[^/]+$/],
+    Perplexity: ['perplexity.ai', /^\/$/, /^\/search\/[^/]+$/],
+    Qwen: ['chat.qwen.ai', /^\/$/, /^\/c\/[^/]+$/],
+    Kimi: ['kimi.ai', /^\/$/, /^\/chat\/[^/]+$/],
+    'Z.ai': ['chat.z.ai', /^\/$/, /^\/c\/[^/]+$/]
+  };
+
+  function notePromptSendAttempt({ modelName, dispatchId, runSessionId } = {}) {
+    const tracker = trackers.get(modelName);
+    if (!isTrackerActive(tracker) || !dispatchId
+      || String(tracker.dispatchId) !== String(dispatchId)
+      || String(tracker.runSessionId) !== String(runSessionId)) return false;
+    tracker.sendActionAt = Date.now();
+    return true;
+  }
+
+  function shouldPreserveNavigation(detail = {}) {
+    const modelName = detail.llmName || detail.modelName;
+    const routes = conversationRoutes[modelName];
+    if (!routes) return false;
+    try {
+      const previous = new URL(detail.previousUrl || detail.oldUrl);
+      const next = new URL(detail.nextUrl || detail.newUrl);
+      if (previous.origin !== next.origin || next.hostname.replace(/^www\./, '') !== routes[0]) return false;
+      const oldPath = previous.pathname.replace(/\/$/, '') || '/';
+      const newPath = next.pathname.replace(/\/$/, '') || '/';
+      // Query/hash updates (e.g. Grok's rid) do not select a different chat.
+      if (oldPath === newPath && (routes[1].test(oldPath) || routes[2].test(oldPath))) return true;
+      const tracker = trackers.get(modelName);
+      if (!isTrackerActive(tracker)) return false;
+      const pair = `${previous.href}\n${next.href}`;
+      if (tracker.preservedNavigation === pair) return true;
+      return !tracker.preservedNavigation
+        && tracker.navigationUrl === previous.href
+        && tracker.turnAnchor === 0
+        && tracker.sendActionAt !== null
+        && Date.now() - tracker.sendActionAt <= 120000
+        && detail.reason !== 'popstate'
+        && routes[1].test(oldPath) && routes[2].test(newPath);
+    } catch (_) { return false; }
+  }
+
+  function handleSpaNavigation(detail = {}) {
+    const modelName = detail.llmName || detail.modelName;
+    if (shouldPreserveNavigation(detail)) {
+      const tracker = trackers.get(modelName);
+      if (tracker) {
+        const previousUrl = detail.previousUrl || detail.oldUrl;
+        const nextUrl = detail.nextUrl || detail.newUrl;
+        if (new URL(previousUrl).pathname !== new URL(nextUrl).pathname) {
+          tracker.preservedNavigation = `${new URL(previousUrl).href}\n${new URL(nextUrl).href}`;
+        }
+        tracker.navigationUrl = nextUrl;
+        attachTrackerObserver(tracker, document.body);
+        wakeAllTrackers();
+      }
+      return true;
+    }
+    lifecycleNavigationEpoch += 1;
+    stopResponseLifecycleTracking({ reason: 'spa_navigation' });
+    return false;
   }
 
   function dispose({ reason = 'disposed' } = {}) {
@@ -2303,6 +2378,8 @@
     startResponseLifecycleTracking,
     activateResponseLifecycleTracking,
     stopResponseLifecycleTracking,
+    notePromptSendAttempt,
+    shouldPreserveNavigation,
     detectGenerationState: detectGeneratingIndicators,
     detectGeneratingIndicators,
     detectCheapComposerReadiness,

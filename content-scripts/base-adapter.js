@@ -79,7 +79,6 @@
       const checkUrl = () => {
         const current = window.location.href;
         if (current !== this._currentUrl) {
-          this._currentUrl = current;
           this._handleNavigation();
         }
       };
@@ -100,6 +99,7 @@
     }
 
     _handleNavigation() {
+      const previousUrl = this._currentUrl;
       const currentUrl = window.location.href;
       const currentPathname = window.location.pathname;
       const pathChanged = currentPathname !== this._currentPathname;
@@ -111,6 +111,9 @@
         return;
       }
       if (pathChanged) {
+        if (window.ResponseLifecycleDetector?.shouldPreserveNavigation?.({
+          modelName: this.MODEL, previousUrl, nextUrl: currentUrl
+        })) return;
         this._cleanup('spa-navigation');
         this._isCleaningUp = false;
         this._cleanupReason = null;

@@ -521,6 +521,11 @@
   const reportDispatchStage = (llmName, meta, stage, outcome = {}) => {
     const normalizedStage = String(stage || '').trim().toLowerCase();
     if (!llmName || !normalizedStage) return false;
+    if (normalizedStage === 'send_action_requested') {
+      window.ResponseLifecycleDetector?.notePromptSendAttempt?.({
+        ...ensureDispatchMeta(meta || {}, llmName), modelName: llmName
+      });
+    }
     return safeRuntimeSendMessage({
       type: 'PROVIDER_DISPATCH_STAGE_OBSERVED',
       llmName,
@@ -773,6 +778,7 @@
       const detail = event?.detail || {};
       const llmName = detail.llmName;
       if (!llmName) return;
+      if (window.ResponseLifecycleDetector?.shouldPreserveNavigation?.(detail)) return;
       const now = Date.now();
       const last = lastSpaCleanupAt.get(llmName) || 0;
       if (now - last < 2000) return;

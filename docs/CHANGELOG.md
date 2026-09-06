@@ -1,5 +1,12 @@
 # CHANGELOG — Project
 
+### 2026-09-06 — Preserve the submitted conversation across SPA creation, version 2.81.367
+
+- Lifecycle, provider cleanup and base adapter now share the navigation decision. A known new-chat route may become a conversation route after a correlated Send without cancelling observation or invalidating completion authority.
+- The exception requires an empty answer baseline, the same origin, a matching active dispatch and a recent Send. Back navigation, another conversation, stale dispatches and unrelated origins still stop collection. Query/hash changes within the same known conversation keep its identity.
+- Kimi and Z.ai publish Send intent before interacting, matching the other eight providers.
+- Regression coverage includes all ten provider route patterns, cleanup ordering and automatic delivery of a first short answer after navigation. Field evidence: version 2.81.366 export `1788676577675`, where SPA changes coincided with lost observation and DeepSeek deliveries were refused as `completion_terminal_failed`.
+
 ### 2026-09-05 — Restore complete run content and model plan, version 2.81.363
 
 - Session compaction applies the six-round tail limit only to round histories, preserving all selected models and tab bindings.
