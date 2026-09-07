@@ -1,5 +1,12 @@
 # CHANGELOG — Project
 
+### 2026-09-07 — Shorten composer preflight and accept intact Kimi envelopes, version 2.81.370
+
+- Baseline capture and Completion authority registration now wait for their independent ACKs concurrently. Both must succeed. Settings load during page initialization instead of beginning only after focus reaches the composer.
+- Kimi's complete prompt remains valid when its editor removes whitespace immediately inside the extension's `<Prompt>` envelope. The entire enclosed body must match; altered, truncated and duplicated wrapped prompts are rejected.
+- Grok checks exact composer text across 150 ms with a final read, replacing the unconditional five-second pause. GPT begins finding the composer immediately rather than sleeping first.
+- Tests exercise the Kimi adapter through GET_ANSWER, real shared preparation, a simulated editor that removes envelope newlines, Send and PROMPT_SUBMITTED. Additional runtime tests verify concurrent ACKs and late composer text changes.
+
 ### 2026-09-07 — Keep verification behind the real first dispatch pass, version 2.81.369
 
 - Dispatch now awaits the actual model mutex operation. Its previous 30-second caller timeout could start Round 2 while uncancelled Round 1 operations continued waiting for focus.

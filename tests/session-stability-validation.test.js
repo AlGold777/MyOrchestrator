@@ -74,7 +74,9 @@ function createRouterSandbox() {
     },
     activateTabForDispatch: jest.fn((tabId) => {
       activatedTabs.push(tabId);
+      return Promise.resolve(true);
     }),
+    withPromptDispatchFocusLock: jest.fn((fn) => fn()),
     chrome: {
       runtime: {
         lastError: null,
@@ -269,7 +271,6 @@ describe('session stability validation guards', () => {
     const entryCheck = needFocusBlock.indexOf('const entry = jobState?.llms?.[llmName];');
     const terminalCheck = needFocusBlock.indexOf('if (isTerminalRouterEntry(entry))');
     const activation = needFocusBlock.indexOf('activateTabForDispatch');
-    const fallbackActivation = needFocusBlock.indexOf('chrome.tabs.update(tabId, { active: true }');
 
     expect(staleCheck).toBeGreaterThanOrEqual(0);
     expect(sessionExpiredNotice).toBeGreaterThan(staleCheck);
@@ -278,7 +279,8 @@ describe('session stability validation guards', () => {
     expect(entryCheck).toBeGreaterThan(tabMapCheck);
     expect(terminalCheck).toBeGreaterThan(entryCheck);
     expect(activation).toBeGreaterThan(terminalCheck);
-    expect(fallbackActivation).toBeGreaterThan(terminalCheck);
+    expect(needFocusBlock).not.toContain('chrome.tabs.update(');
+    expect(needFocusBlock).toContain('self.withPromptDispatchFocusLock(focus)');
     expect(needFocusBlock).toContain("sendResponse({ status: 'focus_denied_stale' });");
   });
 
@@ -317,6 +319,7 @@ describe('session stability validation guards', () => {
     expect(context.TabMapManager.getNameByTabId).toHaveBeenCalledWith(101);
     expect(context.TabMapManager.get).toHaveBeenCalledWith('GPT');
     expect(context.activateTabForDispatch).toHaveBeenCalledWith(101);
+    expect(context.withPromptDispatchFocusLock).toHaveBeenCalledTimes(1);
     expect(activatedTabs).toEqual([101]);
   });
 

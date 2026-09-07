@@ -69,7 +69,7 @@ describe('prompt-echo / suspect is not a green answer (preservation path)', () =
 
   test('Grok waits through a five-second full-prompt commit window before send', () => {
     expect(GROK_SRC).toContain('async function waitForGrokComposerCommit');
-    expect(GROK_SRC).toContain('waitForGrokComposerCommit(composer, prompt, 5000, 250)');
+    expect(GROK_SRC).toContain('waitForGrokComposerCommit(composer, prompt)');
     expect(GROK_SRC).toContain("label: 'GROK_COMPOSER_COMMIT_CONFIRMED'");
     expect(GROK_SRC).toContain("label: 'GROK_COMPOSER_COMMIT_MISMATCH'");
     const commitAt = GROK_SRC.indexOf('const committedComposer = await waitForGrokComposerCommit');

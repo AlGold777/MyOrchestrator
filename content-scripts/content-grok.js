@@ -927,13 +927,13 @@
     return false;
   }
 
-  async function waitForGrokComposerCommit(input, prompt, minWaitMs = 5000, pollMs = 250) {
+  async function waitForGrokComposerCommit(input, prompt, minWaitMs = 150, pollMs = 75) {
     const expected = normalizeForComparison(prompt);
     if (!input || !expected) return null;
     const startedAt = Date.now();
     let current = input;
     let checks = 0;
-    while (Date.now() - startedAt < minWaitMs) {
+    while (true) {
       if (!current?.isConnected) {
         current = discoverComposer();
       }
@@ -949,6 +949,7 @@
         });
         return null;
       }
+      if (Date.now() - startedAt >= minWaitMs) break;
       await sleep(Math.min(pollMs, Math.max(0, minWaitMs - (Date.now() - startedAt))));
     }
     emitDiagnostic({
@@ -2224,7 +2225,7 @@
           console.warn('[content-grok] composer snapshot failed', snapErr);
         }
         activity.heartbeat(0.4, { phase: 'typing' });
-        const committedComposer = await waitForGrokComposerCommit(composer, prompt, 5000, 250);
+        const committedComposer = await waitForGrokComposerCommit(composer, prompt);
         window.ContentUtils?.reportPromptInsertion?.(MODEL, dispatchMeta, {
           state: committedComposer ? 'inserted' : 'failed',
           method: committedComposer ? 'composer_commit_window' : null,

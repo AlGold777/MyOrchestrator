@@ -405,6 +405,12 @@
     // execCommand in one pass, while this broad includes() check still marked
     // the duplicated draft as valid.
     if (countPromptOccurrences(actual, expected) > 1) return false;
+    // Some rich editors remove only the line breaks at our Prompt envelope.
+    // Compare the complete enclosed text, so this cannot accept a truncated or
+    // altered body merely because its first/last fragments match.
+    const expectedEnvelope = expected.match(/^<prompt>\s*([\s\S]*?)\s*<\/prompt>$/);
+    const actualEnvelope = actual.match(/^<prompt>\s*([\s\S]*?)\s*<\/prompt>$/);
+    if (expectedEnvelope && actualEnvelope) return actualEnvelope[1] === expectedEnvelope[1];
     if (actual.includes(expected)) return true;
     // Rich editors may place attachment/chip nodes inside the editor DOM. Use
     // two independent prompt fingerprints instead of requiring one continuous
@@ -604,10 +610,11 @@
     // Prime lifecycle tracking before Send. PROMPT_SUBMITTED is confirmation,
     // not a safe place to establish the old-turn baseline: fast providers may
     // already have inserted their new assistant node by then.
+    let lifecycleStartPromise;
     try {
       const start = lifecycle?.startResponseLifecycleTracking;
       if (typeof start !== 'function') return false;
-      const lifecycleStart = await Promise.resolve(start.call(lifecycle, {
+      lifecycleStartPromise = Promise.resolve(start.call(lifecycle, {
         modelName: llmName,
         dispatchId: meta?.dispatchId || null,
         runSessionId: meta?.runSessionId || meta?.sessionId || null,
@@ -615,8 +622,7 @@
         traceId: meta?.traceId || meta?.dispatchId || null,
         baselineText: String(baselineText || ''),
         turnAnchor: anchorAnswerCount
-      }));
-      if (lifecycleStart?.ok !== true) return false;
+      })).catch(() => ({ ok: false, reason: 'lifecycle_start_failed' }));
     } catch (_) {
       return false;
     }
@@ -655,7 +661,9 @@
         capturedAt: Date.now()
       };
     } catch (_) {}
-    const baselineAck = await sendRuntimeMessageForAck({
+    // Both requests are bound to the same pre-Send identity. Their ACKs are
+    // independent; serial round trips added seconds before any text was typed.
+    const [lifecycleStart, baselineAck] = await Promise.all([lifecycleStartPromise, sendRuntimeMessageForAck({
         type: 'DISPATCH_BASELINE_CAPTURED',
         llmName,
         meta: meta && typeof meta === 'object' ? meta : null,
@@ -665,17 +673,18 @@
         acceptedStatus: 'dispatch_baseline_ack',
         timeoutMs: 5000,
         attempts: 2
-      });
+      })]);
+    const preflightOk = lifecycleStart?.ok === true && baselineAck.ok === true;
     try {
       window.__LLMDispatchPreflight = {
         llmName,
         dispatchId: meta?.dispatchId || null,
-        ok: baselineAck.ok === true,
-        reason: baselineAck.reason || null,
+        ok: preflightOk,
+        reason: lifecycleStart?.ok !== true ? (lifecycleStart?.reason || 'lifecycle_start_failed') : (baselineAck.reason || null),
         capturedAt: Date.now()
       };
     } catch (_) {}
-    return baselineAck.ok === true;
+    return preflightOk;
   };
 
   const recoverPreparedComposerSend = async (llmName, prompt, meta = {}) => {

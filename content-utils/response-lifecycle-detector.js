@@ -2415,6 +2415,8 @@
   window.LLMExtension.ResponseLifecycleDetector = ResponseLifecycleDetector;
   window.ResponseLifecycleDetector = ResponseLifecycleDetector;
   installLifecycleStopListeners();
+  // Read settings while the page initializes, outside the focused Send path.
+  getSettings().catch(() => {});
   maybePatchRuntimeMessaging().catch(() => {});
   announceRuntimeReady();
 })();

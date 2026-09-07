@@ -1094,9 +1094,6 @@ const chatgptScrollCoordinator = window.ScrollCoordinator
     const opPromise = runLifecycle('chatgpt:inject', buildLifecycleContext(prompt, { evaluator: isEvaluatorMode }), async (activity) => {
       console.log(`[CONTENT-GPT] Starting ChatGPT injection process, evaluator mode: ${isEvaluatorMode}`);
       try {
-        // Ждём загрузки UI
-        await sleep(450);
-
         activity.heartbeat(0.05, { phase: 'ui-analysis' });
 
         // ДИАГНОСТИКА: проверяем что есть на странице

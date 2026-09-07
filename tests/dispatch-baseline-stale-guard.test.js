@@ -139,8 +139,8 @@ describe('dispatch baseline stale guard (follow-up false-green)', () => {
     expect(UTILS_SRC).toContain('timeoutMs: 5000');
     expect(UTILS_SRC).toContain('attempts: 2');
     expect(UTILS_SRC).not.toContain('setTimeout(() => finish(false), 1500)');
-    expect(UTILS_SRC).toContain('const lifecycleStart = await Promise.resolve(start.call(lifecycle');
-    expect(UTILS_SRC).toContain('if (lifecycleStart?.ok !== true) return false');
+    expect(UTILS_SRC).toContain('lifecycleStartPromise = Promise.resolve(start.call(lifecycle');
+    expect(UTILS_SRC).toContain('const preflightOk = lifecycleStart?.ok === true && baselineAck.ok === true');
     [CHATGPT_SRC, CLAUDE_SRC, GEMINI_SRC, GROK_SRC, LECHAT_SRC, QWEN_SRC,
       DEEPSEEK_SRC, PERPLEXITY_SRC, ZAI_SRC, KIMI_SRC].forEach((source) => {
       expect(source).toContain("if (completionAttemptReady !== true)");
