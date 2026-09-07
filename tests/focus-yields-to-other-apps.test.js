@@ -16,8 +16,8 @@ const SRC = fs.readFileSync(
 
 describe('visits do not steal focus from another application', () => {
   test('both visit paths go through the guarded raise', () => {
-    expect(SRC).toContain('raiseWindowUnlessUserIsElsewhere(tab.windowId, `human_visit:${llmName}`)');
-    expect(SRC).toContain('raiseWindowUnlessUserIsElsewhere(tab.windowId, `automation_visit:${llmName}`)');
+    expect(SRC).toContain('raiseWindowUnlessUserIsElsewhere(tab.windowId, `human_visit:${llmName}`, lease.isCurrent)');
+    expect(SRC).toContain('raiseWindowUnlessUserIsElsewhere(tab.windowId, `automation_visit:${llmName}`, lease.isCurrent)');
   });
 
   test('no visit path raises a window directly any more', () => {
@@ -32,9 +32,9 @@ describe('visits do not steal focus from another application', () => {
     );
     expect(guard).toContain('chrome.windows.getLastFocused');
     expect(guard).toContain('win.focused === true');
-    expect(guard).toContain('if (!browserHasFocus)');
+    expect(guard).toContain('if (!browserHasFocus || !isCurrent())');
     // The skip must return before the update call.
-    expect(guard.indexOf('if (!browserHasFocus)'))
+    expect(guard.indexOf('if (!browserHasFocus || !isCurrent())'))
       .toBeLessThan(guard.indexOf('chrome.windows.update(windowId, { focused: true }'));
   });
 

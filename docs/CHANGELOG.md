@@ -1,5 +1,13 @@
 # CHANGELOG — Project
 
+### 2026-09-07 — Remove return visits and serialize automatic focus ownership, version 2.81.372
+
+- Removed automatic restoration to the previously active tab from dispatch, send-only recovery, verification and collection visits. A completed model is no longer an implicit return destination; the next scheduled operation chooses the next tab. Removed the associated active-tab queries and delayed restoration timers.
+- Human and automation visits hold the same focus queue as dispatch for their full lifetime. A 12-second operation deadline covers browser preparation as well as dwell; expiration revokes the visit before releasing the queue, so late callbacks cannot reactivate its tab.
+- Verification rechecks model/session ownership inside the queue and keeps ownership through its bounded dwell. Awaited dispatch delays and request timeouts survive session-timer cleanup so Stop cannot strand a lock across the next run.
+- Regression tests reproduce a GPT recovery returning to successful DeepSeek, simultaneous automatic visits, and a stalled browser callback stealing focus after the next visit. They fail before the corresponding fixes. A separate test covers Stop during a focus-owned delay.
+- Live acceptance remains outstanding: automated fixtures establish these mechanisms, not an end-to-end Chrome run of this version.
+
 ### 2026-09-07 — Release saved dispatch checkpoints during continuous updates, version 2.81.371
 
 - Each `saveJobState` caller now waits only for the snapshot batch containing its change. Later generation updates no longer extend an already persisted command-intent wait and hold the foreground dispatch queue indefinitely.

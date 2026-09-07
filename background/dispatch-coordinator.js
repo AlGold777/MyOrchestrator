@@ -57,17 +57,6 @@ const DEFAULT_RETRY_DELAY_MS = 2000;
 // spams identical denials for minutes (observed on Le Chat hard_timeout runs).
 const RECOVERY_DENY_BACKOFF_MS = 15000;
 const NO_FOCUS_TIMEOUT_MS = TimingConfig.getTiming('noFocusTimeoutMs', 5000);
-const RESULTS_PAGE_URL = chrome.runtime.getURL('result_new.html');
-const EXTENSION_BASE_URL = chrome.runtime.getURL('');
-
-function isExtensionResultTab(tab = null) {
-  if (!tab) return false;
-  if (tab.id && resultsTabId && tab.id === resultsTabId) return true;
-  if (typeof tab.url !== 'string') return false;
-  return tab.url.startsWith(RESULTS_PAGE_URL) || tab.url.startsWith(EXTENSION_BASE_URL);
-}
-const FOCUS_RESTORE_DELAY_MS = TimingConfig.getTiming('focusRestoreDelayMs', 1500);
-const FOCUS_RESTORE_MAX_MS = TimingConfig.getTiming('focusRestoreMaxMs', 8000);
 //-- 1.1. Минимальное удержание фокуса для retry - от CLAUDE --//
 const RETRY_FOCUS_HOLD_MS = TimingConfig.getTiming('retryFocusHoldMs', 3000);
 // Timeout ladder (timing review 2026-07-02): the hard stop must sit ABOVE the
@@ -132,7 +121,6 @@ function scheduleProviderSendOnlyRecovery(llmName, options = {}) {
     if (!['prompt_inserted', 'send_action_failed'].includes(String(liveEntry.providerDispatchStage || ''))) return;
     const tabId = resolveBoundTabIdForDispatch(llmName, liveEntry);
     if (!isValidTabId(tabId)) return;
-    const previousTab = await getActiveTabSnapshot();
     let result = null;
     try {
       result = await withPromptDispatchFocusLock(async () => {
@@ -142,6 +130,10 @@ function scheduleProviderSendOnlyRecovery(llmName, options = {}) {
           || isInitialPromptPassActive()) return { ok: false, status: 'recovery_no_longer_needed' };
         await activateTabForDispatch(tabId);
         await dispatchSleepMs(250);
+        if (jobState?.llms?.[llmName] !== liveEntry || liveEntry.promptSubmittedAt
+          || liveEntry.lastDispatchMeta?.dispatchId !== dispatchId || isInitialPromptPassActive()) {
+          return { ok: false, status: 'recovery_no_longer_needed' };
+        }
         return sendMessageWithTimeout(tabId, llmName, {
           type: 'RECOVER_PROVIDER_SEND',
           llmName,
@@ -154,8 +146,6 @@ function scheduleProviderSendOnlyRecovery(llmName, options = {}) {
       });
     } catch (error) {
       result = { ok: false, status: 'recovery_transport_failed', reason: error?.message || 'unknown_error' };
-    } finally {
-      if (previousTab?.id && previousTab.id !== tabId) restoreFocusIfStillOnDispatchTab(tabId, previousTab);
     }
     emitTelemetry(llmName, 'PROVIDER_DISPATCH_STAGE_OBSERVED', {
       level: result?.ok === true ? 'info' : 'warning',
@@ -406,36 +396,11 @@ const dispatchSleepMs = (ms) => new Promise((resolve) => {
     resolve();
     return;
   }
-  let timer = null;
-  timer = dispatchRegisterSessionTimer(setTimeout(() => {
-    dispatchDeregisterSessionTimer(timer);
-    resolve();
-  }, duration));
+  // Stop clears scheduled session work, but an awaited delay must still settle
+  // so the current focus owner can release its lock. Callers recheck dispatch
+  // identity before sending; clearing this timer stranded the promise forever.
+  setTimeout(resolve, duration);
 });
-
-function getActiveTabSnapshot() {
-  return new Promise((resolve) => {
-    chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
-      const tab = tabs && tabs.length ? tabs[0] : null;
-      resolve(tab || null);
-    });
-  });
-}
-
-function restoreFocusIfStillOnDispatchTab(dispatchTabId, previousTab) {
-  if (!previousTab?.id || previousTab.id === dispatchTabId) return;
-  chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
-    const activeTab = tabs && tabs.length ? tabs[0] : null;
-    if (!activeTab || activeTab.id !== dispatchTabId) return;
-    const winId = previousTab.windowId || activeTab.windowId;
-    chrome.windows.update(winId, { focused: true }, () => {
-      if (typeof self.markProgrammaticTabFocus === 'function') {
-        self.markProgrammaticTabFocus(previousTab.id, 'restore_dispatch_focus');
-      }
-      chrome.tabs.update(previousTab.id, { active: true }, () => chrome.runtime.lastError);
-    });
-  });
-}
 
 function resolveDispatchFlags(llmName, entry) {
   if (self.getDispatchFlags) {
@@ -477,18 +442,18 @@ function sendMessageWithTimeout(tabId, llmName, message, timeoutMs = NO_FOCUS_TI
     }
     let settled = false;
     let timer = null;
-    timer = dispatchRegisterSessionTimer(setTimeout(() => {
+    // This timeout settles an in-flight request, rather than scheduling new
+    // session work. Keep it alive across Stop so its focus lock can be released.
+    timer = setTimeout(() => {
       if (settled) return;
       settled = true;
       resolve({ timeout: true, requiresFocus: true });
-      dispatchDeregisterSessionTimer(timer);
-    }, Math.max(0, timeoutMs)));
+    }, Math.max(0, timeoutMs));
     chrome.tabs.sendMessage(tabId, message, (response) => {
       if (settled) return;
       settled = true;
       if (timer) {
         clearTimeout(timer);
-        dispatchDeregisterSessionTimer(timer);
       }
       if (chrome.runtime.lastError) {
         const errMsg = chrome.runtime.lastError.message || 'send_failed';
@@ -1656,9 +1621,6 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
       };
       const readyWaitMs = Math.max(0, Date.now() - lockAcquiredAt);
 
-      let previousTab = null;
-      let restoreTimer = null;
-      let restoreMaxTimer = null;
       const answerCommand = {
         type: 'GET_ANSWER',
         prompt,
@@ -1743,7 +1705,6 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
         if (jobState?.session) {
           jobState.session.focusSwitches = Number(jobState.session.focusSwitches || 0) + 1;
         }
-        previousTab = await getActiveTabSnapshot();
         await withPromptDispatchFocusLock(async () => {
           if (!isCurrentDispatchContext()) return;
           await activateTabForDispatch(tabId);
@@ -1780,7 +1741,7 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
             let progressStage = String(entry.providerDispatchStage || '');
             let progressIsCurrent = entry.providerDispatchStageDispatchId === dispatchId
               && Number(entry.providerDispatchStageAt || 0) >= holdStartedAt;
-            while (progressFocusExtensionMs > 0
+            while (isCurrentDispatchContext() && progressFocusExtensionMs > 0
               && (boundary.reason === 'hold_elapsed' || boundary.reason === 'progress_extension_elapsed')) {
               progressStage = String(entry.providerDispatchStage || '');
               const sendActionObserved = entry.providerSendActionObservedDispatchId === dispatchId
@@ -1843,18 +1804,6 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
             providerTransactionBoundary = boundary;
           }
         });
-        //-- 3.1. Учитываем minFocusHoldMs для retry --//
-        const effectiveFocusHoldMs = options.minFocusHoldMs || FOCUS_RESTORE_DELAY_MS;
-        if (!options.skipFocusRestore && previousTab?.id && previousTab.id !== tabId) {
-          restoreTimer = dispatchRegisterSessionTimer(setTimeout(() => {
-            dispatchDeregisterSessionTimer(restoreTimer);
-            restoreFocusIfStillOnDispatchTab(tabId, previousTab);
-          }, effectiveFocusHoldMs));
-          restoreMaxTimer = dispatchRegisterSessionTimer(setTimeout(() => {
-            dispatchDeregisterSessionTimer(restoreMaxTimer);
-            restoreFocusIfStillOnDispatchTab(tabId, previousTab);
-          }, FOCUS_RESTORE_MAX_MS));
-        }
       } else {
         if (options.deferSendMs) {
           await dispatchSleepMs(options.deferSendMs);
@@ -1876,19 +1825,6 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
         }
       } catch (_) {}
       const submittedPayload = options.skipSubmitWait ? null : (waiter ? await waiter : false);
-      if (restoreTimer) {
-        clearTimeout(restoreTimer);
-        dispatchDeregisterSessionTimer(restoreTimer);
-        restoreTimer = null;
-      }
-      if (restoreMaxTimer) {
-        clearTimeout(restoreMaxTimer);
-        dispatchDeregisterSessionTimer(restoreMaxTimer);
-        restoreMaxTimer = null;
-      }
-      if (!options.skipFocusRestore && needsFocus && previousTab?.id) {
-        restoreFocusIfStillOnDispatchTab(tabId, previousTab);
-      }
       if (requireCommandAcceptance) {
         const acceptance = commandDeliveryResult?.response || null;
         const accepted = commandDeliveryResult?.ok === true

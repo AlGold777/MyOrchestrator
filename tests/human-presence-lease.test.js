@@ -134,6 +134,41 @@ describe('human presence tab lease arbitration', () => {
     jest.useRealTimers();
   });
 
+  test('automation visits serialize their full dwell through the dispatch focus queue', async () => {
+    const { context } = createHumanPresenceSandbox();
+    let queue = Promise.resolve();
+    context.withPromptDispatchFocusLock = fn => (queue = queue.then(fn));
+    const activated = [];
+    context.chrome.tabs.update = (id, _, cb) => { activated.push(id); cb(); };
+    const first = context.visitTabWithAutomation('GPT', 101, {dwellMs: 3000});
+    const second = context.visitTabWithAutomation('Claude', 202, {dwellMs: 3000});
+    await jest.advanceTimersByTimeAsync(100);
+    expect(activated).toEqual([101]);
+    await jest.advanceTimersByTimeAsync(6100);
+    await Promise.all([first, second]);
+    expect(activated).toEqual([101, 202]);
+  });
+
+  test('a stalled visit releases the queue and its late tab callback cannot steal focus', async () => {
+    const { context } = createHumanPresenceSandbox();
+    let queue = Promise.resolve(), late;
+    context.withPromptDispatchFocusLock = fn => (queue = queue.then(fn));
+    context.chrome.tabs.get = (id, cb) => {
+      if (id === 101) late = cb;
+      else cb({id, windowId:1});
+    };
+    const activated = [];
+    context.chrome.tabs.update = (id, _, cb) => { activated.push(id); cb(); };
+    const first = context.visitTabWithAutomation('GPT', 101);
+    const second = context.visitTabWithAutomation('Claude', 202);
+    await jest.advanceTimersByTimeAsync(12100);
+    expect(activated).toEqual([202]);
+    late({id:101, windowId:1});
+    await jest.advanceTimersByTimeAsync(4000);
+    expect(activated).toEqual([202]);
+    await Promise.all([first, second]);
+  });
+
   test('denies competing non-user lease while active lease is within TTL', () => {
     const { context, telemetry, diagnostics, tabVisitTracker } = createHumanPresenceSandbox();
 

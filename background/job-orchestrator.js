@@ -5778,6 +5778,7 @@ async function focusTabForVerification(llmName, tabId, durationMs, sessionId) {
   if (!isValidTabId(tabId)) return false;
   if (sessionId && !isSessionActive(sessionId)) return false;
   const entry = jobState?.llms?.[llmName];
+  if (!entry || isFinalizedEntry(entry)) return false;
   if (entry && self.isActiveFocusAllowedForEntry?.(entry) === false) {
     emitTelemetry(llmName, 'VERIFICATION_FOCUS_SKIPPED', {
       details: 'active_focus_window_exhausted',
@@ -5788,33 +5789,29 @@ async function focusTabForVerification(llmName, tabId, durationMs, sessionId) {
   const remainingFocusMs = entry?.activeFocusDeadlineAt
     ? Math.max(0, Number(entry.activeFocusDeadlineAt) - Date.now())
     : Number(durationMs || 0);
-  const boundedDurationMs = Math.min(Number(durationMs || 0), remainingFocusMs);
+  const boundedDurationMs = Math.min(12000, Number(durationMs || 0), remainingFocusMs);
   if (boundedDurationMs <= 0) return false;
-  const previousTab = await getActiveTabSnapshot();
-  let visitStarted = false;
-  await withPromptDispatchFocusLock(async () => {
-    if (self.isInitialPromptPassActive?.()) return;
-    await activateTabForDispatch(tabId);
+  return withPromptDispatchFocusLock(async () => {
+    if (self.isInitialPromptPassActive?.() || (sessionId && !isSessionActive(sessionId))
+      || jobState?.llms?.[llmName] !== entry || isFinalizedEntry(entry)
+      || self.isActiveFocusAllowedForEntry?.(entry) === false) return false;
+    if (await activateTabForDispatch(tabId) !== true) return false;
+    let visitStarted = false;
+    if (typeof startTabVisit === 'function') {
+      visitStarted = startTabVisit(tabId, llmName, 'verification_focus') === true;
+    }
+    // This timer must resolve even when Stop clears registered session timers,
+    // otherwise the shared focus queue would remain locked across the next run.
+    await new Promise(resolve => setTimeout(resolve, boundedDurationMs));
+    let visitSummary = null;
+    if (visitStarted && typeof finalizeTabVisit === 'function'
+      && typeof tabVisitTracker !== 'undefined' && tabVisitTracker?.tabId === tabId
+      && tabVisitTracker?.llmName === llmName) {
+      visitSummary = finalizeTabVisit('verification_focus_end');
+    }
+    if (sessionId && !isSessionActive(sessionId)) return false;
+    return visitSummary || true;
   });
-  if (typeof startTabVisit === 'function') {
-    visitStarted = startTabVisit(tabId, llmName, 'verification_focus') === true;
-  }
-  await orchestratorSleepMs(boundedDurationMs);
-  let visitSummary = null;
-  if (
-    visitStarted
-    && typeof finalizeTabVisit === 'function'
-    && typeof tabVisitTracker !== 'undefined'
-    && tabVisitTracker?.tabId === tabId
-    && tabVisitTracker?.llmName === llmName
-  ) {
-    visitSummary = finalizeTabVisit('verification_focus_end');
-  }
-  if (sessionId && !isSessionActive(sessionId)) return visitSummary || false;
-  if (previousTab?.id && previousTab.id !== tabId) {
-    restoreFocusIfStillOnDispatchTab(tabId, previousTab);
-  }
-  return visitSummary || true;
 }
 
 async function runPreCollectScrollNudge(llmName, tabId, sessionId, reason = 'precollect_nudge') {
@@ -5836,14 +5833,14 @@ async function runPreCollectScrollNudge(llmName, tabId, sessionId, reason = 'pre
     });
     return false;
   }
-  const getSnapshotFn = (typeof getActiveTabSnapshot === 'function') ? getActiveTabSnapshot : null;
-  const previousTab = getSnapshotFn ? await getSnapshotFn() : null;
   try {
     const liveEntry = jobState?.llms?.[llmName];
     if (!liveEntry || isFinalizedEntry(liveEntry)) return false;
     if (self.isActiveFocusAllowedForEntry?.(liveEntry) === false) return false;
     if (typeof withPromptDispatchFocusLock === 'function') {
       await withPromptDispatchFocusLock(async () => {
+        if (self.isInitialPromptPassActive?.() || (sessionId && !isSessionActive(sessionId))
+          || jobState?.llms?.[llmName] !== liveEntry || isFinalizedEntry(liveEntry)) return;
         await activateTabForDispatch(tabId);
       });
     } else if (typeof activateTabForDispatch === 'function') {
@@ -5944,10 +5941,6 @@ async function runPreCollectScrollNudge(llmName, tabId, sessionId, reason = 'pre
       meta: { tabId, reason }
     });
     return false;
-  } finally {
-    if (previousTab?.id && previousTab.id !== tabId && typeof restoreFocusIfStillOnDispatchTab === 'function') {
-      restoreFocusIfStillOnDispatchTab(tabId, previousTab);
-    }
   }
 }
 

@@ -33,7 +33,7 @@ const PROGRAMMATIC_FOCUS_GRACE_MS = 1500;
 // itself pulled in front of another app. If no Chrome window currently holds
 // focus the user is elsewhere, so the window raise is skipped and only the tab
 // activation proceeds. Returns whether the window was raised.
-async function raiseWindowUnlessUserIsElsewhere(windowId, context = '') {
+async function raiseWindowUnlessUserIsElsewhere(windowId, context = '', isCurrent = () => true) {
   const browserHasFocus = await new Promise((resolve) => {
     try {
       chrome.windows.getLastFocused({}, (win) => {
@@ -48,7 +48,7 @@ async function raiseWindowUnlessUserIsElsewhere(windowId, context = '') {
       resolve(false);
     }
   });
-  if (!browserHasFocus) {
+  if (!browserHasFocus || !isCurrent()) {
     try {
       emitTelemetry?.('SYSTEM', 'WINDOW_FOCUS_YIELDED_TO_USER', {
         details: context,
@@ -998,8 +998,35 @@ async function runHumanPresenceCycle() {
   }
 }
 
+// All automatic visits share the dispatch queue for their entire lifetime.
+// Expiration revokes the operation before releasing the queue: a late browser
+// callback must not activate its old tab after the next owner has started.
+function withBackgroundVisitFocus(task) {
+  const sessionId = jobState?.session?.startTime;
+  const run = () => new Promise(resolve => {
+    let active = true;
+    const lease = {
+      isCurrent: () => active && jobState?.session?.startTime === sessionId
+        && !self.isInitialPromptPassActive?.(),
+      onExpire: null
+    };
+    let timer;
+    const finish = result => {
+      if (!active) return;
+      active = false;
+      clearTimeout(timer);
+      try { lease.onExpire?.(); } catch (_) {}
+      resolve(result);
+    };
+    if (!lease.isCurrent()) { finish(false); return; }
+    timer = setTimeout(() => finish(false), HUMAN_VISIT_HARD_CAP_MS);
+    Promise.resolve().then(() => task(lease)).then(finish, () => finish(false));
+  });
+  return self.withPromptDispatchFocusLock ? self.withPromptDispatchFocusLock(run) : run();
+}
+
 function visitTabWithHumanity(llmName, tabId) {
-  return new Promise((resolve) => {
+  return withBackgroundVisitFocus(lease => new Promise((resolve) => {
     const entry = jobState?.llms?.[llmName];
     if (isTerminalEntry(entry)) {
       if (isSuccessTerminalEntry(entry)) {
@@ -1022,6 +1049,7 @@ function visitTabWithHumanity(llmName, tabId) {
     }
     const capturedSessionId = jobState?.session?.startTime || null;
     chrome.tabs.get(tabId, (tab) => {
+      if (!lease.isCurrent()) { resolve(false); return; }
       if (chrome.runtime.lastError || !tab) {
         resolve();
         return;
@@ -1036,7 +1064,7 @@ function visitTabWithHumanity(llmName, tabId) {
       let localHardCapTimer = null;
       let settled = false;
       const sessionStillValid = () =>
-        !capturedSessionId || jobState?.session?.startTime === capturedSessionId;
+        lease.isCurrent() && (!capturedSessionId || jobState?.session?.startTime === capturedSessionId);
       const modelStillPending = () => {
         const liveEntry = jobState?.llms?.[llmName];
         return !isTerminalEntry(liveEntry)
@@ -1065,7 +1093,8 @@ function visitTabWithHumanity(llmName, tabId) {
         }
         resolve();
       };
-      const focusWindow = () => raiseWindowUnlessUserIsElsewhere(tab.windowId, `human_visit:${llmName}`);
+      lease.onExpire = finalizeVisit;
+      const focusWindow = () => raiseWindowUnlessUserIsElsewhere(tab.windowId, `human_visit:${llmName}`, lease.isCurrent);
       focusWindow().then(() => {
         if (!sessionStillValid() || !modelStillPending()) {
           finalizeVisit();
@@ -1096,6 +1125,7 @@ function visitTabWithHumanity(llmName, tabId) {
             }
           }, 500);
           performTabHumanSimulation(tabId, llmName).finally(() => {
+            if (settled || !lease.isCurrent()) return;
             const elapsed = Date.now() - startTs;
             const remaining = Math.max(0, HUMAN_VISIT_DWELL_MS - elapsed);
             dwellTimer = setTimeout(finalizeVisit, remaining);
@@ -1103,11 +1133,12 @@ function visitTabWithHumanity(llmName, tabId) {
         });
       });
     });
-  });
+  }));
 }
 
 function visitTabWithAutomation(llmName, tabId, options = {}) {
-  return new Promise((resolve) => {
+  if (self.isInitialPromptPassActive?.()) return Promise.resolve(false);
+  return withBackgroundVisitFocus(lease => new Promise((resolve) => {
     if (self.isInitialPromptPassActive?.()) {
       resolve(false);
       return;
@@ -1138,6 +1169,7 @@ function visitTabWithAutomation(llmName, tabId, options = {}) {
       return;
     }
     automationVisitLocks.set(lockKey, Date.now());
+    lease.onExpire = () => automationVisitLocks.delete(lockKey);
     const liveEntry = jobState?.llms?.[llmName];
     const quotaBackoffUntil = Number(liveEntry?.visitQuotaBackoffUntil || 0);
     if (quotaBackoffUntil > Date.now()) {
@@ -1156,9 +1188,8 @@ function visitTabWithAutomation(llmName, tabId, options = {}) {
     const automationHardCapMs = Math.max(2500, Math.min(HUMAN_VISIT_HARD_CAP_MS, dwellMs + 2500));
     const reason = options.reason || 'automation_visit';
     const sessionId = options.sessionId || jobState?.session?.startTime || null;
-    const getSnapshot = (typeof getActiveTabSnapshot === 'function') ? getActiveTabSnapshot : null;
-    const previousTabPromise = getSnapshot ? getSnapshot() : Promise.resolve(null);
     chrome.tabs.get(tabId, (tab) => {
+      if (!lease.isCurrent()) { resolve(false); return; }
       if (chrome.runtime.lastError || !tab) {
         automationVisitLocks.delete(lockKey);
         resolve(false);
@@ -1170,13 +1201,13 @@ function visitTabWithAutomation(llmName, tabId, options = {}) {
       let terminalPollTimer = null;
       let settled = false;
       const sessionStillValid = () =>
-        !sessionId || jobState?.session?.startTime === sessionId;
+        lease.isCurrent() && (!sessionId || jobState?.session?.startTime === sessionId);
       const modelStillPending = () => {
         const pendingEntry = jobState?.llms?.[llmName];
         return !isTerminalEntry(pendingEntry)
           && isActiveFocusWindowOpen(llmName, pendingEntry, 'automation_visit_active');
       };
-      const finalizeVisit = (previousTab, finalizeReason = reason) => {
+      const finalizeVisit = (finalizeReason = reason) => {
         if (settled) return;
         settled = true;
         if (dwellTimer) {
@@ -1202,26 +1233,23 @@ function visitTabWithAutomation(llmName, tabId, options = {}) {
           usefulVisit: true,
           retryable: false
         };
-        if (previousTab?.id && previousTab.id !== tabId && typeof restoreFocusIfStillOnDispatchTab === 'function') {
-          restoreFocusIfStillOnDispatchTab(tabId, previousTab);
-        }
         resolve(visitSummary);
       };
-      const focusWindow = () => raiseWindowUnlessUserIsElsewhere(tab.windowId, `automation_visit:${llmName}`);
-      Promise.resolve(previousTabPromise).then((previousTab) => {
+      lease.onExpire = () => finalizeVisit('automation_operation_ended');
+      const focusWindow = () => raiseWindowUnlessUserIsElsewhere(tab.windowId, `automation_visit:${llmName}`, lease.isCurrent);
         focusWindow().then(() => {
           if (!sessionStillValid() || !modelStillPending()) {
-            finalizeVisit(previousTab, 'automation_session_stale');
+            finalizeVisit('automation_session_stale');
             return;
           }
           markProgrammaticTabFocus(tabId, 'automation_visit_activate', { llmName });
           chrome.tabs.update(tabId, { active: true }, () => {
             if (chrome.runtime.lastError) {
-              finalizeVisit(previousTab, 'automation_tab_update_failed');
+              finalizeVisit('automation_tab_update_failed');
               return;
             }
             if (!sessionStillValid() || !modelStillPending()) {
-              finalizeVisit(previousTab, 'automation_terminal_success');
+              finalizeVisit('automation_terminal_success');
               return;
             }
             if (!startAutomationVisit(tabId, llmName)) {
@@ -1231,10 +1259,10 @@ function visitTabWithAutomation(llmName, tabId, options = {}) {
             }
             terminalPollTimer = setInterval(() => {
               if (!sessionStillValid() || !modelStillPending()) {
-                finalizeVisit(previousTab, modelStillPending() ? 'automation_session_stale' : 'automation_terminal_success');
+                finalizeVisit(modelStillPending() ? 'automation_session_stale' : 'automation_terminal_success');
               }
             }, 500);
-            dwellTimer = setTimeout(() => finalizeVisit(previousTab, reason), dwellMs);
+            dwellTimer = setTimeout(() => finalizeVisit(reason), dwellMs);
             hardCapTimer = setTimeout(() => {
               const durationMs = Math.max(0, Date.now() - startTs);
               emitTelemetry(llmName, 'AUTOMATION_VISIT_HARD_CAP', {
@@ -1248,17 +1276,16 @@ function visitTabWithAutomation(llmName, tabId, options = {}) {
                 },
                 force: true
               });
-              finalizeVisit(previousTab, 'automation_hard_cap');
+              finalizeVisit('automation_hard_cap');
             }, automationHardCapMs);
             performTabHumanSimulation(tabId, llmName, scrollDurationMs).catch(() => {});
           });
-        });
-      }).catch(() => {
+        }).catch(() => {
         automationVisitLocks.delete(lockKey);
         resolve(false);
       });
     });
-  });
+  }));
 }
 
 function performTabHumanSimulation(tabId, llmName, scrollDurationOverrideMs = null) {
