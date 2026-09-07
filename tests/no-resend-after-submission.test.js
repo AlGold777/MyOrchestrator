@@ -88,7 +88,7 @@ describe('a confirmed submission blocks a resend on its own', () => {
 
   test('retry supervisor checks sent state before any health-triggered reload', () => {
     const guardAt = DISPATCH_COORDINATOR.indexOf('const preHealthFlags = resolveDispatchFlags');
-    const healthProbeAt = DISPATCH_COORDINATOR.indexOf('const isAlive = await new Promise', guardAt);
+    const healthProbeAt = DISPATCH_COORDINATOR.indexOf('const isAlive =', guardAt);
     const reloadAt = DISPATCH_COORDINATOR.indexOf('allowPreDispatchReload', healthProbeAt);
     expect(guardAt).toBeGreaterThan(-1);
     expect(healthProbeAt).toBeGreaterThan(guardAt);

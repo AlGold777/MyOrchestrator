@@ -663,7 +663,7 @@
     } catch (_) {}
     // Both requests are bound to the same pre-Send identity. Their ACKs are
     // independent; serial round trips added seconds before any text was typed.
-    const [lifecycleStart, baselineAck] = await Promise.all([lifecycleStartPromise, sendRuntimeMessageForAck({
+    const acknowledgements = Promise.all([lifecycleStartPromise, sendRuntimeMessageForAck({
         type: 'DISPATCH_BASELINE_CAPTURED',
         llmName,
         meta: meta && typeof meta === 'object' ? meta : null,
@@ -674,17 +674,32 @@
         timeoutMs: 5000,
         attempts: 2
       })]);
-    const preflightOk = lifecycleStart?.ok === true && baselineAck.ok === true;
-    try {
+    const finishPreflight = async () => {
+      const [lifecycleStart, baselineAck] = await acknowledgements;
+      const preflightOk = lifecycleStart?.ok === true && baselineAck.ok === true;
+      try {
+        if (window.__LLMPreDispatchTurnAnchor?.dispatchId !== (meta?.dispatchId || null)) return false;
+        window.__LLMDispatchPreflight = {
+          llmName,
+          dispatchId: meta?.dispatchId || null,
+          ok: preflightOk,
+          reason: lifecycleStart?.ok !== true ? (lifecycleStart?.reason || 'lifecycle_start_failed') : (baselineAck.reason || null),
+          capturedAt: Date.now()
+        };
+      } catch (_) {}
+      return preflightOk;
+    };
+    if (meta?.simpleFirstPass === true) {
+      // Baseline and tracker were captured synchronously above, before editing.
+      // Round 1 only delivers the prompt. Authority ACKs still gate answer
+      // acceptance, but no longer delay typing; Round 2 handles failed setup.
       window.__LLMDispatchPreflight = {
-        llmName,
-        dispatchId: meta?.dispatchId || null,
-        ok: preflightOk,
-        reason: lifecycleStart?.ok !== true ? (lifecycleStart?.reason || 'lifecycle_start_failed') : (baselineAck.reason || null),
-        capturedAt: Date.now()
+        llmName, dispatchId: meta.dispatchId || null, ok: false, pending: true, capturedAt: Date.now()
       };
-    } catch (_) {}
-    return preflightOk;
+      void finishPreflight().catch(() => {});
+      return true;
+    }
+    return finishPreflight();
   };
 
   const recoverPreparedComposerSend = async (llmName, prompt, meta = {}) => {

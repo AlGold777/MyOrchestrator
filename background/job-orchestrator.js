@@ -10,20 +10,9 @@ const ROUND0_OPEN_STAGGER_MS = 1000;
 const ROUND0_BIND_WAIT_TIMEOUT_MS = 15000;
 const ROUND0_BIND_POLL_MS = 250;
 //- 1.1. Сокращаем подготовку -//
-const ROUND1_BEFORE_SEND_MS = 500;
+const ROUND1_BEFORE_SEND_MS = 2000;
 //- 1.2. Round 1 sends the command quickly, but confirmation is handled explicitly in Round 2. -//
-const ROUND1_POST_SEND_MS = 500;
-const ROUND1_PRIORITY_MODELS = Object.freeze(['Qwen']);
-const ROUND1_DEFERRED_MODELS = Object.freeze(['Kimi', 'Z.ai']);
-const ROUND1_POST_COMMAND_FOCUS_HOLD_MS = Object.freeze({
-  Qwen: 1500
-});
-// Keep the ordinary Round 1 composer transaction short.  A provider Send
-// action is normally completed in this window; longer focus is reserved for
-// the attachment progress path below, which extends only while upload stages
-// are actively reporting.
-const ROUND1_PROMPT_INSERTION_FOCUS_HOLD_MS = 1500;
-const ROUND1_PROGRESS_FOCUS_EXTENSION_MS = 1500;
+const ROUND1_POST_SEND_MS = 5000;
 const ROUND_PROVIDER_PIPELINE_OWNERSHIP_TTL_MS = 180000;
 const ROUND2_VISIT_COUNT = 2;
 const ROUND2_VISIT_MIN_MS = 5000;
@@ -5649,127 +5638,102 @@ async function recoverRound1TabReadiness(llmName, prompt, attachments = [], sess
 
 const orderRound1Models = (selectedLLMs = []) => {
   const source = Array.isArray(selectedLLMs) ? selectedLLMs.filter(Boolean) : [];
-  const priorityRank = new Map(ROUND1_PRIORITY_MODELS.map((name, index) => [name, index]));
-  const deferredRank = new Map(ROUND1_DEFERRED_MODELS.map((name, index) => [name, index]));
-  return source
-    .map((name, index) => ({ name, index }))
-    .sort((a, b) => {
-      const rankA = priorityRank.has(a.name) ? priorityRank.get(a.name) : Number.MAX_SAFE_INTEGER;
-      const rankB = priorityRank.has(b.name) ? priorityRank.get(b.name) : Number.MAX_SAFE_INTEGER;
-      if (rankA !== rankB) return rankA - rankB;
-      const deferredA = deferredRank.has(a.name) ? deferredRank.get(a.name) : -1;
-      const deferredB = deferredRank.has(b.name) ? deferredRank.get(b.name) : -1;
-      if (deferredA === -1 && deferredB !== -1) return -1;
-      if (deferredA !== -1 && deferredB === -1) return 1;
-      if (deferredA !== deferredB) return deferredA - deferredB;
-      return a.index - b.index;
-    })
-    .map(({ name }) => name);
+  return [...new Set(source)];
 };
 
-const resolveRound1PostCommandFocusHoldMs = (llmName) => Math.max(
-  Number(ROUND1_POST_COMMAND_FOCUS_HOLD_MS[llmName] || 0),
-  ROUND1_PROMPT_INSERTION_FOCUS_HOLD_MS
-);
-
 async function dispatchRound1Sequentially(selectedLLMs, prompt, attachments = [], sessionId, options = {}) {
-  // Prepare providers independently. The dispatch coordinator serializes the
-  // foreground composer transaction; a slow health check must not hold every
-  // other provider behind it. Keep the Round 1 barrier until all attempts settle.
+  // A single ordered pass owns foreground dispatch. Recovery starts in Round 2.
   const models = orderRound1Models(selectedLLMs);
-  const results = await Promise.allSettled(models.map(async (llmName) => {
+  for (const llmName of models) {
     if (sessionId && !isSessionActive(sessionId)) return false;
-    let entry = jobState?.llms?.[llmName];
-    if (!entry) {
-      ensureRoundEntries([llmName], 'round1_missing_entry');
-      entry = jobState?.llms?.[llmName];
-    }
-    if (!entry || isFinalizedEntry(entry)) return;
-    const preparationInterrupted = entry.dispatchCheckpoint?.phase === 'preparing'
-      && entry.dispatchCheckpoint?.dispatchId === entry.lastDispatchMeta?.dispatchId;
-    if (options.resume === true && (
-      entry.promptSubmittedAt
-      || (entry.lastDispatchMeta?.dispatchId && !preparationInterrupted)
-      || (self.getDispatchFlags?.(llmName, entry)?.isSent === true)
-    )) {
-      emitModelRoundTelemetry(llmName, 1, 'END', 'resume skipped previous dispatch attempt', {
-        meta: {
-          tabId: resolveBoundTabIdForOrchestrator(llmName, entry) || null,
-          reason: 'resume_previous_attempt',
-          dispatchId: entry.lastDispatchMeta?.dispatchId || entry.confirmedDispatchId || null
-        }
+    await (async () => {
+      if (sessionId && !isSessionActive(sessionId)) return false;
+      let entry = jobState?.llms?.[llmName];
+      if (!entry) {
+        ensureRoundEntries([llmName], 'round1_missing_entry');
+        entry = jobState?.llms?.[llmName];
+      }
+      if (!entry || isFinalizedEntry(entry)) return;
+      const preparationInterrupted = entry.dispatchCheckpoint?.phase === 'preparing'
+        && entry.dispatchCheckpoint?.dispatchId === entry.lastDispatchMeta?.dispatchId;
+      if (options.resume === true && (
+        entry.promptSubmittedAt
+        || (entry.lastDispatchMeta?.dispatchId && !preparationInterrupted)
+        || (self.getDispatchFlags?.(llmName, entry)?.isSent === true)
+      )) {
+        emitModelRoundTelemetry(llmName, 1, 'END', 'resume skipped previous dispatch attempt', {
+          meta: {
+            tabId: resolveBoundTabIdForOrchestrator(llmName, entry) || null,
+            reason: 'resume_previous_attempt',
+            dispatchId: entry.lastDispatchMeta?.dispatchId || entry.confirmedDispatchId || null
+          }
+        });
+        return;
+      }
+      const roundStart = Date.now();
+      const endMeta = { tabId: null, reason: 'unknown' };
+      let endLevel = 'info';
+      let endDetails = 'dispatch complete';
+      let tabId = resolveBoundTabIdForOrchestrator(llmName, entry);
+      emitModelRoundTelemetry(llmName, 1, 'START', 'dispatching prompt', {
+        meta: { tabId: isValidTabId(tabId) ? tabId : null }
       });
-      return;
-    }
-    const roundStart = Date.now();
-    const endMeta = { tabId: null, reason: 'unknown' };
-    let endLevel = 'info';
-    let endDetails = 'dispatch complete';
-    let tabId = resolveBoundTabIdForOrchestrator(llmName, entry);
-    emitModelRoundTelemetry(llmName, 1, 'START', 'dispatching prompt', {
-      meta: { tabId: isValidTabId(tabId) ? tabId : null }
-    });
-    if (!tabId) {
-      tabId = await resolveTabForLlmNameAsync(llmName);
-    }
-    if (!isValidTabId(tabId)) {
-      endLevel = 'warning';
-      endDetails = 'tab not found';
-      endMeta.reason = 'tab_not_found';
+      if (!isValidTabId(tabId)) {
+        endLevel = 'warning';
+        endDetails = 'tab not found';
+        endMeta.reason = 'tab_not_found';
+        emitModelRoundTelemetry(llmName, 1, 'END', endDetails, {
+          level: endLevel,
+          meta: { ...endMeta, durationMs: Date.now() - roundStart }
+        });
+        return;
+      }
+      endMeta.tabId = tabId;
+      let tabTimer;
+      const dispatchTab = await Promise.race([
+        getTabSafe(tabId),
+        new Promise(resolve => { tabTimer = setTimeout(() => resolve(null), 1500); })
+      ]).finally(() => clearTimeout(tabTimer));
+      if (sessionId && !isSessionActive(sessionId)) return false;
+      initRequestMetadata(llmName, tabId, dispatchTab?.url || dispatchTab?.pendingUrl || '');
+      // Every provider receives the same fixed 2s + 5s visit. Recovery follows
+      // only after this ordered pass has finished.
+      const modelPrompt = resolvePromptForDispatch(llmName, prompt);
+      await dispatchPromptToTab(llmName, tabId, modelPrompt, attachments, 'round1', {
+        simpleFirstPass: true,
+        postSendMs: ROUND1_POST_SEND_MS,
+        forceFocus: true,
+        skipNoFocusProbe: true,
+        skipFocusRestore: true,
+        skipSubmitWait: true,
+        deferSendMs: ROUND1_BEFORE_SEND_MS,
+        skipTypingGuard: true,
+        requireCommandAcceptance: true,
+        resetStateAfterSend: false
+      });
+      const postDispatchEntry = jobState?.llms?.[llmName] || entry;
+      const confirmedByContent = !!postDispatchEntry?.promptSubmittedAt && postDispatchEntry?.submitSource === 'content';
+      endMeta.reason = confirmedByContent ? 'prompt_confirmed' : 'awaiting_submit_confirmation';
+      endDetails = confirmedByContent ? 'prompt confirmed' : 'dispatch command sent (awaiting confirmation)';
+      endLevel = confirmedByContent ? 'success' : 'info';
       emitModelRoundTelemetry(llmName, 1, 'END', endDetails, {
         level: endLevel,
-        meta: { ...endMeta, durationMs: Date.now() - roundStart }
+        meta: {
+          tabId,
+          durationMs: Date.now() - roundStart,
+          reason: endMeta.reason,
+          promptSubmittedAt: postDispatchEntry?.promptSubmittedAt || null,
+          submitSource: postDispatchEntry?.submitSource || null,
+          dispatchId: postDispatchEntry?.lastDispatchMeta?.dispatchId || null
+        }
       });
-      return;
-    }
-    endMeta.tabId = tabId;
-    const dispatchTab = await getTabSafe(tabId);
-    if (sessionId && !isSessionActive(sessionId)) return false;
-    initRequestMetadata(llmName, tabId, dispatchTab?.url || dispatchTab?.pendingUrl || '');
-    //- 1.1. Round 1: режим "Спринт". Не ждем подтверждения, чтобы Gemini и Claude получили промпт мгновенно -//
-    const modelPrompt = resolvePromptForDispatch(llmName, prompt);
-    await dispatchPromptToTab(llmName, tabId, modelPrompt, attachments, 'round1', {
-      forceFocus: true,
-      skipNoFocusProbe: true,
-      skipFocusRestore: true,
-      skipSubmitWait: true,
-      deferSendMs: ROUND1_BEFORE_SEND_MS,
-      // Keep the provider foregrounded until correlated insertion or submit
-      // evidence arrives, capped independently of the longer submit watchdog.
-      // Switching immediately throttles the provider's composer timers.
-      postCommandFocusHoldMs: resolveRound1PostCommandFocusHoldMs(llmName),
-      progressFocusExtensionMs: ROUND1_PROGRESS_FOCUS_EXTENSION_MS,
-      skipTypingGuard: true,
-      requireCommandAcceptance: true,
-      resetStateAfterSend: false
+      endBudgetPhase(llmName, 'dispatch');
+    })().catch(error => {
+      emitModelRoundTelemetry(llmName, 1, 'END', 'dispatch preparation failed', {
+        level: 'error', meta: { reason: String(error?.message || error || 'dispatch_failed') }
+      });
     });
-    const elapsed = Date.now() - roundStart;
-    const targetMs = ROUND1_BEFORE_SEND_MS + ROUND1_POST_SEND_MS;
-    await orchestratorSleepMs(Math.max(0, targetMs - elapsed));
-    const postDispatchEntry = jobState?.llms?.[llmName] || entry;
-    const confirmedByContent = !!postDispatchEntry?.promptSubmittedAt && postDispatchEntry?.submitSource === 'content';
-    endMeta.reason = confirmedByContent ? 'prompt_confirmed' : 'awaiting_submit_confirmation';
-    endDetails = confirmedByContent ? 'prompt confirmed' : 'dispatch command sent (awaiting confirmation)';
-    endLevel = confirmedByContent ? 'success' : 'info';
-    emitModelRoundTelemetry(llmName, 1, 'END', endDetails, {
-      level: endLevel,
-      meta: {
-        tabId,
-        durationMs: Date.now() - roundStart,
-        reason: endMeta.reason,
-        promptSubmittedAt: postDispatchEntry?.promptSubmittedAt || null,
-        submitSource: postDispatchEntry?.submitSource || null,
-        dispatchId: postDispatchEntry?.lastDispatchMeta?.dispatchId || null
-      }
-    });
-    endBudgetPhase(llmName, 'dispatch');
-  }));
-  results.forEach((result, index) => {
-    if (result.status !== 'rejected') return;
-    emitModelRoundTelemetry(models[index], 1, 'END', 'dispatch preparation failed', {
-      level: 'error', meta: { reason: String(result.reason?.message || result.reason || 'dispatch_failed') }
-    });
-  });
+  }
   return !sessionId || isSessionActive(sessionId);
 }
 
@@ -6688,7 +6652,7 @@ async function runDispatchRounds(selectedLLMs, prompt, forceNewTabs, attachments
       ensureRoundEntries(selectedLLMs, 'pre_round1');
       await markRoundPhase('round1');
       emitRoundEvent(1, 'START', 'dispatching prompts sequentially');
-      // Round 1: Отправка промптов (3с вставка + 10с ожидание на каждой вкладке)
+      // Round 1: 2 seconds before the command, 5 seconds after it, in model order.
       await dispatchRound1Sequentially(selectedLLMs, prompt, attachments, sessionId, options);
     if (sessionId && !isSessionActive(sessionId)) return;
     emitRoundEvent(1, 'END', 'dispatch round complete');

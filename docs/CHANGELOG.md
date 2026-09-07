@@ -1,5 +1,13 @@
 # CHANGELOG — Project
 
+### 2026-09-08 — Fixed-duration ordered first pass, version 2.81.374
+
+- Round 1 follows the configured model order, without prioritizing Qwen or moving Kimi/Z.ai to the tail. Each visit activates its tab, waits 2 seconds, issues one prompt command to the existing provider adapter, then keeps focus for exactly one 5-second slot measured from that command. Missing or late Send/acceptance telemetry cannot extend this slot. The extra ten-second observation wait in the uncommitted 2.81.373 experiment is removed.
+- The first pass bypasses background readiness probes, reload/reinjection and command retry cascades. Missing tabs and failed activation are deferred; file uploads are deferred to the normal Round 2 path so no incomplete text-only request is sent. Browser activation and checkpoint preparation have separate bounded waits; the 2+5-second slot begins after activation.
+- The page captures the previous-answer baseline and installs its tracker synchronously before editing. In the simple first pass, authority/baseline acknowledgements continue asynchronously, without blocking typing. These acknowledgements still gate answer acceptance; normal Round 2 preflight keeps its awaited checks.
+- State persistence before command delivery remains required and has a 2-second wait limit in this path. Timeouts are recorded as deferred attempts, not successful submissions. Late provider work remains correlated to its dispatch, and Round 2 retains existing duplicate-send guards.
+- Runtime tests execute the orchestrator, dispatch coordinator and real model/focus mutexes across ten models: silent or late ACKs and ongoing composer progress do not extend visits. They also cover stalled storage, preservation of an already-streaming state, Stop, attachments and asynchronous preflight acknowledgements. Live Chrome acceptance is still required.
+
 ### 2026-09-07 — Remove return visits and serialize automatic focus ownership, version 2.81.372
 
 - Removed automatic restoration to the previously active tab from dispatch, send-only recovery, verification and collection visits. A completed model is no longer an implicit return destination; the next scheduled operation chooses the next tab. Removed the associated active-tab queries and delayed restoration timers.

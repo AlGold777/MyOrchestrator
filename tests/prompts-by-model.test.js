@@ -57,12 +57,12 @@ describe('TransportPolicy promptsByModel', () => {
     expect(source).toContain("resolvePromptForDispatch(llmName, jobState.prompt), jobState.attachments || [], 'round2_repair'");
   });
 
-  test('round1 prioritizes Qwen and releases focus on insertion within a fixed cap', () => {
+  test('round1 uses the simple ordered dispatch path', () => {
     const orchestrator = fs.readFileSync(path.join(__dirname, '..', 'background', 'job-orchestrator.js'), 'utf8');
     const coordinator = fs.readFileSync(path.join(__dirname, '..', 'background', 'dispatch-coordinator.js'), 'utf8');
-    expect(orchestrator).toContain("const ROUND1_PRIORITY_MODELS = Object.freeze(['Qwen']);");
-    expect(orchestrator).toContain('postCommandFocusHoldMs: resolveRound1PostCommandFocusHoldMs(llmName)');
-    expect(orchestrator).toContain('const ROUND1_PROMPT_INSERTION_FOCUS_HOLD_MS = 1500');
+    expect(orchestrator).toContain('simpleFirstPass: true');
+    expect(orchestrator).toContain('postSendMs: ROUND1_POST_SEND_MS');
+    expect(orchestrator).not.toContain('progressFocusExtensionMs: ROUND1_PROGRESS_FOCUS_EXTENSION_MS');
     expect(coordinator).toContain("emitTelemetry(llmName, 'DISPATCH_POST_COMMAND_FOCUS_HOLD'");
     expect(coordinator).toContain('waitForPromptFocusBoundary(');
     expect(coordinator).toContain('insertionWaiter');

@@ -33,10 +33,9 @@ describe('Round 1 readiness isolation', () => {
     expect(tabManager).toContain('const acceptsContentScriptReadiness = true');
   });
 
-  test('Qwen remains first and is not blocked by slow tail providers', () => {
-    expect(SOURCE).toContain("const ROUND1_PRIORITY_MODELS = Object.freeze(['Qwen'])");
-    expect(SOURCE).toContain("const ROUND1_DEFERRED_MODELS = Object.freeze(['Kimi', 'Z.ai'])");
-    expect(SOURCE).toContain('if (deferredA === -1 && deferredB !== -1) return -1');
+  test('first pass uses configured order without provider priorities', () => {
+    expect(SOURCE).toContain('return [...new Set(source)]');
+    expect(SOURCE).toContain('simpleFirstPass: true');
     expect(SOURCE).not.toContain('async function prewarmRound1Readiness');
   });
 

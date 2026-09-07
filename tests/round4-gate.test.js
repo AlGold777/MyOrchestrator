@@ -111,12 +111,12 @@ const forceFinalEvents = (telemetryEvents, details) => telemetryEvents.filter((e
 const isEntryFinalized = (entry) => Boolean(entry?.finalStatusRecorded || entry?.finalStatus);
 
 describe('round1 dispatch ordering', () => {
-  test('moves Qwen to the front while preserving the relative order of other models', () => {
+  test('preserves the configured model order for the simple first pass', () => {
     const { context } = createSandbox({ llms: {} });
     expect(Array.from(context.orderRound1Models([
       'GPT', 'Gemini', 'Claude', 'Grok', 'Z.ai', 'Qwen', 'DeepSeek', 'Le Chat', 'Perplexity'
     ]))).toEqual([
-      'Qwen', 'GPT', 'Gemini', 'Claude', 'Grok', 'DeepSeek', 'Le Chat', 'Perplexity', 'Z.ai'
+      'GPT', 'Gemini', 'Claude', 'Grok', 'Z.ai', 'Qwen', 'DeepSeek', 'Le Chat', 'Perplexity'
     ]);
   });
 });

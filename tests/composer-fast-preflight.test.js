@@ -39,6 +39,25 @@ test.each([true, false])('baseline and authority acknowledgements overlap but bo
   expect(window.__LLMPreDispatchTurnAnchor.anchorAnswerCount).toBe(2);
 });
 
+test('simple first pass captures the old turn before returning without waiting for authority ACKs', async () => {
+  let authorityAck, baselineAck;
+  window.ResponseLifecycleDetector = {
+    captureTurnAnchor: () => 3,
+    startResponseLifecycleTracking: () => new Promise(resolve => {authorityAck = resolve;})
+  };
+  chrome.runtime.sendMessage = (message, cb) => {if (message.type === 'DISPATCH_BASELINE_CAPTURED') baselineAck = cb;};
+  load('../content-scripts/content-utils');
+  expect(await window.ContentUtils.reportDispatchBaseline('Kimi', {
+    dispatchId:'simple-1', runSessionId:1, simpleFirstPass:true
+  },'previous answer')).toBe(true);
+  expect(window.__LLMPreDispatchTurnAnchor.anchorAnswerCount).toBe(3);
+  expect(window.__LLMDispatchPreflight).toMatchObject({ok:false,pending:true});
+  baselineAck({status:'dispatch_baseline_ack'});
+  authorityAck({ok:false,reason:'authority_unavailable'});
+  await new Promise(resolve => setTimeout(resolve,0));
+  expect(window.__LLMDispatchPreflight).toMatchObject({ok:false,reason:'authority_unavailable'});
+});
+
 test('Kimi sends a complete wrapped prompt when the editor removes its envelope line breaks', async () => {
   const listeners = [];
   const sent = [];

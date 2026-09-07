@@ -1032,6 +1032,89 @@ async function runPromptDispatchSupervisor() {
   schedulePromptDispatchSupervisor();
 }
 
+async function dispatchSimpleFirstPass(llmName, tabId, prompt, attachments, entry, options, machine) {
+  const meta = { ...entry.lastDispatchMeta, simpleFirstPass: true };
+  const current = () => jobState?.session?.startTime === meta.runSessionId
+    && jobState?.llms?.[llmName] === entry && entry.lastDispatchMeta?.dispatchId === meta.dispatchId;
+  const pause = async ms => {
+    const end = Date.now() + ms;
+    while (current() && Date.now() < end) await dispatchSleepMs(Math.min(100, end - Date.now()));
+  };
+  // File upload has its own readiness requirements; do not send bare text when
+  // the user supplied attachments. The normal Round 2 adapter handles them.
+  if (attachments?.length) {
+    machine?.error?.({code: 'ROUND1_DEFERRED', error: 'attachments_require_round2'});
+    return {ok: false, deferred: true, reason: 'attachments_require_round2'};
+  }
+  entry.dispatchCheckpoint = {dispatchId: meta.dispatchId, phase: 'command_intent'};
+  let storageTimer;
+  const durable = await Promise.race([
+    Promise.resolve(saveJobState(jobState)).then(() => true),
+    new Promise(resolve => { storageTimer = setTimeout(() => resolve(false), 2000); })
+  ]).finally(() => clearTimeout(storageTimer));
+  if (!durable || !current()) {
+    machine?.error?.({code: 'ROUND1_DEFERRED', error: 'checkpoint_not_ready'});
+    return {ok: false, deferred: true, reason: 'checkpoint_not_ready'};
+  }
+  return withPromptDispatchFocusLock(async () => {
+    if (!current()) return {ok: false, reason: 'session_changed'};
+    if (await activateTabForDispatch(tabId) !== true) {
+      machine?.error?.({code: 'ROUND1_DEFERRED', error: 'focus_unavailable'});
+      return {ok: false, deferred: true, reason: 'focus_unavailable'};
+    }
+    const visitStartedAt = Date.now();
+    await pause(Number(options.deferSendMs ?? 2000));
+    if (!current()) return {ok: false, reason: 'session_changed'};
+    machine?.ready?.();
+    const commandAt = Date.now();
+    let deliveryError = null;
+    // Exactly one delivery. No health/reload/reinjection/retry cascade here.
+    // Provider-specific editing remains in the existing page adapter.
+    try {
+      chrome.tabs.sendMessage(tabId, {type: 'GET_ANSWER', prompt, attachments, meta}, response => {
+        const runtimeError = chrome.runtime.lastError?.message;
+        if (!current()) return;
+        if (runtimeError) deliveryError = runtimeError;
+        else if (response?.accepted === false) deliveryError = response.reason || 'command_rejected';
+        else if (response?.accepted === true && response.dispatchId === meta.dispatchId) {
+          entry.lastCommandAcceptedAt = Date.now();
+          entry.lastCommandAcceptedDispatchId = meta.dispatchId;
+        }
+      });
+    } catch (error) { deliveryError = error?.message || 'delivery_failed'; }
+    const sendObserved = () => entry.providerSendActionObservedDispatchId === meta.dispatchId
+      || entry.confirmedDispatchId === meta.dispatchId
+      || (entry.promptSubmittedAt && entry.lastDispatchMeta?.dispatchId === meta.dispatchId);
+    const failed = () => entry.providerDispatchStageDispatchId === meta.dispatchId
+      && /failed|blocked/.test(entry.providerDispatchStage || '');
+    // One fixed foreground slot measured from command delivery. Provider ACKs,
+    // progress and missing Send evidence must never extend the first pass.
+    const leaveAt = commandAt + Number(options.postSendMs ?? 5000);
+    await pause(Math.max(0, leaveAt - Date.now()));
+    if (!current()) return {ok: false, reason: 'session_changed'};
+    const attempted = Boolean(sendObserved());
+    const outcome = attempted ? 'send_attempt_observed' : (deliveryError || (failed() ? 'provider_failed' : 'send_unconfirmed'));
+    if (!entry.promptSubmittedAt) {
+      entry.awaitingSubmitConfirmation = true;
+      entry.awaitingSubmitConfirmationAt = Date.now();
+      entry.awaitingSubmitConfirmationDispatchId = meta.dispatchId;
+    }
+    entry.firstPassResult = {dispatchId: meta.dispatchId, outcome, commandAt, finishedAt: Date.now()};
+    // Content may already have advanced the machine to WAITING/STREAMING.
+    // Closing a foreground slot must not rewind a successful submission.
+    if (machine?.is?.(self.DISPATCH_STATES?.TYPING)) {
+      if (attempted) machine.submit();
+      else machine.error({code: 'ROUND1_DEFERRED', error: outcome});
+    }
+    emitTelemetry(llmName, 'ROUND1_SIMPLE_DISPATCH_RESULT', {
+      details: outcome,
+      meta: {...meta, tabId, outcome, visitMs: Date.now() - visitStartedAt, commandAt, leaveAt},
+      force: true
+    });
+    return {ok: attempted, deferred: !attempted, dispatchId: meta.dispatchId, reason: outcome};
+  });
+}
+
 async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], reason = 'auto', options = {}) {
   if (!llmName || !isValidTabId(tabId) || !prompt) return;
   const entry = jobState?.llms?.[llmName];
@@ -1152,7 +1235,7 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
     return;
   }
   //-- 1.1. Быстрая проверка связи перед захватом фокуса (без агрессивного reload в Round1) --//
-  const isAlive = await new Promise(r => {
+  const isAlive = options.simpleFirstPass === true || await new Promise(r => {
     chrome.tabs.sendMessage(tabId, { type: 'HEALTH_CHECK_PING' }, resp => {
       if (chrome.runtime.lastError || !resp) r(false); else r(true);
     });
@@ -1295,7 +1378,7 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
       }
     }
   }
-  await saveJobState(jobState);
+  if (!options.simpleFirstPass) await saveJobState(jobState);
     let submitTimeoutMs = getPromptSubmitTimeoutMs(llmName);
     if (llmName === 'Claude' && !options.skipTypingGuard) {
       const promptLength = String(prompt || '').length;
@@ -1328,6 +1411,9 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
     try {
       if (machine) {
         machine.activate({ tabId });
+      }
+      if (options.simpleFirstPass) {
+        return await dispatchSimpleFirstPass(llmName, tabId, prompt, attachments, entry, options, machine);
       }
       const tabReadyStartedAt = Date.now();
       const readiness = await ensureTabReadyForDispatch(tabId, llmName, { reason });

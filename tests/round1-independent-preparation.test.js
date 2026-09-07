@@ -16,7 +16,7 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
 
 function setup() {
   const names = ['Qwen', 'GPT', 'Claude', 'Gemini'];
-  const c = { console, Date, Promise, jobState: { session: { startTime: 1 }, llms: {} },
+  const c = { console, Date, Promise, setTimeout, clearTimeout, jobState: { session: { startTime: 1 }, llms: {} },
     orderRound1Models: n => n, isSessionActive: id => c.jobState.session.startTime === id,
     isFinalizedEntry: e => !!e.finalizedAt, resolveBoundTabIdForOrchestrator: (_, e) => e.tabId,
     isValidTabId: Number.isInteger, getTabSafe: async () => ({ url: 'https://example.com' }),
@@ -34,7 +34,7 @@ function setup() {
   return { c, names };
 }
 
-test('a stuck preparation cannot starve ready models; their foreground transactions stay serialized', async () => {
+test('the first pass waits for each bounded dispatch in order and continues after a failed model', async () => {
   const { c, names } = setup();
   const slow = deferred(), focus = deferred();
   const sent = [];
@@ -50,13 +50,14 @@ test('a stuck preparation cannot starve ready models; their foreground transacti
   });
   const run = c.dispatchRound1Sequentially(names, '8 / 4', [], 1);
   await flush();
-  expect(c.dispatchPromptToTab).toHaveBeenCalledTimes(4);
-  expect(sent).toEqual(['GPT']);
+  expect(c.dispatchPromptToTab).toHaveBeenCalledTimes(1);
+  expect(sent).toEqual([]);
+  slow.resolve(); await flush();
+  expect(sent).toEqual(['Qwen', 'GPT']);
   focus.resolve(); await flush();
-  expect(sent).toEqual(['GPT', 'Claude']);
-  slow.resolve();
+  expect(sent).toEqual(['Qwen', 'GPT', 'Claude']);
   expect(await run).toBe(true);
-  expect(sent).toEqual(['GPT', 'Claude', 'Qwen']);
+  expect(sent).toEqual(['Qwen', 'GPT', 'Claude']);
   expect(maxActive).toBe(1);
   expect(c.emitModelRoundTelemetry).toHaveBeenCalledWith('Gemini', 1, 'END', 'dispatch preparation failed', expect.anything());
 });
