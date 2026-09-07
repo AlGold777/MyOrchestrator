@@ -3669,18 +3669,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     break;
                 }
 
-                globalThis.LLMLog?.debug?.(`[NEED_FOCUS] Activating tab ${tabId} for ${llmName} (reason: ${reason})`);
-                if (typeof self.activateTabForDispatch === 'function') {
-                    self.activateTabForDispatch(tabId);
-                } else {
-                    chrome.tabs.update(tabId, { active: true }, () => {
-                        if (chrome.runtime.lastError) {
-                            console.warn('[NEED_FOCUS] chrome.tabs.update failed:', chrome.runtime.lastError.message);
-                        }
-                    });
+                if (reason === 'visibility' || entry.promptSubmittedAt || self.isInitialPromptPassActive?.()) {
+                    sendResponse({ status: 'focus_deferred', reason: reason === 'visibility'
+                        ? 'already_visible' : (entry.promptSubmittedAt ? 'prompt_already_submitted' : 'initial_dispatch_pass') });
+                    break;
                 }
-                sendResponse({ status: 'focus_granted' });
-                break;
+
+                globalThis.LLMLog?.debug?.(`[NEED_FOCUS] Activating tab ${tabId} for ${llmName} (reason: ${reason})`);
+                const focus = async () => {
+                    if (jobState?.session?.startTime !== currentSessionId || jobState?.llms?.[llmName] !== entry
+                        || entry.promptSubmittedAt || isTerminalRouterEntry(entry) || self.isInitialPromptPassActive?.()) {
+                        return { status: 'focus_deferred', reason: 'context_changed' };
+                    }
+                    const activated = await self.activateTabForDispatch?.(tabId);
+                    return { status: activated === true ? 'focus_granted' : 'focus_unavailable' };
+                };
+                Promise.resolve(self.withPromptDispatchFocusLock ? self.withPromptDispatchFocusLock(focus) : focus())
+                    .then(result => sendResponse(result || { status: 'focus_unavailable' }))
+                    .catch(() => sendResponse({ status: 'focus_unavailable' }));
+                return true;
             }
 
             case 'HUMANOID_EVENT': {

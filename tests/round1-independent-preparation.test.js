@@ -72,3 +72,40 @@ test('a new session cancels models still resolving their tabs', async () => {
   expect(await run).toBe(false);
   expect(c.dispatchPromptToTab).not.toHaveBeenCalled();
 });
+
+test('collection and verification helpers cannot visit before the initial pass completes', async () => {
+  const { c } = setup();
+  c.isInitialPromptPassActive = () => true;
+  for (const name of ['focusTabForVerification', 'runPreCollectScrollNudge', 'runForcedAutomationVisits']) {
+    vm.runInContext(functionSource(orchestrator, name), c);
+    expect(await c[name]('GPT', 2, 1, 1)).toBe(false);
+  }
+  const human = fs.readFileSync(require.resolve('../background/human-presence'), 'utf8');
+  const start = human.indexOf('function visitTabWithAutomation');
+  vm.runInContext(human.slice(start, human.indexOf('\nfunction ', start + 10)), c);
+  expect(await c.visitTabWithAutomation('GPT', 2)).toBe(false);
+});
+
+test('the real model mutex cannot finish Round 1 while a focus transaction still runs after 30 seconds', async () => {
+  jest.useFakeTimers();
+  try {
+    const { c, names } = setup();
+    Object.assign(c, { setTimeout, clearTimeout });
+    vm.runInContext(fs.readFileSync(require.resolve('../utils/safe-mutex'), 'utf8'), c);
+    c.dispatchMutexManager = new c.MutexManager();
+    vm.runInContext(coordinator.slice(coordinator.indexOf('async function withPromptDispatchLock'),
+      coordinator.indexOf('\nfunction withPromptDispatchFocusLock')), c);
+    const release = deferred();
+    c.dispatchPromptToTab = name => c.withPromptDispatchLock(name, () => c.withPromptDispatchFocusLock(async () => {
+      if (name === names[0]) await release.promise;
+    }));
+    let roundFinished = false;
+    const run = c.dispatchRound1Sequentially(names, '8 / 4', [], 1).then(() => { roundFinished = true; });
+    await jest.advanceTimersByTimeAsync(31000);
+    expect(roundFinished).toBe(false);
+    release.resolve();
+    await run;
+    expect(roundFinished).toBe(true);
+    expect(c.emitModelRoundTelemetry.mock.calls.filter(call => call[3] === 'dispatch preparation failed')).toHaveLength(0);
+  } finally { jest.useRealTimers(); }
+});

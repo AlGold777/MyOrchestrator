@@ -1,5 +1,13 @@
 # CHANGELOG — Project
 
+### 2026-09-07 — Keep verification behind the real first dispatch pass, version 2.81.369
+
+- Dispatch now awaits the actual model mutex operation. Its previous 30-second caller timeout could start Round 2 while uncancelled Round 1 operations continued waiting for focus.
+- Send-only recovery defers during the first pass and rechecks ownership/submission after acquiring focus. Visibility notifications and already submitted providers no longer request repeat activation; remaining focus requests use the same queue and revalidate before activation.
+- Collection gestures, forced automation visits and verification focus respect the same initial-pass boundary.
+- Browser focus callbacks have a 1.5-second deadline; late callbacks cannot trigger another activation.
+- Regression uses the real SafeMutex with a transaction exceeding 30 seconds, plus queued focus requests and silent browser callbacks.
+
 ### 2026-09-06 — Independent provider preparation, version 2.81.368
 
 - Round 1 prepares provider tabs independently while the existing focus mutex still serializes foreground insertion/Send. An unavailable renderer or failed preparation no longer prevents ready providers from receiving their commands.

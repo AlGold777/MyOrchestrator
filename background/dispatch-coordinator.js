@@ -104,6 +104,12 @@ function cancelProviderSendOnlyRecovery(llmName) {
   return true;
 }
 
+function isInitialPromptPassActive() {
+  return jobState?.session?.roundsInProgress === true
+    && ['round0', 'round1'].includes(jobState.session.roundPhase);
+}
+self.isInitialPromptPassActive = isInitialPromptPassActive;
+
 function scheduleProviderSendOnlyRecovery(llmName, options = {}) {
   const entry = jobState?.llms?.[llmName];
   if (!entry || !self.ModelPolicy?.modelSupportsSendOnlyRecovery?.(llmName)) return false;
@@ -119,6 +125,10 @@ function scheduleProviderSendOnlyRecovery(llmName, options = {}) {
     const liveDispatchId = liveEntry?.lastDispatchMeta?.dispatchId || null;
     if (!liveEntry || liveDispatchId !== dispatchId || liveEntry.promptSubmittedAt
       || liveEntry.confirmedDispatchId === dispatchId) return;
+    if (isInitialPromptPassActive()) {
+      scheduleProviderSendOnlyRecovery(llmName, { ...options, dispatchId, delayMs: 1000 });
+      return;
+    }
     if (!['prompt_inserted', 'send_action_failed'].includes(String(liveEntry.providerDispatchStage || ''))) return;
     const tabId = resolveBoundTabIdForDispatch(llmName, liveEntry);
     if (!isValidTabId(tabId)) return;
@@ -126,6 +136,10 @@ function scheduleProviderSendOnlyRecovery(llmName, options = {}) {
     let result = null;
     try {
       result = await withPromptDispatchFocusLock(async () => {
+        const current = jobState?.llms?.[llmName];
+        if (current !== liveEntry || current.lastDispatchMeta?.dispatchId !== dispatchId
+          || current.promptSubmittedAt || current.confirmedDispatchId === dispatchId
+          || isInitialPromptPassActive()) return { ok: false, status: 'recovery_no_longer_needed' };
         await activateTabForDispatch(tabId);
         await dispatchSleepMs(250);
         return sendMessageWithTimeout(tabId, llmName, {
@@ -598,7 +612,11 @@ function getConnectionRetryDelaysForModel(llmName) {
 async function withPromptDispatchLock(llmName, fn) {
   const key = llmName || 'global';
   try {
-    return await dispatchMutexManager.withLock(key, fn);
+    // A mutex timeout only rejects its caller; it does not cancel fn. Returning
+    // after 30s let Round 2 begin while Round 1 was still queued for focus.
+    // Individual browser/readiness operations own deadlines; await the actual
+    // transaction here, including its time in the shared focus queue.
+    return await dispatchMutexManager.withLock(key, fn, { timeoutMs: 0 });
   } catch (err) {
     console.error('[DISPATCH] lock fn failed', err);
     throw err;

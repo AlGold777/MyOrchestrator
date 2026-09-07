@@ -1108,6 +1108,10 @@ function visitTabWithHumanity(llmName, tabId) {
 
 function visitTabWithAutomation(llmName, tabId, options = {}) {
   return new Promise((resolve) => {
+    if (self.isInitialPromptPassActive?.()) {
+      resolve(false);
+      return;
+    }
     if (!isValidTabId(tabId) || !llmName) {
       resolve(false);
       return;

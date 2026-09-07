@@ -5767,6 +5767,7 @@ async function dispatchRound1Sequentially(selectedLLMs, prompt, attachments = []
 }
 
 async function focusTabForVerification(llmName, tabId, durationMs, sessionId) {
+  if (self.isInitialPromptPassActive?.()) return false;
   if (!isValidTabId(tabId)) return false;
   if (sessionId && !isSessionActive(sessionId)) return false;
   const entry = jobState?.llms?.[llmName];
@@ -5785,6 +5786,7 @@ async function focusTabForVerification(llmName, tabId, durationMs, sessionId) {
   const previousTab = await getActiveTabSnapshot();
   let visitStarted = false;
   await withPromptDispatchFocusLock(async () => {
+    if (self.isInitialPromptPassActive?.()) return;
     await activateTabForDispatch(tabId);
   });
   if (typeof startTabVisit === 'function') {
@@ -5809,6 +5811,7 @@ async function focusTabForVerification(llmName, tabId, durationMs, sessionId) {
 }
 
 async function runPreCollectScrollNudge(llmName, tabId, sessionId, reason = 'precollect_nudge') {
+  if (self.isInitialPromptPassActive?.()) return false;
   if (!llmName || !isValidTabId(tabId)) return false;
   if (sessionId && !isSessionActive(sessionId)) return false;
   const initialEntry = jobState?.llms?.[llmName];
@@ -5942,6 +5945,7 @@ async function runPreCollectScrollNudge(llmName, tabId, sessionId, reason = 'pre
 }
 
 async function runForcedAutomationVisits(llmName, tabId, sessionId, options = {}) {
+  if (self.isInitialPromptPassActive?.()) return false;
   if (!isValidTabId(tabId)) return false;
   const visitFn = (typeof self.visitTabWithAutomation === 'function') ? self.visitTabWithAutomation : null;
   const visitPolicy = self.VisitPolicy || null;

@@ -981,15 +981,26 @@ function activateTabForDispatch(tabId, source = 'activate_tab_for_dispatch') {
       resolve(false);
       return;
     }
+    let settled = false;
+    const finish = (ok) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(ok);
+    };
+    const timer = setTimeout(() => finish(false), 1500);
     // Keep window geometry intact: only focus/activate, do not force state changes.
     chrome.tabs.get(tabId, (tab) => {
-      if (chrome.runtime.lastError || !tab) { resolve(false); return; }
+      if (settled) return;
+      if (chrome.runtime.lastError || !tab) { finish(false); return; }
       const winId = tab.windowId;
       chrome.windows.update(winId, { focused: true }, () => {
+        if (settled) return;
+        if (chrome.runtime.lastError) { finish(false); return; }
         if (typeof self.markProgrammaticTabFocus === 'function') {
           self.markProgrammaticTabFocus(tabId, source);
         }
-        chrome.tabs.update(tabId, { active: true }, () => resolve(true));
+        chrome.tabs.update(tabId, { active: true }, () => finish(!chrome.runtime.lastError));
       });
     });
   });

@@ -132,6 +132,41 @@ describe('BRIDGE_INJECT_REQUEST (CSP-safe MAIN-world path)', () => {
   });
 });
 
+describe('provider focus requests share dispatch ownership', () => {
+  const setup = () => {
+    const sandbox = createRouterSandbox();
+    const c = sandbox.context;
+    c.jobState.llms.GPT = { status: 'GENERATING' };
+    c.TabMapManager.get = () => 42;
+    c.TabMapManager.getNameByTabId = () => 'GPT';
+    c.activateTabForDispatch = jest.fn(async () => true);
+    c.isInitialPromptPassActive = () => c.jobState.session.roundPhase === 'round1';
+    c.withPromptDispatchFocusLock = jest.fn(fn => fn());
+    return sandbox;
+  };
+  test.each(['visibility', 'initial_pass', 'submitted'])('does not revisit a tab for %s', async reason => {
+    const { context: c, sendMessage } = setup();
+    if (reason === 'initial_pass') c.jobState.session.roundPhase = 'round1';
+    if (reason === 'submitted') c.jobState.llms.GPT.promptSubmittedAt = 123;
+    const response = await sendMessage({type:'NEED_FOCUS', sessionId:1, reason}, {tab:{id:42}});
+    expect(response.status).toBe('focus_deferred');
+    expect(c.activateTabForDispatch).not.toHaveBeenCalled();
+  });
+  test('rechecks submission after waiting for the focus queue', async () => {
+    const { context: c, sendMessage } = setup();
+    let acquire;
+    let queued;
+    const enqueued = new Promise(resolve => { queued = resolve; });
+    c.withPromptDispatchFocusLock = fn => new Promise(resolve => { acquire = () => resolve(fn()); queued(); });
+    const response = sendMessage({type:'NEED_FOCUS', sessionId:1, reason:'composer'}, {tab:{id:42}});
+    await enqueued;
+    c.jobState.llms.GPT.promptSubmittedAt = 123;
+    acquire();
+    expect((await response).status).toBe('focus_deferred');
+    expect(c.activateTabForDispatch).not.toHaveBeenCalled();
+  });
+});
+
 describe('bridge + bootstrap source contracts', () => {
   test('bridge supports the deferred one-shot token setter for file injection', () => {
     const bridge = read('content-scripts', 'content-bridge.js');
