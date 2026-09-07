@@ -40,3 +40,20 @@ test('command intent awaiting storage cannot finish while its durable write is p
   await c.saveJobState({ phase: 'next_run' });
   expect(c.CompressedStorage.set).toHaveBeenLastCalledWith('jobState', { phase: 'next_run' });
 });
+
+test('a saved dispatch checkpoint releases focus while newer generation writes continue', async () => {
+  const c = sandbox();
+  const releases = [];
+  c.CompressedStorage.set.mockImplementation(() => new Promise(resolve => releases.push(resolve)));
+  const flush = () => new Promise(resolve => setImmediate(resolve));
+  let checkpointSaved = false;
+  const checkpoint = c.saveJobState({ phase: 'command_intent' }).then(() => { checkpointSaved = true; });
+  await flush();
+  const progress = c.saveJobState({ phase: 'generation_progress' });
+  releases[0]();
+  await flush();
+  const releasedBeforeProgress = checkpointSaved;
+  releases[1]();
+  await Promise.all([checkpoint, progress]);
+  expect(releasedBeforeProgress).toBe(true);
+});

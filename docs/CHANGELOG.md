@@ -1,5 +1,10 @@
 # CHANGELOG — Project
 
+### 2026-09-07 — Release saved dispatch checkpoints during continuous updates, version 2.81.371
+
+- Each `saveJobState` caller now waits only for the snapshot batch containing its change. Later generation updates no longer extend an already persisted command-intent wait and hold the foreground dispatch queue indefinitely.
+- The regression test fails on 2.81.370: a persisted checkpoint remained pending while the next generation snapshot was writing. It now resolves before that newer write, while the existing test still requires unsaved command intent to wait.
+
 ### 2026-09-07 — Shorten composer preflight and accept intact Kimi envelopes, version 2.81.370
 
 - Baseline capture and Completion authority registration now wait for their independent ACKs concurrently. Both must succeed. Settings load during page initialization instead of beginning only after focus reaches the composer.

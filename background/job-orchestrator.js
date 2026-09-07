@@ -4848,22 +4848,29 @@ if (typeof chrome !== 'undefined' && chrome?.runtime?.onStartup?.addListener) {
 //-- 11.1. Сохранение и загрузка jobState из storage --//
 let jobStateSaveFlight = null;
 let pendingJobStateSave = null;
+let pendingJobStateSaveWaiters = [];
 function saveJobState(state) {
   pendingJobStateSave = state;
+  const saved = new Promise(resolve => pendingJobStateSaveWaiters.push(resolve));
   if (!jobStateSaveFlight) {
     // Defer compression out of message ACK handlers and coalesce their burst.
-    // Awaiters still wait for durable storage, including command-intent writes.
+    // Resolve each batch's callers after that batch is persisted. Waiting for
+    // the whole writer to drain starves dispatch while generation keeps adding
+    // newer snapshots, even after its command intent is already durable.
     jobStateSaveFlight = Promise.resolve().then(async () => {
       try {
         while (pendingJobStateSave) {
           const next = pendingJobStateSave;
+          const waiters = pendingJobStateSaveWaiters;
           pendingJobStateSave = null;
+          pendingJobStateSaveWaiters = [];
           await persistJobStateSnapshot(next);
+          waiters.forEach(resolve => resolve());
         }
       } finally { jobStateSaveFlight = null; }
     });
   }
-  return jobStateSaveFlight;
+  return saved;
 }
 
 async function persistJobStateSnapshot(state) {
