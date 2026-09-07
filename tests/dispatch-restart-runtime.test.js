@@ -5,7 +5,7 @@ const orch = read('background/job-orchestrator.js');
 const router = read('background/message-router.js');
 
 function runtimeSandbox(executeScript) {
-  const c = { setTimeout, clearTimeout, console, emitTelemetry: jest.fn(), chrome: {
+  const c = { Date, setTimeout, clearTimeout, console, emitTelemetry: jest.fn(), chrome: {
     runtime: { getManifest: () => ({ version: 'test' }) },
     scripting: { executeScript }, tabs: { sendMessage: jest.fn(async () => ({})) }
   }};
@@ -43,6 +43,27 @@ describe('runtime readiness deadline', () => {
     const result = c.ensureCompletionRuntimeInTab(10, 'Gemini');
     await jest.advanceTimersByTimeAsync(1001);
     expect((await result).ok).toBe(true);
+  });
+  test('recent verified runtime avoids repeated injection and expires after 30 seconds', async () => {
+    const execute = jest.fn(async () => [{result:healthy}]);
+    const c = runtimeSandbox(execute);
+    await c.ensureCompletionRuntimeInTab(10, 'GPT');
+    expect((await c.ensureCompletionRuntimeInTab(10, 'GPT')).cached).toBe(true);
+    expect(execute).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(30001);
+    await c.ensureCompletionRuntimeInTab(10, 'GPT');
+    expect(execute).toHaveBeenCalledTimes(2);
+  });
+  test('navigation invalidates a warm runtime before its expiry', async () => {
+    const execute = jest.fn(async () => [{result:healthy}]);
+    const c = runtimeSandbox(execute);
+    let onUpdated;
+    c.chrome.tabs.onUpdated = { addListener: callback => { onUpdated = callback; } };
+    vm.runInContext(router.slice(router.indexOf('try {\n    chrome.tabs?.onRemoved'), router.indexOf('\nfunction withManagedDebuggerSession')), c);
+    await c.ensureCompletionRuntimeInTab(10, 'GPT');
+    onUpdated(10, {status:'loading'});
+    await c.ensureCompletionRuntimeInTab(10, 'GPT');
+    expect(execute).toHaveBeenCalledTimes(2);
   });
 });
 

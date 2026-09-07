@@ -88,6 +88,10 @@ const ensureCompletionRuntimeInTab = (tabId, llmName) => {
     const numericTabId = Number(tabId);
     if (!Number.isInteger(numericTabId) || numericTabId <= 0) return Promise.resolve({ ok: false, reason: 'invalid_tab' });
     if (completionRuntimeRepairFlights.has(numericTabId)) return completionRuntimeRepairFlights.get(numericTabId);
+    const cached = completionRuntimeByTab.get(numericTabId);
+    if (isCompletionRuntimeHealthy(cached) && Date.now() - cached.verifiedAt < 30000) {
+        return Promise.resolve({ ok: true, runtime: cached, cached: true });
+    }
     const flight = (async () => {
         let runtime = await probeCompletionRuntimeInTab(numericTabId);
         if (!isCompletionRuntimeHealthy(runtime)) {
@@ -147,6 +151,9 @@ try {
     chrome.tabs?.onRemoved?.addListener?.((tabId) => {
         completionRuntimeByTab.delete(Number(tabId));
         completionRuntimeRepairFlights.delete(Number(tabId));
+    });
+    chrome.tabs?.onUpdated?.addListener?.((tabId, changeInfo) => {
+        if (changeInfo?.status === 'loading' || changeInfo?.url) completionRuntimeByTab.delete(Number(tabId));
     });
 } catch (_) {}
 
@@ -2499,14 +2506,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                         return;
                     }
                     try {
-                        await chrome.scripting.executeScript({
+                        await completionRuntimeDeadline(() => chrome.scripting.executeScript({
                             target: { tabId },
                             world: 'MAIN',
+                            injectImmediately: true,
                             files: ['content-scripts/content-bridge.js']
-                        });
-                        const results = await chrome.scripting.executeScript({
+                        }));
+                        const results = await completionRuntimeDeadline(() => chrome.scripting.executeScript({
                             target: { tabId },
                             world: 'MAIN',
+                            injectImmediately: true,
                             func: (bridgeToken) => {
                                 try {
                                     return typeof window.__LLM_BRIDGE_SET_TOKEN__ === 'function'
@@ -2515,7 +2524,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                                 } catch (_) { return null; }
                             },
                             args: [token]
-                        });
+                        }));
                         const tokenAccepted = Array.isArray(results)
                             ? results.some((item) => item?.result === true)
                             : false;

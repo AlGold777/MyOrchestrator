@@ -1,5 +1,12 @@
 # CHANGELOG — Project
 
+### 2026-09-06 — Independent provider preparation, version 2.81.368
+
+- Round 1 prepares provider tabs independently while the existing focus mutex still serializes foreground insertion/Send. An unavailable renderer or failed preparation no longer prevents ready providers from receiving their commands.
+- Bind cancellation to the session/entry before asynchronous readiness work and recheck it inside the focus queue and before command delivery. Start the insertion acknowledgement window at delivery, so waiting for focus cannot exhaust it.
+- Reuse a healthy Completion runtime for up to 30 seconds, invalidating it on navigation/loading. MAIN-world bridge injection now uses `injectImmediately` and a six-second deadline for each browser call.
+- Runtime regressions cover a stalled first model, independent provider failure, exclusive focus, session replacement, cache expiry/navigation and silent bridge injection.
+
 ### 2026-09-06 — Preserve the submitted conversation across SPA creation, version 2.81.367
 
 - Lifecycle, provider cleanup and base adapter now share the navigation decision. A known new-chat route may become a conversation route after a correlated Send without cancelling observation or invalidating completion authority.

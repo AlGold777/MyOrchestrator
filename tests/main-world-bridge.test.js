@@ -89,13 +89,27 @@ describe('BRIDGE_INJECT_REQUEST (CSP-safe MAIN-world path)', () => {
     expect(executeCalls).toHaveLength(2);
     expect(executeCalls[0]).toEqual(expect.objectContaining({
       world: 'MAIN',
+      injectImmediately: true,
       files: ['content-scripts/content-bridge.js'],
       target: { tabId: 42 }
     }));
     expect(executeCalls[1]).toEqual(expect.objectContaining({
       world: 'MAIN',
+      injectImmediately: true,
       args: ['bridge_1_abc']
     }));
+  });
+
+  test.each(['files', 'func'])('bounds a hung MAIN-world %s injection', async (stage) => {
+    jest.useFakeTimers();
+    try {
+      const { context, sendMessage } = createRouterSandbox();
+      context.chrome.scripting.executeScript.mockImplementation((options) => options[stage]
+        ? new Promise(() => {}) : Promise.resolve([]));
+      const response = sendMessage({ type: 'BRIDGE_INJECT_REQUEST', bridgeToken: 'token' }, { tab: { id: 42 } });
+      await jest.advanceTimersByTimeAsync(6001);
+      expect(await response).toEqual({ ok: false, reason: 'completion_runtime_timeout' });
+    } finally { jest.useRealTimers(); }
   });
 
   test('rejects requests without a sender tab or token', async () => {

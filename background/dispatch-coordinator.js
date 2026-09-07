@@ -1053,6 +1053,9 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
   if (!llmName || !isValidTabId(tabId) || !prompt) return;
   const entry = jobState?.llms?.[llmName];
   if (!entry) return;
+  const capturedSessionId = jobState?.session?.startTime || null;
+  const isCurrentDispatchContext = () => (!capturedSessionId || jobState?.session?.startTime === capturedSessionId)
+    && jobState?.llms?.[llmName] === entry;
   const recoveryDispatch = ['retry_supervisor', 'round2_repair', 'round2_repair_pre_visit'].includes(reason);
   if (recoveryDispatch && isProviderPipelineOwnershipActive(entry)) {
     emitTelemetry(llmName, 'DISPATCH_DEFERRED_PROVIDER_PIPELINE_ACTIVE', {
@@ -1187,7 +1190,7 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
       console.warn(`[Dispatch] Tab ${tabId} health ping failed for ${llmName}, continuing without pre-dispatch reload`);
     }
   }
-  const capturedSessionId = jobState?.session?.startTime || null;
+  if (!isCurrentDispatchContext()) return;
   const pipelineRunId = jobState?.session?.pipelineRunId || jobState?.session?.pipelineControl?.pipelineRunId || null;
   const flags = resolveDispatchFlags(llmName, entry);
   if (isTerminalLlmEntry(entry)) return;
@@ -1620,7 +1623,8 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
       waiter = waiterController.promise;
       const postCommandFocusHoldMs = Math.max(0, Number(options.postCommandFocusHoldMs || 0));
       const progressFocusExtensionMs = Math.max(0, Number(options.progressFocusExtensionMs || 0));
-      if (postCommandFocusHoldMs > 0) {
+      const prepareInsertionWaiter = () => {
+        if (postCommandFocusHoldMs <= 0 || insertionWaiter) return;
         // Sized for the longest hold that is actually reachable, otherwise the
         // waiter expires while an attachment-extended hold is still running and
         // the boundary can never resolve as an insertion.
@@ -1631,7 +1635,7 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
             + Math.max(progressFocusExtensionMs, ATTACHMENT_FOCUS_EXTENSION_CEILING_MS)
             + 1000
         );
-      }
+      };
       const readyWaitMs = Math.max(0, Date.now() - lockAcquiredAt);
 
       let previousTab = null;
@@ -1689,11 +1693,13 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
         return true;
       };
       const deliverAnswerCommand = async () => {
+        if (!isCurrentDispatchContext()) return { ok: false, stale: true, reason: 'session_mismatch' };
+        prepareInsertionWaiter();
         // Persist intent before delivery: after a restart an uncertain send must
         // be reconciled, while a preparation-only attempt can safely resume.
         entry.dispatchCheckpoint = { dispatchId, phase: 'command_intent' };
         await saveJobState(jobState);
-        if (capturedSessionId && jobState?.session?.startTime !== capturedSessionId) {
+        if (!isCurrentDispatchContext()) {
           return { ok: false, stale: true, reason: 'session_mismatch' };
         }
         if (!requireCommandAcceptance) {
@@ -1721,6 +1727,7 @@ async function dispatchPromptToTab(llmName, tabId, prompt, attachments = [], rea
         }
         previousTab = await getActiveTabSnapshot();
         await withPromptDispatchFocusLock(async () => {
+          if (!isCurrentDispatchContext()) return;
           await activateTabForDispatch(tabId);
           if (options.deferSendMs) {
             await dispatchSleepMs(options.deferSendMs);

@@ -380,7 +380,7 @@ describe('SelectorResolverV2 and ResponseLifecycleDetector', () => {
     expect(full.length).toBeLessThanOrEqual(300);
   });
 
-  test('answer fallback only runs below length 80 via runtime patch', async () => {
+  test('runtime transport preserves nonempty short and long answers', async () => {
     const transport = chrome.runtime.__sendMessageMock;
     const answerNode = document.createElement('article');
     answerNode.textContent = 'This is a sufficiently long fallback answer captured from the DOM to replace the short outgoing payload from the content script.';
@@ -397,7 +397,7 @@ describe('SelectorResolverV2 and ResponseLifecycleDetector', () => {
     await flushAsync(20);
     expect(transport).toHaveBeenCalled();
     const sent = transport.mock.calls.find(([msg]) => msg?.type === 'LLM_RESPONSE');
-    expect(sent[0].answer.length).toBeGreaterThanOrEqual(80);
+    expect(sent[0].answer).toBe('short');
 
     transport.mockClear();
     chrome.runtime.sendMessage({

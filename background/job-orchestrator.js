@@ -5666,14 +5666,18 @@ const resolveRound1PostCommandFocusHoldMs = (llmName) => Math.max(
 );
 
 async function dispatchRound1Sequentially(selectedLLMs, prompt, attachments = [], sessionId, options = {}) {
-  for (const llmName of orderRound1Models(selectedLLMs)) {
+  // Prepare providers independently. The dispatch coordinator serializes the
+  // foreground composer transaction; a slow health check must not hold every
+  // other provider behind it. Keep the Round 1 barrier until all attempts settle.
+  const models = orderRound1Models(selectedLLMs);
+  const results = await Promise.allSettled(models.map(async (llmName) => {
     if (sessionId && !isSessionActive(sessionId)) return false;
     let entry = jobState?.llms?.[llmName];
     if (!entry) {
       ensureRoundEntries([llmName], 'round1_missing_entry');
       entry = jobState?.llms?.[llmName];
     }
-    if (!entry || isFinalizedEntry(entry)) continue;
+    if (!entry || isFinalizedEntry(entry)) return;
     const preparationInterrupted = entry.dispatchCheckpoint?.phase === 'preparing'
       && entry.dispatchCheckpoint?.dispatchId === entry.lastDispatchMeta?.dispatchId;
     if (options.resume === true && (
@@ -5688,7 +5692,7 @@ async function dispatchRound1Sequentially(selectedLLMs, prompt, attachments = []
           dispatchId: entry.lastDispatchMeta?.dispatchId || entry.confirmedDispatchId || null
         }
       });
-      continue;
+      return;
     }
     const roundStart = Date.now();
     const endMeta = { tabId: null, reason: 'unknown' };
@@ -5709,10 +5713,11 @@ async function dispatchRound1Sequentially(selectedLLMs, prompt, attachments = []
         level: endLevel,
         meta: { ...endMeta, durationMs: Date.now() - roundStart }
       });
-      continue;
+      return;
     }
     endMeta.tabId = tabId;
     const dispatchTab = await getTabSafe(tabId);
+    if (sessionId && !isSessionActive(sessionId)) return false;
     initRequestMetadata(llmName, tabId, dispatchTab?.url || dispatchTab?.pendingUrl || '');
     //- 1.1. Round 1: режим "Спринт". Не ждем подтверждения, чтобы Gemini и Claude получили промпт мгновенно -//
     const modelPrompt = resolvePromptForDispatch(llmName, prompt);
@@ -5751,8 +5756,14 @@ async function dispatchRound1Sequentially(selectedLLMs, prompt, attachments = []
       }
     });
     endBudgetPhase(llmName, 'dispatch');
-  }
-  return true;
+  }));
+  results.forEach((result, index) => {
+    if (result.status !== 'rejected') return;
+    emitModelRoundTelemetry(models[index], 1, 'END', 'dispatch preparation failed', {
+      level: 'error', meta: { reason: String(result.reason?.message || result.reason || 'dispatch_failed') }
+    });
+  });
+  return !sessionId || isSessionActive(sessionId);
 }
 
 async function focusTabForVerification(llmName, tabId, durationMs, sessionId) {
