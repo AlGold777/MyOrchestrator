@@ -1235,17 +1235,14 @@
       const startTime = Date.now();
       let lastSeen = '';
       let lastSeenHtml = '';
-      let stableTicks = 0;
+      let stableSince = null;
       let fallbackMode = false;
       let settled = false;
 
       const cleanup = (value, isTimeout = false) => {
         if (settled) return;
         settled = true;
-        if (domObserver) {
-          domObserver.disconnect();
-          domObserver = null;
-        }
+        stopObserve();
         clearInterval(intervalId);
         clearTimeout(timerId);
         if (value) {
@@ -1264,6 +1261,7 @@
       };
 
       const evaluate = () => {
+        if (settled) return;
         let snapshot = captureProseSnapshot();
         if (!snapshot && fallbackMode) {
           snapshot = captureFallbackSnapshot();
@@ -1274,14 +1272,14 @@
         if (html) lastSeenHtml = html;
 
         if (!isGenerating && text === lastSeen) {
-          stableTicks += 1;
-          if (stableTicks >= 3) {
+          if (stableSince === null) stableSince = Date.now();
+          if (Date.now() - stableSince >= 1800) {
             console.log('[content-lechat] ✅ Response stabilized, length:', text.length);
             cleanup(text);
           }
         } else {
           lastSeen = text;
-          stableTicks = 0;
+          stableSince = isGenerating ? null : Date.now();
         }
       };
 
@@ -1674,13 +1672,14 @@ const hydrateAttachments = (raw = []) =>
         });
         
         const duration = Date.now() - startTime;
+        const responseLength = String(cleaned?.text || '').length;
         const stopMeta = pipelineCompleted
-          ? Object.assign({ duration }, pipelineStats || { responseLength: cleaned.length, source: 'pipeline' })
-          : { responseLength: cleaned.length, duration };
+          ? Object.assign({ duration }, pipelineStats || { responseLength, source: 'pipeline' })
+          : { responseLength, duration };
         metricsCollector.recordTiming('total_response_time', duration);
         metricsCollector.endOperation(opId, true, stopMeta);
         activity.heartbeat(0.95, { phase: 'response-processed' });
-        activity.stop({ status: 'success', answerLength: cleaned.length, source: pipelineCompleted ? 'pipeline' : 'legacy' });
+        activity.stop({ status: 'success', answerLength: responseLength, source: pipelineCompleted ? 'pipeline' : 'legacy' });
         return cleaned;
         
       } catch (e) {

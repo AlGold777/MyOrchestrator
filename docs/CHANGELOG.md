@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-09-09 — Repair Le Chat fallback observation lifetime, version 2.81.385
+
+- Release the actual reply-wait mutation subscription on success and timeout; ignore callbacks after settlement.
+- Require 1.8 seconds of unchanged text without generation indicators instead of three callbacks, which could occur in a single mutation burst. Active generation resets this interval.
+- Report the extracted payload's text length rather than reading `.length` from the payload object. Tests cover bursts, generation resumption and timeout cleanup. This fallback still supplies unverified evidence to background acceptance; time stability alone does not prove current-turn identity or completeness.
+
 ### 2026-09-09 — Recognize Claude model labels, version 2.81.384
 
 - Fix escaped regex tokens so labels such as `Sonnet 4.5` and `Claude Opus 4` are rejected by the answer filter. Sentences mentioning those models remain eligible.
