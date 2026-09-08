@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-09-08 — Make Qwen and Perplexity submission evidence follow the live page, version 2.81.381
+
+- Qwen searches the current DOM for a ready Send control before the slow selector fallback and confirms a new user turn after navigation replaces the home composer.
+- Perplexity recognizes the live `group/user-bubble` container when confirming that a submitted prompt created a new turn.
+- Regression tests cover immediate Qwen sending, detached composer scopes, stalled selector discovery and the current Perplexity user-message DOM.
+
 ### 2026-09-08 — Do not skip first-pass delivery on a missing focus ACK, version 2.81.379
 
 - First-pass activation distinguishes an explicit tab error from a missing callback at the 1.5-second deadline. A missing callback permits one direct command to the addressed tab, after the normal preparation pause. An explicit error still defers delivery. Other activation callers retain strict boolean behavior.
