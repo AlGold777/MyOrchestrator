@@ -975,7 +975,7 @@ function tryAttachExistingTab(llmName, prompt, attachments = [], options = {}) {
   });
 }
 
-function activateTabForDispatch(tabId, source = 'activate_tab_for_dispatch') {
+function activateTabForDispatch(tabId, source = 'activate_tab_for_dispatch', options = {}) {
   return new Promise((resolve) => {
     if (!isValidTabId(tabId)) {
       resolve(false);
@@ -988,9 +988,12 @@ function activateTabForDispatch(tabId, source = 'activate_tab_for_dispatch') {
       clearTimeout(timer);
       resolve(ok);
     };
-    const timer = setTimeout(() => finish(false), 1500);
-    // Activating the tab is the required operation. Window focus is cosmetic
-    // and its callback must not gate activation (it can stall under Chrome load).
+    // A missing callback is not proof of a failed activation. First-pass
+    // delivery can address a tab directly without foreground confirmation.
+    // Strict callers retain their existing boolean result.
+    const timer = setTimeout(() => finish(options.allowUnconfirmed === true ? 'unconfirmed' : false), 1500);
+    // Request activation directly. Window-focus callbacks must not gate it
+    // because they can stall under Chrome load.
     if (typeof self.markProgrammaticTabFocus === 'function') {
       self.markProgrammaticTabFocus(tabId, source);
     }

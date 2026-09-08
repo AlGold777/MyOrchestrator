@@ -86,6 +86,19 @@ test('a silent page gets no retries and cannot hold the rest of the pass', async
   expect(c.jobState.llms.DeepSeek.firstPassResult.outcome).toBe('send_unconfirmed');
 });
 
+test('unconfirmed focus still delivers once in order, while an explicit activation error skips delivery', async () => {
+  const {c,events}=setup(['Qwen','Gemini','Grok']);
+  c.activateTabForDispatch=async id => {
+    events.push(['focus',id,Date.now()]);
+    return id===2 ? false : 'unconfirmed';
+  };
+  const run=c.dispatchRound1Sequentially(['Qwen','Gemini','Grok'],'8 / 4',[],1);
+  await jest.advanceTimersByTimeAsync(14000);
+  expect(await run).toBe(true);
+  expect(events).toEqual([['focus',1,1000],['command',1,3000],['focus',2,8000],['focus',3,8000],['command',3,10000]]);
+  expect(c.jobState.llms.Gemini.firstPassResult.outcome).toBe('focus_unavailable');
+});
+
 test('Stop during the initial pause sends no command and visits no further model', async () => {
   const {c,events}=setup(['DeepSeek','Kimi']);
   const run=c.dispatchRound1Sequentially(['DeepSeek','Kimi'],'8 / 4',[],1);

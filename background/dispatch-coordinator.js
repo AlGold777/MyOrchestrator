@@ -1063,7 +1063,8 @@ async function dispatchSimpleFirstPass(llmName, tabId, prompt, attachments, entr
   const durable = self.DispatchIntentStore.persist(llmName, tabId, entry);
   return withPromptDispatchFocusLock(async () => {
     if (!current()) return {ok: false, reason: 'session_changed'};
-    if (await activateTabForDispatch(tabId) !== true) {
+    const activation = await activateTabForDispatch(tabId, 'round1_simple', {allowUnconfirmed: true});
+    if (activation !== true && activation !== 'unconfirmed') {
       return defer('focus_unavailable');
     }
     const visitStartedAt = Date.now();

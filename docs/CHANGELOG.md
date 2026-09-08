@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-09-08 — Do not skip first-pass delivery on a missing focus ACK, version 2.81.379
+
+- First-pass activation distinguishes an explicit tab error from a missing callback at the 1.5-second deadline. A missing callback permits one direct command to the addressed tab, after the normal preparation pause. An explicit error still defers delivery. Other activation callers retain strict boolean behavior.
+- No activation retry or late window-focus callback is introduced; the fixed post-command slot and durable command intent remain. Foreground activation is not guaranteed when its acknowledgement is missing, and providers that require focus may still need recovery.
+- Regression tests cover strict callers, first-pass timeout, late callbacks, explicit failure, ordered delivery and no repeated command. The 2.81.378 field run contained four focus deferrals and no storage deferrals; provider submission and completion defects remain separate.
+
 ### 2026-09-08 — Click Perplexity Send before legacy transports, version 2.81.378
 
 - Initial submission and send-only recovery now click the composer-associated Send control after verifying the current visible draft matches the requested prompt. This gives a normal DOM send path before the legacy debugger transport, which is disabled in this build.

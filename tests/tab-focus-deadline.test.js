@@ -48,3 +48,14 @@ test('activation errors still prevent sending into an unavailable tab', async ()
   expect(await c.activateTabForDispatch(42)).toBe(false);
   expect(c.chrome.windows.update).not.toHaveBeenCalled();
 });
+
+test('first-pass activation timeout is uncertainty, not a tab error', async () => {
+  jest.useFakeTimers();
+  let late;
+  const c = setup((_id, _options, cb) => {late = cb;});
+  const result = c.activateTabForDispatch(42, 'round1_simple', {allowUnconfirmed:true});
+  await jest.advanceTimersByTimeAsync(1500);
+  expect(await result).toBe('unconfirmed');
+  late({windowId:1});
+  expect(c.chrome.windows.update).not.toHaveBeenCalled();
+});
