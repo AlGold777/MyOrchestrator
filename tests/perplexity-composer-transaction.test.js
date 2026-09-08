@@ -17,6 +17,26 @@ describe('Perplexity composer transaction', () => {
     window.eval(SOURCE);
   });
 
+  test('Send clicks the current draft control once and rejects stale, disabled or detached drafts', () => {
+    document.body.innerHTML = '<form><textarea></textarea><button type="button" aria-label="Send">Send</button></form>';
+    const composer = document.querySelector('textarea');
+    const button = document.querySelector('button');
+    setRect(composer); setRect(button);
+    composer.value = '8 / 4';
+    const clicked = jest.fn();
+    button.addEventListener('click', clicked);
+    const api = window.PerplexityComposerTransaction;
+    expect(api.clickSend(composer, '8 / 4')).toEqual({ok:true, method:'dom_send_control_click'});
+    expect(clicked).toHaveBeenCalledTimes(1);
+    expect(api.clickSend(composer, 'different prompt').ok).toBe(false);
+    button.disabled = true;
+    expect(api.clickSend(composer, '8 / 4').ok).toBe(false);
+    button.disabled = false;
+    composer.remove();
+    expect(api.clickSend(composer, '8 / 4').ok).toBe(false);
+    expect(clicked).toHaveBeenCalledTimes(1);
+  });
+
   test('editor-owned beforeinput inserts once without a second native insertion', async () => {
     document.body.innerHTML = '<div contenteditable="true">old draft</div>';
     const composer = document.querySelector('[contenteditable]');

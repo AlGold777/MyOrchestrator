@@ -368,6 +368,17 @@
     };
   };
 
+  const clickSend = (composer, prompt) => {
+    if (!isVisible(composer) || !promptMatches(read(composer), prompt)) {
+      return {ok: false, reason: 'composer_prompt_mismatch'};
+    }
+    const control = resolveSendControl(composer);
+    if (!control) return {ok: false, reason: 'enabled_send_control_not_found'};
+    control.click();
+    // A click is an attempt; callers must verify page submission separately.
+    return {ok: true, method: 'dom_send_control_click'};
+  };
+
   const api = Object.freeze({
     DEFAULT_SELECTORS,
     normalize,
@@ -376,6 +387,7 @@
     createDispatchGate,
     isVisible,
     resolveSendControl,
+    clickSend,
     describe,
     scoreComposer,
     collectCandidates,

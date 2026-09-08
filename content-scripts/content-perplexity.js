@@ -1712,36 +1712,30 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
       return false;
     };
 
-    // Cheap synthetic Ctrl+Enter first, bounded short: the 2026-07-30 field
-    // regression documented that Perplexity's Lexical editor usually ignores
-    // synthetic keyboard events entirely, which is why the trusted CDP path
-    // below exists at all. This attempt is not expected to work on every
-    // build, but it costs under a second when it does not, and it lets a
-    // layout where Lexical does honor it skip the debugger attach — the
-    // confirmation oracle below is fail-closed, so a no-op keypress just
-    // times out into the proven trusted Send path unchanged.
-    activity.heartbeat(0.38, { phase: 'ctrl-enter-attempt' });
+    // Prefer the Send control owned by the verified draft. A clicked control
+    // must be followed by page evidence, never by an immediate second send.
+    reportStage('send_action_requested');
+    const domSend = window.PerplexityComposerTransaction?.clickSend?.(findLivePromptComposer(), prompt);
+    activity.heartbeat(0.38, { phase: domSend?.ok ? 'send-control-clicked' : 'ctrl-enter-attempt' });
     try { inputField.focus?.({ preventScroll: true }); } catch (_) { try { inputField.focus?.(); } catch (_) {} }
     const ctrlEnterInit = {
       key: 'Enter', code: 'Enter', keyCode: 13, which: 13,
       bubbles: true, cancelable: true, ctrlKey: true, composed: true
     };
-    try { inputField.dispatchEvent(new KeyboardEvent('keydown', ctrlEnterInit)); } catch (_) {}
-    try { inputField.dispatchEvent(new KeyboardEvent('keypress', ctrlEnterInit)); } catch (_) {}
-    try { inputField.dispatchEvent(new KeyboardEvent('keyup', ctrlEnterInit)); } catch (_) {}
-    let confirmedViaCtrlEnter = await confirmPerplexitySend(900, false);
+    if (!domSend?.ok) {
+      try { inputField.dispatchEvent(new KeyboardEvent('keydown', ctrlEnterInit)); } catch (_) {}
+      try { inputField.dispatchEvent(new KeyboardEvent('keypress', ctrlEnterInit)); } catch (_) {}
+      try { inputField.dispatchEvent(new KeyboardEvent('keyup', ctrlEnterInit)); } catch (_) {}
+    }
+    let confirmedViaCtrlEnter = await confirmPerplexitySend(domSend?.ok ? 6000 : 900, false);
 
-    // Current Perplexity exposes a unique localized Send control only after the
-    // Lexical editor has committed the draft. prepare() already proves that
-    // control exists, so click it natively first. Enter is a bounded fallback
-    // for layouts where the control disappears between preparation and CDP.
+    // Retain the legacy fallbacks only when no DOM click was issued.
     activity.heartbeat(0.4, { phase: 'trusted-send-control' });
-    reportStage('send_action_requested');
     if (confirmedViaCtrlEnter) {
-      reportStage('send_action_completed', { outcome: 'confirmed', method: 'ctrl_enter' });
+      reportStage('send_action_completed', { outcome: 'confirmed', method: domSend?.ok ? domSend.method : 'ctrl_enter' });
       activity.heartbeat(0.55, { phase: 'send-dispatched' });
     }
-    const trustedSend = confirmedViaCtrlEnter ? null : await new Promise((resolve) => {
+    const trustedSend = confirmedViaCtrlEnter || domSend?.ok ? null : await new Promise((resolve) => {
       chrome.runtime.sendMessage({
         type: 'PROVIDER_TRUSTED_SEND_REQUEST',
         llmName: MODEL,
@@ -1753,7 +1747,7 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
     });
     let confirmed = confirmedViaCtrlEnter || (trustedSend?.ok && await confirmPerplexitySend(6000, true));
     let trustedEnter = null;
-    if (!confirmed && findLivePromptComposer()) {
+    if (!confirmed && !domSend?.ok && findLivePromptComposer()) {
       activity.heartbeat(0.43, { phase: 'trusted-composer-enter-fallback' });
       trustedEnter = await new Promise((resolve) => {
         chrome.runtime.sendMessage({
@@ -1890,12 +1884,13 @@ async function recoverPerplexitySendOnly(prompt, meta) {
   reportStage('send_only_recovery_started', { composerVisible: true, composerConnected: true });
   try {
     const baseline = capturePerplexitySubmitBaseline(composer);
-    let method = 'trusted_send';
-    let action = await sendPerplexityRuntimeMessage({
+    const domSend = window.PerplexityComposerTransaction?.clickSend?.(composer, prompt);
+    let method = domSend?.ok ? domSend.method : 'trusted_send';
+    let action = domSend?.ok ? domSend : await sendPerplexityRuntimeMessage({
       type: 'PROVIDER_TRUSTED_SEND_REQUEST', llmName: MODEL, prompt
     });
     let proof = action?.ok ? await waitForPerplexitySubmitEvidence(baseline, 5000) : null;
-    if (!proof && findOwnedPerplexityPromptComposer(prompt)) {
+    if (!proof && !domSend?.ok && findOwnedPerplexityPromptComposer(prompt)) {
       method = 'trusted_enter';
       action = await sendPerplexityRuntimeMessage({
         type: 'PERPLEXITY_TRUSTED_ENTER_REQUEST', llmName: MODEL, prompt

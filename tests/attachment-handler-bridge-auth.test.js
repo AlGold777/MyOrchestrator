@@ -504,15 +504,15 @@ describe('attachment bridge authentication', () => {
     expect(recoveryButtonAt).toBeGreaterThan(recoveryCtrlEnterAt);
   });
 
-  test('Perplexity tries a bounded synthetic Ctrl+Enter before attaching the debugger for trusted Send', () => {
+  test('Perplexity tries its draft-owned Send control before legacy transports', () => {
     const source = PROVIDER_SOURCES.Perplexity;
-    const ctrlEnterAt = source.indexOf("let confirmedViaCtrlEnter = await confirmPerplexitySend(900, false)");
+    const ctrlEnterAt = source.indexOf('const domSend = window.PerplexityComposerTransaction?.clickSend');
     const trustedAt = source.indexOf("type: 'PROVIDER_TRUSTED_SEND_REQUEST'");
     expect(ctrlEnterAt).toBeGreaterThan(-1);
     expect(trustedAt).toBeGreaterThan(ctrlEnterAt);
-    // The debugger-backed request must be skipped entirely once Ctrl+Enter
-    // already confirmed the send, not merely raced against it.
-    expect(source).toContain('const trustedSend = confirmedViaCtrlEnter ? null : await new Promise');
+    // Runtime coverage of delayed confirmation and duplicate prevention lives
+    // in perplexity-dom-send.test.js.
+    expect(source).toContain('const trustedSend = confirmedViaCtrlEnter || domSend?.ok ? null : await new Promise');
     // A ctrl_enter confirmation must not be discarded when trustedSend is null
     // (this was a live bug during development: `trustedSend?.ok` on a null
     // trustedSend evaluates falsy and silently overwrote a real confirmation).

@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-09-08 — Click Perplexity Send before legacy transports, version 2.81.378
+
+- Initial submission and send-only recovery now click the composer-associated Send control after verifying the current visible draft matches the requested prompt. This gives a normal DOM send path before the legacy debugger transport, which is disabled in this build.
+- Page evidence is still required to confirm submission. Once the button was clicked, the adapter does not fall through to another keyboard/debugger attempt when confirmation is delayed. Missing controls retain the existing fallback/error path.
+- Tests cover one click on the current prompt and rejection of mismatched, disabled and detached drafts. This does not prove that every live Perplexity layout accepts synthetic clicks; browser acceptance remains outstanding.
+
 ### 2026-09-08 — Overlap durable intent with foreground preparation, version 2.81.377
 
 - Start the small command-intent write concurrently with tab activation and the two-second editor preparation. Storage acknowledgement is still required before command delivery, but is no longer a separate serial pause.
