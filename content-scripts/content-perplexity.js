@@ -279,6 +279,7 @@ const findOwnedPerplexityPromptComposer = (prompt) => {
 };
 
 const PERPLEXITY_USER_TURN_SELECTORS = [
+  '[class~="group/user-bubble"]',
   '[data-message-author-role="user"]',
   '[data-role="user"]',
   '[data-testid*="user-message" i]',
