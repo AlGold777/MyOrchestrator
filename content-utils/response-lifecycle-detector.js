@@ -1670,6 +1670,7 @@
           contentHash: structuralVerification.selectedHash,
           structuralHash: structuralVerification.structuralHash,
           responseIdentity,
+          answerVerification: structuralVerification,
           observedAt: structuralVerification.observedAt
         });
         const terminalResult = tracker.completionSession.evaluate(Date.now());

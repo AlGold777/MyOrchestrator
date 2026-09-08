@@ -911,6 +911,7 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
       this.emitPipelineStep('finalization_start', { meta: { phase: 'finalization' } });
 
       const authoritySnapshot = this.state.answerResult?.extractionSnapshot || null;
+      if (authoritySnapshot) this.lastAnswerVerification = authoritySnapshot.answerVerification || null;
       const maintenanceResult = authoritySnapshot
         ? { ran: false, reason: 'immutable_extraction_already_captured' }
         : await this.runMaintenanceScroll(this.state.container);

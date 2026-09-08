@@ -1,5 +1,10 @@
 # CHANGELOG — Project
 
+### 2026-09-08 — Preserve completion proof with immutable answers, version 2.81.382
+
+- Carry structural verification from lifecycle completion into the immutable extraction snapshot and forward it to background finalization.
+- Copy and freeze proof metadata; missing proof remains missing and cannot reuse an earlier answer.
+
 ### 2026-09-08 — Make Qwen and Perplexity submission evidence follow the live page, version 2.81.381
 
 - Qwen searches the current DOM for a ready Send control before the slow selector fallback and confirms a new user turn after navigation replaces the home composer.

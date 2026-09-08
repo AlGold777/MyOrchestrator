@@ -1,5 +1,5 @@
 (function initCompletionProtocol(root, factory) {
-  const protocolVersion = '2.3.0';
+  const protocolVersion = '2.3.1';
   if (root?.CompletionProtocol?.version === protocolVersion) {
     if (typeof module === 'object' && module.exports) module.exports = root.CompletionProtocol;
     return;
@@ -246,7 +246,9 @@
       if (!verifiedSnapshot || typeof verifiedSnapshot.text !== 'string') throw new Error('Verified snapshot is required');
       const text = verifiedSnapshot.text;
       const html = String(verifiedSnapshot.html || '');
+      const proof = verifiedSnapshot.answerVerification;
       return freeze({
+        answerVerification: proof ? freeze(JSON.parse(JSON.stringify(proof))) : null,
         responseIdentity: freeze({ ...(verifiedSnapshot.responseIdentity || {}) }),
         text,
         html,
