@@ -1824,7 +1824,7 @@ function isLikelyClaudeModelLabel(text = '') {
   const s = String(text || '').trim();
   if (!s) return false;
   if (s.length > 40) return false;
-  return /^(?:claude\\s*)?(?:opus|sonnet|haiku)(?:\\s+\\d+(?:\\.\\d+)?)?$/i.test(s);
+  return /^(?:claude\s*)?(?:opus|sonnet|haiku)(?:\s+\d+(?:\.\d+)?)?$/i.test(s);
 }
 
 

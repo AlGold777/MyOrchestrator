@@ -1,5 +1,9 @@
 # CHANGELOG — Project
 
+### 2026-09-09 — Recognize Claude model labels, version 2.81.384
+
+- Fix escaped regex tokens so labels such as `Sonnet 4.5` and `Claude Opus 4` are rejected by the answer filter. Sentences mentioning those models remain eligible.
+
 ### 2026-09-09 — Block GPT and Claude sending unverified drafts, version 2.81.383
 
 - GPT and Claude now stop before Send when final composer verification fails. Their final checks require the full normalized prompt in a connected editor, rather than a matching prefix.
