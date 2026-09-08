@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-09-08 — Overlap durable intent with foreground preparation, version 2.81.377
+
+- Start the small command-intent write concurrently with tab activation and the two-second editor preparation. Storage acknowledgement is still required before command delivery, but is no longer a separate serial pause.
+- Replace the two-second write cutoff with a ten-second deadline. A 2.5-second acknowledgement now sends the command instead of skipping the model. This is a bounded mitigation for slow Chrome storage, not a claim that storage can never delay or defer a visit. Reads retain their existing deadline and recovery guards.
+- Regression tests cover slow acknowledgement, genuine write failure, stalled writes and late completion without an old command being sent. Provider send and answer-completion issues are not resolved by this change.
+
 ### 2026-09-08 — Activate tabs without waiting for window focus, version 2.81.376
 
 - Dispatch activates the destination tab directly instead of waiting for sequential tab lookup and window-focus callbacks. A silent or failed window-focus callback no longer skips a successfully activated model. The activation deadline and late-callback guard remain.

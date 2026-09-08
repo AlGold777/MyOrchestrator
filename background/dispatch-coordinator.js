@@ -1060,10 +1060,7 @@ async function dispatchSimpleFirstPass(llmName, tabId, prompt, attachments, entr
   entry.dispatchCheckpoint = {dispatchId: meta.dispatchId, phase: 'command_intent'};
   // Persist only command ownership here. Full job snapshots can be queued
   // behind active generation writes and must not prevent a ready page sending.
-  const durable = await self.DispatchIntentStore.persist(llmName, tabId, entry);
-  if (!durable || !current()) {
-    return defer('checkpoint_not_ready');
-  }
+  const durable = self.DispatchIntentStore.persist(llmName, tabId, entry);
   return withPromptDispatchFocusLock(async () => {
     if (!current()) return {ok: false, reason: 'session_changed'};
     if (await activateTabForDispatch(tabId) !== true) {
@@ -1072,6 +1069,9 @@ async function dispatchSimpleFirstPass(llmName, tabId, prompt, attachments, entr
     const visitStartedAt = Date.now();
     await pause(Number(options.deferSendMs ?? 2000));
     if (!current()) return {ok: false, reason: 'session_changed'};
+    // Focus and editor settling overlap the write; ordinary storage latency
+    // adds no extra pause. Still require ownership to be durable before Send.
+    if (!await durable || !current()) return defer('checkpoint_not_ready');
     machine?.ready?.();
     const commandAt = Date.now();
     let deliveryError = null;

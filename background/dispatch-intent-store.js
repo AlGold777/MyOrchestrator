@@ -26,7 +26,9 @@
       dispatchCheckpoint: {dispatchId: meta.dispatchId, phase: 'command_intent'}
     };
     try {
-      await bounded(() => chrome.storage.session.set({[keyFor(model)]: record}));
+      // This write overlaps foreground preparation. A two-second cutoff used
+      // to discard live commands merely because Chrome delivered the ACK late.
+      await bounded(() => chrome.storage.session.set({[keyFor(model)]: record}), 10000);
       return true;
     } catch (_) { return false; }
   }

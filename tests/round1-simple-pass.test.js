@@ -143,13 +143,17 @@ test('stalled full-state storage cannot skip models or delay their foreground sl
 test('a failed intent write never sends and reports the exact deferral instead of a sent command', async () => {
   const {c,events}=setup(['Kimi']);
   c.chrome.storage.session.set.mockRejectedValue(new Error('unavailable'));
-  const result=await c.dispatchSimpleFirstPass('Kimi',1,'8 / 4',[],c.jobState.llms.Kimi,{});
+  const pending=c.dispatchSimpleFirstPass('Kimi',1,'8 / 4',[],c.jobState.llms.Kimi,{});
+  await jest.advanceTimersByTimeAsync(2000);
+  const result=await pending;
   expect(result.reason).toBe('checkpoint_not_ready');
-  expect(events).toEqual([]);
+  expect(events).toEqual([['focus',1,1000]]);
   expect(c.emitTelemetry).toHaveBeenCalledWith('Kimi','ROUND1_SIMPLE_DISPATCH_RESULT',expect.objectContaining({
     meta:expect.objectContaining({stage:'first_pass_deferred',outcome:'checkpoint_not_ready',commandIssued:false})
   }));
-  await c.dispatchRound1Sequentially(['Kimi'],'8 / 4',[],1);
+  const round=c.dispatchRound1Sequentially(['Kimi'],'8 / 4',[],1);
+  await jest.advanceTimersByTimeAsync(2000);
+  await round;
   expect(c.emitModelRoundTelemetry).toHaveBeenCalledWith('Kimi',1,'END','dispatch deferred before command',expect.objectContaining({
     meta:expect.objectContaining({commandIssued:false,reason:'checkpoint_not_ready'})
   }));
@@ -160,11 +164,20 @@ test('a stalled intent write is bounded and its late completion cannot send an o
   let release;
   c.chrome.storage.session.set.mockImplementationOnce(() => new Promise(resolve => {release=resolve;}));
   const run=c.dispatchRound1Sequentially(['DeepSeek','Kimi'],'8 / 4',[],1);
-  await jest.advanceTimersByTimeAsync(9000);
+  await jest.advanceTimersByTimeAsync(17000);
   expect(await run).toBe(true);
   release();
   await jest.advanceTimersByTimeAsync(2000);
-  expect(events).toEqual([['focus',2,3000],['command',2,5000]]);
+  expect(events).toEqual([['focus',1,1000],['focus',2,11000],['command',2,13000]]);
+});
+
+test('journal writes overlap preparation and delayed ACKs do not skip ready models', async () => {
+  const {c,events}=setup(['DeepSeek','Kimi']);
+  c.chrome.storage.session.set.mockImplementation(() => new Promise(resolve => setTimeout(resolve,2500)));
+  const run=c.dispatchRound1Sequentially(['DeepSeek','Kimi'],'8 / 4',[],1);
+  await jest.advanceTimersByTimeAsync(15000);
+  expect(await run).toBe(true);
+  expect(events).toEqual([['focus',1,1000],['command',1,3500],['focus',2,8500],['command',2,11000]]);
 });
 
 test('a late command acceptance neither revisits the old page nor resets the current visit', async () => {
