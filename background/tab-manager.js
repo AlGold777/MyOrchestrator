@@ -989,19 +989,23 @@ function activateTabForDispatch(tabId, source = 'activate_tab_for_dispatch') {
       resolve(ok);
     };
     const timer = setTimeout(() => finish(false), 1500);
-    // Keep window geometry intact: only focus/activate, do not force state changes.
-    chrome.tabs.get(tabId, (tab) => {
+    // Activating the tab is the required operation. Window focus is cosmetic
+    // and its callback must not gate activation (it can stall under Chrome load).
+    if (typeof self.markProgrammaticTabFocus === 'function') {
+      self.markProgrammaticTabFocus(tabId, source);
+    }
+    chrome.tabs.update(tabId, { active: true }, (tab) => {
+      const activationError = chrome.runtime.lastError;
       if (settled) return;
-      if (chrome.runtime.lastError || !tab) { finish(false); return; }
-      const winId = tab.windowId;
-      chrome.windows.update(winId, { focused: true }, () => {
-        if (settled) return;
-        if (chrome.runtime.lastError) { finish(false); return; }
-        if (typeof self.markProgrammaticTabFocus === 'function') {
-          self.markProgrammaticTabFocus(tabId, source);
-        }
-        chrome.tabs.update(tabId, { active: true }, () => finish(!chrome.runtime.lastError));
-      });
+      if (activationError || !tab) { finish(false); return; }
+      // Issue this while we still own the visit; never issue it from a late
+      // callback after the next model has acquired foreground ownership.
+      try {
+        chrome.windows.update(tab.windowId, { focused: true }, () => {
+          void chrome.runtime.lastError;
+        });
+      } catch (_) { /* Window focus does not invalidate an activated tab. */ }
+      finish(true);
     });
   });
 }

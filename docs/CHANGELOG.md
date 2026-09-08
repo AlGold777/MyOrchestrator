@@ -1,5 +1,10 @@
 # CHANGELOG — Project
 
+### 2026-09-08 — Activate tabs without waiting for window focus, version 2.81.376
+
+- Dispatch activates the destination tab directly instead of waiting for sequential tab lookup and window-focus callbacks. A silent or failed window-focus callback no longer skips a successfully activated model. The activation deadline and late-callback guard remain.
+- Regression tests cover silent window focus, window-focus errors, failed activation and late activation callbacks. This removes one possible source of the observed `focus_unavailable` deferrals; live verification and the separate storage/send/completion defects remain outstanding.
+
 ### 2026-09-08 — Keep first-pass dispatch independent of full-state writes, version 2.81.375
 
 - Replaced the per-model wait for the compressed job snapshot with a small command-intent record in session storage. A slow/full-state write queue no longer causes a ready model to be skipped at the two-second checkpoint deadline. The fixed 2-second preparation and 5-second foreground slot remain unchanged; actual journal-write failure still defers the command explicitly.
