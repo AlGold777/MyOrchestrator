@@ -1123,10 +1123,10 @@ if (typeof window.SelectorFinder === 'undefined') {
   };
   const normalizeComposerText = (text = '') => String(text || '').replace(/\s+/g, ' ').trim().toLowerCase();
   const composerHasPromptHead = (element, prompt) => {
-    const expected = normalizeComposerText(prompt).slice(0, 120);
-    if (!expected) return true;
+    const expected = normalizeComposerText(prompt);
+    if (!expected || !element?.isConnected) return false;
     const current = normalizeComposerText(readComposerValue(element));
-    return current.includes(expected);
+    return current === expected;
   };
 
   const forceComposerValue = (element, prompt) => {
@@ -1974,9 +1974,7 @@ function isLikelyClaudeModelLabel(text = '') {
 
         const composerConfirmed = await ensureComposerValue(inputArea, prompt);
         window.ContentUtils?.reportPromptInsertion?.(MODEL, dispatchMeta, {
-          // An unconfirmed composer is not a failed insertion here: Claude keeps
-          // sending on the fallback path below, so the verdict states what was
-          // observed and leaves the send outcome to the submission events.
+          // The final read-back is a gate: unconfirmed text must not reach Send.
           state: composerConfirmed ? 'inserted' : 'failed',
           method: composerConfirmed ? 'composer_confirmed' : null,
           reason: composerConfirmed ? null : 'composer_not_confirmed',
@@ -1984,16 +1982,7 @@ function isLikelyClaudeModelLabel(text = '') {
           composerLength: readComposerValue(inputArea).length
         });
         if (!composerConfirmed) {
-          const fallbackText = String(readComposerValue(inputArea)).trim();
-          console.warn('[content-claude] Composer text not confirmed, proceeding with send fallback', {
-            hasText: fallbackText.length > 0
-          });
-          emitDiagnostic({
-            type: 'COMPOSER',
-            label: 'Composer not confirmed',
-            details: `length=${fallbackText.length}`,
-            level: 'warning'
-          });
+          throw Object.assign(new Error('Claude live composer does not contain the complete prompt'), { type: 'prompt_injection_failed' });
         } else {
           emitDiagnostic({
             type: 'COMPOSER',

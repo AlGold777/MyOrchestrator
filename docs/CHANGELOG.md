@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-09-09 — Block GPT and Claude sending unverified drafts, version 2.81.383
+
+- GPT and Claude now stop before Send when final composer verification fails. Their final checks require the full normalized prompt in a connected editor, rather than a matching prefix.
+- GPT no longer treats an empty composer alone as submission confirmation. Existing user-turn and Stop evidence remain; this is not yet exact submitted-message verification.
+- Regression tests exercise empty, truncated, contaminated and detached drafts, plus successful full-text verification. Normalization retains existing provider behavior; byte-exact code/whitespace transport and live browser acceptance remain outside this change.
+
 ### 2026-09-08 — Preserve completion proof with immutable answers, version 2.81.382
 
 - Carry structural verification from lifecycle completion into the immutable extraction snapshot and forward it to background finalization.

@@ -1194,13 +1194,13 @@ const chatgptScrollCoordinator = window.ScrollCoordinator
             throw { type: 'attachment_failed', message: 'ChatGPT attachment upload was not confirmed. Paste the file manually with Ctrl/Cmd+V.' };
           }
         }
-        const promptHead = normalizeForComparison(prompt).slice(0, 120);
         const composerNow = normalizeForComparison(readComposerValue(inputField));
-        const hasPreparedPrompt = Boolean(promptHead && composerNow.includes(promptHead));
+        const expectedComposerText = normalizeForComparison(prompt);
+        const hasPreparedPrompt = Boolean(expectedComposerText && composerNow === expectedComposerText);
         const preparedRecently = gptLastPreparedFingerprint === fp && (Date.now() - gptLastPreparedAt) < GPT_PREPARED_DEDUPE_WINDOW_MS;
         if (!(preparedRecently && hasPreparedPrompt)) {
           const forced = await fastSetPrompt(inputField, prompt);
-          const forcedOk = promptHead && normalizeForComparison(forced).includes(promptHead);
+          const forcedOk = expectedComposerText && normalizeForComparison(forced) === expectedComposerText;
           if (!forcedOk) {
             await humanTypeInput(inputField, prompt, { wpm: 125 });
           }
@@ -1214,15 +1214,18 @@ const chatgptScrollCoordinator = window.ScrollCoordinator
         // ChatGPT composer produced no evidence at all — neither a failure nor a
         // confirmation. State the observed outcome before Send is attempted.
         const composerAfterPrepare = readComposerValue(inputField);
-        const composerHoldsPrompt = Boolean(promptHead
-          && normalizeForComparison(composerAfterPrepare).includes(promptHead));
+        const composerHoldsPrompt = Boolean(inputField.isConnected && expectedComposerText
+          && normalizeForComparison(composerAfterPrepare) === expectedComposerText);
         window.ContentUtils?.reportPromptInsertion?.(MODEL, dispatchMeta, {
           state: composerHoldsPrompt ? 'inserted' : 'failed',
           method: preparedRecently && hasPreparedPrompt ? 'reused_prepared_composer' : 'composer_prepared',
-          reason: composerHoldsPrompt ? null : 'prompt_head_absent_from_composer',
+          reason: composerHoldsPrompt ? null : 'composer_prompt_mismatch',
           promptLength: String(prompt || '').length,
           composerLength: String(composerAfterPrepare || '').length
         });
+        if (!composerHoldsPrompt) {
+          throw Object.assign(new Error('ChatGPT live composer does not contain the complete prompt'), { type: 'prompt_injection_failed' });
+        }
         activity.heartbeat(0.35, { phase: 'typing' });
 
         console.log('[CONTENT-GPT] Prompt injected, waiting for UI to update...');
@@ -1311,8 +1314,6 @@ const chatgptScrollCoordinator = window.ScrollCoordinator
             if (stopBtn && isElementInteractable(stopBtn)) return true;
             const after = document.querySelectorAll('[data-message-author-role="user"]').length;
             if (after > preSendUserCount) return true;
-            const val = String(inputField.value ?? inputField.textContent ?? '').trim();
-            if (!val.length) return true;
             await sleep(120);
           }
           return false;
