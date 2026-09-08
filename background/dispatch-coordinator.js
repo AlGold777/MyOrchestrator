@@ -1040,27 +1040,34 @@ async function dispatchSimpleFirstPass(llmName, tabId, prompt, attachments, entr
     const end = Date.now() + ms;
     while (current() && Date.now() < end) await dispatchSleepMs(Math.min(100, end - Date.now()));
   };
+  const defer = reason => {
+    if (current()) {
+      entry.firstPassResult = {dispatchId: meta.dispatchId, outcome: reason, commandAt: null, finishedAt: Date.now()};
+      machine?.error?.({code: 'ROUND1_DEFERRED', error: reason});
+      emitTelemetry(llmName, 'ROUND1_SIMPLE_DISPATCH_RESULT', {
+        details: reason,
+        meta: {...meta, tabId, stage: 'first_pass_deferred', outcome: reason, commandIssued: false},
+        force: true
+      });
+    }
+    return {ok: false, deferred: true, reason};
+  };
   // File upload has its own readiness requirements; do not send bare text when
   // the user supplied attachments. The normal Round 2 adapter handles them.
   if (attachments?.length) {
-    machine?.error?.({code: 'ROUND1_DEFERRED', error: 'attachments_require_round2'});
-    return {ok: false, deferred: true, reason: 'attachments_require_round2'};
+    return defer('attachments_require_round2');
   }
   entry.dispatchCheckpoint = {dispatchId: meta.dispatchId, phase: 'command_intent'};
-  let storageTimer;
-  const durable = await Promise.race([
-    Promise.resolve(saveJobState(jobState)).then(() => true),
-    new Promise(resolve => { storageTimer = setTimeout(() => resolve(false), 2000); })
-  ]).finally(() => clearTimeout(storageTimer));
+  // Persist only command ownership here. Full job snapshots can be queued
+  // behind active generation writes and must not prevent a ready page sending.
+  const durable = await self.DispatchIntentStore.persist(llmName, tabId, entry);
   if (!durable || !current()) {
-    machine?.error?.({code: 'ROUND1_DEFERRED', error: 'checkpoint_not_ready'});
-    return {ok: false, deferred: true, reason: 'checkpoint_not_ready'};
+    return defer('checkpoint_not_ready');
   }
   return withPromptDispatchFocusLock(async () => {
     if (!current()) return {ok: false, reason: 'session_changed'};
     if (await activateTabForDispatch(tabId) !== true) {
-      machine?.error?.({code: 'ROUND1_DEFERRED', error: 'focus_unavailable'});
-      return {ok: false, deferred: true, reason: 'focus_unavailable'};
+      return defer('focus_unavailable');
     }
     const visitStartedAt = Date.now();
     await pause(Number(options.deferSendMs ?? 2000));
@@ -1108,7 +1115,7 @@ async function dispatchSimpleFirstPass(llmName, tabId, prompt, attachments, entr
     }
     emitTelemetry(llmName, 'ROUND1_SIMPLE_DISPATCH_RESULT', {
       details: outcome,
-      meta: {...meta, tabId, outcome, visitMs: Date.now() - visitStartedAt, commandAt, leaveAt},
+      meta: {...meta, tabId, stage: 'first_pass_finished', outcome, commandIssued: true, visitMs: Date.now() - visitStartedAt, commandAt, leaveAt},
       force: true
     });
     return {ok: attempted, deferred: !attempted, dispatchId: meta.dispatchId, reason: outcome};

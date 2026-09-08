@@ -242,7 +242,9 @@
       // Same shape of trap: the typed run result's strength fields end in
       // neither "evidence" nor any suffix below, so they would be dropped
       // before the digest could ever ask how often a green result was proven.
-      'resultType', 'resultGuarantee', 'evidenceClass'
+      'resultType', 'resultGuarantee', 'evidenceClass',
+      // First-pass timing and negative command evidence must survive export.
+      'commandIssued', 'commandAt', 'leaveAt'
     ]);
     const proofKey = /(?:hash|length|len|count|status|state|outcome|step|phase|reasons?|mode|tier|coverage|verified|visible|active|discarded|health|mutation|attempt|deadline|timeout|duration|delay|skew|growth|candidate|answerIdentity|finalStatus|terminalStatus|finishReason|decisionAccepted|promotedFromPending|promotedStagingIngestSeq|dispatchId|answerEvidenceDispatchId|priorIncidentRef|evidence|source|signal|version|ms)$/i;
     const compact = {};

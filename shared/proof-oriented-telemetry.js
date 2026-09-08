@@ -116,6 +116,7 @@
     PROMPT_INSERTION_CONFIRMED: 'PROMPT_INSERTION_EVALUATED',
     PROVIDER_DISPATCH_STAGE_OBSERVED: 'DISPATCH_STAGE_OBSERVED',
     DISPATCH_POST_COMMAND_FOCUS_HOLD: 'DISPATCH_STAGE_OBSERVED',
+    ROUND1_SIMPLE_DISPATCH_RESULT: 'DISPATCH_STAGE_OBSERVED',
     SEND_DEFERRED_TRANSIENT_BLOCKER: 'SUBMISSION_EVIDENCE_CHANGED',
     PRE_INSERTION_FAILURE_DEFERRED: 'SUBMISSION_EVIDENCE_CHANGED',
     PRE_INSERTION_DEFERRAL_EXPIRED: 'SUBMISSION_EVIDENCE_CHANGED',
@@ -361,7 +362,7 @@
   function dispatchStageMapping(event, label = normalizeLabel(event)) {
     const attachment = attachmentStageMapping(event, label);
     if (attachment) return attachment;
-    if (!['PROVIDER_DISPATCH_STAGE_OBSERVED', 'DISPATCH_POST_COMMAND_FOCUS_HOLD'].includes(label)) return null;
+    if (!['PROVIDER_DISPATCH_STAGE_OBSERVED', 'DISPATCH_POST_COMMAND_FOCUS_HOLD', 'ROUND1_SIMPLE_DISPATCH_RESULT'].includes(label)) return null;
     const stage = String(event?.meta?.stage || event?.meta?.boundaryReason || event?.details || 'unknown')
       .trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'unknown';
     return {

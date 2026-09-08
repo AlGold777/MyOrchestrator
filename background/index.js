@@ -268,6 +268,7 @@ importScripts(
   'dispatch-retry.js',
   'tab-manager.js',
   'dispatch-state-machine.js',
+  'dispatch-intent-store.js',
   'dispatch-coordinator.js',
   'pipeline-run-state.js',
   'job-orchestrator.js',

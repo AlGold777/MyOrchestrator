@@ -1,5 +1,12 @@
 # CHANGELOG — Project
 
+### 2026-09-08 — Keep first-pass dispatch independent of full-state writes, version 2.81.375
+
+- Replaced the per-model wait for the compressed job snapshot with a small command-intent record in session storage. A slow/full-state write queue no longer causes a ready model to be skipped at the two-second checkpoint deadline. The fixed 2-second preparation and 5-second foreground slot remain unchanged; actual journal-write failure still defers the command explicitly.
+- Before resuming a worker, merge matching command intents into the saved run. Uncertain first-pass commands are skipped on resume, preserving their dispatch/generation identity; untouched models still run. Confirmed, terminal, newer-attempt and other-session state is preserved. A failed journal read cannot publish/resume an older snapshot.
+- Canonical exports now retain first-pass results, reasons for pre-command deferral, command time and planned departure time. Round END no longer claims a command was sent when preparation deferred it.
+- Regression tests exercise stalled full-state writes, failed/hung journal writes, late callbacks, fresh-worker resume, identity preservation and native canonical export. This corrects a reproducible dispatch failure path; the earlier canonical export did not contain deferral outcomes, so it cannot prove this caused every missing command in that run. Live multi-provider acceptance remains outstanding.
+
 ### 2026-09-08 — Fixed-duration ordered first pass, version 2.81.374
 
 - Round 1 follows the configured model order, without prioritizing Qwen or moving Kimi/Z.ai to the tail. Each visit activates its tab, waits 2 seconds, issues one prompt command to the existing provider adapter, then keeps focus for exactly one 5-second slot measured from that command. Missing or late Send/acceptance telemetry cannot extend this slot. The extra ten-second observation wait in the uncommitted 2.81.373 experiment is removed.

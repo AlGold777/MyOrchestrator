@@ -96,7 +96,7 @@ const PROGRESS_TYPES = Object.freeze([
 const PROGRESS_DETAIL_KEYS = Object.freeze([
   'reason', 'outcome', 'insertionState', 'boundaryReason', 'phase', 'status',
   'promptLength', 'composerLength', 'answerLength', 'normalizedLength',
-  'budgetMs', 'heldMs', 'durationMs'
+  'budgetMs', 'heldMs', 'durationMs', 'visitMs', 'commandIssued', 'commandAt', 'leaveAt'
 ]);
 
 const IGNORED_TYPES = Object.freeze([

@@ -6,13 +6,17 @@ const orch = fs.readFileSync(require.resolve('../background/job-orchestrator'), 
 
 function setup(names, send) {
   const events = [];
+  const sessionStorage = {};
   const c = { console, Date, Promise, setTimeout, clearTimeout,
     jobState: {session: {startTime:1}, llms: Object.fromEntries(names.map((name,i) => [name,
       {tabId:i+1, lastDispatchMeta:{dispatchId:name, runSessionId:1}}]))},
     dispatchSleepMs: ms => new Promise(resolve => setTimeout(resolve,ms)),
     saveJobState: async () => {}, emitTelemetry: jest.fn(),
     activateTabForDispatch: async id => {events.push(['focus',id,Date.now()]);return true;},
-    chrome: {runtime:{},tabs:{sendMessage: (id,msg,cb) => {events.push(['command',id,Date.now()]);send?.(c,id,msg,cb);}}},
+    chrome: {runtime:{}, storage: {session: {
+      set: jest.fn(async values => Object.assign(sessionStorage, structuredClone(values))),
+      get: jest.fn(async keys => Object.fromEntries(keys.map(key => [key, sessionStorage[key]])))
+    }}, tabs:{sendMessage: (id,msg,cb) => {events.push(['command',id,Date.now()]);send?.(c,id,msg,cb);}}},
     orderRound1Models: ns => ns, isSessionActive: id => id === c.jobState.session.startTime,
     isFinalizedEntry: e => !!e.finalizedAt, resolveBoundTabIdForOrchestrator: (_,e) => e.tabId,
     isValidTabId: Number.isInteger, getTabSafe: async () => ({url:'https://example.com'}),
@@ -21,6 +25,7 @@ function setup(names, send) {
     ROUND1_BEFORE_SEND_MS:2000, ROUND1_POST_SEND_MS:5000, ROUND1_PROGRESS_FOCUS_EXTENSION_MS:0,
     resolveRound1PostCommandFocusHoldMs: () => 0};
   c.self=c; vm.createContext(c);
+  vm.runInContext(fs.readFileSync(require.resolve('../background/dispatch-intent-store'), 'utf8'), c);
   vm.runInContext(source.slice(source.indexOf('async function dispatchSimpleFirstPass'),source.indexOf('async function dispatchPromptToTab')),c);
   vm.runInContext('var promptDispatchFocusMutex = Promise.resolve();\n'+source.slice(
     source.indexOf('function withPromptDispatchFocusLock'),source.indexOf('function resolvePromptSubmitted')),c);
@@ -124,15 +129,41 @@ test('the whole dispatch path visits ten models every 7s with silent ACKs and co
   expect(c.emitModelRoundTelemetry.mock.calls.filter(call => call[3]==='dispatch preparation failed')).toEqual([]);
 });
 
-test('checkpoint storage stalled on one model defers it within 2s and allows the next model to send', async () => {
+test('stalled full-state storage cannot skip models or delay their foreground slots', async () => {
   const {c,events}=setup(['DeepSeek','Kimi']);
   useFullCoordinator(c);
-  c.saveJobState = async () => {
-    if (!c.jobState.llms.Kimi.dispatchAttempts) await new Promise(() => {});
-  };
+  c.saveJobState = () => new Promise(() => {});
+  const run=c.dispatchRound1Sequentially(['DeepSeek','Kimi'],'8 / 4',[],1);
+  await jest.advanceTimersByTimeAsync(14000);
+  expect(await run).toBe(true);
+  expect(events).toEqual([['focus',1,1000],['command',1,3000],['focus',2,8000],['command',2,10000]]);
+  expect(c.chrome.storage.session.set).toHaveBeenCalledTimes(2);
+});
+
+test('a failed intent write never sends and reports the exact deferral instead of a sent command', async () => {
+  const {c,events}=setup(['Kimi']);
+  c.chrome.storage.session.set.mockRejectedValue(new Error('unavailable'));
+  const result=await c.dispatchSimpleFirstPass('Kimi',1,'8 / 4',[],c.jobState.llms.Kimi,{});
+  expect(result.reason).toBe('checkpoint_not_ready');
+  expect(events).toEqual([]);
+  expect(c.emitTelemetry).toHaveBeenCalledWith('Kimi','ROUND1_SIMPLE_DISPATCH_RESULT',expect.objectContaining({
+    meta:expect.objectContaining({stage:'first_pass_deferred',outcome:'checkpoint_not_ready',commandIssued:false})
+  }));
+  await c.dispatchRound1Sequentially(['Kimi'],'8 / 4',[],1);
+  expect(c.emitModelRoundTelemetry).toHaveBeenCalledWith('Kimi',1,'END','dispatch deferred before command',expect.objectContaining({
+    meta:expect.objectContaining({commandIssued:false,reason:'checkpoint_not_ready'})
+  }));
+});
+
+test('a stalled intent write is bounded and its late completion cannot send an old command', async () => {
+  const {c,events}=setup(['DeepSeek','Kimi']);
+  let release;
+  c.chrome.storage.session.set.mockImplementationOnce(() => new Promise(resolve => {release=resolve;}));
   const run=c.dispatchRound1Sequentially(['DeepSeek','Kimi'],'8 / 4',[],1);
   await jest.advanceTimersByTimeAsync(9000);
   expect(await run).toBe(true);
+  release();
+  await jest.advanceTimersByTimeAsync(2000);
   expect(events).toEqual([['focus',2,3000],['command',2,5000]]);
 });
 

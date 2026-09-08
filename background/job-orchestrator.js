@@ -4890,12 +4890,14 @@ async function loadJobState() {
     if (self.__dispatchRoundsRuntimeActive === true) return;
     const saved = await CompressedStorage.get('jobState');
     if (saved) {
-      jobState = saved;
-      self.jobState = jobState;
       const control = self.PipelineFSM?.loadControlState ? await self.PipelineFSM.loadControlState() : null;
       if (self.PipelineFSM?.hydrateJobState) {
-        self.PipelineFSM.hydrateJobState(jobState, control);
+        self.PipelineFSM.hydrateJobState(saved, control);
       }
+      await self.DispatchIntentStore?.restore?.(saved);
+      if (self.__dispatchRoundsRuntimeActive === true) return;
+      jobState = saved;
+      self.jobState = jobState;
       globalThis.LLMLog?.debug?.('[BACKGROUND] Job state loaded from storage');
       if (typeof hasPendingHumanVisits === 'function' && hasPendingHumanVisits()) {
         scheduleHumanPresenceLoop();
@@ -4922,6 +4924,7 @@ async function loadJobState() {
     }
   } catch (e) {
     console.error('[BACKGROUND] Failed to load job state:', e);
+    throw e;
   }
 }
 
@@ -5699,7 +5702,7 @@ async function dispatchRound1Sequentially(selectedLLMs, prompt, attachments = []
       // Every provider receives the same fixed 2s + 5s visit. Recovery follows
       // only after this ordered pass has finished.
       const modelPrompt = resolvePromptForDispatch(llmName, prompt);
-      await dispatchPromptToTab(llmName, tabId, modelPrompt, attachments, 'round1', {
+      const dispatchResult = await dispatchPromptToTab(llmName, tabId, modelPrompt, attachments, 'round1', {
         simpleFirstPass: true,
         postSendMs: ROUND1_POST_SEND_MS,
         forceFocus: true,
@@ -5713,15 +5716,20 @@ async function dispatchRound1Sequentially(selectedLLMs, prompt, attachments = []
       });
       const postDispatchEntry = jobState?.llms?.[llmName] || entry;
       const confirmedByContent = !!postDispatchEntry?.promptSubmittedAt && postDispatchEntry?.submitSource === 'content';
-      endMeta.reason = confirmedByContent ? 'prompt_confirmed' : 'awaiting_submit_confirmation';
-      endDetails = confirmedByContent ? 'prompt confirmed' : 'dispatch command sent (awaiting confirmation)';
-      endLevel = confirmedByContent ? 'success' : 'info';
+      const passResult = postDispatchEntry?.firstPassResult;
+      const commandIssued = passResult?.dispatchId === postDispatchEntry?.lastDispatchMeta?.dispatchId
+        && passResult?.commandAt != null;
+      endMeta.reason = confirmedByContent ? 'prompt_confirmed' : (dispatchResult?.reason || 'dispatch_not_issued');
+      endDetails = confirmedByContent ? 'prompt confirmed'
+        : (commandIssued ? 'dispatch command issued (confirmation tracked separately)' : 'dispatch deferred before command');
+      endLevel = confirmedByContent ? 'success' : (commandIssued ? 'info' : 'warning');
       emitModelRoundTelemetry(llmName, 1, 'END', endDetails, {
         level: endLevel,
         meta: {
           tabId,
           durationMs: Date.now() - roundStart,
           reason: endMeta.reason,
+          commandIssued,
           promptSubmittedAt: postDispatchEntry?.promptSubmittedAt || null,
           submitSource: postDispatchEntry?.submitSource || null,
           dispatchId: postDispatchEntry?.lastDispatchMeta?.dispatchId || null

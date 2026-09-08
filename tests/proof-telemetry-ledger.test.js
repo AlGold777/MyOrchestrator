@@ -87,6 +87,24 @@ describe('native proof telemetry ledger', () => {
     expect(global.chrome.storage.local.set.mock.calls.length - writesAfterBegin).toBe(1);
   });
 
+  test('first-pass outcomes preserve failure reasons and actual command timing in the canonical export', async () => {
+    await global.ProofTelemetryLedger.beginRun(42, {expectedModels:['Kimi','GPT']});
+    for (const [model, timing] of [
+      ['Kimi', {stage:'first_pass_deferred',outcome:'checkpoint_not_ready',commandIssued:false}],
+      ['GPT', {stage:'first_pass_finished',outcome:'send_unconfirmed',commandAt:2000,leaveAt:7000,visitMs:7000}]
+    ]) {
+      await global.ProofTelemetryLedger.record({label:'ROUND1_SIMPLE_DISPATCH_RESULT',
+        meta:{runSessionId:42,dispatchId:`${model}:42:1`,generationEpoch:1,...timing}},model);
+    }
+    const snapshot = await global.ProofTelemetryLedger.snapshot({runSessionId:42});
+    const outcomes = snapshot.events.filter(event=>event.payload?.sourceEventType==='ROUND1_SIMPLE_DISPATCH_RESULT');
+    expect(outcomes).toHaveLength(2);
+    expect(outcomes.every(event=>event.eventType==='DISPATCH_STAGE_OBSERVED')).toBe(true);
+    expect(outcomes[0].payload.typed).toMatchObject({kind:'dispatch_stage',state:'first_pass_deferred'});
+    expect(outcomes[0].payload.metadata).toMatchObject({outcome:'checkpoint_not_ready',commandIssued:false});
+    expect(outcomes[1].payload.metadata).toMatchObject({commandAt:2000,leaveAt:7000,visitMs:7000});
+  });
+
   test('coalesces mutations that arrive while a persistence transaction is in flight', async () => {
     await global.ProofTelemetryLedger.beginRun(42, { wallTs: 900 });
     const writesAfterBegin = global.chrome.storage.local.set.mock.calls.length;
