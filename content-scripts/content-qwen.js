@@ -1592,22 +1592,6 @@ const keepAliveMutex = (() => {
   }
 
   async function resolveSendButton(referenceInput) {
-    if (window.SelectorFinder?.findOrDetectSelector) {
-      try {
-        const result = await window.SelectorFinder.findOrDetectSelector({
-          modelName: MODEL,
-          elementType: 'sendButton',
-          timeout: 12000,
-          referenceElement: referenceInput || null
-        });
-        if (isSafeQwenSendControl(result?.element)) {
-          return result.element;
-        }
-      } catch (err) {
-        console.warn('[content-qwen] SelectorFinder send button resolution failed', err);
-      }
-    }
-
     const scoreSendButtonCandidate = (btn) => {
       if (!isSafeQwenSendControl(btn)) return 0;
       const text = describeQwenComposerControl(btn);
@@ -1654,6 +1638,19 @@ const keepAliveMutex = (() => {
         .sort((a, b) => b.score - a.score);
       if (candidates[0]?.btn) return candidates[0].btn;
     } catch (_) {}
+    if (window.SelectorFinder?.findOrDetectSelector) {
+      try {
+        const result = await window.SelectorFinder.findOrDetectSelector({
+          modelName: MODEL,
+          elementType: 'sendButton',
+          timeout: 12000,
+          referenceElement: referenceInput || null
+        });
+        if (isSafeQwenSendControl(result?.element)) return result.element;
+      } catch (err) {
+        console.warn('[content-qwen] SelectorFinder send button resolution failed', err);
+      }
+    }
     return null;
   }
 
@@ -1701,10 +1698,12 @@ const keepAliveMutex = (() => {
       }));
     };
     const scope = options.scope || resolveQwenChatRoot(input);
-    const baselineUserCount = Number.isFinite(options.baselineUserCount) ? options.baselineUserCount : getUserMessages(scope).length;
+    // Sending from the home composer mounts a new conversation and detaches
+    // its old scope. Capture/count page user turns, not that stale container.
+    const baselineUserCount = getUserMessages(document).length;
     const promptHead = normalizeForComparison(options.prompt || '').slice(0, 80);
     const hasSubmittedUserMessage = () => {
-      const messages = getUserMessages(scope);
+      const messages = getUserMessages(document);
       if (messages.length <= baselineUserCount) return false;
       const latestText = extractMessageText(messages[messages.length - 1]);
       const normalizedLatest = normalizeForComparison(latestText);
@@ -1714,9 +1713,6 @@ const keepAliveMutex = (() => {
     const confirmQwenSend = async (sendBtn, timeout = 2000) => {
       const deadline = Date.now() + timeout;
       while (Date.now() < deadline) {
-        const typing = document.querySelector('[aria-busy="true"], .loading, .spinner, [data-streaming="true"]');
-        if (typing) return true;
-        if (sendBtn && (sendBtn.disabled || sendBtn.getAttribute?.('aria-disabled') === 'true')) return true;
         if (hasSubmittedUserMessage()) return true;
         await sleep(120);
       }
@@ -1738,13 +1734,20 @@ const keepAliveMutex = (() => {
       return false;
     };
 
-    let sendBtn = null;
-
-    await sleep(2000);
-
-    // Strategy 1: Ctrl+Enter
-    dispatchEnter({ ctrlKey: true });
-    let confirmed = await confirmQwenSend(null);
+    // The draft is already verified. Do not spend the foreground slot waiting
+    // before trying the visible Send control.
+    let sendBtn = await resolveSendButton(input);
+    let confirmed = false;
+    if (isSafeQwenSendControl(sendBtn) && !sendBtn.disabled) {
+      sendBtn.click();
+      confirmed = await confirmQwenSend(sendBtn, 6000);
+      // A slow acknowledgement must not trigger another click on the draft.
+      if (!confirmed) throw { type: 'send_failed', message: 'Qwen button send not confirmed' };
+      return true;
+    } else {
+      dispatchEnter({ ctrlKey: true });
+      confirmed = await confirmQwenSend(null);
+    }
     if (!confirmed) {
       sendBtn = await resolveSendButton(input);
       if (isSafeQwenSendControl(sendBtn) && !sendBtn.disabled) {
