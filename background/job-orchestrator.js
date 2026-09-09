@@ -5543,9 +5543,21 @@ async function openTabsSequentially(selectedLLMs, prompt, forceNewTabs, attachme
     const acquisitions = selectedLLMs.map(async (llmName, index) => {
       if (capturedSessionId && jobState?.session?.startTime !== capturedSessionId) return false;
       // Preserve the exact conversation binding across worker restarts.
-      if (options.resume === true && isValidTabId(resolveBoundTabIdForOrchestrator(llmName, jobState?.llms?.[llmName]))) return true;
-      await startModelForLLM(llmName, prompt, false, attachments, { deferDispatch: true, sessionId });
-      await waitForRound0Binding(llmName, sessionId, ROUND0_BIND_WAIT_TIMEOUT_MS);
+      const resumedBinding = options.resume === true && isValidTabId(resolveBoundTabIdForOrchestrator(llmName, jobState?.llms?.[llmName]));
+      if (!resumedBinding) {
+        await startModelForLLM(llmName, prompt, false, attachments, { deferDispatch: true, sessionId });
+        await waitForRound0Binding(llmName, sessionId, ROUND0_BIND_WAIT_TIMEOUT_MS);
+      }
+      const entry = jobState?.llms?.[llmName];
+      const tabId = resolveBoundTabIdForOrchestrator(llmName, entry);
+      const current = () => jobState?.session?.startTime === capturedSessionId
+        && jobState?.llms?.[llmName] === entry
+        && resolveBoundTabIdForOrchestrator(llmName, entry) === tabId;
+      // Resume must preserve any command already issued before suspension.
+      if (isValidTabId(tabId) && !entry?.lastDispatchMeta?.dispatchId && !entry?.promptSubmittedAt) {
+        const preparation = await prepareReusableTabReceiver(tabId, llmName, current);
+        if (current()) entry.receiverPreparation = preparation;
+      }
       emitTelemetry(llmName, 'ROUND0_TAB_OPENED', {
         details: `${index + 1}/${selectedLLMs.length}`,
         meta: { index, total: selectedLLMs.length, tabId: jobState?.llms?.[llmName]?.tabId || null, acquisitionMode: 'parallel_reuse' }

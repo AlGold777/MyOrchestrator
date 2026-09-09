@@ -26,7 +26,7 @@ function setup(names, send) {
     resolveRound1PostCommandFocusHoldMs: () => 0};
   c.self=c; vm.createContext(c);
   vm.runInContext(fs.readFileSync(require.resolve('../background/dispatch-intent-store'), 'utf8'), c);
-  vm.runInContext(source.slice(source.indexOf('async function prepareFirstPassReceiver'),source.indexOf('async function dispatchPromptToTab')),c);
+  vm.runInContext(source.slice(source.indexOf('async function dispatchSimpleFirstPass'),source.indexOf('async function dispatchPromptToTab')),c);
   vm.runInContext('var promptDispatchFocusMutex = Promise.resolve();\n'+source.slice(
     source.indexOf('function withPromptDispatchFocusLock'),source.indexOf('function resolvePromptSubmitted')),c);
   const start = orch.indexOf('async function dispatchRound1Sequentially');
@@ -216,67 +216,4 @@ test('closing the visit preserves the state of a provider already generating', a
   await jest.advanceTimersByTimeAsync(7000);
   expect(await run).toBe(true);
   expect(c.getDispatchFlags('DeepSeek').state).toBe('STREAMING');
-});
-
-function missingReceiver(c, {stall = false} = {}) {
-  const manifest = JSON.parse(fs.readFileSync(require.resolve('../manifest.json'), 'utf8'));
-  c.SCRIPT_MAP = {GPT:'content-scripts/content-chatgpt.js'};
-  c.isEligibleTabForLlm = () => true;
-  c.chrome.runtime.getManifest = () => manifest;
-  const deliver = c.chrome.tabs.sendMessage;
-  let installed = false;
-  c.chrome.tabs.sendMessage = (id,msg,cb) => {
-    if (msg.type === 'HEALTH_CHECK_PING' && !installed) {
-      c.chrome.runtime.lastError = {message:'Could not establish connection. Receiving end does not exist.'};
-      cb(); delete c.chrome.runtime.lastError; return;
-    }
-    return deliver(id,msg,cb);
-  };
-  c.chrome.scripting = {executeScript: jest.fn(async spec => {
-    if (stall) await new Promise(resolve => setTimeout(resolve,9000));
-    if (spec.files.includes(c.SCRIPT_MAP.GPT)) installed = true;
-  })};
-}
-
-test('an existing page without a receiver installs the manifest stack and sends once within the original slot', async () => {
-  const {c,events} = setup(['GPT']);
-  missingReceiver(c);
-  const run = c.dispatchRound1Sequentially(['GPT'],'8 / 4',[],1);
-  await jest.advanceTimersByTimeAsync(7000);
-  expect(await run).toBe(true);
-  expect(events).toEqual([['focus',1,1000],['command',1,3000]]);
-  const calls = c.chrome.scripting.executeScript.mock.calls.map(([spec]) => spec);
-  expect(calls.map(spec => spec.world)).toEqual(['MAIN','ISOLATED','ISOLATED']);
-  expect(calls[1].files).toContain('content-scripts/base-adapter.js');
-  expect(calls[2].files).toEqual(['content-scripts/content-chatgpt.js']);
-});
-
-test('stalled receiver installation cannot send late or block the next page', async () => {
-  const {c,events} = setup(['GPT','DeepSeek']);
-  missingReceiver(c, {stall:true});
-  // Only GPT lacks a receiver.
-  const send = c.chrome.tabs.sendMessage;
-  c.chrome.tabs.sendMessage = (id,msg,cb) => id === 2 && msg.type === 'HEALTH_CHECK_PING'
-    ? cb({type:'HEALTH_CHECK_PONG'}) : send(id,msg,cb);
-  const run = c.dispatchRound1Sequentially(['GPT','DeepSeek'],'8 / 4',[],1);
-  await jest.advanceTimersByTimeAsync(20000);
-  expect(await run).toBe(true);
-  expect(events).toEqual([['focus',1,1000],['focus',2,3000],['command',2,5000]]);
-  expect(c.chrome.scripting.executeScript).toHaveBeenCalledTimes(1);
-  expect(c.jobState.llms.GPT.firstPassResult.outcome).toBe('receiver_unavailable');
-});
-
-test('a slow health callback never authorizes duplicate installation', async () => {
-  const {c,events} = setup(['GPT']);
-  const send = c.chrome.tabs.sendMessage;
-  c.chrome.tabs.sendMessage = (id,msg,cb) => {
-    if(msg.type === 'HEALTH_CHECK_PING') return;
-    return send(id,msg,cb);
-  };
-  c.chrome.scripting = {executeScript:jest.fn()};
-  const run = c.dispatchRound1Sequentially(['GPT'],'8 / 4',[],1);
-  await jest.advanceTimersByTimeAsync(7000);
-  expect(await run).toBe(true);
-  expect(c.chrome.scripting.executeScript).not.toHaveBeenCalled();
-  expect(events).toEqual([['focus',1,1000],['command',1,3000]]);
 });

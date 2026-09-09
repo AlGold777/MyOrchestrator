@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-09-09 — Prepare reused page runtimes before dispatch, version 2.81.389
+
+- Replace the 2.81.388 partial script injection with concurrent Round 0 preparation. Explicitly missing receivers on settled reused pages trigger one reload at the existing conversation URL, then polling for a provider PONG (20-second preparation budget). Healthy pages are untouched; loading pages wait for natural registration.
+- First-pass timing no longer doubles as a deadline for installing the extension. Preparation failures are recorded before prompt delivery; Stop, changed tab bindings and resumed commands prevent stale reloads. No prompt is sent by the preparation path.
+- Tests cover slow registration beyond 1.8 seconds, one reload, healthy/loading/silent pages, bounded lookup, cancellation, parallel preparation and preservation of previously issued commands on resume. The 2.81.388 field run still failed first-pass transport for six providers; answer acceptance is a separate unresolved issue.
+
 ### 2026-09-09 — Restore missing receivers on existing pages, version 2.81.388
 
 - During the first-pass two-second preparation slot, probe the page transport. An explicit missing-receiver error installs the shared dependencies and provider adapter in manifest order, including the MAIN-world bridge, without reloading the conversation. A healthy or merely slow receiver is not reinstalled.

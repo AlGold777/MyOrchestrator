@@ -1,0 +1,90 @@
+/** @jest-environment node */
+const fs = require('fs');
+const vm = require('vm');
+const source = fs.readFileSync(require.resolve('../background/dispatch-coordinator'), 'utf8');
+function setup(states = ['missing','ready']) {
+  let active = true;
+  const c = {Date,Promise,setTimeout,clearTimeout,
+    dispatchSleepMs:ms => new Promise(resolve => setTimeout(resolve,ms)),
+    getTabSafe:jest.fn(async () => ({status:'complete',url:'https://claude.ai/chat/existing'})),
+    isEligibleTabForLlm:() => true, emitTelemetry:jest.fn(),
+    chrome:{runtime:{},tabs:{reload:jest.fn((id,options,cb) => cb()),sendMessage:jest.fn((id,msg,cb) => {
+      const state = states.length > 1 ? states.shift() : states[0];
+      if (state === 'silent') return;
+      if (state === 'missing') c.chrome.runtime.lastError = {message:'Could not establish connection. Receiving end does not exist.'};
+      cb(state === 'ready' ? {type:'HEALTH_CHECK_PONG',llmName:'Claude'} : null);
+      delete c.chrome.runtime.lastError;
+    })}}};
+  vm.createContext(c);
+  vm.runInContext(source.slice(source.indexOf('async function prepareReusableTabReceiver'),source.indexOf('async function dispatchSimpleFirstPass')),c);
+  return {c,run:() => c.prepareReusableTabReceiver(12,'Claude',() => active),stop:() => {active=false;}};
+}
+beforeEach(() => {jest.useFakeTimers();jest.setSystemTime(1000);});
+afterEach(() => jest.useRealTimers());
+test('healthy existing conversation is immediately reusable without reload', async () => {
+  const {c,run}=setup(['ready']);
+  expect(await run()).toMatchObject({ok:true,reloaded:false});
+  expect(c.chrome.tabs.reload).not.toHaveBeenCalled();
+});
+test('orphan page reloads once at its current address and waits for the actual listener', async () => {
+  const {c,run}=setup(['missing','missing','missing','ready']);
+  const pending=run();await jest.advanceTimersByTimeAsync(1000);
+  expect(await pending).toMatchObject({ok:true,reloaded:true});
+  expect(c.chrome.tabs.reload).toHaveBeenCalledTimes(1);
+  expect(c.chrome.tabs.reload).toHaveBeenCalledWith(12,{},expect.any(Function));
+  expect(c.chrome.tabs.sendMessage.mock.calls.every(([,msg]) => msg.type === 'HEALTH_CHECK_PING')).toBe(true);
+});
+test('slow startup beyond the old 1.8s cutoff still becomes ready before dispatch', async () => {
+  const {run}=setup([...Array(16).fill('missing'),'ready']);
+  const pending=run();await jest.advanceTimersByTimeAsync(5000);
+  expect(await pending).toMatchObject({ok:true,reloaded:true});
+});
+test('silent receiver is never reloaded on a timeout and preparation is bounded', async () => {
+  const {c,run}=setup(['silent']);const pending=run();
+  await jest.advanceTimersByTimeAsync(21000);
+  expect(await pending).toMatchObject({ok:false,reason:'receiver_timeout'});
+  expect(c.chrome.tabs.reload).not.toHaveBeenCalled();
+});
+test('Stop prevents a reload after an asynchronous tab lookup', async () => {
+  const {c,run,stop}=setup();let release;
+  c.getTabSafe.mockImplementation(() => new Promise(resolve => {release=resolve;}));
+  const pending=run();await jest.advanceTimersByTimeAsync(1);stop();release({status:'complete'});
+  expect(await pending).toMatchObject({ok:false,reason:'session_changed'});
+  expect(c.chrome.tabs.reload).not.toHaveBeenCalled();
+});
+test('a navigating page waits for natural registration without reloading', async () => {
+  const {c,run}=setup(['missing','ready']);
+  c.getTabSafe.mockResolvedValue({status:'loading'});
+  const pending=run();await jest.advanceTimersByTimeAsync(300);
+  expect(await pending).toMatchObject({ok:true,reloaded:false});
+});
+
+test('a hung tab lookup cannot hang bootstrap or reload later', async () => {
+  const {c,run}=setup();let release;
+  c.getTabSafe.mockImplementation(() => new Promise(resolve => {release=resolve;}));
+  const pending=run();await jest.advanceTimersByTimeAsync(1100);
+  expect(await pending).toMatchObject({ok:false,reason:'tab_ineligible'});
+  release({status:'complete'});await jest.advanceTimersByTimeAsync(100);
+  expect(c.chrome.tabs.reload).not.toHaveBeenCalled();
+});
+test('Round 0 prepares reused pages concurrently and resumes without touching an issued command', async () => {
+  const {c}=setup();
+  const orch=fs.readFileSync(require.resolve('../background/job-orchestrator'),'utf8');
+  Object.assign(c, {
+    jobState:{session:{startTime:1},llms:{Claude:{tabId:12},GPT:{tabId:13},Gemini:{tabId:14,lastDispatchMeta:{dispatchId:'sent'}}}},
+    isValidTabId:Number.isInteger, resolveBoundTabIdForOrchestrator:(_,entry)=>entry?.tabId,
+    startModelForLLM:jest.fn(),waitForRound0Binding:jest.fn(),ROUND0_BIND_WAIT_TIMEOUT_MS:20000
+  });
+  const started=[];
+  c.prepareReusableTabReceiver=jest.fn(async id => {
+    started.push([id,Date.now()]);await new Promise(resolve => setTimeout(resolve,4000));return {ok:true,tabId:id};
+  });
+  vm.runInContext(orch.slice(orch.indexOf('async function openTabsSequentially'),orch.indexOf('async function recoverRound1TabReadiness')),c);
+  const pending=c.openTabsSequentially(['Claude','GPT','Gemini'],'8 / 4',false,[],1,{resume:true});
+  await jest.advanceTimersByTimeAsync(4000);
+  expect(await pending).toBe(true);
+  expect(started).toEqual([[12,1000],[13,1000]]);
+  expect(c.jobState.llms.Claude.receiverPreparation.ok).toBe(true);
+  expect(c.jobState.llms.GPT.receiverPreparation.ok).toBe(true);
+  expect(c.startModelForLLM).not.toHaveBeenCalled();
+});

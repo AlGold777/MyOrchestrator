@@ -1032,50 +1032,60 @@ async function runPromptDispatchSupervisor() {
   schedulePromptDispatchSupervisor();
 }
 
-// Establish the transport during the existing editor-settling slot. Only an
-// explicit missing receiver permits installation; a slow PONG is not evidence
-// that it is safe to initialize a second adapter in the same document.
-async function prepareFirstPassReceiver(tabId, llmName, current) {
-  let active = true;
-  let missingReceiver = false;
-  let timer;
-  const alive = () => active && current();
+// Reused documents can outlive the extension runtime. Restore them before the
+// ordered foreground pass, when independent tabs can initialize concurrently.
+async function prepareReusableTabReceiver(tabId, llmName, current) {
+  const startedAt = Date.now();
+  const deadline = startedAt + 20000;
+  let reloaded = false;
   const probe = () => new Promise(resolve => {
+    let settled = false;
+    const done = value => { if (settled) return; settled = true; clearTimeout(timer); resolve(value); };
+    const timer = setTimeout(() => done('timeout'), 750);
     try {
-      chrome.tabs.sendMessage(tabId, {type: 'HEALTH_CHECK_PING'}, response => {
+      chrome.tabs.sendMessage(tabId, {type:'HEALTH_CHECK_PING'}, response => {
         const error = chrome.runtime.lastError?.message || '';
-        resolve(error.includes('Receiving end does not exist') ? 'missing'
+        done(error.includes('Receiving end does not exist') ? 'missing'
           : response?.type === 'HEALTH_CHECK_PONG' && (!response.llmName || response.llmName === llmName)
-            ? 'ready' : 'unknown');
+            ? 'ready' : 'unavailable');
       });
-    } catch (_) { resolve('unknown'); }
+    } catch (_) { done('unavailable'); }
   });
-  const work = async () => {
-    const state = await probe();
-    if (!alive() || state !== 'missing') return state;
-    missingReceiver = true;
-    const tab = await getTabSafe(tabId);
-    if (!alive() || !tab || !isEligibleTabForLlm(llmName, tab)) return 'unavailable';
-    const providerFile = self.SCRIPT_MAP?.[llmName];
-    const declarations = chrome.runtime.getManifest().content_scripts || [];
-    const scripts = declarations.filter(item => item.js?.includes(providerFile)
-      || item.js?.includes('content-scripts/content-bootstrap.js')
-      || item.js?.includes('content-scripts/content-bridge.js'));
-    if (!providerFile || !scripts.some(item => item.js.includes(providerFile))) return 'unavailable';
-    for (const item of scripts) {
-      if (!alive()) return 'unavailable';
-      await chrome.scripting.executeScript({target: {tabId, frameIds: [0]},
-        world: item.world || 'ISOLATED', files: item.js});
-    }
-    if (!alive()) return 'unavailable';
-    return await probe() === 'ready' ? 'ready' : 'unavailable';
+  const finish = reason => {
+    const result = {ok:reason === 'ready', reason, tabId, reloaded};
+    emitTelemetry(llmName, 'REUSED_TAB_RECEIVER_PREPARED', {
+      details:reason, meta:{...result, durationMs:Date.now()-startedAt}, force:true
+    });
+    return result;
   };
-  try {
-    return await Promise.race([
-      work().catch(() => 'unavailable'),
-      new Promise(resolve => { timer = setTimeout(() => resolve(missingReceiver ? 'unavailable' : 'unknown'), 1800); })
-    ]);
-  } finally { active = false; clearTimeout(timer); }
+  while (current() && Date.now() < deadline) {
+    const state = await probe();
+    if (!current()) return finish('session_changed');
+    if (state === 'ready') return finish('ready');
+    if (state === 'missing' && !reloaded) {
+      let tabTimer;
+      const tab = await Promise.race([getTabSafe(tabId),
+        new Promise(resolve => { tabTimer = setTimeout(() => resolve(null), 1000); })
+      ]).finally(() => clearTimeout(tabTimer));
+      if (!current()) return finish('session_changed');
+      if (!tab || !isEligibleTabForLlm(llmName, tab)) return finish('tab_ineligible');
+      // A navigation already in flight will install the manifest naturally.
+      // Reload only a settled orphan document; never navigate to a new chat.
+      if (tab.status === 'complete') {
+        reloaded = true;
+        const ok = await new Promise(resolve => {
+          let settled = false;
+          const done = value => { if (settled) return; settled = true; clearTimeout(timer); resolve(value); };
+          const timer = setTimeout(() => done(false), 1500);
+          try { chrome.tabs.reload(tabId, {}, () => done(!chrome.runtime.lastError)); }
+          catch (_) { done(false); }
+        });
+        if (!ok) return finish('reload_failed');
+      }
+    }
+    await dispatchSleepMs(250);
+  }
+  return finish(current() ? 'receiver_timeout' : 'session_changed');
 }
 
 async function dispatchSimpleFirstPass(llmName, tabId, prompt, attachments, entry, options, machine) {
@@ -1103,6 +1113,9 @@ async function dispatchSimpleFirstPass(llmName, tabId, prompt, attachments, entr
   if (attachments?.length) {
     return defer('attachments_require_round2');
   }
+  if (entry.receiverPreparation?.tabId === tabId && entry.receiverPreparation.ok === false) {
+    return defer(entry.receiverPreparation.reason || 'receiver_unavailable');
+  }
   entry.dispatchCheckpoint = {dispatchId: meta.dispatchId, phase: 'command_intent'};
   // Persist only command ownership here. Full job snapshots can be queued
   // behind active generation writes and must not prevent a ready page sending.
@@ -1114,10 +1127,7 @@ async function dispatchSimpleFirstPass(llmName, tabId, prompt, attachments, entr
       return defer('focus_unavailable');
     }
     const visitStartedAt = Date.now();
-    const receiver = prepareFirstPassReceiver(tabId, llmName, current);
     await pause(Number(options.deferSendMs ?? 2000));
-    const receiverState = await receiver;
-    if (receiverState === 'unavailable' || receiverState === 'missing') return defer('receiver_unavailable');
     if (!current()) return {ok: false, reason: 'session_changed'};
     // Focus and editor settling overlap the write; ordinary storage latency
     // adds no extra pause. Still require ownership to be durable before Send.
