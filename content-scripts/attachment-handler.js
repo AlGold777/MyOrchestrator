@@ -1014,12 +1014,20 @@
   };
 
   const attach = async (model, attachments = [], overrides = {}) => {
+    const reportFailure = reason => {
+      try {
+        global.ContentUtils?.reportDispatchStage?.(model, {}, 'attachment_upload_failed', {
+          outcome: 'failed', reason
+        });
+      } catch (_) {}
+    };
     if (!attachments || !attachments.length) {
       return { success: true, delivered: true, uploadSettled: true, ready: true, evidence: 'not_required', uploadedCount: 0, failedFiles: [], reason: 'NO_ATTACHMENTS' };
     }
     const config = resolveConfig(model, overrides);
     const files = hydrateAttachments(attachments).slice(0, config.maxFiles);
     if (!files.length) {
+      reportFailure('NO_FILES');
       return { success: false, delivered: false, uploadSettled: false, ready: false, evidence: null, uploadedCount: 0, failedFiles: attachments, reason: 'NO_FILES' };
     }
     if (config.sequentialFiles === true && files.length > 1) {
@@ -1112,6 +1120,9 @@
     // / "file already added" bug on ChatGPT). Returns 'delivered' to break the
     // loop, or false to fall through to the next vector.
     const tryVia = async (strategy, dispatchFn) => {
+      // Never mutate the composer when no observation budget remains. Otherwise
+      // the final vector inserts a file and immediately declares it unconfirmed.
+      if (confirmSpentMs >= cascadeBudgetMs) return false;
       // This vector is consumed the moment it runs, whatever its outcome, so the
       // slice arithmetic below always reflects vectors that have yet to start.
       const vectorsLeftAfterThis = Math.max(0, vectorsRemaining - 1);
@@ -1277,6 +1288,7 @@
       if (attached || (attempted && config.singleDispatch)) break;
     }
     if (!attached) {
+      reportFailure(attempted ? 'TIMEOUT' : 'MANUAL_REQUIRED');
       return {
         success: false,
         delivered: false,

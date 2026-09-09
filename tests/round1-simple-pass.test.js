@@ -135,6 +135,23 @@ test('a stalled attachment cannot skip later models or trigger a repeat command'
   expect(events).toEqual([['focus',1,1000],['command',1,3000],['focus',2,68000],['command',2,70000]]);
 });
 
+test('a completed attachment failure releases the visit without waiting for the upload ceiling', async () => {
+  const names=['DeepSeek','Grok'];
+  const {c,events}=setup(names,(c,id,msg) => {
+    if (id===2) c.jobState.llms.Grok.providerSendActionObservedDispatchId=msg.meta.dispatchId;
+    else setTimeout(() => {
+      const entry=c.jobState.llms.DeepSeek;
+      entry.providerDispatchStageDispatchId=msg.meta.dispatchId;
+      entry.providerDispatchStage='attachment_upload_failed';
+    },12000);
+  });
+  const run=c.dispatchRound1Sequentially(names,'8 / 4',[{name:'data.txt'}],1);
+  await jest.advanceTimersByTimeAsync(27000);
+  expect(await run).toBe(true);
+  expect(events).toEqual([['focus',1,1000],['command',1,3000],['focus',2,20000],['command',2,22000]]);
+  expect(c.jobState.llms.DeepSeek.firstPassResult.outcome).toBe('provider_failed');
+});
+
 test('Stop while uploading ends the initial pass without visiting another model', async () => {
   const {c,events}=setup(['GPT','Claude']);
   const run=c.dispatchRound1Sequentially(['GPT','Claude'],'8 / 4',[{name:'data.txt'}],1);

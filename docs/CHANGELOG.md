@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-09-09 — Release failed attachment visits, version 2.81.392
+
+- The shared attachment handler reports `attachment_upload_failed` after exhausting its strategies or finding no usable files. Round 1 can now release a failed upload after its five-second slot instead of waiting for the 60-second ceiling. Run 1788974336967 exposed this with DeepSeek: the cascade ended long before the visit did.
+- Stop dispatching further attachment vectors when the confirmation budget is exhausted. Previously a final vector could insert a file with zero time to observe its upload, then immediately report failure.
+- Runtime regressions cover budget exhaustion, the failure notification and ordered advance after a failed upload. This does not establish successful attachment delivery on the affected provider pages or repair outstanding answer acceptance failures.
+
 ### 2026-09-09 — Keep attachments in the initial ordered dispatch, version 2.81.391
 
 - Remove the blanket `attachments_require_round2` deferral. Each selected model receives one command with its original attachments during Round 1. Previously all initial attempts were skipped, leaving the globally limited repair round to perform first delivery; later models could miss delivery while collection revisited earlier ones.
