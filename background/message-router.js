@@ -1258,7 +1258,10 @@ const validateCompletionAuthorityDelivery = (llmName, message = {}) => {
     if (terminalResult?.status === 'SUCCESS_TERMINAL') {
         return { ok: true, reason: 'success_terminal_authority' };
     }
-    const explicitlyFailed = new Set(['FAILED_TERMINAL', 'STALLED', 'INTERRUPTED', 'CANCELLED']);
+    // STALLED records a deadline in the observer, not a provider failure. A late
+    // payload must still reach answer verification with that status intact.
+    // Dropping it here makes recovery impossible even when the page finishes.
+    const explicitlyFailed = new Set(['FAILED_TERMINAL', 'INTERRUPTED', 'CANCELLED']);
     if (explicitlyFailed.has(String(terminalResult?.status || ''))) {
         return { ok: false, reason: 'completion_terminal_failed' };
     }

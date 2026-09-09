@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-09-09 — Admit late answers after observer timeout, version 2.81.395
+
+- `STALLED` no longer permanently rejects a nonempty response at the completion-authority transport gate. The protocol uses this status for observer deadlines; it does not prove provider failure. Late responses for the same registered dispatch now reach normal answer verification with their terminal metadata unchanged.
+- Explicit failure, cancellation and interruption still reject delivery. This change neither generates a success terminal nor bypasses identity, completeness or finalization checks.
+- Router tests cover delivery with persisted STALLED authority and preservation of its evidence, plus rejection of FAILED_TERMINAL/INTERRUPTED/CANCELLED. Run 1788978982452 reports `completion_terminal_failed` for Claude/Gemini but omits the underlying terminal status, so the field failures cannot yet be attributed specifically to STALLED.
+
 ### 2026-09-09 — Preserve attachment baseline across fallbacks, version 2.81.394
 
 - Capture the upload baseline once before the whole attachment cascade. A file from a slow vector that appears between attempts no longer becomes part of the next vector's baseline.

@@ -364,7 +364,20 @@ describe('lifecycle sender gate', () => {
     expect(context.handleLLMResponse).toHaveBeenCalled();
   });
 
-  test('an explicit failed Completion terminal still blocks answer delivery', async () => {
+  test('a late answer after observer timeout reaches verification with STALLED evidence preserved', async () => {
+    const { context, sendMessage } = createRouterSandbox();
+    await sendMessage({
+      type: 'LLM_COMPLETION_ATTEMPT', llmName: 'GPT',
+      meta: { ...META, terminalResult: { status: 'STALLED', reason: 'timeout_progress' }, rolloutMode: 'enforced', protocolVersion: '2.1.0' }
+    }, BOUND_SENDER);
+    const meta = { ...META, terminalResult: { status: 'STALLED', reason: 'timeout_progress' } };
+    const response = await sendMessage({ type: 'LLM_RESPONSE', llmName: 'GPT', answer: 'late answer', meta }, BOUND_SENDER);
+    expect(response).toEqual(expect.objectContaining({ status: 'response_handled' }));
+    expect(context.handleLLMResponse).toHaveBeenCalledWith('GPT', 'late answer', null, meta, '');
+    expect(context.CompletionAuthorityRegistry.get('GPT').terminalResult.status).toBe('STALLED');
+  });
+
+  test.each(['FAILED_TERMINAL', 'INTERRUPTED', 'CANCELLED'])('an explicit %s terminal still blocks answer delivery', async (status) => {
     const { context, sendMessage } = createRouterSandbox();
     await sendMessage({
       type: 'LLM_COMPLETION_ATTEMPT', llmName: 'GPT',
@@ -372,7 +385,7 @@ describe('lifecycle sender gate', () => {
     }, BOUND_SENDER);
     const response = await sendMessage({
       type: 'LLM_RESPONSE', llmName: 'GPT', answer: 'failed terminal answer',
-      meta: { ...META, terminalResult: { status: 'FAILED_TERMINAL' } }
+      meta: { ...META, terminalResult: { status } }
     }, BOUND_SENDER);
     expect(response).toEqual(expect.objectContaining({
       status: 'response_rejected',
