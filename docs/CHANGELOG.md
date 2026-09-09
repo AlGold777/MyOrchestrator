@@ -1,5 +1,10 @@
 # CHANGELOG — Project
 
+### 2026-09-09 — Preserve extracted answer content, version 2.81.386
+
+- Qwen, Grok and Le Chat no longer remove URLs, model names, UI-like words, times or entities from extracted answer text. Preserve code indentation and literal HTML examples; HTML parsing requires an explicit `format: 'html'` option.
+- DOM answer selection remains responsible for excluding interface controls. Existing explicit maximum-length limits remain. Regression tests cover prose, source URLs and code examples across all three cleaners.
+
 ### 2026-09-09 — Repair Le Chat fallback observation lifetime, version 2.81.385
 
 - Release the actual reply-wait mutation subscription on success and timeout; ignore callbacks after settlement.

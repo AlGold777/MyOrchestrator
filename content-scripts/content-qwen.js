@@ -1098,7 +1098,9 @@ const keepAliveMutex = (() => {
     clean(content, options = {}) {
       this.stats = { elementsRemoved: 0, charactersRemoved: 0, rulesApplied: 0 };
 
-      const isHtml = /<\/?[a-z][\s\S]*>/i.test(content);
+      // Extracted answer text may itself contain HTML examples. Parse only
+      // explicitly identified HTML, never infer markup from the answer body.
+      const isHtml = options.format === 'html';
       let text = content;
 
       if (isHtml) {
@@ -1119,26 +1121,9 @@ const keepAliveMutex = (() => {
         }
       }
 
-      const patterns = [
-        ...this.rules.uiPhrases,
-        ...this.rules.timePatterns,
-        ...this.rules.urls,
-        ...this.rules.formatting,
-        ...this.rules.stripTags
-      ];
-
-      let out = text;
-      for (const p of patterns) {
-        const before = out.length;
-        out = out.replace(p, ' ');
-        const diff = before - out.length;
-        if (diff > 0) {
-          this.stats.rulesApplied++;
-          this.stats.charactersRemoved += diff;
-        }
-      }
-
-      out = out.replace(/\n\s*\n\s*\n/g, '\n\n').replace(/[ \t]+/g, ' ').trim();
+      // UI elements must be excluded when selecting the answer DOM; deleting
+      // words from extracted prose corrupts legitimate answers and code.
+      let out = String(text || '').trim();
 
       const maxLength = options.maxLength || null;
       if (maxLength && out.length > maxLength) {
