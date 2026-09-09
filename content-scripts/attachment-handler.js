@@ -718,7 +718,7 @@
     let lastInputFileCount = Number(baselineState?.inputFileCount || 0);
     let sawProgress = false;
     let evidenceAt = 0;
-    let selectorEvidenceSeen = false;
+    let providerEvidenceSeen = false;
     const baselineFilenameEvidence = Number(baselineState?.filenameEvidenceCount || 0);
     const requiredDelta = config.confirmationMode === 'batch' ? 1 : expectedCount;
 
@@ -734,12 +734,12 @@
         && inputFileCount >= expectedCount;
       const filenameEvidence = filenameEvidenceCount >= baselineFilenameEvidence + expectedCount;
       const evidenceNow = selectorEvidence || inputEvidence || filenameEvidence;
-      if (selectorEvidence) selectorEvidenceSeen = true;
+      if (selectorEvidence || filenameEvidence) providerEvidenceSeen = true;
       if (evidenceNow && !evidenceAt) evidenceAt = Date.now();
       const hasEvidence = evidenceNow
         || (config.persistentEvidenceRequired !== true && evidenceAt > 0);
       if (config.persistentEvidenceRequired === true && !evidenceNow) evidenceAt = 0;
-      const requiredSettleMs = selectorEvidenceSeen
+      const requiredSettleMs = providerEvidenceSeen || !allowInputFileCountEvidence
         ? (config.settleMs || 0)
         : (config.inputEvidenceSettleMs || config.settleMs || 0);
       if (confirmGoneSelectors.length) {
@@ -1194,7 +1194,9 @@
       // evidence. A trusted CDP assignment is different -- DOM.setFileInputFiles
       // is a real browser-level operation that drives the page's upload path --
       // so input-file-count stays admissible there.
-      const allowInputFileCountEvidence = !String(strategy).startsWith('input');
+      const allowInputFileCountEvidence = [
+        'cdp-file-input', 'qwen-cdp-file-input', 'provider-cdp-file-input'
+      ].includes(strategy);
       // Share what is left of the budget with the vectors still to come. The floor
       // clears this vector's own settle requirement, so a slice is always long
       // enough for confirmation to be possible at all, and unused time from a

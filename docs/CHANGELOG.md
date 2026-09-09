@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-09-09 — Separate upload evidence by delivery method, version 2.81.393
+
+- Synthetic drop/paste vectors no longer admit `input.files` as proof of upload. Only the explicit CDP vectors may use that evidence; provider strategy lists still do not enable CDP. The old negative `!startsWith('input')` check incorrectly included every drop/paste vector.
+- Filename evidence rendered by the provider uses the normal settle interval, just like a file chip. The longer input-only settle no longer applies to an observed filename or consumes Gemini's synthetic-vector confirmation slices (15400 ms in run 1788977126384).
+- Runtime tests cover filename readiness after 800 ms, rejection of input-only evidence for synthetic delivery, preservation of trusted-input settling, and the complete Gemini cascade with a pre-populated input but no uploaded file evidence. This is not live confirmation of successful uploads on all provider pages.
+
 ### 2026-09-09 — Release failed attachment visits, version 2.81.392
 
 - The shared attachment handler reports `attachment_upload_failed` after exhausting its strategies or finding no usable files. Round 1 can now release a failed upload after its five-second slot instead of waiting for the 60-second ceiling. Run 1788974336967 exposed this with DeepSeek: the cascade ended long before the visit did.
