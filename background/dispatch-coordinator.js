@@ -1032,6 +1032,52 @@ async function runPromptDispatchSupervisor() {
   schedulePromptDispatchSupervisor();
 }
 
+// Establish the transport during the existing editor-settling slot. Only an
+// explicit missing receiver permits installation; a slow PONG is not evidence
+// that it is safe to initialize a second adapter in the same document.
+async function prepareFirstPassReceiver(tabId, llmName, current) {
+  let active = true;
+  let missingReceiver = false;
+  let timer;
+  const alive = () => active && current();
+  const probe = () => new Promise(resolve => {
+    try {
+      chrome.tabs.sendMessage(tabId, {type: 'HEALTH_CHECK_PING'}, response => {
+        const error = chrome.runtime.lastError?.message || '';
+        resolve(error.includes('Receiving end does not exist') ? 'missing'
+          : response?.type === 'HEALTH_CHECK_PONG' && (!response.llmName || response.llmName === llmName)
+            ? 'ready' : 'unknown');
+      });
+    } catch (_) { resolve('unknown'); }
+  });
+  const work = async () => {
+    const state = await probe();
+    if (!alive() || state !== 'missing') return state;
+    missingReceiver = true;
+    const tab = await getTabSafe(tabId);
+    if (!alive() || !tab || !isEligibleTabForLlm(llmName, tab)) return 'unavailable';
+    const providerFile = self.SCRIPT_MAP?.[llmName];
+    const declarations = chrome.runtime.getManifest().content_scripts || [];
+    const scripts = declarations.filter(item => item.js?.includes(providerFile)
+      || item.js?.includes('content-scripts/content-bootstrap.js')
+      || item.js?.includes('content-scripts/content-bridge.js'));
+    if (!providerFile || !scripts.some(item => item.js.includes(providerFile))) return 'unavailable';
+    for (const item of scripts) {
+      if (!alive()) return 'unavailable';
+      await chrome.scripting.executeScript({target: {tabId, frameIds: [0]},
+        world: item.world || 'ISOLATED', files: item.js});
+    }
+    if (!alive()) return 'unavailable';
+    return await probe() === 'ready' ? 'ready' : 'unavailable';
+  };
+  try {
+    return await Promise.race([
+      work().catch(() => 'unavailable'),
+      new Promise(resolve => { timer = setTimeout(() => resolve(missingReceiver ? 'unavailable' : 'unknown'), 1800); })
+    ]);
+  } finally { active = false; clearTimeout(timer); }
+}
+
 async function dispatchSimpleFirstPass(llmName, tabId, prompt, attachments, entry, options, machine) {
   const meta = { ...entry.lastDispatchMeta, simpleFirstPass: true };
   const current = () => jobState?.session?.startTime === meta.runSessionId
@@ -1068,7 +1114,10 @@ async function dispatchSimpleFirstPass(llmName, tabId, prompt, attachments, entr
       return defer('focus_unavailable');
     }
     const visitStartedAt = Date.now();
+    const receiver = prepareFirstPassReceiver(tabId, llmName, current);
     await pause(Number(options.deferSendMs ?? 2000));
+    const receiverState = await receiver;
+    if (receiverState === 'unavailable' || receiverState === 'missing') return defer('receiver_unavailable');
     if (!current()) return {ok: false, reason: 'session_changed'};
     // Focus and editor settling overlap the write; ordinary storage latency
     // adds no extra pause. Still require ownership to be durable before Send.
@@ -1076,7 +1125,7 @@ async function dispatchSimpleFirstPass(llmName, tabId, prompt, attachments, entr
     machine?.ready?.();
     const commandAt = Date.now();
     let deliveryError = null;
-    // Exactly one delivery. No health/reload/reinjection/retry cascade here.
+    // Exactly one prompt delivery after transport preparation; no send retry.
     // Provider-specific editing remains in the existing page adapter.
     try {
       chrome.tabs.sendMessage(tabId, {type: 'GET_ANSWER', prompt, attachments, meta}, response => {

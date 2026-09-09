@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-09-09 — Restore missing receivers on existing pages, version 2.81.388
+
+- During the first-pass two-second preparation slot, probe the page transport. An explicit missing-receiver error installs the shared dependencies and provider adapter in manifest order, including the MAIN-world bridge, without reloading the conversation. A healthy or merely slow receiver is not reinstalled.
+- Bound preparation to 1.8 seconds. If installation fails or stalls, defer that model and continue the ordered pass; late installation cannot issue a prompt or advance to more injection stages. Keep one GET_ANSWER command and the five-second foreground slot after delivery.
+- Runtime tests cover missing receivers, ordered dependency installation, stalled installation, slow health callbacks and existing first-pass timing/cancellation behavior. Live provider acceptance after extension reload still requires browser verification.
+
 ### 2026-09-09 — Align completion runtime protocol versions, version 2.81.387
 
 - Fix the background readiness contract still expecting protocol 2.3.0 after 2.81.382 shipped protocol 2.3.1. Healthy content runtimes were rejected with `COMPLETION_RUNTIME_UNAVAILABLE` even after reinjection.
