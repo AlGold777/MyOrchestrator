@@ -212,3 +212,19 @@ describe('latest full answer over configured fragments', () => {
     expect(turn.answerNode.textContent).toBe('New answer');
   });
 });
+
+
+test('ChatGPT nested assistant role is a fragment, not an additional or later turn', () => {
+  window.eval(SELECTOR_SOURCE);
+  const selectors = window.AnswerPipelineSelectors.PLATFORM_SELECTORS.chatgpt;
+  document.body.innerHTML = '<article data-message-author-role="assistant" id="old">Old opening <div data-role="assistant">Old ending</div></article>';
+  const before = TurnResolver.resolveTurn({platform:'chatgpt',selectors,document});
+  expect(before.candidates).toHaveLength(1);
+  expect(before.answerNode.id).toBe('old');
+  expect(TurnResolver.resolveTurn({platform:'chatgpt',selectors,document,anchorAnswerCount:1}).answerNode).toBeNull();
+  document.body.insertAdjacentHTML('beforeend','<article data-message-author-role="assistant" id="new">Complete opening <div data-role="assistant">Only the last twenty</div></article>');
+  const after = TurnResolver.resolveTurn({platform:'chatgpt',selectors,document,anchorAnswerCount:1});
+  expect(after.answerNode.id).toBe('new');
+  expect(after.answerNode.textContent).toBe('Complete opening Only the last twenty');
+  expect(after.candidates).toHaveLength(2);
+});

@@ -1,5 +1,10 @@
 # CHANGELOG — Project
 
+### 2026-09-09 — Count nested ChatGPT assistant roles as one turn, version 2.81.390
+
+- The authoritative resolver now collapses nested primary ChatGPT assistant matches before applying the pre-send turn anchor. A nested fragment cannot replace its enclosing complete answer or increase the apparent number of conversation turns.
+- Regression fixture covers an old nested turn, no new response, and a new response with a short trailing nested fragment. This reproduces a code defect; the 20-character field extraction still needs comparison with the actual provider page.
+
 ### 2026-09-09 — Prepare reused page runtimes before dispatch, version 2.81.389
 
 - Replace the 2.81.388 partial script injection with concurrent Round 0 preparation. Explicitly missing receivers on settled reused pages trigger one reload at the existing conversation URL, then polling for a provider PONG (20-second preparation budget). Healthy pages are untouched; loading pages wait for natural registration.

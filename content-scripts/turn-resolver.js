@@ -129,7 +129,17 @@
     // was excluded by the pre-send anchor. Only explicit answer selectors may
     // contribute candidates (including configured secondary selectors).
 
-    const sorted = sortDocumentOrder(candidates);
+    // ChatGPT can label both the turn wrapper and a nested response fragment
+    // as assistant. Count one turn and select its full body, not the last
+    // nested role match. Apply this before the anchor so DOM nesting does not
+    // make an old turn look like a newly appended response.
+    const turnCandidates = options.platform === 'chatgpt'
+      ? candidates.filter(node => !candidates.some(parent => parent !== node
+        && metadataByElement.get(parent)?.sourceKind === 'primary'
+        && metadataByElement.get(node)?.sourceKind === 'primary'
+        && parent.contains(node)))
+      : candidates;
+    const sorted = sortDocumentOrder(turnCandidates);
     const anchor = Math.max(0, Number(options.anchorAnswerCount || 0));
     // An anchor is a hard boundary, not a preference. If the current candidate
     // count has not exceeded it, the new-turn pool is empty; falling back to
