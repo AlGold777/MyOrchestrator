@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-09-09 — Preserve attachment baseline across fallbacks, version 2.81.394
+
+- Capture the upload baseline once before the whole attachment cascade. A file from a slow vector that appears between attempts no longer becomes part of the next vector's baseline.
+- Filename evidence now compares occurrence deltas per requested name. An old mention plus a new copy can confirm; an old mention alone cannot. Extra copies of one filename cannot satisfy another requested filename. Text and attribute views are not added together, avoiding double counting a chip simply because it also has a title.
+- Runtime regressions cover repeated filenames, unchanged old evidence, missing second file and an upload appearing at the first vector's deadline. Real provider DOM/upload readiness remains a separate acceptance check; this change does not resolve GPT/Claude answer finalization.
+
 ### 2026-09-09 — Separate upload evidence by delivery method, version 2.81.393
 
 - Synthetic drop/paste vectors no longer admit `input.files` as proof of upload. Only the explicit CDP vectors may use that evidence; provider strategy lists still do not enable CDP. The old negative `!startsWith('input')` check incorrectly included every drop/paste vector.

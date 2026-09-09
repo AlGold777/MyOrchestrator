@@ -602,15 +602,15 @@
     return matches.size;
   };
 
-  const normalizeFilename = (value = '') => String(value || '').normalize('NFC').trim().toLowerCase();
+  const normalizeFilename = (value = '') => String(value || '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
 
   // Provider markup changes frequently, but the file name is the stable piece of
   // evidence users actually see in an attachment chip. Search light-weight visible
   // text/attributes across open shadow roots and compare against the pre-dispatch
   // baseline so an old chip cannot confirm a new request.
-  const countFilenameEvidence = (files = []) => {
-    const names = files.map((file) => normalizeFilename(file?.name)).filter(Boolean);
-    if (!names.length) return 0;
+  const filenameEvidenceCounts = (files = []) => {
+    const names = [...new Set(files.map((file) => normalizeFilename(file?.name)).filter(Boolean))];
+    if (!names.length) return {};
     const haystacks = [];
     collectOpenRoots().forEach((root) => {
       try { haystacks.push(normalizeFilename(root.body?.innerText || root.innerText || root.textContent || '')); } catch (_) {}
@@ -625,8 +625,14 @@
         });
       } catch (_) {}
     });
-    return names.reduce((count, name) => count + (haystacks.some((text) => text.includes(name)) ? 1 : 0), 0);
+    // Count occurrences instead of presence: an old mention and a new chip with
+    // the same filename must be distinguishable. Take the maximum across text
+    // and attribute views so one chip is not counted twice merely for its title.
+    return Object.fromEntries(names.map(name => [name,
+      haystacks.reduce((count, text) => Math.max(count, text.split(name).length - 1), 0)
+    ]));
   };
+  const countFilenameEvidence = (files = []) => Object.values(filenameEvidenceCounts(files)).reduce((sum, count) => sum + count, 0);
 
   const countAttachedInputFiles = () => {
     const roots = [document];
@@ -720,19 +726,28 @@
     let evidenceAt = 0;
     let providerEvidenceSeen = false;
     const baselineFilenameEvidence = Number(baselineState?.filenameEvidenceCount || 0);
+    const requiredNames = {};
+    files.forEach(file => {
+      const name = normalizeFilename(file?.name);
+      if (name) requiredNames[name] = (requiredNames[name] || 0) + 1;
+    });
     const requiredDelta = config.confirmationMode === 'batch' ? 1 : expectedCount;
 
     while (Date.now() < deadline) {
       const currentCount = countSelectorMatches(confirmSelectors);
       const inputFileCount = countAttachedInputFiles();
-      const filenameEvidenceCount = countFilenameEvidence(files);
+      const filenameCounts = filenameEvidenceCounts(files);
+      const filenameEvidenceCount = Object.values(filenameCounts).reduce((sum, count) => sum + count, 0);
       const selectorEvidence = currentCount >= baseline + requiredDelta;
       // Only admissible when this vector did not assign input.files itself --
       // see the caller. Reading back our own write is not an observation.
       const inputEvidence = allowInputFileCountEvidence
         && config.inputFileCountIsEvidence === true
         && inputFileCount >= expectedCount;
-      const filenameEvidence = filenameEvidenceCount >= baselineFilenameEvidence + expectedCount;
+      const filenameEvidence = baselineState?.filenameEvidenceByName
+        ? Object.keys(requiredNames).length > 0 && Object.entries(requiredNames).every(([name, count]) =>
+          (filenameCounts[name] || 0) >= (baselineState.filenameEvidenceByName[name] || 0) + count)
+        : filenameEvidenceCount >= baselineFilenameEvidence + expectedCount;
       const evidenceNow = selectorEvidence || inputEvidence || filenameEvidence;
       if (selectorEvidence || filenameEvidence) providerEvidenceSeen = true;
       if (evidenceNow && !evidenceAt) evidenceAt = Date.now();
@@ -1064,6 +1079,12 @@
     let attached = false;
     let attempted = false;
     const expectedCount = files.length;
+    // The entire delivery attempt shares a baseline. A slow first vector may
+    // render its chip during a fallback; recapturing would absorb that upload
+    // into the old state and require yet another copy to appear.
+    const baselineState = captureUploadBaseline(config);
+    baselineState.filenameEvidenceByName = filenameEvidenceCounts(files);
+    baselineState.filenameEvidenceCount = Object.values(baselineState.filenameEvidenceByName).reduce((sum, count) => sum + count, 0);
 
     // Per-model ordered strategy list. Each strategy first tries the main-world
     // bridge (authentic DataTransfer/events in page context), then a content-script
@@ -1128,8 +1149,6 @@
       const vectorsLeftAfterThis = Math.max(0, vectorsRemaining - 1);
       vectorsRemaining = vectorsLeftAfterThis;
       reportAttachmentProgress(model, true);
-      const baselineState = captureUploadBaseline(config);
-      baselineState.filenameEvidenceCount = countFilenameEvidence(files);
       const startedAt = Date.now();
       emitAttachmentTelemetry(model, 'ATTACHMENT_STRATEGY_START', strategy, 'info', {
         strategy,
