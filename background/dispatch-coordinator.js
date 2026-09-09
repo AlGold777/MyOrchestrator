@@ -1108,11 +1108,7 @@ async function dispatchSimpleFirstPass(llmName, tabId, prompt, attachments, entr
     }
     return {ok: false, deferred: true, reason};
   };
-  // File upload has its own readiness requirements; do not send bare text when
-  // the user supplied attachments. The normal Round 2 adapter handles them.
-  if (attachments?.length) {
-    return defer('attachments_require_round2');
-  }
+  const hasAttachments = Boolean(attachments?.length);
   if (entry.receiverPreparation?.tabId === tabId && entry.receiverPreparation.ok === false) {
     return defer(entry.receiverPreparation.reason || 'receiver_unavailable');
   }
@@ -1154,9 +1150,19 @@ async function dispatchSimpleFirstPass(llmName, tabId, prompt, attachments, entr
       || (entry.promptSubmittedAt && entry.lastDispatchMeta?.dispatchId === meta.dispatchId);
     const failed = () => entry.providerDispatchStageDispatchId === meta.dispatchId
       && /failed|blocked/.test(entry.providerDispatchStage || '');
-    // One fixed foreground slot measured from command delivery. Provider ACKs,
-    // progress and missing Send evidence must never extend the first pass.
-    const leaveAt = commandAt + Number(options.postSendMs ?? 5000);
+    // Upload belongs to the initial ordered pass, not the globally budgeted
+    // repair round. The provider adapter retains its upload-before-Send gate.
+    // Hold this tab while it prepares the attachment, without issuing another
+    // command. A stalled upload cannot starve all subsequent models.
+    if (hasAttachments) {
+      const uploadDeadline = commandAt + 60000;
+      while (current() && !sendObserved() && !failed() && !deliveryError && Date.now() < uploadDeadline) {
+        await pause(Math.min(100, uploadDeadline - Date.now()));
+      }
+    }
+    // Text-only visits retain their fixed slot. Attachment visits allow five
+    // seconds after the upload/send stage, while Round 1 still owns the queue.
+    const leaveAt = (hasAttachments ? Date.now() : commandAt) + Number(options.postSendMs ?? 5000);
     await pause(Math.max(0, leaveAt - Date.now()));
     if (!current()) return {ok: false, reason: 'session_changed'};
     const attempted = Boolean(sendObserved());

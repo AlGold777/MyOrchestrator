@@ -109,11 +109,40 @@ test('Stop during the initial pause sends no command and visits no further model
   expect(events).toEqual([['focus',1,1000]]);
 });
 
-test('attachments are deferred without sending an incomplete text-only request', async () => {
-  const {c,events}=setup(['Kimi']);
-  const result=await c.dispatchSimpleFirstPass('Kimi',1,'8 / 4',[{name:'data.txt'}],c.jobState.llms.Kimi,{});
-  expect(result.reason).toBe('attachments_require_round2');
-  expect(events).toEqual([]);
+test('attachments get one initial command per model in order, with upload time before the post-send slot', async () => {
+  const names=['GPT','Claude','Qwen','Z.ai','Gemini','Grok','DeepSeek','Le Chat','Perplexity'];
+  const files=[{name:'data.txt',data:'dGVzdA=='}];
+  const commands=[];
+  const {c,events}=setup(names,(c,id,msg,cb) => {
+    commands.push(msg);
+    cb({accepted:true,dispatchId:msg.meta.dispatchId});
+    setTimeout(() => {c.jobState.llms[names[id-1]].providerSendActionObservedDispatchId=msg.meta.dispatchId;},12000);
+  });
+  const run=c.dispatchRound1Sequentially(names,'8 / 4',files,1);
+  await jest.advanceTimersByTimeAsync(180000);
+  expect(await run).toBe(true);
+  expect(commands).toHaveLength(9);
+  expect(commands.every(msg => msg.attachments === files)).toBe(true);
+  expect(events.filter(e=>e[0]==='focus').map(e=>e[1])).toEqual([1,2,3,4,5,6,7,8,9]);
+  expect(events.slice(0,4)).toEqual([['focus',1,1000],['command',1,3000],['focus',2,20000],['command',2,22000]]);
+});
+
+test('a stalled attachment cannot skip later models or trigger a repeat command', async () => {
+  const {c,events}=setup(['Qwen','Z.ai']);
+  const run=c.dispatchRound1Sequentially(['Qwen','Z.ai'],'8 / 4',[{name:'data.txt'}],1);
+  await jest.advanceTimersByTimeAsync(135000);
+  expect(await run).toBe(true);
+  expect(events).toEqual([['focus',1,1000],['command',1,3000],['focus',2,68000],['command',2,70000]]);
+});
+
+test('Stop while uploading ends the initial pass without visiting another model', async () => {
+  const {c,events}=setup(['GPT','Claude']);
+  const run=c.dispatchRound1Sequentially(['GPT','Claude'],'8 / 4',[{name:'data.txt'}],1);
+  await jest.advanceTimersByTimeAsync(4000);
+  c.jobState.session.startTime=2;
+  await jest.advanceTimersByTimeAsync(1000);
+  expect(await run).toBe(false);
+  expect(events).toEqual([['focus',1,1000],['command',1,3000]]);
 });
 
 test('the whole dispatch path visits ten models every 7s with silent ACKs and continuous provider progress', async () => {

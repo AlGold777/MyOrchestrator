@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-09-09 — Keep attachments in the initial ordered dispatch, version 2.81.391
+
+- Remove the blanket `attachments_require_round2` deferral. Each selected model receives one command with its original attachments during Round 1. Previously all initial attempts were skipped, leaving the globally limited repair round to perform first delivery; later models could miss delivery while collection revisited earlier ones.
+- Keep the provider's attachment verification before Send. Attachment visits wait for send evidence, an explicit failure, or a 60-second upload deadline, followed by the five-second slot. Text-only timing remains unchanged. A timed-out upload is unconfirmed, never treated as success or resent in this pass.
+- Runtime regression tests cover all nine models in order with slow attachment preparation, a stalled upload without starvation, and Stop during upload. Live browser confirmation remains outstanding. Answer acceptance failures from run 1788973662069 remain separate work.
+
 ### 2026-09-09 — Count nested ChatGPT assistant roles as one turn, version 2.81.390
 
 - The authoritative resolver now collapses nested primary ChatGPT assistant matches before applying the pre-send turn anchor. A nested fragment cannot replace its enclosing complete answer or increase the apparent number of conversation turns.
