@@ -398,7 +398,7 @@ describe('lifecycle sender gate', () => {
   test('SCRIPT_READY repairs a stale Completion runtime before acknowledging the provider', async () => {
     const { context, sendMessage } = createRouterSandbox();
     const currentRuntime = {
-      buildVersion: 'test', detectorVersion: '2.3.0', protocolVersion: '2.3.0', completionSessionAvailable: true
+      buildVersion: 'test', detectorVersion: '2.3.0', protocolVersion: require('../shared/completion-protocol').version, completionSessionAvailable: true
     };
     let probeCount = 0;
     context.chrome.scripting.executeScript.mockImplementation((request) => {
@@ -433,7 +433,7 @@ describe('lifecycle sender gate', () => {
         completionRuntime: {
           buildVersion: 'test',
           detectorVersion: '2.3.0',
-          protocolVersion: '2.3.0',
+          protocolVersion: require('../shared/completion-protocol').version,
           completionSessionAvailable: true
         }
       }

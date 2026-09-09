@@ -1,5 +1,10 @@
 # CHANGELOG — Project
 
+### 2026-09-09 — Align completion runtime protocol versions, version 2.81.387
+
+- Fix the background readiness contract still expecting protocol 2.3.0 after 2.81.382 shipped protocol 2.3.1. Healthy content runtimes were rejected with `COMPLETION_RUNTIME_UNAVAILABLE` even after reinjection.
+- A regression test compares the background predicate against the actual shipped protocol and detector versions, retaining rejection of stale builds and unavailable sessions. This resolves the version mismatch seen in run 1788933128744; truncated answers and provider-specific collection failures are not yet proven resolved.
+
 ### 2026-09-09 — Preserve extracted answer content, version 2.81.386
 
 - Qwen, Grok and Le Chat no longer remove URLs, model names, UI-like words, times or entities from extracted answer text. Preserve code indentation and literal HTML examples; HTML parsing requires an explicit `format: 'html'` option.
