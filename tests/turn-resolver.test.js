@@ -228,3 +228,26 @@ test('ChatGPT nested assistant role is a fragment, not an additional or later tu
   expect(after.answerNode.textContent).toBe('Complete opening Only the last twenty');
   expect(after.candidates).toHaveLength(2);
 });
+
+test('Grok nested primary prose cannot replace the complete markdown in the same message', () => {
+  window.eval(SELECTOR_SOURCE);
+  const selectors = window.AnswerPipelineSelectors.PLATFORM_SELECTORS.grok;
+  const message = id => `<div class="message-bubble"><div class="relative response-content-markdown" id="${id}"><p>Complete opening</p><section data-testid="thread"><div class="prose">Short ending</div></section></div></div>`;
+  document.body.innerHTML = `<main>${message('old')}</main>`;
+  const before = TurnResolver.resolveTurn({platform:'grok',selectors,document});
+  expect(before.candidates).toHaveLength(1);
+  expect(TurnResolver.resolveTurn({platform:'grok',selectors,document,anchorAnswerCount:1}).answerNode).toBeNull();
+  document.querySelector('main').insertAdjacentHTML('beforeend', message('new'));
+  const after = TurnResolver.resolveTurn({platform:'grok',selectors,document,anchorAnswerCount:1});
+  expect(after.candidates).toHaveLength(2);
+  expect(after.answerNode.id).toBe('new');
+  expect(after.answerNode.textContent).toBe('Complete openingShort ending');
+});
+
+test('primary nodes belonging to distinct message roots remain distinct turns', () => {
+  document.body.innerHTML = '<article class="message answer">Outer<section class="message answer">Inner</section></article>';
+  const turn = TurnResolver.resolveTurn({platform:'grok',document,
+    selectors:{lastMessage:'.answer',messageRoot:'.message'},anchorAnswerCount:1});
+  expect(turn.candidates).toHaveLength(2);
+  expect(turn.answerNode.textContent).toBe('Inner');
+});

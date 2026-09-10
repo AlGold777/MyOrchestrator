@@ -129,16 +129,23 @@
     // was excluded by the pre-send anchor. Only explicit answer selectors may
     // contribute candidates (including configured secondary selectors).
 
-    // ChatGPT can label both the turn wrapper and a nested response fragment
-    // as assistant. Count one turn and select its full body, not the last
-    // nested role match. Apply this before the anchor so DOM nesting does not
-    // make an old turn look like a newly appended response.
-    const turnCandidates = options.platform === 'chatgpt'
-      ? candidates.filter(node => !candidates.some(parent => parent !== node
+    // Primary selectors can match both a complete answer and a nested fragment.
+    // Collapse matches inside the same message before applying the turn anchor.
+    // Do not promote to the message wrapper itself: it can also hold reasoning.
+    // ChatGPT also repeats assistant roles on nested fragments, so its existing
+    // role-wrapper rule does not require identical nearest roots.
+    const primaryRootSelector = selectorList(selectors.messageRoot).join(',');
+    const enclosingMessage = node => {
+      try { return primaryRootSelector ? node.closest?.(primaryRootSelector) : null; }
+      catch (_) { return null; }
+    };
+    const turnCandidates = candidates.filter(node => !candidates.some(parent => parent !== node
         && metadataByElement.get(parent)?.sourceKind === 'primary'
         && metadataByElement.get(node)?.sourceKind === 'primary'
-        && parent.contains(node)))
-      : candidates;
+        && parent.contains(node)
+        && (options.platform === 'chatgpt'
+          || (enclosingMessage(node) && enclosingMessage(parent) !== parent
+            && enclosingMessage(node) === enclosingMessage(parent)))));
     const sorted = sortDocumentOrder(turnCandidates);
     const anchor = Math.max(0, Number(options.anchorAnswerCount || 0));
     // An anchor is a hard boundary, not a preference. If the current candidate

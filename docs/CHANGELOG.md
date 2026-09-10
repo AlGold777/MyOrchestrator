@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-09-10 — Keep nested answer fragments within their message, version 2.81.396
+
+- The shared turn resolver collapses nested primary content matches when both belong to the same explicit message root. It does not promote to the message wrapper itself, which can also contain private reasoning. A trailing prose fragment cannot replace its enclosing full markdown answer or inflate the pre-send turn count. Separate message roots remain separate; the existing ChatGPT nested-role rule is preserved.
+- Runtime tests use the shipped Grok selectors to reproduce full markdown plus a nested prose match, verify an unchanged old turn is not selected, and verify a new complete turn wins. Another test preserves distinct nested message roots.
+- Live inspection of the 2.81.395 Grok page found a 3185-character answer versus the ledger's 26-character extraction. The nested-fragment defect is reproduced in code; the exact DOM candidate used at the original extraction has not been captured, so this is not proof that the field truncation is fully repaired.
+
 ### 2026-09-09 — Admit late answers after observer timeout, version 2.81.395
 
 - `STALLED` no longer permanently rejects a nonempty response at the completion-authority transport gate. The protocol uses this status for observer deadlines; it does not prove provider failure. Late responses for the same registered dispatch now reach normal answer verification with their terminal metadata unchanged.
