@@ -1,5 +1,12 @@
 # CHANGELOG — Project
 
+### 2026-09-11 — Move GPT/Qwen bottom preparation to Get it, version 2.81.399
+
+- Remove the automatic acceptance prerequisite from 2.81.398. GPT/Qwen automatic response handling no longer depends on a bottom-visit proof. The unfinished empty-UNCERTAIN recovery experiment was removed before release.
+- Get it requests fresh inline recovery for GPT/Qwen, bypassing the cached-terminal shortcut. Before collection, activate the page, try its labelled bottom button and verify the scroll position. Explicit manual recovery also works for finalized entries and expired automatic focus budgets. Failure to reach the bottom stops this manual collection and is reported to the user.
+- Get it processes models sequentially and awaits collection; repeated clicks cannot start a competing sequence. Previously pending card text is flushed before fresh retrieval, so it cannot overwrite the newly retrieved answer. Other manual controls and automatic collection retain their previous optional preparation behavior.
+- Run 1789159635727 finalized Qwen empty about 6.5 seconds after send confirmation and GPT empty about 8.5 seconds after confirmation. The field log does not prove which browser action caused the initial uncertainty or whether a bottom visit ran. GPT later had 1897 extracted characters and 1907 rendered characters; `incomparable` is a normalization/comparison failure, not an explicit delivery rejection. No Qwen generation-start event is not proof that generation never started.
+
 ### 2026-09-11 — GPT/Qwen mandatory bottom experiment, version 2.81.398
 
 - GPT and Qwen defer successful response handling until a bottom visit succeeds for the current dispatch. The initiating payload is discarded; the next collection explicitly requests a response even if text is unchanged. Evidence expires after 30 seconds and cannot authorize another dispatch or run.

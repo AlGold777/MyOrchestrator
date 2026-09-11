@@ -3520,14 +3520,16 @@ const getManualRecoveryState = (entry) => {
   return entry.manualRecovery;
 };
 
-const buildManualLatestRecoveryOptions = (entry, llmName, strategy = null) => {
+const buildManualLatestRecoveryOptions = (entry, llmName, strategy = null, options = {}) => {
   const signatures = [];
   const pushSignature = (value) => {
     const normalized = normalizeAnswerSignatureBg(value);
     if (normalized && !signatures.includes(normalized)) signatures.push(normalized);
   };
-  pushSignature(entry?.answer || '');
-  pushSignature(entry?.pendingFinalAnswer || '');
+  if (!options.keepCurrentAnswer) {
+    pushSignature(entry?.answer || '');
+    pushSignature(entry?.pendingFinalAnswer || '');
+  }
   pushSignature(entry?.preDispatchAnswerSignature || '');
   return {
     enabled: true,
@@ -5805,49 +5807,21 @@ async function focusTabForVerification(llmName, tabId, durationMs, sessionId) {
   });
 }
 
-// Experiment: a successful response from these providers needs a fresh bottom
-// visit for this dispatch. The payload that triggered the visit is discarded;
-// collection is requested again after the page has rendered.
-function deferResponseUntilRequiredBottom(llmName, entry) {
-  if (!['GPT', 'Qwen'].includes(llmName)) return false;
-  const dispatchId = entry?.lastDispatchMeta?.dispatchId || entry?.confirmedDispatchId;
-  const sessionId = getActiveSessionId();
-  const proof = entry?.requiredBottomProof;
-  if (dispatchId && proof?.dispatchId === dispatchId && proof.sessionId === sessionId
-    && Date.now() - proof.at < 30000) return false;
-  if (!entry || !dispatchId || self.isInitialPromptPassActive?.()) return true;
-  const pending = deferResponseUntilRequiredBottom.pending || (deferResponseUntilRequiredBottom.pending = new WeakSet());
-  if (pending.has(entry) || Date.now() - (entry.requiredBottomAttemptAt || 0) < 3000) return true;
-  pending.add(entry);
-  entry.requiredBottomAttemptAt = Date.now();
-  const tabId = resolveBoundTabIdForOrchestrator(llmName, entry);
-  void runPreCollectScrollNudge(llmName, tabId, sessionId, 'required_bottom_before_acceptance')
-    .then(ok => {
-      if (!ok || jobState?.llms?.[llmName] !== entry || !isSessionActive(sessionId)
-        || (entry.lastDispatchMeta?.dispatchId || entry.confirmedDispatchId) !== dispatchId) return;
-      entry.requiredBottomProof = { dispatchId, sessionId, at: Date.now() };
-      triggerResponseCollectionPing(llmName, tabId, 'required_bottom_fresh_collection', { forceEmitOnUnchanged: true });
-    })
-    .catch(err => emitTelemetry(llmName, 'REQUIRED_BOTTOM_FAILED', {
-      level: 'warning', details: err?.message || String(err)
-    }))
-    .finally(() => { pending.delete(entry); });
-  return true;
-}
 
-async function runPreCollectScrollNudge(llmName, tabId, sessionId, reason = 'precollect_nudge') {
+async function runPreCollectScrollNudge(llmName, tabId, sessionId, reason = 'precollect_nudge', options = {}) {
+  const requiredBottom = options.getIt === true && ['GPT', 'Qwen'].includes(llmName);
   if (self.isInitialPromptPassActive?.()) return false;
   if (!llmName || !isValidTabId(tabId)) return false;
   if (sessionId && !isSessionActive(sessionId)) return false;
   const initialEntry = jobState?.llms?.[llmName];
-  if (!initialEntry || isFinalizedEntry(initialEntry)) {
+  if (!initialEntry || (!requiredBottom && isFinalizedEntry(initialEntry))) {
     emitTelemetry(llmName, 'PRECOLLECT_NUDGE_SKIP', {
       details: 'terminal',
       meta: { tabId, reason }
     });
     return false;
   }
-  if (self.isActiveFocusAllowedForEntry?.(initialEntry) === false) {
+  if (!requiredBottom && self.isActiveFocusAllowedForEntry?.(initialEntry) === false) {
     emitTelemetry(llmName, 'PRECOLLECT_NUDGE_SKIP', {
       details: 'active_focus_window_exhausted',
       meta: { tabId, reason, activeFocusDeadlineAt: initialEntry.activeFocusDeadlineAt || null }
@@ -5857,18 +5831,18 @@ async function runPreCollectScrollNudge(llmName, tabId, sessionId, reason = 'pre
   const performNudge = async () => {
     const liveEntry = jobState?.llms?.[llmName];
     if (self.isInitialPromptPassActive?.() || (sessionId && !isSessionActive(sessionId))
-      || liveEntry !== initialEntry || isFinalizedEntry(liveEntry)) return false;
-    if (self.isActiveFocusAllowedForEntry?.(liveEntry) === false) return false;
+      || liveEntry !== initialEntry || (!requiredBottom && isFinalizedEntry(liveEntry))) return false;
+    if (!requiredBottom && self.isActiveFocusAllowedForEntry?.(liveEntry) === false) return false;
     if (typeof activateTabForDispatch === 'function') {
       await activateTabForDispatch(tabId);
     }
     if (self.isInitialPromptPassActive?.() || (sessionId && !isSessionActive(sessionId))
-      || jobState?.llms?.[llmName] !== liveEntry || isFinalizedEntry(liveEntry)) return false;
+      || jobState?.llms?.[llmName] !== liveEntry || (!requiredBottom && isFinalizedEntry(liveEntry))) return false;
     const results = await chrome.scripting.executeScript({
       target: { tabId },
       func: (meta = {}) => {
         const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-        const requiredBottom = ['GPT', 'Qwen'].includes(meta.llmName);
+        const requiredBottom = meta.requiredBottom === true;
         let arrowClicks = 0;
         const clickBottomArrow = () => {
           if (!requiredBottom) return;
@@ -5954,14 +5928,14 @@ async function runPreCollectScrollNudge(llmName, tabId, sessionId, reason = 'pre
           return { ok: true, settled: false, targets: previousTargets.length, passes: 8 };
         });
       },
-      args: [{ reason, llmName }]
+      args: [{ reason, llmName, requiredBottom }]
     });
     await orchestratorSleepMs(PRECOLLECT_NUDGE_STABILIZE_MS);
     emitTelemetry(llmName, 'PRECOLLECT_NUDGE', {
       details: reason,
       meta: { tabId, reason, scrollPreparation: results?.[0]?.result || null }
     });
-    return !['GPT', 'Qwen'].includes(llmName) || results?.[0]?.result?.settled === true;
+    return !requiredBottom || results?.[0]?.result?.settled === true;
   };
   try {
     // Keep focus for the full render preparation, not just tabs.update().
@@ -8388,13 +8362,6 @@ function handleLLMResponse(llmName, answer, error = null, meta = null, answerHtm
       return;
     }
   }
-  if (earlyIsSuccess && deferResponseUntilRequiredBottom(llmName, entry)) {
-    emitTelemetry(llmName, 'REQUIRED_BOTTOM_RESPONSE_DEFERRED', {
-      details: 'awaiting_bottom_and_fresh_collection',
-      meta: { dispatchId: entry?.lastDispatchMeta?.dispatchId || null }
-    });
-    return;
-  }
   if (entry && typeof self.markModelRuntimeActivity === 'function') {
     self.markModelRuntimeActivity(llmName, Date.now(), 'llm_response');
   }
@@ -9969,7 +9936,10 @@ async function handleManualResponsePing(llmName, options = {}) {
     });
     return { status: 'manual_ping_sent' };
   }
-  if (!isFinalizedEntry(liveEntry)) {
+  if (options.getIt === true && ['GPT', 'Qwen'].includes(llmName)) {
+    const prepared = await runPreCollectScrollNudge(llmName, tabId, getActiveSessionId(), 'get_it_precollect', { getIt: true });
+    if (!prepared) return { status: 'manual_ping_failed', error: 'Не удалось перейти к концу беседы. Повторите Get it после завершения отправки запросов.' };
+  } else if (!isFinalizedEntry(liveEntry)) {
     await runPreCollectScrollNudge(llmName, tabId, getActiveSessionId(), 'manual_ping_precollect');
   } else if (allowRecoverableTerminalPing || allowManualSelectorRecovery) {
     broadcastDiagnostic(llmName, {
@@ -9983,7 +9953,7 @@ async function handleManualResponsePing(llmName, options = {}) {
   }
   extendPingWindowForLLM(llmName, MANUAL_PING_WINDOW_MS);
   const manualRecoveryMeta = manualLatestRecovery
-    ? buildManualLatestRecoveryOptions(liveEntry, llmName, strategy)
+    ? buildManualLatestRecoveryOptions(liveEntry, llmName, strategy, { keepCurrentAnswer: options.getIt === true })
     : (manualRecoveryRequested ? {
     enabled: true,
     manualRecovery: true,
@@ -10113,7 +10083,7 @@ async function handleManualResponsePing(llmName, options = {}) {
         error: manualBudget.reason
       });
     } else {
-        lateCollectAnswer({
+        await lateCollectAnswer({
           llmName,
           tabId,
           reason: manualLatestRecovery ? 'manual_latest_recovery' : 'manual_ping_late_collect',

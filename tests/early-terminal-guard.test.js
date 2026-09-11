@@ -53,8 +53,6 @@ function createSandbox() {
         GPT: {
           tabId: 101,
           requestId: 'req-gpt',
-          // These tests exercise finality after the experimental bottom prerequisite.
-          requiredBottomProof: { dispatchId: 'dispatch-gpt', sessionId: 1778621552201, at: Date.now() },
           lastDispatchMeta: { dispatchId: 'dispatch-gpt' }
         },
         Perplexity: {
@@ -65,7 +63,6 @@ function createSandbox() {
         Qwen: {
           tabId: 303,
           requestId: 'req-qwen',
-          requiredBottomProof: { dispatchId: 'dispatch-qwen', sessionId: 1778621552201, at: Date.now() },
           lastDispatchMeta: { dispatchId: 'dispatch-qwen' }
         },
         'Z.ai': {

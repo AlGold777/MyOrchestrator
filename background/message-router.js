@@ -5072,6 +5072,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     try {
                         const result = await handleManualResponsePing(llmName, {
                             advanceStrategy: shouldAdvanceStrategy,
+                            getIt: message.getIt === true,
                             manualLatestRecovery,
                             manualRecovery: message.manualRecovery !== false,
                             reason: message.reason || 'request_llm_response'

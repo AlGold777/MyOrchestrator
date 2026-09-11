@@ -21104,23 +21104,37 @@ function checkCompareButtonState() {
     });
     
 if (getItButton) {
-    getItButton.addEventListener('click', () => {
-        if (getItButton.disabled) return;
+    getItButton.addEventListener('click', async () => {
+        if (getItButton.disabled || getItButton.dataset.collecting === 'true') return;
+        getItButton.dataset.collecting = 'true';
         console.log('[RESULTS] Get Answers clicked: requesting latest responses from open LLM tabs');
         const selectedLLMs = getSelectedLLMs();
-        selectedLLMs.forEach(llmName => {
-            chrome.runtime.sendMessage({ 
-                type: 'REQUEST_LLM_RESPONSE', 
-                llmName: llmName,
-                manualRecovery: true,
-                advanceStrategy: false
-            });
-        });
         Object.keys(pendingResponses).forEach(llmName => {
             updateLLMPanelOutput(llmName, pendingResponses[llmName]);
         });
         pendingResponses = {};
-        checkCompareButtonState();
+        try {
+          for (const llmName of selectedLLMs) {
+            try {
+              const result = await chrome.runtime.sendMessage({
+                type: 'REQUEST_LLM_RESPONSE',
+                llmName: llmName,
+                getIt: true,
+                manualLatestRecovery: ['GPT', 'Qwen'].includes(llmName),
+                manualRecovery: true,
+                advanceStrategy: false
+              });
+              if (result?.status === 'manual_ping_failed' && typeof showNotification === 'function') {
+                showNotification(`${llmName}: ${result.error || 'Не удалось получить ответ'}`);
+              }
+            } catch (err) {
+              console.error(`[RESULTS] Get it failed for ${llmName}:`, err);
+            }
+          }
+        } finally {
+          delete getItButton.dataset.collecting;
+          checkCompareButtonState();
+        }
     });
 }
 
