@@ -81,7 +81,7 @@ test('re-resolves a replaced virtualized container and bounds a continuously gro
 test('keeps focus lock through DOM preparation and settling', async () => {
   const c = setup(); let locked = false;
   c.withPromptDispatchFocusLock = async fn => { locked = true; try { return await fn(); } finally { locked = false; } };
-  c.chrome.scripting.executeScript.mockImplementation(async () => { expect(locked).toBe(true); return []; });
+  c.chrome.scripting.executeScript.mockImplementation(async () => { expect(locked).toBe(true); return [{ result: { settled: true } }]; });
   c.orchestratorSleepMs = async () => { expect(locked).toBe(true); };
   expect(await c.runPreCollectScrollNudge('GPT', 1, 1)).toBe(true);
   expect(locked).toBe(false);
@@ -99,4 +99,63 @@ test.each(['first-pass', 'session-changed', 'finalized', 'focus-expired'])('rech
   expect(await c.runPreCollectScrollNudge('GPT', 1, 1)).toBe(false);
   expect(c.activateTabForDispatch).not.toHaveBeenCalled();
   expect(c.chrome.scripting.executeScript).not.toHaveBeenCalled();
+});
+
+test('Qwen uses the explicit bottom button when direct scrolling is ignored', async () => {
+  const chat = scroller(document.body);
+  chat.el.scrollTo.mockImplementation(() => {});
+  const arrow = document.createElement('button');
+  arrow.setAttribute('aria-label', 'Scroll to bottom');
+  arrow.getClientRects = () => [{}];
+  arrow.onclick = () => { chat.el.scrollTop = 500; };
+  document.body.appendChild(arrow);
+  const c = setup(); c.jobState.llms.Qwen = {};
+  const result = c.runPreCollectScrollNudge('Qwen', 1, 1);
+  await jest.runAllTimersAsync();
+  expect(await result).toBe(true);
+  expect(chat.el.scrollTop).toBe(500);
+});
+
+test('GPT fails the mandatory visit when scrolling does not reach the bottom', async () => {
+  const chat = scroller(document.body); chat.el.scrollTo.mockImplementation(() => {});
+  const c = setup(); const result = c.runPreCollectScrollNudge('GPT', 1, 1);
+  await jest.runAllTimersAsync();
+  expect(await result).toBe(false);
+});
+
+test('mandatory response gate drops the pre-scroll payload and requests fresh text only after success', async () => {
+  const c = setup();
+  const gateStart = source.indexOf('function deferResponseUntilRequiredBottom');
+  vm.runInContext(source.slice(gateStart, start), c);
+  c.getActiveSessionId = () => 1;
+  c.resolveBoundTabIdForOrchestrator = () => 10;
+  c.triggerResponseCollectionPing = jest.fn();
+  let resolveVisit;
+  c.runPreCollectScrollNudge = jest.fn(() => new Promise(resolve => { resolveVisit = resolve; }));
+  const entry = c.jobState.llms.GPT = { lastDispatchMeta: { dispatchId: 'current' } };
+  expect(c.deferResponseUntilRequiredBottom('GPT', entry)).toBe(true);
+  expect(c.deferResponseUntilRequiredBottom('GPT', entry)).toBe(true);
+  expect(c.runPreCollectScrollNudge).toHaveBeenCalledTimes(1);
+  expect(c.triggerResponseCollectionPing).not.toHaveBeenCalled();
+  resolveVisit(true); await jest.runAllTimersAsync();
+  expect(c.triggerResponseCollectionPing).toHaveBeenCalledWith('GPT', 10, 'required_bottom_fresh_collection', { forceEmitOnUnchanged: true });
+  expect(c.deferResponseUntilRequiredBottom('GPT', entry)).toBe(false);
+  entry.lastDispatchMeta.dispatchId = 'next';
+  expect(c.deferResponseUntilRequiredBottom('GPT', entry)).toBe(true);
+  expect(c.deferResponseUntilRequiredBottom('Claude', entry)).toBe(false);
+});
+
+test('failed visit never grants acceptance proof or requests collection', async () => {
+  const c = setup();
+  const gateStart = source.indexOf('function deferResponseUntilRequiredBottom');
+  vm.runInContext(source.slice(gateStart, start), c);
+  c.getActiveSessionId = () => 1;
+  c.resolveBoundTabIdForOrchestrator = () => 10;
+  c.triggerResponseCollectionPing = jest.fn();
+  c.runPreCollectScrollNudge = async () => false;
+  const entry = c.jobState.llms.Qwen = { lastDispatchMeta: { dispatchId: 'current' } };
+  expect(c.deferResponseUntilRequiredBottom('Qwen', entry)).toBe(true);
+  await jest.runAllTimersAsync();
+  expect(entry.requiredBottomProof).toBeUndefined();
+  expect(c.triggerResponseCollectionPing).not.toHaveBeenCalled();
 });

@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-09-11 — GPT/Qwen mandatory bottom experiment, version 2.81.398
+
+- GPT and Qwen defer successful response handling until a bottom visit succeeds for the current dispatch. The initiating payload is discarded; the next collection explicitly requests a response even if text is unchanged. Evidence expires after 30 seconds and cannot authorize another dispatch or run.
+- Try visible, explicitly labelled scroll-to-bottom/latest controls, then direct instant scrolling and stable bottom measurements. Failed, hidden or unmeasurable pages do not grant the acceptance prerequisite. The operation remains bounded and cannot interrupt the initial ordered send pass.
+- This is a necessary preparation step, not proof of generation completion. Existing identity and completion gates still apply. Other providers retain optional pre-collection scrolling. The experiment lives on `codex/gpt-qwen-required-bottom`; baseline tag: `before-gpt-qwen-required-bottom`.
+
 ### 2026-09-11 — Follow the rendered conversation bottom before collection, version 2.81.397
 
 - Pre-collection scrolling now discovers visible vertical scroll containers even with generated class names. It prefers the large main conversation viewport and its scrolling ancestors, excluding navigation and code panes, instead of taking the first five selector matches.

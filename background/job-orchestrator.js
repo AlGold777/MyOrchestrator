@@ -3754,7 +3754,7 @@ const triggerResponseCollectionPing = (llmName, tabId, source = 'auto_collect', 
     runSessionId: Number(jobState?.session?.startTime || 0) || null,
     sessionId: Number(jobState?.session?.startTime || 0) || null,
     dispatchId: liveEntry?.lastDispatchMeta?.dispatchId || null,
-    forceEmitOnUnchanged: false
+    forceEmitOnUnchanged: opts.forceEmitOnUnchanged === true
   };
   sendPassiveMessageWithRetries(tabId, llmName, { action: 'getResponses', meta: responseMeta }, {
     maxAttempts,
@@ -3767,6 +3767,13 @@ const triggerResponseCollectionPing = (llmName, tabId, source = 'auto_collect', 
         successEntry.pingTransportErrorCount = 0;
       }
       if (response?.status === 'ignored_terminal') {
+        if (opts.forceEmitOnUnchanged === true && typeof self.recoverAnswerViaDomSnapshot === 'function') {
+          // The provider adapter may already have closed its observer after the
+          // discarded pre-scroll delivery. Read fresh DOM through recovery.
+          self.recoverAnswerViaDomSnapshot(llmName, tabId, `terminal_observer:${source}`, {
+            dispatchId: successEntry?.lastDispatchMeta?.dispatchId || null
+          }).catch(() => {});
+        }
         return;
       }
       broadcastDiagnostic(llmName, {
@@ -5798,6 +5805,36 @@ async function focusTabForVerification(llmName, tabId, durationMs, sessionId) {
   });
 }
 
+// Experiment: a successful response from these providers needs a fresh bottom
+// visit for this dispatch. The payload that triggered the visit is discarded;
+// collection is requested again after the page has rendered.
+function deferResponseUntilRequiredBottom(llmName, entry) {
+  if (!['GPT', 'Qwen'].includes(llmName)) return false;
+  const dispatchId = entry?.lastDispatchMeta?.dispatchId || entry?.confirmedDispatchId;
+  const sessionId = getActiveSessionId();
+  const proof = entry?.requiredBottomProof;
+  if (dispatchId && proof?.dispatchId === dispatchId && proof.sessionId === sessionId
+    && Date.now() - proof.at < 30000) return false;
+  if (!entry || !dispatchId || self.isInitialPromptPassActive?.()) return true;
+  const pending = deferResponseUntilRequiredBottom.pending || (deferResponseUntilRequiredBottom.pending = new WeakSet());
+  if (pending.has(entry) || Date.now() - (entry.requiredBottomAttemptAt || 0) < 3000) return true;
+  pending.add(entry);
+  entry.requiredBottomAttemptAt = Date.now();
+  const tabId = resolveBoundTabIdForOrchestrator(llmName, entry);
+  void runPreCollectScrollNudge(llmName, tabId, sessionId, 'required_bottom_before_acceptance')
+    .then(ok => {
+      if (!ok || jobState?.llms?.[llmName] !== entry || !isSessionActive(sessionId)
+        || (entry.lastDispatchMeta?.dispatchId || entry.confirmedDispatchId) !== dispatchId) return;
+      entry.requiredBottomProof = { dispatchId, sessionId, at: Date.now() };
+      triggerResponseCollectionPing(llmName, tabId, 'required_bottom_fresh_collection', { forceEmitOnUnchanged: true });
+    })
+    .catch(err => emitTelemetry(llmName, 'REQUIRED_BOTTOM_FAILED', {
+      level: 'warning', details: err?.message || String(err)
+    }))
+    .finally(() => { pending.delete(entry); });
+  return true;
+}
+
 async function runPreCollectScrollNudge(llmName, tabId, sessionId, reason = 'precollect_nudge') {
   if (self.isInitialPromptPassActive?.()) return false;
   if (!llmName || !isValidTabId(tabId)) return false;
@@ -5831,6 +5868,19 @@ async function runPreCollectScrollNudge(llmName, tabId, sessionId, reason = 'pre
       target: { tabId },
       func: (meta = {}) => {
         const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        const requiredBottom = ['GPT', 'Qwen'].includes(meta.llmName);
+        let arrowClicks = 0;
+        const clickBottomArrow = () => {
+          if (!requiredBottom) return;
+          // Only explicit navigation controls; never a generic down-arrow SVG
+          // that might instead be Send, Download or a model-selection menu.
+          const button = Array.from(document.querySelectorAll('button, [role="button"]')).find(node => {
+            if (node.disabled || node.getAttribute('aria-disabled') === 'true' || !node.getClientRects().length) return false;
+            const label = [node.getAttribute('aria-label'), node.getAttribute('title'), node.getAttribute('data-testid')].filter(Boolean).join(' ');
+            return /scroll[\s_-]*to[\s_-]*(bottom|latest)|scroll[\s_-]*down|jump[\s_-]*to[\s_-]*(bottom|latest)|прокрутить.*вниз|к последнему сообщению|滚动到底部|回到底部/i.test(label);
+          });
+          if (button) { button.click(); arrowClicks += 1; }
+        };
         const resolveScrollableTargets = () => {
           const set = new Set();
           const root = document.scrollingElement || document.documentElement || document.body;
@@ -5859,6 +5909,7 @@ async function runPreCollectScrollNudge(llmName, tabId, sessionId, reason = 'pre
           set.clear();
           for (let node = primary; node; node = node.parentElement) add(node);
           add(root);
+          if (requiredBottom && !set.size && root?.clientHeight > 0 && root?.scrollHeight > 0) set.add(root);
           return Array.from(set);
         };
         const getTop = (node) => {
@@ -5880,12 +5931,14 @@ async function runPreCollectScrollNudge(llmName, tabId, sessionId, reason = 'pre
         return Promise.resolve().then(async () => {
           let previousTargets = [], previousSignature = '', stableSamples = 0;
           for (let pass = 0; pass < 8; pass += 1) {
+            if (requiredBottom && document.visibilityState === 'hidden') return { ok: false, settled: false, reason: 'page_hidden' };
+            clickBottomArrow();
             // Re-resolve after rendering: both the node and its height can change.
             const targets = resolveScrollableTargets();
             targets.forEach(node => setTop(node, node.scrollHeight - node.clientHeight));
             window.dispatchEvent(new Event('scroll'));
             await sleep(150);
-            const atBottom = targets.every(node => node.scrollHeight - node.clientHeight - getTop(node) <= 4);
+            const atBottom = (!requiredBottom || targets.length > 0) && targets.every(node => node.isConnected && node.scrollHeight - node.clientHeight - getTop(node) <= 4);
             const signature = targets.map(node => {
               const text = node.innerText || node.textContent || '';
               return `${node.scrollHeight}:${node.clientHeight}:${text.length}:${text.slice(-160)}`;
@@ -5893,7 +5946,7 @@ async function runPreCollectScrollNudge(llmName, tabId, sessionId, reason = 'pre
             const sameNodes = targets.length === previousTargets.length
               && targets.every((node, index) => node === previousTargets[index]);
             stableSamples = atBottom && sameNodes && signature === previousSignature ? stableSamples + 1 : 0;
-            if (stableSamples >= 2) return { ok: true, settled: true, targets: targets.length, passes: pass + 1 };
+            if (stableSamples >= 2) return { ok: true, settled: true, targets: targets.length, passes: pass + 1, arrowClicks };
             previousTargets = targets;
             previousSignature = signature;
           }
@@ -5908,7 +5961,7 @@ async function runPreCollectScrollNudge(llmName, tabId, sessionId, reason = 'pre
       details: reason,
       meta: { tabId, reason, scrollPreparation: results?.[0]?.result || null }
     });
-    return true;
+    return !['GPT', 'Qwen'].includes(llmName) || results?.[0]?.result?.settled === true;
   };
   try {
     // Keep focus for the full render preparation, not just tabs.update().
@@ -8334,6 +8387,13 @@ function handleLLMResponse(llmName, answer, error = null, meta = null, answerHtm
       });
       return;
     }
+  }
+  if (earlyIsSuccess && deferResponseUntilRequiredBottom(llmName, entry)) {
+    emitTelemetry(llmName, 'REQUIRED_BOTTOM_RESPONSE_DEFERRED', {
+      details: 'awaiting_bottom_and_fresh_collection',
+      meta: { dispatchId: entry?.lastDispatchMeta?.dispatchId || null }
+    });
+    return;
   }
   if (entry && typeof self.markModelRuntimeActivity === 'function') {
     self.markModelRuntimeActivity(llmName, Date.now(), 'llm_response');
