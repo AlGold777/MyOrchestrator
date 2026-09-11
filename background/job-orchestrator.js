@@ -5817,60 +5817,49 @@ async function runPreCollectScrollNudge(llmName, tabId, sessionId, reason = 'pre
     });
     return false;
   }
-  try {
+  const performNudge = async () => {
     const liveEntry = jobState?.llms?.[llmName];
-    if (!liveEntry || isFinalizedEntry(liveEntry)) return false;
+    if (self.isInitialPromptPassActive?.() || (sessionId && !isSessionActive(sessionId))
+      || liveEntry !== initialEntry || isFinalizedEntry(liveEntry)) return false;
     if (self.isActiveFocusAllowedForEntry?.(liveEntry) === false) return false;
-    if (typeof withPromptDispatchFocusLock === 'function') {
-      await withPromptDispatchFocusLock(async () => {
-        if (self.isInitialPromptPassActive?.() || (sessionId && !isSessionActive(sessionId))
-          || jobState?.llms?.[llmName] !== liveEntry || isFinalizedEntry(liveEntry)) return;
-        await activateTabForDispatch(tabId);
-      });
-    } else if (typeof activateTabForDispatch === 'function') {
+    if (typeof activateTabForDispatch === 'function') {
       await activateTabForDispatch(tabId);
     }
-  } catch (focusErr) {
-    emitTelemetry(llmName, 'PRECOLLECT_NUDGE_SKIP', {
-      level: 'warning',
-      details: focusErr?.message || 'focus_failed',
-      meta: { tabId, reason, stage: 'focus' }
-    });
-    return false;
-  }
-  try {
-    const liveEntry = jobState?.llms?.[llmName];
-    if (!liveEntry || isFinalizedEntry(liveEntry)) return false;
-    await chrome.scripting.executeScript({
+    if (self.isInitialPromptPassActive?.() || (sessionId && !isSessionActive(sessionId))
+      || jobState?.llms?.[llmName] !== liveEntry || isFinalizedEntry(liveEntry)) return false;
+    const results = await chrome.scripting.executeScript({
       target: { tabId },
       func: (meta = {}) => {
         const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
         const resolveScrollableTargets = () => {
           const set = new Set();
+          const root = document.scrollingElement || document.documentElement || document.body;
           const add = (node) => {
             if (!node || set.has(node)) return;
             const height = Number(node.scrollHeight || 0);
             const view = Number(node.clientHeight || 0);
             if (height - view <= 40) return;
+            if (node !== root) {
+              const style = getComputedStyle(node);
+              if (!/(auto|scroll|overlay)/.test(style.overflowY) || !node.getClientRects().length) return;
+              if (node.closest('nav, aside, pre, [role="navigation"], [role="listbox"]')) return;
+            }
             set.add(node);
           };
-          const root = document.scrollingElement || document.documentElement || document.body;
+          // Include ordinary divs with generated class names, and their outer
+          // scrolling ancestors. A class-name heuristic misses these entirely.
+          document.querySelectorAll('body *').forEach(add);
+          const candidates = Array.from(set);
+          const conversation = candidates.filter(node => node.matches('main, [role="main"]')
+            || node.closest('main, [role="main"]') || node.querySelector('main, [role="main"]'));
+          const pool = conversation.length ? conversation : candidates;
+          // Prefer the large conversation viewport over nested code/table panes.
+          pool.sort((a, b) => b.clientHeight * b.clientWidth - a.clientHeight * a.clientWidth);
+          const primary = pool[0];
+          set.clear();
+          for (let node = primary; node; node = node.parentElement) add(node);
           add(root);
-          const selectors = [
-            'main',
-            'section',
-            'article',
-            '[data-scrollable]',
-            '[data-scroll="true"]',
-            '[class*="scroll"]',
-            '.chat-container',
-            '.conversation',
-            '.chat-history'
-          ];
-          selectors.forEach((selector) => {
-            document.querySelectorAll(selector).forEach((el) => add(el));
-          });
-          return Array.from(set).slice(0, 5);
+          return Array.from(set);
         };
         const getTop = (node) => {
           if (!node) return 0;
@@ -5883,31 +5872,33 @@ async function runPreCollectScrollNudge(llmName, tabId, sessionId, reason = 'pre
           if (!node) return;
           const bounded = Math.max(0, top);
           if (node === document.body || node === document.documentElement || node === document.scrollingElement) {
-            window.scrollTo({ top: bounded, behavior: 'smooth' });
+            window.scrollTo({ top: bounded, behavior: 'instant' });
             return;
           }
-          node.scrollTo({ top: bounded, behavior: 'smooth' });
-        };
-        const nudgeNode = async (node) => {
-          const viewport = Math.max(220, Number(node.clientHeight || window.innerHeight || 0));
-          const maxScroll = Math.max(0, Number(node.scrollHeight || 0) - Number(node.clientHeight || 0));
-          if (maxScroll <= 0) return;
-          const current = Math.max(0, Math.min(maxScroll, getTop(node)));
-          const upDelta = Math.min(current, viewport * 0.5);
-          if (upDelta > 60) {
-            setTop(node, current - upDelta);
-            await sleep(240);
-          }
-          setTop(node, maxScroll);
-          await sleep(320);
+          node.scrollTo({ top: bounded, behavior: 'instant' });
         };
         return Promise.resolve().then(async () => {
-          const targets = resolveScrollableTargets();
-          for (const node of targets) {
-            await nudgeNode(node);
+          let previousTargets = [], previousSignature = '', stableSamples = 0;
+          for (let pass = 0; pass < 8; pass += 1) {
+            // Re-resolve after rendering: both the node and its height can change.
+            const targets = resolveScrollableTargets();
+            targets.forEach(node => setTop(node, node.scrollHeight - node.clientHeight));
+            window.dispatchEvent(new Event('scroll'));
+            await sleep(150);
+            const atBottom = targets.every(node => node.scrollHeight - node.clientHeight - getTop(node) <= 4);
+            const signature = targets.map(node => {
+              const text = node.innerText || node.textContent || '';
+              return `${node.scrollHeight}:${node.clientHeight}:${text.length}:${text.slice(-160)}`;
+            }).join('|');
+            const sameNodes = targets.length === previousTargets.length
+              && targets.every((node, index) => node === previousTargets[index]);
+            stableSamples = atBottom && sameNodes && signature === previousSignature ? stableSamples + 1 : 0;
+            if (stableSamples >= 2) return { ok: true, settled: true, targets: targets.length, passes: pass + 1 };
+            previousTargets = targets;
+            previousSignature = signature;
           }
-          window.dispatchEvent(new Event('scroll'));
-          return { ok: true, targets: targets.length, reason: meta.reason || 'precollect_nudge' };
+          // This only prepares the DOM. It is never evidence of completed generation.
+          return { ok: true, settled: false, targets: previousTargets.length, passes: 8 };
         });
       },
       args: [{ reason, llmName }]
@@ -5915,9 +5906,14 @@ async function runPreCollectScrollNudge(llmName, tabId, sessionId, reason = 'pre
     await orchestratorSleepMs(PRECOLLECT_NUDGE_STABILIZE_MS);
     emitTelemetry(llmName, 'PRECOLLECT_NUDGE', {
       details: reason,
-      meta: { tabId, reason }
+      meta: { tabId, reason, scrollPreparation: results?.[0]?.result || null }
     });
     return true;
+  };
+  try {
+    // Keep focus for the full render preparation, not just tabs.update().
+    return typeof withPromptDispatchFocusLock === 'function'
+      ? await withPromptDispatchFocusLock(performNudge) : await performNudge();
   } catch (err) {
     emitTelemetry(llmName, 'PRECOLLECT_NUDGE_ERROR', {
       level: 'warning',

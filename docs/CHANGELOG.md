@@ -1,5 +1,12 @@
 # CHANGELOG — Project
 
+### 2026-09-11 — Follow the rendered conversation bottom before collection, version 2.81.397
+
+- Pre-collection scrolling now discovers visible vertical scroll containers even with generated class names. It prefers the large main conversation viewport and its scrolling ancestors, excluding navigation and code panes, instead of taking the first five selector matches.
+- Use instant scrolling, re-discover containers after rendering and follow changed heights until consecutive stable bottom observations, bounded to eight 150 ms samples. A replaced virtualized container is re-acquired. This prepares rendered content; it does not prove generation completion or waive answer identity checks.
+- Hold the dispatch focus mutex throughout scrolling and settling, with session, terminal, first-pass and focus-budget checks after acquiring it. Previously the lock covered activation only and a queued cancellation could still allow scrolling.
+- Run 1789126502755 plus the user's manual-scroll observation motivated this repair. The raw ledger independently confirms late delivery rejections for Grok/Le Chat and post-terminal text changes; it does not record sufficient DOM evidence to attribute all incomplete answers to scrolling. Real-browser completeness and remaining authority rejections still require verification.
+
 ### 2026-09-10 — Keep nested answer fragments within their message, version 2.81.396
 
 - The shared turn resolver collapses nested primary content matches when both belong to the same explicit message root. It does not promote to the message wrapper itself, which can also contain private reasoning. A trailing prose fragment cannot replace its enclosing full markdown answer or inflate the pre-send turn count. Separate message roots remain separate; the existing ChatGPT nested-role rule is preserved.
