@@ -40,3 +40,52 @@ test('visible Send bypasses a stalled selector service',async()=>{
   expect(await c.resolveSendButton(null)).toBe(button);
   expect(finder).not.toHaveBeenCalled();
 });
+
+test('Send enabled after paste is clicked during the foreground slot despite a stalled finder',async()=>{
+  jest.useFakeTimers();
+  const {c,button}=setup(true);
+  button.disabled=true;
+  c.document.querySelector=()=>button;
+  c.document.querySelectorAll=()=>[];
+  c.isSafeQwenSendControl=b=>b===button && !b.disabled;
+  c.window={SelectorFinder:{findOrDetectSelector:jest.fn(()=>new Promise(()=>{}))}};
+  vm.runInContext(source.slice(source.indexOf('  async function resolveSendButton'),source.indexOf('  function requestSubmitNearComposer')),c);
+  setTimeout(()=>{button.disabled=false;},300);
+  const pending=c.sendComposer({dispatchEvent:jest.fn()},{prompt:'8 / 4'});
+  await jest.advanceTimersByTimeAsync(500);
+  await expect(pending).resolves.toBe(true);
+  expect(button.click).toHaveBeenCalledTimes(1);
+  expect(c.window.SelectorFinder.findOrDetectSelector).not.toHaveBeenCalled();
+});
+
+test('a failure before submission cannot enter last-chance extraction of an old answer',async()=>{
+  const error={type:'selector_not_found',message:'No composer'};
+  const activity={heartbeat:jest.fn(),error:jest.fn()};
+  const c={Date,console,MODEL:'Qwen',window:{},
+    runLifecycle:(_name,_context,run)=>run(activity),buildLifecycleContext:()=>({}),
+    metricsCollector:{startOperation:()=>1,recordError:jest.fn(),endOperation:jest.fn()},
+    sleep:async()=>{},discoverComposer:()=>{throw error;},
+    waitForQwenReply:jest.fn(async()=> 'Old answer'),sendResult:jest.fn()};
+  vm.createContext(c);
+  vm.runInContext(source.slice(source.indexOf('  async function injectAndGetResponse'),source.indexOf('  let currentRequestContext')),c);
+  await expect(c.injectAndGetResponse('8 / 4')).rejects.toEqual(error);
+  expect(c.waitForQwenReply).not.toHaveBeenCalled();
+  expect(c.sendResult).toHaveBeenCalledWith('No composer',false,expect.anything(),error);
+});
+
+test('old conversation answers cannot confirm failed keyboard submission',async()=>{
+  jest.useFakeTimers();
+  const {c}=setup(false);
+  c.resolveSendButton=async()=>null;
+  c.requestSubmitNearComposer=()=>false;
+  c.startDriftFallback=()=>{};
+  c.hasQwenGenerationSignal=jest.fn(()=>true);
+  c.getAssistantMessages=jest.fn(()=>['Old answer']);
+  c.isQwenAnswerCandidate=()=>true;
+  const pending=c.sendComposer({dispatchEvent:jest.fn()},{prompt:'8 / 4'});
+  const rejected=expect(pending).rejects.toMatchObject({type:'send_failed'});
+  await jest.advanceTimersByTimeAsync(20000);
+  await rejected;
+  expect(c.hasQwenGenerationSignal).not.toHaveBeenCalled();
+  expect(c.getAssistantMessages).not.toHaveBeenCalled();
+});

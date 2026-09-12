@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-09-13 — Qwen send readiness and failure ownership, version 2.81.407
+
+- Send discovery re-reads live enabled controls for up to 1.5 seconds after paste/upload instead of awaiting the generic 12-second selector finder. Disabled and aria-disabled controls are rejected. A DOM regression confirms a button enabled after 300 ms is clicked within the foreground slot.
+- Last-chance answer extraction is allowed only after this dispatch has confirmed submission. Existing assistant text and unrelated generation signals cannot confirm a late Send. This prevents the false fallback observed in run 1789248077227 after Qwen inserted 143 characters without confirmed submission.
+- The exact reason the field click failed remains unproven. A read-only inspection of the original Qwen tab later found an empty composer and existing answers, not the original failed draft; no live send was performed.
+
 ### 2026-09-12 — Distinguish slow tab lookup from an invalid tab, version 2.81.406
 
 - Receiver recovery retains a slow tabs.get request within its existing 20-second budget instead of treating the one-second timeout as tab_ineligible. Closed tabs, ineligible URLs and lookup timeouts now have separate outcomes. A late result cannot reload after cancellation or deadline.

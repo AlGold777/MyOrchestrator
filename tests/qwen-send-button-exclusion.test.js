@@ -17,7 +17,7 @@ describe('Qwen send-button voice exclusion', () => {
     const scoreInitIdx = QWEN_SRC.indexOf('let score = 10;');
     expect(rejectIdx).toBeGreaterThan(-1);
     expect(rejectIdx).toBeLessThan(scoreInitIdx);
-    expect(QWEN_SRC).toContain('isSafeQwenSendControl(result?.element)');
+    expect(QWEN_SRC).not.toContain('timeout: 12000,');
     expect(QWEN_SRC).toContain('isSafeQwenSendControl(sendBtn)');
     expect(QWEN_SRC).toContain('isSafeQwenSendControl(emergencySend)');
     expect(QWEN_SRC).toContain('resolveSendButton(input)');

@@ -1573,10 +1573,11 @@ const keepAliveMutex = (() => {
   }
 
   function isSafeQwenSendControl(btn) {
-    return Boolean(btn && isElementInteractable(btn) && hasExplicitQwenSendIdentity(btn));
+    return Boolean(btn && !btn.disabled && btn.getAttribute?.('aria-disabled') !== 'true'
+      && isElementInteractable(btn) && hasExplicitQwenSendIdentity(btn));
   }
 
-  async function resolveSendButton(referenceInput) {
+  async function resolveSendButton(referenceInput, scanOnly = false) {
     const scoreSendButtonCandidate = (btn) => {
       if (!isSafeQwenSendControl(btn)) return 0;
       const text = describeQwenComposerControl(btn);
@@ -1623,17 +1624,14 @@ const keepAliveMutex = (() => {
         .sort((a, b) => b.score - a.score);
       if (candidates[0]?.btn) return candidates[0].btn;
     } catch (_) {}
-    if (window.SelectorFinder?.findOrDetectSelector) {
-      try {
-        const result = await window.SelectorFinder.findOrDetectSelector({
-          modelName: MODEL,
-          elementType: 'sendButton',
-          timeout: 12000,
-          referenceElement: referenceInput || null
-        });
-        if (isSafeQwenSendControl(result?.element)) return result.element;
-      } catch (err) {
-        console.warn('[content-qwen] SelectorFinder send button resolution failed', err);
+    if (!scanOnly) {
+      // React may replace/enable Send just after paste or upload. Re-read the
+      // live controls instead of blocking the foreground slot on a 12s finder.
+      const deadline = Date.now() + 1500;
+      while (Date.now() < deadline) {
+        await sleep(100);
+        const button = await resolveSendButton(referenceInput, true);
+        if (button) return button;
       }
     }
     return null;
@@ -1708,12 +1706,6 @@ const keepAliveMutex = (() => {
       const deadline = Date.now() + timeout;
       while (Date.now() < deadline) {
         if (hasSubmittedUserMessage()) return true;
-        if (hasQwenGenerationSignal(scope)) return true;
-        const assistants = getAssistantMessages(scope);
-        if (assistants.length > 0) {
-          const latest = extractMessageText(assistants[assistants.length - 1]);
-          if (isQwenAnswerCandidate(latest, options.prompt || '', '')) return true;
-        }
         await sleep(140);
       }
       return false;
@@ -2667,6 +2659,7 @@ const keepAliveMutex = (() => {
       let baselineAssistantText = '';
       let baselineAssistantCount = 0;
       let baselineContainerCount = 0;
+      let submissionConfirmed = false;
       try {
         await sleep(1000);
           activity.heartbeat(0.15, { phase: 'composer-search' });
@@ -2799,6 +2792,7 @@ const keepAliveMutex = (() => {
               scope: qwenScope,
               baselineUserCount
             });
+            submissionConfirmed = true;
           } catch (err) {
             emitDiagnostic({
               type: 'DISPATCH',
@@ -2903,6 +2897,9 @@ const keepAliveMutex = (() => {
           throw e;
         }
         try {
+          // An insertion/upload/send failure must remain a dispatch failure.
+          // An older answer is not evidence that the current draft was sent.
+          if (!submissionConfirmed) throw e;
           const scope = qwenScope || resolveQwenChatRoot();
           const fallback = await waitForQwenReply(prompt, 18000, {
             baselineText: baselineAssistantText || '',
