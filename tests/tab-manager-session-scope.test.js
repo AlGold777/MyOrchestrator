@@ -265,6 +265,19 @@ describe('tab-manager session scoping', () => {
     );
   });
 
+  test('Round 0 binds a discarded page without reloading or waiting for readiness', async () => {
+    const {context} = createTabManagerSandbox({queryTabs: [
+      {id:2002,url:'https://chatgpt.com/c/current',status:'loading',discarded:true}
+    ]});
+    context.jobState.llms.GPT.tabId = 2002;
+    context.ensureTabReadyForDispatch = jest.fn(() => new Promise(() => {}));
+    expect(await context.tryAttachExistingTab('GPT','hello',[],{allowGlobalReuse:true,deferDispatch:true})).toBe(true);
+    expect(context.ensureTabReadyForDispatch).not.toHaveBeenCalled();
+    expect(context.prepareTabForUse).not.toHaveBeenCalled();
+    expect(context.dispatchPromptToTab).not.toHaveBeenCalled();
+    expect(context.jobState.llms.GPT.tabId).toBe(2002);
+  });
+
   test('mapped conversation wins over a newer clean tab during global reuse', async () => {
     const { context } = createTabManagerSandbox({
       queryTabs: [

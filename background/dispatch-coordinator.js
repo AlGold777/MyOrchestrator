@@ -1109,9 +1109,6 @@ async function dispatchSimpleFirstPass(llmName, tabId, prompt, attachments, entr
     return {ok: false, deferred: true, reason};
   };
   const hasAttachments = Boolean(attachments?.length);
-  if (entry.receiverPreparation?.tabId === tabId && entry.receiverPreparation.ok === false) {
-    return defer(entry.receiverPreparation.reason || 'receiver_unavailable');
-  }
   entry.dispatchCheckpoint = {dispatchId: meta.dispatchId, phase: 'command_intent'};
   // Persist only command ownership here. Full job snapshots can be queued
   // behind active generation writes and must not prevent a ready page sending.
@@ -1123,8 +1120,13 @@ async function dispatchSimpleFirstPass(llmName, tabId, prompt, attachments, entr
       return defer('focus_unavailable');
     }
     const visitStartedAt = Date.now();
-    await pause(Number(options.deferSendMs ?? 2000));
+    const [, preparation] = await Promise.all([
+      pause(Number(options.deferSendMs ?? 2000)),
+      prepareReusableTabReceiver(tabId, llmName, current)
+    ]);
     if (!current()) return {ok: false, reason: 'session_changed'};
+    entry.receiverPreparation = preparation;
+    if (!preparation.ok) return defer(preparation.reason || 'receiver_unavailable');
     // Focus and editor settling overlap the write; ordinary storage latency
     // adds no extra pause. Still require ownership to be durable before Send.
     if (!await durable || !current()) return defer('checkpoint_not_ready');

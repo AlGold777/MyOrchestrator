@@ -861,7 +861,7 @@ function tryAttachExistingTab(llmName, prompt, attachments = [], options = {}) {
         const isMapped = tabOption.id === (jobState?.llms?.[llmName]?.tabId || TabMapManager.get(llmName));
         // Keep a known conversation even if its composer is busy or has a draft.
         // Readiness belongs to dispatch; choosing another conversation is not recovery.
-        if (!allowGlobalReuse || isRunBound || isMapped) {
+        if (options.deferDispatch || !allowGlobalReuse || isRunBound || isMapped) {
           candidate = tabOption;
           break;
         }
@@ -911,7 +911,7 @@ function tryAttachExistingTab(llmName, prompt, attachments = [], options = {}) {
         return;
       }
       try {
-        const candidateSnapshot = await captureTabSnapshot(candidate.id);
+        const candidateSnapshot = options.deferDispatch ? buildTabSnapshot(candidate) : await captureTabSnapshot(candidate.id);
         emitTelemetry(llmName, 'ATTACH_CANDIDATE', {
           details: candidate?.url || '',
           meta: {
@@ -921,7 +921,9 @@ function tryAttachExistingTab(llmName, prompt, attachments = [], options = {}) {
           },
           force: true
         });
-        const readiness = await validateReusableTab(llmName, candidate.id, {
+        const readiness = options.deferDispatch
+          ? { ok: isEligibleTabForLlm(llmName, candidate), tab: candidate, snapshot: candidateSnapshot }
+          : await validateReusableTab(llmName, candidate.id, {
           reason: 'attach_existing',
           allowGlobalReuse
         });

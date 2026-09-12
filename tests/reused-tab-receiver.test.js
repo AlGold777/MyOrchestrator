@@ -67,7 +67,7 @@ test('a hung tab lookup cannot hang bootstrap or reload later', async () => {
   release({status:'complete'});await jest.advanceTimersByTimeAsync(100);
   expect(c.chrome.tabs.reload).not.toHaveBeenCalled();
 });
-test('Round 0 prepares reused pages concurrently and resumes without touching an issued command', async () => {
+test('Round 0 binds reused pages without waiting on receiver recovery or touching an issued command', async () => {
   const {c}=setup();
   const orch=fs.readFileSync(require.resolve('../background/job-orchestrator'),'utf8');
   Object.assign(c, {
@@ -83,8 +83,7 @@ test('Round 0 prepares reused pages concurrently and resumes without touching an
   const pending=c.openTabsSequentially(['Claude','GPT','Gemini'],'8 / 4',false,[],1,{resume:true});
   await jest.advanceTimersByTimeAsync(4000);
   expect(await pending).toBe(true);
-  expect(started).toEqual([[12,1000],[13,1000]]);
-  expect(c.jobState.llms.Claude.receiverPreparation.ok).toBe(true);
-  expect(c.jobState.llms.GPT.receiverPreparation.ok).toBe(true);
+  expect(started).toEqual([]);
+  expect(c.prepareReusableTabReceiver).not.toHaveBeenCalled();
   expect(c.startModelForLLM).not.toHaveBeenCalled();
 });

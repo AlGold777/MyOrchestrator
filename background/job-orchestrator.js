@@ -5507,7 +5507,7 @@ async function runModelThroughTabs(llmName, prompt, forceNewTabs, attachments = 
   // Le Chat and Perplexity deliberately retain the donor's sticky-conversation
   // behaviour: if any valid provider tab exists, use it before the generic
   // draft/modal preflight can redirect the request into a duplicate new tab.
-  if (await reuseMappedDonorProviderTab(llmName, prompt, attachments, options)) {
+  if (!options.deferDispatch && await reuseMappedDonorProviderTab(llmName, prompt, attachments, options)) {
     return true;
   }
 
@@ -5562,14 +5562,8 @@ async function openTabsSequentially(selectedLLMs, prompt, forceNewTabs, attachme
       }
       const entry = jobState?.llms?.[llmName];
       const tabId = resolveBoundTabIdForOrchestrator(llmName, entry);
-      const current = () => jobState?.session?.startTime === capturedSessionId
-        && jobState?.llms?.[llmName] === entry
-        && resolveBoundTabIdForOrchestrator(llmName, entry) === tabId;
-      // Resume must preserve any command already issued before suspension.
-      if (isValidTabId(tabId) && !entry?.lastDispatchMeta?.dispatchId && !entry?.promptSubmittedAt) {
-        const preparation = await prepareReusableTabReceiver(tabId, llmName, current);
-        if (current()) entry.receiverPreparation = preparation;
-      }
+      // Round 0 binds pages only. Receiver recovery runs in the focused
+      // Round 1 slot, so an idle page cannot hold every provider behind it.
       emitTelemetry(llmName, 'ROUND0_TAB_OPENED', {
         details: `${index + 1}/${selectedLLMs.length}`,
         meta: { index, total: selectedLLMs.length, tabId: jobState?.llms?.[llmName]?.tabId || null, acquisitionMode: 'parallel_reuse' }

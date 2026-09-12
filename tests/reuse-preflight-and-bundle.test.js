@@ -23,7 +23,7 @@ describe('unsafe global reuse preflight', () => {
     expect(src).toContain("'UNSAFE_REUSE_SKIPPED'");
     expect(src).toContain("details: 'unsafe_reuse_preflight'");
     // Run-bound/mapped tabs and disabled global reuse keep the fast path.
-    expect(src).toContain('if (!allowGlobalReuse || isRunBound || isMapped) {');
+    expect(src).toContain('if (options.deferDispatch || !allowGlobalReuse || isRunBound || isMapped) {');
     // An inconclusive probe is fail-closed: a user tab is never hijacked on uncertainty.
     expect(src).toContain("return { ok: false, reason: 'probe_failed'");
     expect(src).toContain("return { ok: false, reason: 'modal_visible', probe }");

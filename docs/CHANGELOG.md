@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-09-12 — Recover old-page receivers in their focused send slots, version 2.81.404
+
+- Round 0 now only acquires eligible existing tabs and persists their bindings. It does not wait for page load, probe draft/busy surfaces, invoke donor readiness or prepare/reload content-script receivers for every provider before dispatch starts.
+- Round 1 activates each selected tab, then prepares its receiver while the usual two-second settling period runs. Recovery retains its 20-second bound and same-URL reload rules. A stale receiverPreparation failure is rechecked in the active page rather than permanently skipping it.
+- Run 1789211262685 (export 1789211438461) contains no submit attempts through roughly 176 seconds, only page/receiver events before dispatch. This establishes a pre-dispatch failure; the canonical export does not identify the exact hung await. The change removes the shared receiver-readiness barrier rather than claiming that a specific Chrome operation was proven to hang.
+
 ### 2026-09-12 — Prefer the bound conversation on repeat dispatch, version 2.81.403
 
 - Reusable-tab discovery prioritizes the run binding, then the persisted model mapping, before recency. A still-eligible bound tab is not lost because of an additional query-pattern filter.
