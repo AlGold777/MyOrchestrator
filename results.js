@@ -21114,23 +21114,14 @@ if (getItButton) {
         });
         pendingResponses = {};
         try {
-          for (const llmName of selectedLLMs) {
-            try {
-              const result = await chrome.runtime.sendMessage({
-                type: 'REQUEST_LLM_RESPONSE',
-                llmName: llmName,
-                getIt: true,
-                manualLatestRecovery: true,
-                manualRecovery: true,
-                advanceStrategy: false
-              });
+          const batch = await chrome.runtime.sendMessage({ type: 'GET_IT_BATCH', llmNames: selectedLLMs });
+          for (const result of batch?.results || []) {
               if (result?.status === 'manual_ping_failed' && typeof showNotification === 'function') {
-                showNotification(`${llmName}: ${result.error || 'Не удалось получить ответ'}`);
+                showNotification(`${result.llmName}: ${result.error || 'Не удалось получить ответ'}`);
               }
-            } catch (err) {
-              console.error(`[RESULTS] Get it failed for ${llmName}:`, err);
-            }
           }
+        } catch (err) {
+          console.error('[RESULTS] Get it batch failed:', err);
         } finally {
           delete getItButton.dataset.collecting;
           checkCompareButtonState();

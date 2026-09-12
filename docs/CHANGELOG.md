@@ -1,5 +1,12 @@
 # CHANGELOG — Project
 
+### 2026-09-12 — Run the Get it queue in the background, version 2.81.401
+
+- The results page now sends one GET_IT_BATCH message with the selected model order. The background owns sequential collection and advances as soon as the preceding manual collection returns, without waiting for a hidden results page to resume and send the next command.
+- Duplicate batch requests share the active operation; repeated model names are deduplicated. Per-model errors continue to the next model. Session changes cancel the remaining queue; changed dispatches are skipped. There is no added dwell between models.
+- After successful Get it preparation, inline collection validates the tab and extracts directly instead of waiting for a content-script health ping and a redundant scripting probe. Automatic collection keeps its existing health checks.
+- Runtime tests cover a UI-independent sequence, duplicate clicks, per-model failure, session changes and bypass of the manual health round-trip while retaining tab eligibility checks. Live timing still needs confirmation on provider pages.
+
 ### 2026-09-12 — Extend Get it bottom recovery to all selected models, version 2.81.400
 
 - Get it now requests fresh inline recovery for every selected provider, including those already marked terminal. All providers use the existing mandatory manual bottom preparation: activate the page, try a labelled bottom control, follow rendered growth and verify the position before collecting. An unsuccessful visit reports failure rather than returning cached text as a fresh result.

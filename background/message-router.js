@@ -5028,6 +5028,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             sendResponse({ status: 'all_sessions_cleared' });
             break;
 
+            case 'GET_IT_BATCH': {
+                collectGetItBatch(message.llmNames).then(sendResponse, err => {
+                    sendResponse({ status: 'get_it_failed', error: err?.message || String(err) });
+                });
+                return true;
+            }
+
             case 'MANUAL_RESPONSE_PING': {
                 (async () => {
                     try {

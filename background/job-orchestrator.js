@@ -765,11 +765,14 @@ const sendTabMessageForLateCollect = (tabId, payload, timeoutMs) => withLateColl
   }
 }), timeoutMs, (err) => ({ ok: false, error: err?.message || 'timeout' }));
 
-async function classifyLateCollectState(tabId, llmName) {
+async function classifyLateCollectState(tabId, llmName, options = {}) {
   const tab = await getTabSafe(tabId);
   if (!tab) return { state: 'DEAD', reason: 'tab_missing' };
   if (tab.discarded === true) return { state: 'DEAD', reason: 'tab_discarded', tab: buildTabSnapshot(tab) };
   if (!isEligibleTabForLlm(llmName, tab)) return { state: 'DEAD', reason: 'tab_ineligible', tab: buildTabSnapshot(tab) };
+  // Get it has just prepared the visible page and uses inline extraction.
+  // A content-script ping and a second scripting probe add no prerequisite.
+  if (options.inlineOnly === true) return { state: 'REINJECTABLE', reason: 'manual_inline_collection', tab: buildTabSnapshot(tab) };
   const pingTimeout = LATE_COLLECT_SLOW_MODELS.has(llmName) ? LATE_COLLECT_SLOW_PING_TIMEOUT_MS : LATE_COLLECT_PING_TIMEOUT_MS;
   const ping = await sendTabMessageForLateCollect(tabId, {
     action: 'LATE_COLLECT_PING',
@@ -890,7 +893,7 @@ async function lateCollectAnswer({ llmName, tabId, reason = 'late_collect', meta
       });
     }
     const usableCached = cachedIsStaleForDispatch ? null : cached;
-    const state = await classifyLateCollectState(tabId, llmName);
+    const state = await classifyLateCollectState(tabId, llmName, { inlineOnly: meta?.getIt === true && manualLatestRecovery });
     if (state.state === 'ALIVE' || state.state === 'REINJECTABLE') {
       clearUnavailableObservationRecovery(entry, dispatchId);
     } else if (state.state === 'UNAVAILABLE') {
@@ -9813,6 +9816,40 @@ function persistRequestMetadata(llmName, updates = {}) {
   return merged;
 }
 
+let getItBatchInFlight = null;
+
+function collectGetItBatch(selectedModels = []) {
+  if (getItBatchInFlight) return getItBatchInFlight;
+  const names = [...new Set(Array.isArray(selectedModels) ? selectedModels : [])]
+    .filter(name => typeof name === 'string' && (jobState?.llms?.[name] || LLM_TARGETS?.[name]));
+  const dispatches = new Map(names.map(name => [name, jobState?.llms?.[name]?.lastDispatchMeta?.dispatchId || null]));
+  let sessionId = getActiveSessionId();
+  getItBatchInFlight = (async () => {
+    const results = [];
+    for (const llmName of names) {
+      if (sessionId && !isSessionActive(sessionId)) return { status: 'get_it_cancelled', results };
+      const dispatchId = jobState?.llms?.[llmName]?.lastDispatchMeta?.dispatchId || null;
+      if (dispatchId !== dispatches.get(llmName)) {
+        results.push({ llmName, status: 'manual_ping_failed', error: 'Запрос модели изменился во время Get it.' });
+        continue;
+      }
+      try {
+        const result = await handleManualResponsePing(llmName, {
+          getIt: true, manualLatestRecovery: true, manualRecovery: true,
+          advanceStrategy: false, reason: 'get_it_batch'
+        });
+        results.push({ ...result, llmName });
+      } catch (err) {
+        results.push({ llmName, status: 'manual_ping_failed', error: err?.message || String(err) });
+      }
+      // Manual recovery can create the initial session when none existed.
+      if (!sessionId) sessionId = getActiveSessionId();
+    }
+    return { status: 'get_it_completed', results };
+  })().finally(() => { getItBatchInFlight = null; });
+  return getItBatchInFlight;
+}
+
 async function handleManualResponsePing(llmName, options = {}) {
   if (!llmName) {
     return { status: 'manual_ping_failed', error: 'LLM name missing' };
@@ -9967,6 +10004,7 @@ async function handleManualResponsePing(llmName, options = {}) {
   } : null);
   const responseMeta = {
     source: 'manual_ping',
+    getIt: options.getIt === true,
     runSessionId: Number(jobState?.session?.startTime || 0) || null,
     sessionId: Number(jobState?.session?.startTime || 0) || null,
     dispatchId: liveEntry?.lastDispatchMeta?.dispatchId || null,
