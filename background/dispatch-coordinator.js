@@ -1032,12 +1032,14 @@ async function runPromptDispatchSupervisor() {
   schedulePromptDispatchSupervisor();
 }
 
-// Reused documents can outlive the extension runtime. Restore them before the
-// ordered foreground pass, when independent tabs can initialize concurrently.
+// Reused documents can outlive the extension runtime. Restore the selected
+// document inside its ordered foreground slot.
 async function prepareReusableTabReceiver(tabId, llmName, current) {
   const startedAt = Date.now();
   const deadline = startedAt + 20000;
   let reloaded = false;
+  let tabLookup = null;
+  let lookupTimedOut = false;
   const probe = () => new Promise(resolve => {
     let settled = false;
     const done = value => { if (settled) return; settled = true; clearTimeout(timer); resolve(value); };
@@ -1064,11 +1066,22 @@ async function prepareReusableTabReceiver(tabId, llmName, current) {
     if (state === 'ready') return finish('ready');
     if (state === 'missing' && !reloaded) {
       let tabTimer;
-      const tab = await Promise.race([getTabSafe(tabId),
-        new Promise(resolve => { tabTimer = setTimeout(() => resolve(null), 1000); })
+      // A slow tabs.get is unknown, not proof that the conversation is invalid.
+      // Keep the same lookup in flight; never accumulate abandoned API calls.
+      if (!tabLookup) tabLookup = getTabSafe(tabId);
+      const tab = await Promise.race([tabLookup,
+        new Promise(resolve => { tabTimer = setTimeout(() => resolve(undefined), 1000); })
       ]).finally(() => clearTimeout(tabTimer));
       if (!current()) return finish('session_changed');
-      if (!tab || !isEligibleTabForLlm(llmName, tab)) return finish('tab_ineligible');
+      if (tab === undefined) {
+        lookupTimedOut = true;
+        await dispatchSleepMs(250);
+        continue;
+      }
+      tabLookup = null;
+      lookupTimedOut = false;
+      if (!tab) return finish('tab_missing');
+      if (!isEligibleTabForLlm(llmName, tab)) return finish('tab_ineligible');
       // A navigation already in flight will install the manifest naturally.
       // Reload only a settled orphan document; never navigate to a new chat.
       if (tab.status === 'complete') {
@@ -1085,7 +1098,7 @@ async function prepareReusableTabReceiver(tabId, llmName, current) {
     }
     await dispatchSleepMs(250);
   }
-  return finish(current() ? 'receiver_timeout' : 'session_changed');
+  return finish(current() ? (lookupTimedOut ? 'tab_lookup_timeout' : 'receiver_timeout') : 'session_changed');
 }
 
 async function dispatchSimpleFirstPass(llmName, tabId, prompt, attachments, entry, options, machine) {

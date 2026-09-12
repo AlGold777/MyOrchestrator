@@ -1,5 +1,10 @@
 # CHANGELOG — Project
 
+### 2026-09-12 — Distinguish slow tab lookup from an invalid tab, version 2.81.406
+
+- Receiver recovery retains a slow tabs.get request within its existing 20-second budget instead of treating the one-second timeout as tab_ineligible. Closed tabs, ineligible URLs and lookup timeouts now have separate outcomes. A late result cannot reload after cancellation or deadline.
+- Run 1789248077227 skipped Perplexity before GET_ANSWER with tab_ineligible. The export cannot distinguish a lookup timeout from an invalid URL in that version; the false-invalid branch is reproduced by regression tests, not established as the exact field cause.
+
 ### 2026-09-12 — Return focus after status recovery, version 2.81.405
 
 - After a status-indicator double-click successfully prepares the bottom of a model page, keep it focused for 2.5 seconds, then activate the originating extension tab and its window. The dwell and return share the preparation focus lock.

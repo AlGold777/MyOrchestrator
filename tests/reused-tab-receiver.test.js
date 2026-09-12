@@ -60,11 +60,27 @@ test('a navigating page waits for natural registration without reloading', async
 });
 
 test('a hung tab lookup cannot hang bootstrap or reload later', async () => {
-  const {c,run}=setup();let release;
+  const {c,run}=setup(['missing']);let release;
   c.getTabSafe.mockImplementation(() => new Promise(resolve => {release=resolve;}));
-  const pending=run();await jest.advanceTimersByTimeAsync(1100);
-  expect(await pending).toMatchObject({ok:false,reason:'tab_ineligible'});
+  const pending=run();await jest.advanceTimersByTimeAsync(21000);
+  expect(await pending).toMatchObject({ok:false,reason:'tab_lookup_timeout'});
+  expect(c.getTabSafe).toHaveBeenCalledTimes(1);
   release({status:'complete'});await jest.advanceTimersByTimeAsync(100);
+  expect(c.chrome.tabs.reload).not.toHaveBeenCalled();
+});
+test('a valid old tab returned after one second is recovered in the same visit', async () => {
+  const {c,run}=setup(['missing','missing','ready']);
+  c.getTabSafe.mockImplementation(() => new Promise(resolve => setTimeout(() => resolve({status:'complete'}), 1600)));
+  const pending=run();await jest.advanceTimersByTimeAsync(3000);
+  expect(await pending).toMatchObject({ok:true,reloaded:true});
+  expect(c.getTabSafe).toHaveBeenCalledTimes(1);
+  expect(c.chrome.tabs.reload).toHaveBeenCalledTimes(1);
+});
+test.each(['tab_missing', 'tab_ineligible'])('real %s still prevents reload', async reason => {
+  const {c,run}=setup(['missing']);
+  c.getTabSafe.mockResolvedValue(reason === 'tab_missing' ? null : {url:'https://other.example/'});
+  c.isEligibleTabForLlm=() => false;
+  expect(await run()).toMatchObject({ok:false,reason});
   expect(c.chrome.tabs.reload).not.toHaveBeenCalled();
 });
 test('Round 0 binds reused pages without waiting on receiver recovery or touching an issued command', async () => {
