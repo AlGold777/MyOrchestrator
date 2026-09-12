@@ -265,6 +265,19 @@ describe('tab-manager session scoping', () => {
     );
   });
 
+  test('mapped conversation wins over a newer clean tab during global reuse', async () => {
+    const { context } = createTabManagerSandbox({
+      queryTabs: [
+        { id: 2002, url: 'https://chatgpt.com/c/current', status: 'complete' },
+        { id: 2003, url: 'https://chatgpt.com/c/unrelated', status: 'complete' }
+      ],
+      surfaceByTabId: { 2002: { composerHasDraft: true, stopVisible: true } }
+    });
+    context.jobState.llms.GPT.tabId = 2002;
+    expect(await context.tryAttachExistingTab('GPT', 'follow up', [], { allowGlobalReuse: true })).toBe(true);
+    expect(context.dispatchPromptToTab).toHaveBeenCalledWith('GPT', 2002, 'follow up', [], 'attach_existing');
+  });
+
   test('tryAttachExistingTab can globally reuse latest model tab when explicitly allowed', async () => {
     const now = Date.now();
     const { context, telemetry } = createTabManagerSandbox({

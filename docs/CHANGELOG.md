@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-09-12 — Prefer the bound conversation on repeat dispatch, version 2.81.403
+
+- Reusable-tab discovery prioritizes the run binding, then the persisted model mapping, before recency. A still-eligible bound tab is not lost because of an additional query-pattern filter.
+- A mapped conversation is selected before probing unrelated tabs for a cleaner surface. Drafts or active generation are handled by dispatch readiness instead of sending the follow-up into a different conversation. Unmapped discovery retains its existing ordering and run-scope checks.
+- Regression coverage verifies that an older mapped conversation with a busy/draft surface wins over a newer unrelated clean tab. The specific field misidentification still needs a live reproduction if it persists.
+
 ### 2026-09-12 — Forced status recovery uses bottom preparation, version 2.81.402
 
 - A status-indicator double-click requests the same bottom preparation and fresh inline collection as Get it for the individual model, independently of the shared batch/button state.

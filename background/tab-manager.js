@@ -503,10 +503,11 @@ async function validateReusableTab(llmName, tabId, options = {}) {
 async function findReusableTabsForLlm(llmName) {
   const tabs = await getAllOpenTabs();
   if (!tabs.length) return [];
+  const boundTabId = jobState?.llms?.[llmName]?.tabId || TabMapManager.get(llmName);
   return tabs
     .filter((tab) => tab && typeof tab.url === 'string' && /^https?:\/\//i.test(tab.url))
-    .filter((tab) => isEligibleTabForLlm(llmName, tab) && matchesQueryPatternUrl(tab.url, llmName))
-    .sort(compareTabsByOpenRecency);
+    .filter((tab) => isEligibleTabForLlm(llmName, tab) && (tab.id === boundTabId || matchesQueryPatternUrl(tab.url, llmName)))
+    .sort((a, b) => Number(b.id === boundTabId) - Number(a.id === boundTabId) || compareTabsByOpenRecency(a, b));
 }
 
 function resolveTabForLlmName(llmName, done) {
@@ -857,7 +858,10 @@ function tryAttachExistingTab(llmName, prompt, attachments = [], options = {}) {
       let firstSoftBlocked = null;
       for (const tabOption of eligibleTabs) {
         const isRunBound = !!(runBoundSet && runBoundSet.has(tabOption.id));
-        if (!allowGlobalReuse || isRunBound) {
+        const isMapped = tabOption.id === (jobState?.llms?.[llmName]?.tabId || TabMapManager.get(llmName));
+        // Keep a known conversation even if its composer is busy or has a draft.
+        // Readiness belongs to dispatch; choosing another conversation is not recovery.
+        if (!allowGlobalReuse || isRunBound || isMapped) {
           candidate = tabOption;
           break;
         }
