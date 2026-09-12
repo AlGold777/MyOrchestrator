@@ -5,6 +5,25 @@ const source = fs.readFileSync(require.resolve('../results'), 'utf8');
 const start = source.indexOf("if (getItButton) {\n    getItButton.addEventListener('click'");
 const handler = source.slice(start, source.indexOf('function getSelectedJudgeSystemPrompt', start));
 
+test('forced status double-click requests bottom preparation independently of the batch button', () => {
+  expect(source).toContain("getIt: options.source === 'status_indicator_dblclick'");
+  const router = fs.readFileSync(require.resolve('../background/message-router'), 'utf8');
+  const request = router.slice(router.indexOf("case 'REQUEST_LLM_RESPONSE'"));
+  expect(request).toContain('getIt: message.getIt === true');
+});
+
+test('manual recovery prefers the run-bound tab and does not silently switch a missing tab', async () => {
+  const orch = fs.readFileSync(require.resolve('../background/job-orchestrator'), 'utf8');
+  const from = orch.indexOf('async function handleManualResponsePing');
+  const c = { jobState: { llms: { GPT: { tabId: 11 } } }, TabMapManager: { get: () => 22 },
+    getTabSafe: jest.fn(async id => ({ id })), isEligibleTabForLlm: () => true };
+  vm.createContext(c);
+  vm.runInContext(orch.slice(from, orch.indexOf('  if (!tabId) {', from)) + 'return {tabId};\n}', c);
+  expect((await c.handleManualResponsePing('GPT')).tabId).toBe(11);
+  c.getTabSafe.mockResolvedValue(null);
+  expect((await c.handleManualResponsePing('GPT')).status).toBe('manual_ping_failed');
+});
+
 test('Get it can re-read an unchanged current answer while still excluding the pre-dispatch answer', () => {
   const orch = fs.readFileSync(require.resolve('../background/job-orchestrator'), 'utf8');
   const from = orch.indexOf('const buildManualLatestRecoveryOptions =');

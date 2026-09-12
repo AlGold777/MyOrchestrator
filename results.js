@@ -13359,6 +13359,7 @@ document.addEventListener('click', (event) => {
             llmName,
             manualRecovery: true,
             manualLatestRecovery,
+            getIt: options.source === 'status_indicator_dblclick',
             advanceStrategy,
             reason: options.source || 'manual_button'
         }, (response) => {

@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-09-12 — Forced status recovery uses bottom preparation, version 2.81.402
+
+- A status-indicator double-click requests the same bottom preparation and fresh inline collection as Get it for the individual model, independently of the shared batch/button state.
+- Manual collection validates the run-bound tab before acting, prefers it over the cached mapping and reports a missing/ineligible binding instead of silently reading another conversation. A discarded but valid tab remains eligible for activation.
+- The reported post-idle failure of Get it has not been reproduced; this adds an independent explicit recovery path, not a claim that the idle root cause is resolved.
+
 ### 2026-09-12 — Run the Get it queue in the background, version 2.81.401
 
 - The results page now sends one GET_IT_BATCH message with the selected model order. The background owns sequential collection and advances as soon as the preceding manual collection returns, without waiting for a hidden results page to resume and send the next command.

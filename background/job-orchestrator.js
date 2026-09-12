@@ -9854,7 +9854,13 @@ async function handleManualResponsePing(llmName, options = {}) {
   if (!llmName) {
     return { status: 'manual_ping_failed', error: 'LLM name missing' };
   }
-  let tabId = TabMapManager.get(llmName);
+  let tabId = jobState?.llms?.[llmName]?.tabId || TabMapManager.get(llmName);
+  if (tabId) {
+    const boundTab = await getTabSafe(tabId);
+    if (!boundTab || !isEligibleTabForLlm(llmName, boundTab)) {
+      return { status: 'manual_ping_failed', error: 'Привязанная вкладка модели недоступна. Откройте нужный диалог перед сбором ответа.' };
+    }
+  }
   if (!tabId) {
     broadcastDiagnostic(llmName, {
       type: 'PING',
