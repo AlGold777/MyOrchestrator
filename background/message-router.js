@@ -5080,6 +5080,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                         const result = await handleManualResponsePing(llmName, {
                             advanceStrategy: shouldAdvanceStrategy,
                             getIt: message.getIt === true,
+                            returnToTabId: message.reason === 'status_indicator_dblclick' && isAppUiTab(sender?.tab)
+                                ? sender.tab.id : null,
                             manualLatestRecovery,
                             manualRecovery: message.manualRecovery !== false,
                             reason: message.reason || 'request_llm_response'

@@ -1,5 +1,10 @@
 # CHANGELOG — Project
 
+### 2026-09-12 — Return focus after status recovery, version 2.81.405
+
+- After a status-indicator double-click successfully prepares the bottom of a model page, keep it focused for 2.5 seconds, then activate the originating extension tab and its window. The dwell and return share the preparation focus lock.
+- Validate the source tab again before returning; a closed or navigated-away source does not prevent answer collection. Get it batch routing is unchanged.
+
 ### 2026-09-12 — Recover old-page receivers in their focused send slots, version 2.81.404
 
 - Round 0 now only acquires eligible existing tabs and persists their bindings. It does not wait for page load, probe draft/busy surfaces, invoke donor readiness or prepare/reload content-script receivers for every provider before dispatch starts.

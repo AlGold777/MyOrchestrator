@@ -35,6 +35,36 @@ function scroller(parent, height = 1000, width = 800) {
 beforeEach(() => { jest.useFakeTimers(); document.body.innerHTML = ''; });
 afterEach(() => jest.useRealTimers());
 
+test.each(['valid', 'closed', 'navigated', 'update_failed', 'batch', 'unsettled'])('manual bottom return: %s', async mode => {
+  const c = setup();
+  const events = [];
+  c.chrome.scripting.executeScript = jest.fn(async () => [{ result: { settled: mode !== 'unsettled' } }]);
+  c.orchestratorSleepMs = jest.fn(async ms => { events.push(`sleep:${ms}`); });
+  c.getTabSafe = jest.fn(async () => mode === 'closed' ? null : { id: 99, windowId: 7, app: mode !== 'navigated' });
+  c.isAppUiTab = tab => !!tab?.app;
+  c.chrome.tabs = { update: jest.fn(async () => {
+    events.push('return');
+    if (mode === 'update_failed') throw new Error('Tab closed');
+  }) };
+  c.chrome.windows = { update: jest.fn(async () => {}) };
+  c.withPromptDispatchFocusLock = async fn => { events.push('lock'); const result = await fn(); events.push('unlock'); return result; };
+  const result = await c.runPreCollectScrollNudge('GPT', 1, 1, 'get_it_precollect', {
+    getIt: true, returnToTabId: mode === 'batch' ? null : 99
+  });
+  expect(result).toBe(mode !== 'unsettled');
+  if (mode === 'valid') {
+    expect(events).toEqual(['lock', 'sleep:250', 'sleep:2500', 'return', 'unlock']);
+    expect(c.chrome.tabs.update).toHaveBeenCalledWith(99, { active: true });
+    expect(c.chrome.windows.update).toHaveBeenCalledWith(7, { focused: true });
+  } else if (mode !== 'update_failed') {
+    expect(c.chrome.tabs.update).not.toHaveBeenCalled();
+  }
+  if (mode === 'batch' || mode === 'unsettled') {
+    expect(c.getTabSafe).not.toHaveBeenCalled();
+    expect(c.orchestratorSleepMs).not.toHaveBeenCalledWith(2500);
+  }
+});
+
 test('finds an unnamed chat scroller after sidebar decoys and follows lazy growth to the new bottom', async () => {
   const nav = document.createElement('nav'); document.body.appendChild(nav);
   const decoys = Array.from({ length: 6 }, () => scroller(nav));

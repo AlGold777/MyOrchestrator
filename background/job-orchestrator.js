@@ -5932,6 +5932,23 @@ async function runPreCollectScrollNudge(llmName, tabId, sessionId, reason = 'pre
       details: reason,
       meta: { tabId, reason, scrollPreparation: results?.[0]?.result || null }
     });
+    if (requiredBottom && results?.[0]?.result?.settled === true && Number.isInteger(options.returnToTabId)) {
+      // Keep this dwell and return inside the focus lock, so another model
+      // cannot take this recovery's slot while we are waiting.
+      await orchestratorSleepMs(2500);
+      try {
+        const returnTab = await getTabSafe(options.returnToTabId);
+        if (isAppUiTab(returnTab)) {
+          await chrome.tabs.update(returnTab.id, { active: true });
+          await chrome.windows.update(returnTab.windowId, { focused: true });
+        }
+      } catch (err) {
+        // A closed source tab must not turn successful preparation into failure.
+        emitTelemetry(llmName, 'MANUAL_RECOVERY_RETURN_FAILED', {
+          level: 'warning', details: err?.message || String(err)
+        });
+      }
+    }
     return !requiredBottom || results?.[0]?.result?.settled === true;
   };
   try {
@@ -9974,7 +9991,10 @@ async function handleManualResponsePing(llmName, options = {}) {
     return { status: 'manual_ping_sent' };
   }
   if (options.getIt === true) {
-    const prepared = await runPreCollectScrollNudge(llmName, tabId, getActiveSessionId(), 'get_it_precollect', { getIt: true });
+    const prepared = await runPreCollectScrollNudge(llmName, tabId, getActiveSessionId(), 'get_it_precollect', {
+      getIt: true,
+      returnToTabId: options.reason === 'status_indicator_dblclick' ? options.returnToTabId : null
+    });
     if (!prepared) return { status: 'manual_ping_failed', error: 'Не удалось перейти к концу беседы. Повторите Get it после завершения отправки запросов.' };
   } else if (!isFinalizedEntry(liveEntry)) {
     await runPreCollectScrollNudge(llmName, tabId, getActiveSessionId(), 'manual_ping_precollect');
