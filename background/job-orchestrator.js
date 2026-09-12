@@ -5809,7 +5809,7 @@ async function focusTabForVerification(llmName, tabId, durationMs, sessionId) {
 
 
 async function runPreCollectScrollNudge(llmName, tabId, sessionId, reason = 'precollect_nudge', options = {}) {
-  const requiredBottom = options.getIt === true && ['GPT', 'Qwen'].includes(llmName);
+  const requiredBottom = options.getIt === true;
   if (self.isInitialPromptPassActive?.()) return false;
   if (!llmName || !isValidTabId(tabId)) return false;
   if (sessionId && !isSessionActive(sessionId)) return false;
@@ -9936,7 +9936,7 @@ async function handleManualResponsePing(llmName, options = {}) {
     });
     return { status: 'manual_ping_sent' };
   }
-  if (options.getIt === true && ['GPT', 'Qwen'].includes(llmName)) {
+  if (options.getIt === true) {
     const prepared = await runPreCollectScrollNudge(llmName, tabId, getActiveSessionId(), 'get_it_precollect', { getIt: true });
     if (!prepared) return { status: 'manual_ping_failed', error: 'Не удалось перейти к концу беседы. Повторите Get it после завершения отправки запросов.' };
   } else if (!isFinalizedEntry(liveEntry)) {

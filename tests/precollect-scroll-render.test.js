@@ -123,11 +123,11 @@ test('GPT fails the mandatory visit when scrolling does not reach the bottom', a
   expect(await result).toBe(false);
 });
 
-test('Get it can prepare a finalized model after its automatic focus budget expires', async () => {
-  const c = setup(); c.jobState.llms.GPT.finalizedAt = 1;
+test.each(['GPT', 'Qwen', 'Claude', 'Gemini', 'Grok', 'DeepSeek', 'Le Chat', 'Perplexity', 'Z.ai', 'Kimi'])('Get it can prepare finalized %s after its automatic focus budget expires', async model => {
+  const c = setup(); c.jobState.llms[model] = { finalizedAt: 1 };
   c.isActiveFocusAllowedForEntry = () => false;
   scroller(document.body);
-  const result = c.runPreCollectScrollNudge('GPT', 1, 1, 'get_it_precollect', { getIt: true });
+  const result = c.runPreCollectScrollNudge(model, 1, 1, 'get_it_precollect', { getIt: true });
   await jest.runAllTimersAsync();
   expect(await result).toBe(true);
   expect(c.activateTabForDispatch).toHaveBeenCalledTimes(1);

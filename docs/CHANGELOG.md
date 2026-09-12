@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-09-12 — Extend Get it bottom recovery to all selected models, version 2.81.400
+
+- Get it now requests fresh inline recovery for every selected provider, including those already marked terminal. All providers use the existing mandatory manual bottom preparation: activate the page, try a labelled bottom control, follow rendered growth and verify the position before collecting. An unsuccessful visit reports failure rather than returning cached text as a fresh result.
+- Collection remains sequential; automatic answer handling receives no new prerequisite. The same-answer reread, previous-dispatch exclusion and first-pass focus protection remain in place.
+- Parameterized tests exercise manual preparation of all ten provider names after terminal status and automatic focus expiry; the button test verifies fresh recovery for providers beyond GPT/Qwen. These are simulated DOM checks, not live validation of every provider's controls.
+
 ### 2026-09-11 — Move GPT/Qwen bottom preparation to Get it, version 2.81.399
 
 - Remove the automatic acceptance prerequisite from 2.81.398. GPT/Qwen automatic response handling no longer depends on a bottom-visit proof. The unfinished empty-UNCERTAIN recovery experiment was removed before release.

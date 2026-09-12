@@ -15,7 +15,7 @@ test('Get it can re-read an unchanged current answer while still excluding the p
   expect(Array.from(result.excludeTextSignatures)).toEqual(['old']);
 });
 
-test('Get it requests fresh GPT/Qwen collection sequentially and flushes old pending text first', async () => {
+test('Get it requests fresh collection for every model sequentially and flushes old pending text first', async () => {
   let click, finishFirst;
   const order = [];
   const c = {
@@ -36,7 +36,7 @@ test('Get it requests fresh GPT/Qwen collection sequentially and flushes old pen
   await first;
   expect(order).toEqual(['old', 'GPT', 'Qwen', 'Claude']);
   expect(c.chrome.runtime.sendMessage.mock.calls.map(([m]) => [m.getIt, m.manualLatestRecovery])).toEqual([
-    [true, true], [true, true], [true, false]
+    [true, true], [true, true], [true, true]
   ]);
   expect(c.showNotification).toHaveBeenCalledWith('GPT: bottom unavailable');
   expect(c.getItButton.dataset.collecting).toBeUndefined();

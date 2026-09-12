@@ -21120,7 +21120,7 @@ if (getItButton) {
                 type: 'REQUEST_LLM_RESPONSE',
                 llmName: llmName,
                 getIt: true,
-                manualLatestRecovery: ['GPT', 'Qwen'].includes(llmName),
+                manualLatestRecovery: true,
                 manualRecovery: true,
                 advanceStrategy: false
               });
