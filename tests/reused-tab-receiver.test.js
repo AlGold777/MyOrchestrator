@@ -26,6 +26,30 @@ test('healthy existing conversation is immediately reusable without reload', asy
   expect(await run()).toMatchObject({ok:true,reloaded:false});
   expect(c.chrome.tabs.reload).not.toHaveBeenCalled();
 });
+test('a slow healthy renderer is accepted without repeatedly discarding its PONG', async () => {
+  const {c,run}=setup();
+  c.chrome.tabs.sendMessage.mockImplementation((_id,_msg,cb) => {
+    setTimeout(() => cb({type:'HEALTH_CHECK_PONG',llmName:'Claude'}),1600);
+  });
+  const pending=run();await jest.advanceTimersByTimeAsync(1800);
+  expect(await pending).toMatchObject({ok:true,reloaded:false});
+  expect(c.chrome.tabs.sendMessage).toHaveBeenCalledTimes(1);
+  expect(c.chrome.tabs.reload).not.toHaveBeenCalled();
+});
+test('a PONG after the overall deadline cannot revive preparation', async () => {
+  const {c,run}=setup();let reply;
+  c.chrome.tabs.sendMessage.mockImplementation((_id,_msg,cb) => {reply=cb;});
+  const pending=run();await jest.advanceTimersByTimeAsync(21000);
+  expect(await pending).toMatchObject({ok:false,reason:'receiver_timeout'});
+  reply({type:'HEALTH_CHECK_PONG',llmName:'Claude'});
+  expect(c.chrome.tabs.reload).not.toHaveBeenCalled();
+});
+test('Stop releases a silent receiver wait promptly', async () => {
+  const {c,run,stop}=setup(['silent']);
+  const pending=run();stop();await jest.advanceTimersByTimeAsync(100);
+  expect(await pending).toMatchObject({ok:false,reason:'session_changed'});
+  expect(c.chrome.tabs.reload).not.toHaveBeenCalled();
+});
 test('orphan page reloads once at its current address and waits for the actual listener', async () => {
   const {c,run}=setup(['missing','missing','missing','ready']);
   const pending=run();await jest.advanceTimersByTimeAsync(1000);

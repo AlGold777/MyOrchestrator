@@ -1042,8 +1042,20 @@ async function prepareReusableTabReceiver(tabId, llmName, current) {
   let lookupTimedOut = false;
   const probe = () => new Promise(resolve => {
     let settled = false;
-    const done = value => { if (settled) return; settled = true; clearTimeout(timer); resolve(value); };
-    const timer = setTimeout(() => done('timeout'), 750);
+    let cancelTimer;
+    const done = value => {
+      if (settled) return;
+      settled = true; clearTimeout(timer); clearTimeout(cancelTimer); resolve(value);
+    };
+    // One slow but valid PONG must remain usable. Repeated 750ms probes used
+    // to discard every response from a busy renderer, even inside this budget.
+    const timer = setTimeout(() => done('timeout'), Math.max(0, deadline - Date.now()));
+    const checkCancellation = () => {
+      if (!current()) return done('cancelled');
+      cancelTimer = setTimeout(checkCancellation, 100);
+    };
+    checkCancellation();
+    if (settled) return;
     try {
       chrome.tabs.sendMessage(tabId, {type:'HEALTH_CHECK_PING'}, response => {
         const error = chrome.runtime.lastError?.message || '';

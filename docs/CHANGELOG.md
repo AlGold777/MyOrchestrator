@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-09-13 — Preserve delayed receiver acknowledgements, version 2.81.408
+
+- Receiver preparation now accepts a delayed PONG within the existing 20-second overall deadline. Previously each probe expired after 750 ms and permanently discarded its later reply, so a consistently slow renderer could never pass preparation. Only health probes change; GET_ANSWER remains single-delivery. Cancellation releases the pending probe within 100 ms.
+- Regression tests cover a 1600 ms PONG, silence, a reply after the deadline, cancellation, receiver reload and ordered dispatch (30 tests pass).
+- Raw run 1789253099910, export 1789275362909, confirms receiver_timeout before command delivery for Gemini, Grok, DeepSeek and Perplexity. Qwen submitted successfully. Kimi is absent; the supplied summary includes incompatible events and must not be treated as the event ledger. Probe timing is not preserved in that ledger, so the reproduced timing defect is not claimed as the proven sole cause of this field run.
+
 ### 2026-09-13 — Qwen send readiness and failure ownership, version 2.81.407
 
 - Send discovery re-reads live enabled controls for up to 1.5 seconds after paste/upload instead of awaiting the generic 12-second selector finder. Disabled and aria-disabled controls are rejected. A DOM regression confirms a button enabled after 300 ms is clicked within the foreground slot.
