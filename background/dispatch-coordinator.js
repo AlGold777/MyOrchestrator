@@ -1038,6 +1038,8 @@ async function prepareReusableTabReceiver(tabId, llmName, current) {
   const startedAt = Date.now();
   const deadline = startedAt + 20000;
   let reloaded = false;
+  let reloadError = null;
+  let reloadAcknowledged = false;
   let tabLookup = null;
   let lookupTimedOut = false;
   const probe = () => new Promise(resolve => {
@@ -1066,16 +1068,18 @@ async function prepareReusableTabReceiver(tabId, llmName, current) {
     } catch (_) { done('unavailable'); }
   });
   const finish = reason => {
-    const result = {ok:reason === 'ready', reason, tabId, reloaded};
+    const result = {ok:reason === 'ready', reason, tabId, reloaded, reloadAcknowledged, reloadError};
     emitTelemetry(llmName, 'REUSED_TAB_RECEIVER_PREPARED', {
       details:reason, meta:{...result, durationMs:Date.now()-startedAt}, force:true
     });
     return result;
   };
   while (current() && Date.now() < deadline) {
+    if (reloadError) return finish('reload_failed');
     const state = await probe();
     if (!current()) return finish('session_changed');
     if (state === 'ready') return finish('ready');
+    if (reloadError) return finish('reload_failed');
     if (state === 'missing' && !reloaded) {
       let tabTimer;
       // A slow tabs.get is unknown, not proof that the conversation is invalid.
@@ -1098,14 +1102,16 @@ async function prepareReusableTabReceiver(tabId, llmName, current) {
       // Reload only a settled orphan document; never navigate to a new chat.
       if (tab.status === 'complete') {
         reloaded = true;
-        const ok = await new Promise(resolve => {
-          let settled = false;
-          const done = value => { if (settled) return; settled = true; clearTimeout(timer); resolve(value); };
-          const timer = setTimeout(() => done(false), 1500);
-          try { chrome.tabs.reload(tabId, {}, () => done(!chrome.runtime.lastError)); }
-          catch (_) { done(false); }
-        });
-        if (!ok) return finish('reload_failed');
+        // Request once, then observe the receiver. The reload callback is an
+        // acknowledgement, not a deadline for the page to become usable.
+        try {
+          chrome.tabs.reload(tabId, {}, () => {
+            const error = chrome.runtime.lastError?.message;
+            reloadAcknowledged = !error;
+            if (error) reloadError = error;
+          });
+        } catch (err) { reloadError = err?.message || 'reload_exception'; }
+        if (reloadError) return finish('reload_failed');
       }
     }
     await dispatchSleepMs(250);

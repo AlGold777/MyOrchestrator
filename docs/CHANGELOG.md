@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-09-13 — Decouple reload acknowledgement from receiver readiness, version 2.81.409
+
+- Reused-tab recovery requests one same-tab reload and then observes receiver readiness within the existing 20-second budget. A silent or delayed reload callback no longer produces reload_failed at 1500 ms. Actual Chrome API errors remain failures and are included in recovery diagnostics.
+- Raw run 1789277976208 (export 1789278385135) deferred Grok, DeepSeek, Le Chat and Perplexity with reload_failed before GET_ANSWER. Version 2.81.408 conflated callback timeout with API failure; the export cannot prove which branch fired. Regression coverage reproduces the false rejection and now covers slow/silent reload acknowledgement, an actual API error, no receiver, delayed PONG, cancellation and ordered dispatch: 34 tests pass.
+- This corrects another premature failure in receiver preparation; field recovery and automatic answer completeness remain unverified.
+
 ### 2026-09-13 — Preserve delayed receiver acknowledgements, version 2.81.408
 
 - Receiver preparation now accepts a delayed PONG within the existing 20-second overall deadline. Previously each probe expired after 750 ms and permanently discarded its later reply, so a consistently slow renderer could never pass preparation. Only health probes change; GET_ANSWER remains single-delivery. Cancellation releases the pending probe within 100 ms.

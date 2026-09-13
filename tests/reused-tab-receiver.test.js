@@ -82,6 +82,29 @@ test('a navigating page waits for natural registration without reloading', async
   const pending=run();await jest.advanceTimersByTimeAsync(300);
   expect(await pending).toMatchObject({ok:true,reloaded:false});
 });
+test.each(['delayed', 'silent'])('reload %s acknowledgement does not reject a receiver that becomes ready', async mode => {
+  const {c,run}=setup(['missing','missing','missing','missing','missing','missing','missing','missing','ready']);
+  c.chrome.tabs.reload.mockImplementation((_id,_options,cb) => {
+    if (mode === 'delayed') setTimeout(cb, 3000);
+  });
+  const pending=run();await jest.advanceTimersByTimeAsync(2500);
+  expect(await pending).toMatchObject({ok:true,reloaded:true});
+  expect(c.chrome.tabs.reload).toHaveBeenCalledTimes(1);
+});
+test('an explicit reload API error remains a failure', async () => {
+  const {c,run}=setup(['missing']);
+  c.chrome.tabs.reload.mockImplementation((_id,_options,cb) => {
+    c.chrome.runtime.lastError={message:'No tab with id: 12'};cb();delete c.chrome.runtime.lastError;
+  });
+  expect(await run()).toMatchObject({ok:false,reason:'reload_failed',reloadError:'No tab with id: 12'});
+});
+test('a reload with no acknowledgement and no receiver stays bounded and is not retried', async () => {
+  const {c,run}=setup(['missing']);
+  c.chrome.tabs.reload.mockImplementation(()=>{});
+  const pending=run();await jest.advanceTimersByTimeAsync(21000);
+  expect(await pending).toMatchObject({ok:false,reason:'receiver_timeout'});
+  expect(c.chrome.tabs.reload).toHaveBeenCalledTimes(1);
+});
 
 test('a hung tab lookup cannot hang bootstrap or reload later', async () => {
   const {c,run}=setup(['missing']);let release;
