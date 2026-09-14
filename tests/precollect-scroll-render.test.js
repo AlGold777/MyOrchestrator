@@ -35,6 +35,16 @@ function scroller(parent, height = 1000, width = 800) {
 beforeEach(() => { jest.useFakeTimers(); document.body.innerHTML = ''; });
 afterEach(() => jest.useRealTimers());
 
+test.each([false,true])('manual dwell includes render time except the explicit two-second batch pause: %s', async batchDwell => {
+  const c=setup();
+  c.chrome.scripting.executeScript=async()=>{jest.setSystemTime(Date.now()+900);return [{result:{settled:true}}];};
+  c.orchestratorSleepMs=jest.fn(async()=>{});
+  c.getTabSafe=async()=>null;c.isAppUiTab=()=>false;
+  await c.runPreCollectScrollNudge('GPT',1,1,'manual',{getIt:true,returnToTabId:99,batchDwell});
+  expect(c.orchestratorSleepMs).toHaveBeenCalledTimes(1);
+  expect(c.orchestratorSleepMs).toHaveBeenCalledWith(batchDwell ? 2000 : 1600);
+});
+
 test.each(['valid', 'closed', 'navigated', 'update_failed', 'batch', 'unsettled'])('manual bottom return: %s', async mode => {
   const c = setup();
   const events = [];
@@ -53,13 +63,13 @@ test.each(['valid', 'closed', 'navigated', 'update_failed', 'batch', 'unsettled'
   });
   expect(result).toBe(mode !== 'unsettled');
   if (mode === 'valid') {
-    expect(events).toEqual(['lock', 'sleep:250', 'sleep:2500', 'return', 'unlock']);
+    expect(events).toEqual(['lock', 'sleep:2500', 'return', 'unlock']);
     expect(c.chrome.tabs.update).toHaveBeenCalledWith(99, { active: true });
     expect(c.chrome.windows.update).toHaveBeenCalledWith(7, { focused: true });
-  } else if (mode !== 'update_failed') {
+  } else if (mode !== 'update_failed' && mode !== 'unsettled') {
     expect(c.chrome.tabs.update).not.toHaveBeenCalled();
   }
-  if (mode === 'batch' || mode === 'unsettled') {
+  if (mode === 'batch') {
     expect(c.getTabSafe).not.toHaveBeenCalled();
     expect(c.orchestratorSleepMs).not.toHaveBeenCalledWith(2500);
   }

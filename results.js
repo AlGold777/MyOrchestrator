@@ -21105,7 +21105,8 @@ function checkCompareButtonState() {
     });
     
 if (getItButton) {
-    getItButton.addEventListener('click', async () => {
+    let getItClickTimer = null;
+    const runGetIt = async (failedOnly = false) => {
         if (getItButton.disabled || getItButton.dataset.collecting === 'true') return;
         getItButton.dataset.collecting = 'true';
         console.log('[RESULTS] Get Answers clicked: requesting latest responses from open LLM tabs');
@@ -21115,7 +21116,8 @@ if (getItButton) {
         });
         pendingResponses = {};
         try {
-          const batch = await chrome.runtime.sendMessage({ type: 'GET_IT_BATCH', llmNames: selectedLLMs });
+          const batch = await chrome.runtime.sendMessage({ type: 'GET_IT_BATCH', llmNames: selectedLLMs,
+            ...(failedOnly ? { failedOnly: true } : {}) });
           for (const result of batch?.results || []) {
               if (result?.status === 'manual_ping_failed' && typeof showNotification === 'function') {
                 showNotification(`${result.llmName}: ${result.error || 'Не удалось получить ответ'}`);
@@ -21127,6 +21129,15 @@ if (getItButton) {
           delete getItButton.dataset.collecting;
           checkCompareButtonState();
         }
+    };
+    getItButton.addEventListener('click', event => {
+        if (event.detail > 1) return;
+        clearTimeout(getItClickTimer);
+        getItClickTimer = setTimeout(() => runGetIt(false), 600);
+    });
+    getItButton.addEventListener('dblclick', () => {
+        clearTimeout(getItClickTimer);
+        runGetIt(true);
     });
 }
 

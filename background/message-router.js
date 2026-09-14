@@ -5029,7 +5029,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             break;
 
             case 'GET_IT_BATCH': {
-                collectGetItBatch(message.llmNames).then(sendResponse, err => {
+                collectGetItBatch(message.llmNames, {
+                    failedOnly: message.failedOnly === true,
+                    returnToTabId: isAppUiTab(sender?.tab) ? sender.tab.id : null
+                }).then(sendResponse, err => {
                     sendResponse({ status: 'get_it_failed', error: err?.message || String(err) });
                 });
                 return true;

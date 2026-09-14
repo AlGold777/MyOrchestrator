@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-09-14 — Sequential failed-page Get it experiment, version 2.81.410
+
+- Double-click Get it to visit selected models without SUCCESS or without answer text, in selection order. Each bound page is scrolled to the bottom and held for two seconds; answer collection continues without blocking subsequent visits. Return to the originating extension tab after the final visit. Missing pages do not stop the route; session/dispatch changes prevent collecting for the wrong request.
+- Single click retains ordinary Get it; it waits 600 ms to distinguish a double-click. Both routes share the same in-flight guard.
+- Status-indicator double-click now counts scroll/render preparation within its 2.5-second dwell and removes the extra 250 ms stabilization. It also returns when bottom preparation is unsuccessful. Chrome activation and return API latency remains outside the dwell; this is not a hard wall-clock guarantee.
+
 ### 2026-09-13 — Decouple reload acknowledgement from receiver readiness, version 2.81.409
 
 - Reused-tab recovery requests one same-tab reload and then observes receiver readiness within the existing 20-second budget. A silent or delayed reload callback no longer produces reload_failed at 1500 ms. Actual Chrome API errors remain failures and are included in recovery diagnostics.

@@ -2,7 +2,7 @@
 const fs = require('fs');
 const vm = require('vm');
 const source = fs.readFileSync(require.resolve('../results'), 'utf8');
-const start = source.indexOf("if (getItButton) {\n    getItButton.addEventListener('click'");
+const start = source.indexOf("if (getItButton) {\n    let getItClickTimer");
 const handler = source.slice(start, source.indexOf('function getSelectedJudgeSystemPrompt', start));
 
 test('forced status double-click requests bottom preparation independently of the batch button', () => {
@@ -35,10 +35,11 @@ test('Get it can re-read an unchanged current answer while still excluding the p
 });
 
 test('Get it hands the entire queue to the background in one message', async () => {
+  jest.useFakeTimers();
   let click, finishFirst;
   const order = [];
   const c = {
-    console, getItButton: { dataset: {}, addEventListener: (_, fn) => { click = fn; } },
+    console, setTimeout, clearTimeout, getItButton: { dataset: {}, addEventListener: (name, fn) => { if(name === 'click') click = fn; } },
     getSelectedLLMs: () => ['GPT', 'Qwen', 'Claude'],
     pendingResponses: { GPT: 'old' }, updateLLMPanelOutput: () => order.push('old'),
     checkCompareButtonState: jest.fn(), showNotification: jest.fn(),
@@ -48,15 +49,18 @@ test('Get it hands the entire queue to the background in one message', async () 
     }) } }
   };
   vm.runInNewContext(handler, c);
-  const first = click();
-  await click(); // A duplicate click cannot start a competing focus sequence.
+  click({detail:1});
+  await jest.advanceTimersByTimeAsync(600);
+  click({detail:1});
+  await jest.advanceTimersByTimeAsync(600); // A duplicate click cannot start a competing focus sequence.
   expect(order).toEqual(['old', 'GET_IT_BATCH']);
   finishFirst({ results: [{ llmName: 'GPT', status: 'manual_ping_failed', error: 'bottom unavailable' }] });
-  await first;
+  await jest.advanceTimersByTimeAsync(0);
   expect(c.chrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
   expect(c.chrome.runtime.sendMessage).toHaveBeenCalledWith({ type: 'GET_IT_BATCH', llmNames: ['GPT', 'Qwen', 'Claude'] });
   expect(c.showNotification).toHaveBeenCalledWith('GPT: bottom unavailable');
   expect(c.getItButton.dataset.collecting).toBeUndefined();
+  jest.useRealTimers();
 });
 
 function batchSetup() {
@@ -71,6 +75,37 @@ function batchSetup() {
   vm.runInContext(orch.slice(from, orch.indexOf('async function handleManualResponsePing', from)), c);
   return c;
 }
+
+test('double-click cancels ordinary Get it and requests only failed models', async () => {
+  jest.useFakeTimers();
+  const handlers = {};
+  const c = {console,setTimeout,clearTimeout,getItButton:{dataset:{},addEventListener:(name,fn)=>handlers[name]=fn},
+    getSelectedLLMs:()=>['GPT','Qwen'],pendingResponses:{},updateLLMPanelOutput:jest.fn(),
+    checkCompareButtonState:jest.fn(),chrome:{runtime:{sendMessage:jest.fn(async()=>({results:[]}))}}};
+  vm.runInNewContext(handler,c);
+  handlers.click({detail:1});handlers.click({detail:2});handlers.dblclick();
+  await jest.advanceTimersByTimeAsync(700);
+  expect(c.chrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
+  expect(c.chrome.runtime.sendMessage).toHaveBeenCalledWith({type:'GET_IT_BATCH',llmNames:['GPT','Qwen'],failedOnly:true});
+  jest.useRealTimers();
+});
+
+test('failed-page route skips success, moves despite pending collection and returns before collection finishes', async () => {
+  const c=batchSetup();const order=[];const releases=[];
+  Object.assign(c,{self:{},getTabSafe:async id=>({id,windowId:7}),isEligibleTabForLlm:(_name,tab)=>tab.id!==4,
+    isAppUiTab:tab=>tab.id===99,
+    runPreCollectScrollNudge:jest.fn(async name=>{order.push(name);return true;}),
+    chrome:{tabs:{update:async id=>order.push(`return:${id}`)},windows:{update:async()=>{}}}});
+  c.jobState.llms={GPT:{tabId:1,status:'SUCCESS',answer:'complete'},Qwen:{tabId:2,status:'UNCERTAIN'},Claude:{tabId:3,status:'PARTIAL',answer:'partial'},Missing:{tabId:4,status:'ERROR'}};
+  c.handleManualResponsePing.mockImplementation(()=>new Promise(resolve=>releases.push(()=>resolve({status:'manual_ping_sent'}))));
+  const pending=c.collectGetItBatch(['GPT','Qwen','Missing','Claude'],{failedOnly:true,returnToTabId:99});
+  for(let i=0;i<30;i++) await Promise.resolve();
+  expect(order).toEqual(['Qwen','Claude','return:99']);
+  expect(c.runPreCollectScrollNudge).toHaveBeenCalledWith('Qwen',2,1,'get_it_failed_batch',{getIt:true,batchDwell:true});
+  expect(c.handleManualResponsePing).toHaveBeenCalledWith('Qwen',expect.objectContaining({skipBottomPreparation:true}));
+  releases.forEach(fn=>fn());
+  expect((await pending).results).toContainEqual(expect.objectContaining({llmName:'Missing',status:'manual_ping_failed'}));
+});
 
 test('background advances through the whole queue without any further UI message or callback', async () => {
   const c = batchSetup(); let finishFirst;

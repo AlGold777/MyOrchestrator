@@ -5835,6 +5835,7 @@ async function runPreCollectScrollNudge(llmName, tabId, sessionId, reason = 'pre
     }
     if (self.isInitialPromptPassActive?.() || (sessionId && !isSessionActive(sessionId))
       || jobState?.llms?.[llmName] !== liveEntry || (!requiredBottom && isFinalizedEntry(liveEntry))) return false;
+    const manualVisitStartedAt = Date.now();
     const results = await chrome.scripting.executeScript({
       target: { tabId },
       func: (meta = {}) => {
@@ -5927,17 +5928,20 @@ async function runPreCollectScrollNudge(llmName, tabId, sessionId, reason = 'pre
       },
       args: [{ reason, llmName, requiredBottom }]
     });
-    await orchestratorSleepMs(PRECOLLECT_NUDGE_STABILIZE_MS);
+    // Manual visits already wait for rendering in the page script. Do not add
+    // the automatic nudge's extra stabilization delay on top of their dwell.
+    if (!requiredBottom) await orchestratorSleepMs(PRECOLLECT_NUDGE_STABILIZE_MS);
     emitTelemetry(llmName, 'PRECOLLECT_NUDGE', {
       details: reason,
       meta: { tabId, reason, scrollPreparation: results?.[0]?.result || null }
     });
-    if (requiredBottom && results?.[0]?.result?.settled === true && Number.isInteger(options.returnToTabId)) {
+    if (requiredBottom && (Number.isInteger(options.returnToTabId) || options.batchDwell === true)) {
       // Keep this dwell and return inside the focus lock, so another model
       // cannot take this recovery's slot while we are waiting.
-      await orchestratorSleepMs(2500);
+      await orchestratorSleepMs(options.batchDwell === true ? 2000
+        : Math.max(0, 2500 - (Date.now() - manualVisitStartedAt)));
       try {
-        const returnTab = await getTabSafe(options.returnToTabId);
+        const returnTab = Number.isInteger(options.returnToTabId) ? await getTabSafe(options.returnToTabId) : null;
         if (isAppUiTab(returnTab)) {
           await chrome.tabs.update(returnTab.id, { active: true });
           await chrome.windows.update(returnTab.windowId, { focused: true });
@@ -9829,8 +9833,13 @@ function persistRequestMetadata(llmName, updates = {}) {
 
 let getItBatchInFlight = null;
 
-function collectGetItBatch(selectedModels = []) {
+function collectGetItBatch(selectedModels = [], options = {}) {
   if (getItBatchInFlight) return getItBatchInFlight;
+  if (options.failedOnly === true) {
+    getItBatchInFlight = collectFailedGetItPages(selectedModels, options)
+      .finally(() => { getItBatchInFlight = null; });
+    return getItBatchInFlight;
+  }
   const names = [...new Set(Array.isArray(selectedModels) ? selectedModels : [])]
     .filter(name => typeof name === 'string' && (jobState?.llms?.[name] || LLM_TARGETS?.[name]));
   const dispatches = new Map(names.map(name => [name, jobState?.llms?.[name]?.lastDispatchMeta?.dispatchId || null]));
@@ -9859,6 +9868,55 @@ function collectGetItBatch(selectedModels = []) {
     return { status: 'get_it_completed', results };
   })().finally(() => { getItBatchInFlight = null; });
   return getItBatchInFlight;
+}
+
+async function collectFailedGetItPages(selectedModels, options) {
+  const sessionId = getActiveSessionId();
+  const names = [...new Set(Array.isArray(selectedModels) ? selectedModels : [])].filter(name => {
+    const entry = jobState?.llms?.[name];
+    return entry && (String(entry.finalStatus || entry.status).toUpperCase() !== 'SUCCESS' || !entry.answer);
+  });
+  const entries = new Map(names.map(name => [name, {
+    entry: jobState.llms[name], dispatchId: jobState.llms[name].lastDispatchMeta?.dispatchId
+  }]));
+  const collections = [];
+  const results = [];
+  try {
+    for (const llmName of names) {
+      if (!isSessionActive(sessionId) || self.isInitialPromptPassActive?.()) break;
+      const captured = entries.get(llmName);
+      const entry = jobState.llms[llmName];
+      if (entry !== captured.entry || entry.lastDispatchMeta?.dispatchId !== captured.dispatchId) continue;
+      try {
+        const tab = await getTabSafe(entry.tabId);
+        if (!isEligibleTabForLlm(llmName, tab)) throw new Error('Привязанная вкладка недоступна');
+        const prepared = await runPreCollectScrollNudge(llmName, tab.id, sessionId, 'get_it_failed_batch', {
+          getIt: true, batchDwell: true
+        });
+        if (!prepared) throw new Error('Не удалось прокрутить страницу до конца');
+        if (!isSessionActive(sessionId) || jobState.llms[llmName] !== entry
+          || entry.lastDispatchMeta?.dispatchId !== captured.dispatchId) continue;
+        // Collection continues without owning focus; it must not delay the next visit.
+        collections.push(handleManualResponsePing(llmName, {
+          getIt: true, skipBottomPreparation: true, manualLatestRecovery: true,
+          manualRecovery: true, advanceStrategy: false, reason: 'get_it_failed_batch'
+        }).then(result => results.push({ ...result, llmName }),
+          err => results.push({llmName, status:'manual_ping_failed', error:err?.message || String(err)})));
+      } catch (err) {
+        results.push({llmName, status:'manual_ping_failed', error:err?.message || String(err)});
+      }
+    }
+  } finally {
+    try {
+      const tab = await getTabSafe(options.returnToTabId);
+      if (isAppUiTab(tab)) {
+        await chrome.tabs.update(tab.id, {active:true});
+        await chrome.windows.update(tab.windowId, {focused:true});
+      }
+    } catch (_) { /* A closed source tab must not interrupt pending collection. */ }
+  }
+  await Promise.all(collections);
+  return {status:'get_it_completed', results};
 }
 
 async function handleManualResponsePing(llmName, options = {}) {
@@ -9990,13 +10048,13 @@ async function handleManualResponsePing(llmName, options = {}) {
     });
     return { status: 'manual_ping_sent' };
   }
-  if (options.getIt === true) {
+  if (options.getIt === true && options.skipBottomPreparation !== true) {
     const prepared = await runPreCollectScrollNudge(llmName, tabId, getActiveSessionId(), 'get_it_precollect', {
       getIt: true,
       returnToTabId: options.reason === 'status_indicator_dblclick' ? options.returnToTabId : null
     });
     if (!prepared) return { status: 'manual_ping_failed', error: 'Не удалось перейти к концу беседы. Повторите Get it после завершения отправки запросов.' };
-  } else if (!isFinalizedEntry(liveEntry)) {
+  } else if (options.skipBottomPreparation !== true && !isFinalizedEntry(liveEntry)) {
     await runPreCollectScrollNudge(llmName, tabId, getActiveSessionId(), 'manual_ping_precollect');
   } else if (allowRecoverableTerminalPing || allowManualSelectorRecovery) {
     broadcastDiagnostic(llmName, {
