@@ -10352,6 +10352,7 @@ function sendCleanupCommand(llmName) {
   self.stopAllProcesses = stopAllProcesses;
   self.startProcess = startProcess;
   self.collectResponses = collectResponses;
+  self.collectGetItBatch = collectGetItBatch;
   self.collectResponsesStaged = collectResponsesStaged;
   self.handleLLMResponse = handleLLMResponse;
   self.startBudgetPhase = startBudgetPhase;

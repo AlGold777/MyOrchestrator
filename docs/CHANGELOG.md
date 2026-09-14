@@ -1,5 +1,10 @@
 # CHANGELOG — Project
 
+### 2026-09-14 — Export Get it batch entry point, version 2.81.414
+
+- Export collectGetItBatch from the orchestrator closure so the message router can start both single-click collection and double-click failed-page recovery. Previously both routes threw ReferenceError before collection started.
+- Regression tests load the complete orchestrator module and invoke the actual GET_IT_BATCH route; both reproduced the reported error before the fix.
+
 ### 2026-09-14 — Preserve empty dispatch baselines and verify Qwen fallback, version 2.81.413
 
 - An explicit empty baselineText now means no previous answer. It no longer triggers a post-submission DOM read that can mistake a fast current answer for the previous baseline. Omitting baselineText retains the existing discovery behavior; positional dispatch anchors remain required by verification.
