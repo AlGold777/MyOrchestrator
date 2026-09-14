@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-09-14 — Restore Qwen sending to 2.81.408, version 2.81.417
+
+- Removed the experimental unchanged-draft retry from 2.81.415 at the user’s request. Send selection and submission functions match commit 66e827d (2.81.408) exactly. Collection fixes remain separate.
+- Historical report for run 1789277976208 records Qwen submission, generation and delivered answer on 2.81.408. Available raw runs on 2.81.413/414/416 show failed or unconfirmed submission. The send path was already identical between 408 and 414, so this evidence does not identify a breaking commit or prove that restoring the sender fixes the attachment scenario.
+- Withdraw the prior implication that the first-click branch caused this regression: it was present in the successful 408 run. Nine targeted tests pass; live attachment sending remains to be verified.
+
 ### 2026-09-14 — Preserve displayed manual recovery during snapshot hydration, version 2.81.416
 
 - Global-state unverified artifacts now hydrate empty cards only, matching accepted-answer hydration. A repeated snapshot can no longer overwrite the answer already displayed by manual recovery.
