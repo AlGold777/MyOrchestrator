@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-09-14 — Make Get it available on restored results pages, version 2.81.411
+
+- Get it is enabled when the results page opens and is not disabled by Start. Previously it was disabled on initialization and only enabled in the Start handler finally block, preventing native double-click events after restoring/reloading the results page.
+- Failed-page recovery includes unsuccessful models from the current background run even if no model buttons are selected on the reopened page. Successful models with answers remain excluded.
+- An active initial send pass, missing run, empty recovery list, active UI collection or messaging error now has an explicit user-facing explanation instead of a silent no-op. Initial dispatch retains its focus ownership.
+
 ### 2026-09-14 — Sequential failed-page Get it experiment, version 2.81.410
 
 - Double-click Get it to visit selected models without SUCCESS or without answer text, in selection order. Each bound page is scrolled to the bottom and held for two seconds; answer collection continues without blocking subsequent visits. Return to the originating extension tab after the final visit. Missing pages do not stop the route; session/dispatch changes prevent collecting for the wrong request.

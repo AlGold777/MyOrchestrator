@@ -2,7 +2,7 @@
 const fs = require('fs');
 const vm = require('vm');
 const source = fs.readFileSync(require.resolve('../results'), 'utf8');
-const start = source.indexOf("if (getItButton) {\n    let getItClickTimer");
+const start = source.indexOf("if (getItButton) {\n    getItButton.disabled = false;");
 const handler = source.slice(start, source.indexOf('function getSelectedJudgeSystemPrompt', start));
 
 test('forced status double-click requests bottom preparation independently of the batch button', () => {
@@ -79,10 +79,11 @@ function batchSetup() {
 test('double-click cancels ordinary Get it and requests only failed models', async () => {
   jest.useFakeTimers();
   const handlers = {};
-  const c = {console,setTimeout,clearTimeout,getItButton:{dataset:{},addEventListener:(name,fn)=>handlers[name]=fn},
+  const c = {console,setTimeout,clearTimeout,getItButton:{disabled:true,dataset:{},addEventListener:(name,fn)=>handlers[name]=fn},
     getSelectedLLMs:()=>['GPT','Qwen'],pendingResponses:{},updateLLMPanelOutput:jest.fn(),
     checkCompareButtonState:jest.fn(),chrome:{runtime:{sendMessage:jest.fn(async()=>({results:[]}))}}};
   vm.runInNewContext(handler,c);
+  expect(c.getItButton.disabled).toBe(false);
   handlers.click({detail:1});handlers.click({detail:2});handlers.dblclick();
   await jest.advanceTimersByTimeAsync(700);
   expect(c.chrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
@@ -105,6 +106,24 @@ test('failed-page route skips success, moves despite pending collection and retu
   expect(c.handleManualResponsePing).toHaveBeenCalledWith('Qwen',expect.objectContaining({skipBottomPreparation:true}));
   releases.forEach(fn=>fn());
   expect((await pending).results).toContainEqual(expect.objectContaining({llmName:'Missing',status:'manual_ping_failed'}));
+});
+
+test('a restored page with no selected buttons still recovers failed models from the current run', async () => {
+  const c=batchSetup();
+  c.jobState.llms={GPT:{tabId:1,status:'SUCCESS',answer:'done'},Qwen:{tabId:2,status:'UNCERTAIN'}};
+  Object.assign(c,{self:{},getTabSafe:async id=>({id}),isEligibleTabForLlm:()=>true,isAppUiTab:()=>false,
+    runPreCollectScrollNudge:jest.fn(async()=>true)});
+  const result=await c.collectGetItBatch([],{failedOnly:true});
+  expect(result.status).toBe('get_it_completed');
+  expect(c.runPreCollectScrollNudge).toHaveBeenCalledTimes(1);
+  expect(c.handleManualResponsePing).toHaveBeenCalledWith('Qwen',expect.anything());
+});
+
+test('an initial send pass explains why recovery cannot start', async () => {
+  const c=batchSetup();c.self={isInitialPromptPassActive:()=>true};
+  const result=await c.collectGetItBatch([],{failedOnly:true});
+  expect(result).toMatchObject({status:'get_it_busy',error:expect.any(String)});
+  expect(c.handleManualResponsePing).not.toHaveBeenCalled();
 });
 
 test('background advances through the whole queue without any further UI message or callback', async () => {

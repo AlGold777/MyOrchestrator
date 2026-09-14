@@ -16097,7 +16097,7 @@ document.addEventListener('click', (event) => {
     });
 
     if (getItButton) {
-        getItButton.disabled = true;
+        getItButton.disabled = false;
     }
 
     if (startButton) {
@@ -21014,9 +21014,6 @@ function checkCompareButtonState() {
     }
 
     startButton?.addEventListener('click', async () => {
-        if (getItButton) {
-            getItButton.disabled = true;
-        }
 
         try {
             let finalPrompt = promptInput.value;
@@ -21105,9 +21102,13 @@ function checkCompareButtonState() {
     });
     
 if (getItButton) {
+    getItButton.disabled = false;
     let getItClickTimer = null;
     const runGetIt = async (failedOnly = false) => {
-        if (getItButton.disabled || getItButton.dataset.collecting === 'true') return;
+        if (getItButton.dataset.collecting === 'true') {
+            if (failedOnly && typeof showNotification === 'function') showNotification('Get it уже выполняется. Дождитесь окончания текущего прохода.');
+            return;
+        }
         getItButton.dataset.collecting = 'true';
         console.log('[RESULTS] Get Answers clicked: requesting latest responses from open LLM tabs');
         const selectedLLMs = getSelectedLLMs();
@@ -21118,6 +21119,8 @@ if (getItButton) {
         try {
           const batch = await chrome.runtime.sendMessage({ type: 'GET_IT_BATCH', llmNames: selectedLLMs,
             ...(failedOnly ? { failedOnly: true } : {}) });
+          if (batch?.error && typeof showNotification === 'function') showNotification(batch.error);
+          if (batch?.status === 'get_it_empty' && typeof showNotification === 'function') showNotification('В текущем запуске нет моделей, требующих ручного сбора.');
           for (const result of batch?.results || []) {
               if (result?.status === 'manual_ping_failed' && typeof showNotification === 'function') {
                 showNotification(`${result.llmName}: ${result.error || 'Не удалось получить ответ'}`);
@@ -21125,6 +21128,7 @@ if (getItButton) {
           }
         } catch (err) {
           console.error('[RESULTS] Get it batch failed:', err);
+          if (typeof showNotification === 'function') showNotification(`Get it: ${err?.message || 'Не удалось связаться с расширением'}`);
         } finally {
           delete getItButton.dataset.collecting;
           checkCompareButtonState();

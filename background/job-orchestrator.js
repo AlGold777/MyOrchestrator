@@ -9871,11 +9871,19 @@ function collectGetItBatch(selectedModels = [], options = {}) {
 }
 
 async function collectFailedGetItPages(selectedModels, options) {
+  if (self.isInitialPromptPassActive?.()) {
+    return {status:'get_it_busy', results:[], error:'Сначала должен закончиться первоначальный проход отправки запросов.'};
+  }
   const sessionId = getActiveSessionId();
-  const names = [...new Set(Array.isArray(selectedModels) ? selectedModels : [])].filter(name => {
+  if (!sessionId) return {status:'get_it_unavailable', results:[], error:'Нет сохранённого запуска для ручного сбора.'};
+  const names = [...new Set([
+    ...(Array.isArray(selectedModels) ? selectedModels : []),
+    ...Object.keys(jobState?.llms || {})
+  ])].filter(name => {
     const entry = jobState?.llms?.[name];
     return entry && (String(entry.finalStatus || entry.status).toUpperCase() !== 'SUCCESS' || !entry.answer);
   });
+  if (!names.length) return {status:'get_it_empty', results:[]};
   const entries = new Map(names.map(name => [name, {
     entry: jobState.llms[name], dispatchId: jobState.llms[name].lastDispatchMeta?.dispatchId
   }]));
