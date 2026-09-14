@@ -1128,7 +1128,26 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
       };
     }
 
-    async runFinalStabilityChecks() {
+    async verifyFallbackAnswer(text) {
+      // Reuse this dispatch's original anchor and baseline; creating a new
+      // pipeline here would anchor to the answer we are trying to verify.
+      try {
+        const stable = await this.runFinalStabilityChecks({ emitVerification: false });
+        const proof = this.lastAnswerVerification || {};
+        const matches = proof.selectedHash === this.hashString(String(text || ''))
+          && proof.selectedLength === String(text || '').length;
+        const baseline = this.isStaleBaselineAnswer(text);
+        const verified = stable && proof.verified === true && matches && !baseline;
+        return {...proof, verified, state: verified ? 'verified' : 'candidate',
+          reasons: [...new Set([...(proof.reasons || []),
+            ...(!matches ? ['fallback_text_mismatch'] : []),
+            ...(baseline ? ['stale_baseline_answer'] : [])])]};
+      } catch (err) {
+        return {verified:false, state:'candidate', reasons:['fallback_verification_failed']};
+      }
+    }
+
+    async runFinalStabilityChecks({ emitVerification = true } = {}) {
       const checks = this.config.finalization?.stabilityChecks || 3;
       const retryBudget = Math.max(0, Number(this.config.finalization?.stabilityRetryBudget || 0));
       const maxSnapshots = checks + retryBudget;
@@ -1190,7 +1209,7 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
               maxObservedTextLength, lengthDecreaseCount, lastLengthDecrease, recentLengths,
               lengthRegressionActive, lengthRegressionFloor,
               effectiveConfig: this.effectiveTimingSnapshot || window.AnswerPipelineTiming?.getEffectiveSnapshot?.() || null };
-            this.emitPipelineTelemetry('ANSWER_VERIFICATION_RESULT', { level: 'success', meta: this.lastAnswerVerification });
+            if (emitVerification) this.emitPipelineTelemetry('ANSWER_VERIFICATION_RESULT', { level: 'success', meta: this.lastAnswerVerification });
             return true;
           }
         }
@@ -1221,7 +1240,7 @@ this.humanSession.on?.('session-stop', () => clearInterval(textStabilityMonitor)
           'answer_length_regression_unrecovered'
         ]));
       }
-      this.emitPipelineTelemetry('ANSWER_VERIFICATION_RESULT', { level: 'warning', meta: this.lastAnswerVerification });
+      if (emitVerification) this.emitPipelineTelemetry('ANSWER_VERIFICATION_RESULT', { level: 'warning', meta: this.lastAnswerVerification });
       return false;
     }
 

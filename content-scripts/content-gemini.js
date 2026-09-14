@@ -519,6 +519,7 @@ async function tryGeminiPipeline(promptText = '', lifecycle = {}, baselineText =
       expectedLength: pipelineExpectedLength(promptText),
       baselineText: baselineText || ''
     }, pipelineOverrides));
+    lifecycle.onPipeline?.(pipeline);
     const result = await pipeline.execute();
     console.log("[DIAGNOSTIC] Gemini pipeline result:", { success: result?.success, hasAnswer: !!result?.answer, answerLength: result?.answer?.length, error: result?.error });
     if (result?.success && result.answer) {
@@ -1152,7 +1153,9 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
             try { chrome.runtime.sendMessage({ type: 'PROMPT_SUBMITTED', llmName: MODEL, ts: Date.now(), meta: dispatchMeta }); } catch (_) {}
             activity.heartbeat(0.6, { phase: 'waiting-response' });
             let pipelineAnswer = null;
-            await tryGeminiPipeline(prompt, {
+            let fallbackVerifier = null;
+        await tryGeminiPipeline(prompt, {
+          onPipeline: pipeline => { fallbackVerifier = text => pipeline.verifyFallbackAnswer?.(text); },
                 heartbeat: (meta = {}) => activity.heartbeat(0.85, Object.assign({ phase: 'pipeline' }, meta)),
                 stop: async ({ answer, answerHtml, metadata }) => {
                     console.log('[content-gemini] UnifiedAnswerPipeline captured response (dedupe path)', metadata || {});
@@ -1623,11 +1626,12 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
           if (cleanedFallback && !isGeminiBaselineCandidate(latestMarkup, preDispatchBaseline)) {
             console.warn('[content-gemini] Pipeline empty, using DOM fallback');
             if (latestMarkup.html) lastResponseHtml = latestMarkup.html;
+            const fallbackVerification = await fallbackVerifier?.(cleanedFallback);
             activity.stop({ status: 'success', answerLength: cleanedFallback.length, source: 'dom-fallback' });
             return {
                 text: cleanedFallback,
                 html: latestMarkup.html || '',
-                meta: window.ContentUtils?.buildResponseMeta?.(null, { source: 'dom_fallback' }) || null
+                meta: window.ContentUtils?.buildResponseMeta?.(null, { source: 'dom_fallback', answerVerification: fallbackVerification }) || null
             };
           }
         } catch (fallbackErr) {

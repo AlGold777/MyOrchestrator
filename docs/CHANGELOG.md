@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-09-14 — Verify provider DOM fallback results, version 2.81.412
+
+- Claude, Gemini and Perplexity retain the original pipeline instance when falling back to DOM extraction. Before returning the fallback, they run its existing structural/stability verifier and attach answerVerification to response metadata. Previously these branches always sent null verification.
+- Verification retains the original dispatch anchor and baseline, and must match the exact returned text hash and length. A shortened fallback, old baseline, active/unknown generation, missing identity or incomplete structure remains unverified. No forced-success or new automatic scrolling is introduced.
+- This repairs the fallback proof handoff; it does not establish that all field observation/selector failures are resolved.
+
 ### 2026-09-14 — Make Get it available on restored results pages, version 2.81.411
 
 - Get it is enabled when the results page opens and is not disabled by Start. Previously it was disabled on initialization and only enabled in the Start handler finally block, preventing native double-click events after restoring/reloading the results page.
