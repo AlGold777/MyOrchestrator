@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-09-14 — Recover an ignored Qwen Send click, version 2.81.415
+
+- After an unconfirmed first click, retry once using the current composer and current enabled Send control, only if the complete original draft remains, no new user turn exists and generation is inactive. Empty/edited/detached drafts and busy controls do not permit retry. The initial attempt remains immediate.
+- The terminal first-click branch dates to 1dd570a; versions 410–414 did not change Qwen sending. This fixes a reproducible recovery gap, not proof of the exact browser event behind the reported failure.
+- 16 targeted tests passed, covering refreshed controls and duplicate-send guards. Live Qwen was inspected read-only; its composer was already empty and an answer present, so the failed state could not be reproduced there.
+
 ### 2026-09-14 — Export Get it batch entry point, version 2.81.414
 
 - Export collectGetItBatch from the orchestrator closure so the message router can start both single-click collection and double-click failed-page recovery. Previously both routes threw ReferenceError before collection started.

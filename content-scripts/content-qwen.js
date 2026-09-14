@@ -1719,7 +1719,24 @@ const keepAliveMutex = (() => {
     if (isSafeQwenSendControl(sendBtn) && !sendBtn.disabled) {
       sendBtn.click();
       confirmed = await confirmQwenSend(sendBtn, 6000);
-      // A slow acknowledgement must not trigger another click on the draft.
+      if (!confirmed) {
+        // A click during the post-upload React render can be ignored. Retry
+        // once only while the exact draft remains and no send has started.
+        const liveInput = discoverComposer();
+        const liveButton = await resolveSendButton(liveInput, true);
+        const expected = normalizeForComparison(options.prompt || '');
+        if (liveInput?.isConnected && expected
+          && normalizeForComparison(readComposerValue(liveInput)) === expected
+          && getUserMessages(document).length === baselineUserCount
+          && !hasQwenGenerationSignal(document)
+          && isSafeQwenSendControl(liveButton)) {
+          emitDiagnostic({ type: 'SEND', label: 'Qwen unchanged draft retry',
+            details: 'Fresh enabled Send; exact draft retained; no new user turn or generation', level: 'warning' });
+          await qwenHumanClick(liveButton);
+          confirmed = await confirmQwenSend(liveButton, 6000);
+        }
+      }
+      // An empty/changed draft or busy control must never cause a second send.
       if (!confirmed) throw { type: 'send_failed', message: 'Qwen button send not confirmed' };
       return true;
     } else {
