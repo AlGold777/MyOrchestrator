@@ -15779,10 +15779,16 @@ document.addEventListener('click', (event) => {
     // answer, and the empty card is hydrated from it instead of restoring only
     // a green status indicator over an empty output.
     function hydrateAnswerFromGlobalState(llmName, entry) {
+        const panelId = String(llmName || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+        const outputElement = document.getElementById(`panel-${panelId}`)?.querySelector('.output');
+        const panelHasAnswer = Boolean(String(outputElement?.textContent || '').trim());
         const unverifiedArtifact = entry?.unverifiedArtifact && typeof entry.unverifiedArtifact === 'object'
             ? entry.unverifiedArtifact
             : null;
         if (!String(entry?.answer || '').trim() && String(unverifiedArtifact?.text || '').trim()) {
+            // Restore an empty card without overwriting a manual recovery
+            // with the older unverified artifact retained in global state.
+            if (panelHasAnswer) return true;
             updateLLMPanelOutput(llmName, unverifiedArtifact.text, unverifiedArtifact.html || '', {
                 status: 'RECEIVING',
                 terminal: false,
@@ -15799,9 +15805,6 @@ document.addEventListener('click', (event) => {
         const answerText = String(entry?.answer || '').trim();
         const answerHtml = sanitizeInlineHtml(String(entry?.answerHtml || '').trim());
         if (!answerText) return false;
-        const panelId = String(llmName || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
-        const outputElement = document.getElementById(`panel-${panelId}`)?.querySelector('.output');
-        const panelHasAnswer = !!outputElement && !!String(outputElement.textContent || '').trim();
         if (panelHasAnswer) return true;
         if (outputElement) {
             const finalHtml = resolveCompleteAnswerHtml(answerText, answerHtml);
@@ -16474,7 +16477,6 @@ document.addEventListener('click', (event) => {
                                 source: 'MANUAL_PING_RESULT_RECOVERY',
                                 requestId: message.requestId || ''
                             };
-                            updateDebateModelCardOutput(llmName, recoveredText, message.answerHtml || '', recoveryMeta);
                             updateLLMPanelOutput(llmName, recoveredText, message.answerHtml || '', recoveryMeta);
                             manualPingReveal.delete(llmName);
                         }

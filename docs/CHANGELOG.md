@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-09-14 — Preserve displayed manual recovery during snapshot hydration, version 2.81.416
+
+- Global-state unverified artifacts now hydrate empty cards only, matching accepted-answer hydration. A repeated snapshot can no longer overwrite the answer already displayed by manual recovery.
+- MANUAL_PING_RESULT uses one rendering entry point: updateLLMPanelOutput updates both views. The redundant debate update could close the card before the panel update and divert the latter into a post-terminal revision.
+- Regression tests cover repeated old artifacts after manual recovery, recovery after clearing a card and single rendering dispatch. These reproduce concrete UI overwrite paths; they do not establish that every Grok disappearance had the same cause.
+
 ### 2026-09-14 — Recover an ignored Qwen Send click, version 2.81.415
 
 - After an unconfirmed first click, retry once using the current composer and current enabled Send control, only if the complete original draft remains, no new user turn exists and generation is inactive. Empty/edited/detached drafts and busy controls do not permit retry. The initial attempt remains immediate.
