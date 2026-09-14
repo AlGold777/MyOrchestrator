@@ -149,7 +149,7 @@
       // `baselineText` override wins; otherwise we read the current last-assistant node.
       this.baselineAnswerSignature = '';
       try {
-        if (typeof overrides.baselineText === 'string' && overrides.baselineText.trim()) {
+        if (typeof overrides.baselineText === 'string') {
           this.baselineAnswerSignature = this.normalizeAnswerSignature(overrides.baselineText);
         } else {
           const baselineEl = this.getAnswerElement();

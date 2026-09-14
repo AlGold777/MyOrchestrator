@@ -14,6 +14,19 @@ const CLAUDE_SRC = fs.readFileSync(
 );
 
 describe('pipeline baseline anchor (F6)', () => {
+  test.each([
+    [{baselineText:''},'',false],
+    [{baselineText:'previous answer'},'previous answer',false],
+    [{},'fast current answer',true]
+  ])('preserves an explicit pre-dispatch baseline including empty: %s', (overrides,expected,readsCurrent) => {
+    const start=PIPELINE_SRC.indexOf("      this.baselineAnswerSignature = '';");
+    const end=PIPELINE_SRC.indexOf('      // F6.2:',start);
+    const initialize=new Function('overrides',PIPELINE_SRC.slice(start,end));
+    const pipeline={normalizeAnswerSignature:text=>text.trim(),getAnswerElement:jest.fn(()=>({})),extractText:()=> 'fast current answer'};
+    initialize.call(pipeline,overrides);
+    expect(pipeline.baselineAnswerSignature).toBe(expected);
+    expect(pipeline.getAnswerElement).toHaveBeenCalledTimes(readsCurrent ? 1 : 0);
+  });
   test('constructor captures a baseline signature', () => {
     expect(PIPELINE_SRC).toContain('this.baselineAnswerSignature');
     expect(PIPELINE_SRC).toContain('overrides.baselineText');

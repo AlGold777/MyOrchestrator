@@ -365,6 +365,7 @@ const keepAliveMutex = (() => {
         expectedLength: pipelineExpectedLength(promptText),
         baselineText: baselineText || ''
       }, pipelineOverrides));
+      lifecycle.onPipeline?.(pipeline);
       const result = await pipeline.execute();
       if (result?.success && result.answer) {
         heartbeat?.({
@@ -2660,6 +2661,7 @@ const keepAliveMutex = (() => {
       let baselineAssistantCount = 0;
       let baselineContainerCount = 0;
       let submissionConfirmed = false;
+      let fallbackVerifier = null;
       try {
         await sleep(1000);
           activity.heartbeat(0.15, { phase: 'composer-search' });
@@ -2820,6 +2822,7 @@ const keepAliveMutex = (() => {
           const responsePayload = await withSmartScroll(async () => {
             let pipelineAnswer = null;
             await tryQwenPipeline(prompt, {
+              onPipeline: pipeline => { fallbackVerifier = text => pipeline.verifyFallbackAnswer?.(text); },
               heartbeat: (meta = {}) => activity.heartbeat(0.8, Object.assign({ phase: 'pipeline' }, meta)),
             stop: async ({ answer, answerHtml, metadata }) => {
                 let cleaned = contentCleaner.clean(answer, { maxLength: 50000 });
@@ -2883,7 +2886,7 @@ const keepAliveMutex = (() => {
             const fallbackPayload = {
               text: cleaned,
               html: latestMarkup.html || lastResponseHtml,
-              meta: window.ContentUtils?.buildResponseMeta?.(null, { source: 'dom_fallback' }) || null
+              meta: window.ContentUtils?.buildResponseMeta?.(null, { source: 'dom_fallback', answerVerification: await fallbackVerifier?.(cleaned) }) || null
             };
             sendResult(fallbackPayload, true, context);
             activity.heartbeat(0.9, { phase: 'response-processed' });
@@ -2918,7 +2921,7 @@ const keepAliveMutex = (() => {
             const fallbackPayload = {
               text: cleanedFallback,
               html: latestMarkup.html || lastResponseHtml,
-              meta: window.ContentUtils?.buildResponseMeta?.(null, { source: 'last_chance_fallback' }) || null
+              meta: window.ContentUtils?.buildResponseMeta?.(null, { source: 'last_chance_fallback', answerVerification: await fallbackVerifier?.(cleanedFallback) }) || null
             };
             sendResult(fallbackPayload, true, context);
             activity.stop({ status: 'success', answerLength: cleanedFallback.length, source: 'last_chance_fallback' });

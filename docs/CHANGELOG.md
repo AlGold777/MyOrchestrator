@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-09-14 — Preserve empty dispatch baselines and verify Qwen fallback, version 2.81.413
+
+- An explicit empty baselineText now means no previous answer. It no longer triggers a post-submission DOM read that can mistake a fast current answer for the previous baseline. Omitting baselineText retains the existing discovery behavior; positional dispatch anchors remain required by verification.
+- Qwen DOM and last-chance fallback paths now carry verification from their original pipeline, with exact text matching. Last-chance extraction still requires confirmed submission.
+- Regression tests reproduce the explicit-empty baseline bug. This is a plausible contributor to missed fast answers, not a proven explanation for every early UNCERTAIN result in the field.
+
 ### 2026-09-14 — Verify provider DOM fallback results, version 2.81.412
 
 - Claude, Gemini and Perplexity retain the original pipeline instance when falling back to DOM extraction. Before returning the fallback, they run its existing structural/stability verifier and attach answerVerification to response metadata. Previously these branches always sent null verification.
