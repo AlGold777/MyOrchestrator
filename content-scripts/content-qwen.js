@@ -1712,6 +1712,23 @@ const keepAliveMutex = (() => {
       return false;
     };
 
+    const isMac = typeof navigator !== 'undefined'
+      && /Mac/i.test(navigator.userAgentData?.platform || navigator.platform || '');
+    if (isMac) {
+      input.focus?.({ preventScroll: true });
+      dispatchEnter({ metaKey: true });
+      if (await confirmQwenSend(null, 2000)) return true;
+      // Do not click Send again if the shortcut consumed or changed the draft.
+      // A new user turn may become visible only after a delayed UI update.
+      const expected = normalizeForComparison(options.prompt || '');
+      if (!input.isConnected || !expected
+        || normalizeForComparison(readComposerValue(input)) !== expected
+        || getUserMessages(document).length !== baselineUserCount) {
+        if (await waitForLateSendSignals(6000)) return true;
+        throw { type: 'send_failed', message: 'Qwen Cmd+Enter send not confirmed' };
+      }
+    }
+
     // The draft is already verified. Do not spend the foreground slot waiting
     // before trying the visible Send control.
     let sendBtn = await resolveSendButton(input);

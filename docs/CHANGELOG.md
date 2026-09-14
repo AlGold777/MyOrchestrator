@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-09-14 — Prefer Cmd+Enter for Qwen on macOS, version 2.81.418
+
+- Focus the composer and dispatch Cmd+Enter before resolving/clicking Send on macOS, following the user’s successful manual shortcut test. Confirm submission by a new matching user turn.
+- If the shortcut consumes/changes/detaches the draft, wait for late confirmation without clicking Send again. Button fallback is permitted after two seconds only when the complete draft and user-turn count remain unchanged. Other platforms retain their existing path.
+- 14 targeted tests pass. The extension uses DOM keyboard events, which are not trusted physical keystrokes; actual Qwen acceptance requires a browser run.
+
 ### 2026-09-14 — Restore Qwen sending to 2.81.408, version 2.81.417
 
 - Removed the experimental unchanged-draft retry from 2.81.415 at the user’s request. Send selection and submission functions match commit 66e827d (2.81.408) exactly. Collection fixes remain separate.

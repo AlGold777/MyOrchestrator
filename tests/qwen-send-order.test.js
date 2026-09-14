@@ -15,6 +15,46 @@ function setup(accepted) {
   return {c,button};
 }
 afterEach(()=>jest.useRealTimers());
+test('macOS sends Cmd+Enter before looking for a button and confirms a new user turn',async()=>{
+  const {c,button}=setup(false);
+  c.navigator={platform:'MacIntel'};
+  c.KeyboardEvent=class {constructor(type,init){this.type=type;Object.assign(this,init);}};
+  const messages=[];
+  c.getUserMessages=()=>messages;
+  c.resolveSendButton=jest.fn(async()=>button);
+  const input={focus:jest.fn(),dispatchEvent:jest.fn(e=>{
+    if(e.type==='keydown' && e.metaKey && !e.ctrlKey) messages.push('8 / 4');
+  })};
+  await expect(c.sendComposer(input,{prompt:'8 / 4'})).resolves.toBe(true);
+  expect(input.focus).toHaveBeenCalledWith({preventScroll:true});
+  expect(input.dispatchEvent.mock.calls.map(([e])=>[e.type,e.key,e.metaKey,e.ctrlKey]))
+    .toEqual([['keydown','Enter',true,false],['keyup','Enter',true,false]]);
+  expect(c.resolveSendButton).not.toHaveBeenCalled();
+  expect(button.click).not.toHaveBeenCalled();
+});
+test.each(['consumed','edited','detached'])('macOS does not click after Cmd+Enter leaves draft %s',async state=>{
+  jest.useFakeTimers();
+  const {c,button}=setup(false);
+  c.navigator={platform:'MacIntel'};
+  c.readComposerValue=i=>i.value;
+  const input={isConnected:state!=='detached',value:state==='consumed'?'':'edited',dispatchEvent:jest.fn()};
+  const pending=c.sendComposer(input,{prompt:'8 / 4'});
+  const rejected=expect(pending).rejects.toMatchObject({type:'send_failed'});
+  await jest.advanceTimersByTimeAsync(8500);
+  await rejected;
+  expect(button.click).not.toHaveBeenCalled();
+});
+test('macOS falls back to Send when Cmd+Enter leaves the exact draft untouched',async()=>{
+  jest.useFakeTimers();
+  const {c,button}=setup(true);
+  c.navigator={platform:'MacIntel'};
+  c.readComposerValue=i=>i.value;
+  const input={isConnected:true,value:'8 / 4',dispatchEvent:jest.fn()};
+  const pending=c.sendComposer(input,{prompt:'8 / 4'});
+  await jest.advanceTimersByTimeAsync(2200);
+  await expect(pending).resolves.toBe(true);
+  expect(button.click).toHaveBeenCalledTimes(1);
+});
 test('clicks immediately and confirms the new user turn after the original scope is replaced',async()=>{
   const {c,button}=setup(true);
   await expect(c.sendComposer({dispatchEvent:jest.fn()},{prompt:'8 / 4',scope:{detached:true}})).resolves.toBe(true);
