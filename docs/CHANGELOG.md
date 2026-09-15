@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-09-15 — Qwen Cmd+Enter in send-only recovery, version 2.81.420
+
+- The shared prepared-draft recovery now uses Cmd+Enter for Qwen on macOS, matching its primary adapter. Previously it always sent Ctrl+Enter. Other provider/platform shortcuts remain unchanged.
+- Raw run 1789493770142 records Qwen insertion at seq52, send request at seq53 and departure 5087ms later (seq55). Round2 repair starts at seq201. Thus neither absent insertion nor absent repair scheduling explains the run; the actual shortcut outcome is not recorded.
+- This closes an identified recovery-path inconsistency without claiming it proves the cause of the initial send failure. 18 targeted tests passed, including Qwen Mac/Windows and unchanged Claude recovery.
+
 ### 2026-09-15 — Do not cancel Grok on prompt verification failure, version 2.81.419
 
 - Removed automatic Stop clicks when the posted prompt is missing, collapsed or differs from the expected text. Verification still reports failure and does not falsely confirm the payload, but leaves the provider generation running.

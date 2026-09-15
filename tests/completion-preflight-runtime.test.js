@@ -95,7 +95,8 @@ describe('Completion preflight runtime contract', () => {
     expect(window.ResponseLifecycleDetector.getCompletionSnapshot({ modelName: 'Claude' })).toBeNull();
   });
 
-  test('send-only recovery submits the prepared draft without repeating attachment or insertion', async () => {
+  test.each([['Claude', 'MacIntel', 'ctrl_enter'], ['Qwen', 'MacIntel', 'cmd_enter'], ['Qwen', 'Win32', 'ctrl_enter']])('send-only recovery submits %s on %s without repeating attachment or insertion', async (model, platform, method) => {
+    const platformSpy = jest.spyOn(navigator, 'platform', 'get').mockReturnValue(platform);
     global.chrome.runtime.sendMessage = jest.fn((_message, callback) => callback?.({}));
     loadScript('content-scripts/content-utils.js');
     const composer = document.createElement('textarea');
@@ -104,21 +105,22 @@ describe('Completion preflight runtime contract', () => {
     Object.defineProperty(composer, 'offsetWidth', { configurable: true, value: 400 });
     Object.defineProperty(composer, 'offsetHeight', { configurable: true, value: 80 });
     composer.addEventListener('keydown', (event) => {
-      if (event.ctrlKey && event.key === 'Enter') composer.value = '';
+      if (event.key === 'Enter' && (method === 'cmd_enter' ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey)) composer.value = '';
     });
     document.body.appendChild(composer);
 
     await expect(window.ContentUtils.recoverPreparedComposerSend(
-      'Claude', 'prepared prompt', { dispatchId: 'Claude:send-only' }
+      model, 'prepared prompt', { dispatchId: `${model}:send-only` }
     )).resolves.toEqual(expect.objectContaining({
       ok: true,
       status: 'send_only_confirmed',
-      method: 'ctrl_enter'
+      method
     }));
     expect(global.chrome.runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       type: 'PROMPT_SUBMITTED',
-      llmName: 'Claude'
+      llmName: model
     }), expect.any(Function));
+    platformSpy.mockRestore();
   });
 
   test('send-only recovery refuses a composer that does not hold the exact current prompt', async () => {
