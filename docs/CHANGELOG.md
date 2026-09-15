@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-09-15 — Do not cancel Grok on prompt verification failure, version 2.81.419
+
+- Removed automatic Stop clicks when the posted prompt is missing, collapsed or differs from the expected text. Verification still reports failure and does not falsely confirm the payload, but leaves the provider generation running.
+- Recheck a cached Send node immediately before a synchronous click: reject Stop/Cancel identities, disabled/disconnected controls and empty drafts. Remove the immediate keyboard submission after clicking. This prevents a cached Send control that has become Stop from being clicked by the button fallback.
+- 50 targeted tests passed, including mismatch/unobserved verification without cancellation, Send-to-Stop mutation, ordinary Send and attachment/dispatch contracts. Live reproduction of the user interruption message remains unverified.
+
 ### 2026-09-14 — Prefer Cmd+Enter for Qwen on macOS, version 2.81.418
 
 - Focus the composer and dispatch Cmd+Enter before resolving/clicking Send on macOS, following the user’s successful manual shortcut test. Confirm submission by a new matching user turn.

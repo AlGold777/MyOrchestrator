@@ -100,7 +100,7 @@ describe('prompt-echo / suspect is not a green answer (preservation path)', () =
     expect(earlySubmittedAt).toBe(-1);
     expect(verifyAt).toBeGreaterThan(-1);
     expect(GROK_SRC.indexOf('GROK_SENT_PROMPT_MISMATCH', verifyAt)).toBeGreaterThan(verifyAt);
-    expect(GROK_SRC.indexOf('stopGrokWrongGeneration()', verifyAt)).toBeGreaterThan(verifyAt);
+    expect(GROK_SRC).not.toContain('stopGrokWrongGeneration');
     expect(verifiedSubmittedAt).toBeGreaterThan(verifyAt);
     expect(TELEMETRY_SRC).toContain('GROK_SENT_PROMPT_MISMATCH');
   });
