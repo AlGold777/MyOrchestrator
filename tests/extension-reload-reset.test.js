@@ -25,6 +25,7 @@ describe('extension reload state reset', () => {
     expect(indexSource).toContain("'llmComparatorSelectedModelsByView.main'");
     expect(indexSource).toContain("'llmComparatorSelectedModelsByView.pipeline'");
     expect(indexSource).toContain("'llmComparatorCrossViewUiState'");
+    expect(indexSource).toContain("'llm_saved_sessions_v1'");
     expect(indexSource).toContain("resetVolatileRuntime('new_extension_runtime')");
     expect(indexSource).toContain("settleNormalStart('worker_wake')");
     expect(indexSource).toMatch(/resetVolatileRuntime = \(reason\) => \{[\s\S]{0,320}clearTimeout\(normalStartTimer\)/);
@@ -59,5 +60,14 @@ describe('extension reload state reset', () => {
     expect(devtoolsSource).toContain("document.addEventListener('extension-runtime-reset'");
     expect(devtoolsSource).toContain('telemetryCache = [];');
     expect(devtoolsSource).toContain('telemetryEventKeys = new Set();');
+  });
+
+  test('saved sessions clear from memory when runtime reset races sidebar loading', () => {
+    const resultsSource = read('results.js');
+    expect(resultsSource).toContain('let extensionRuntimeResetObserved = false;');
+    expect(resultsSource).toContain('const resetSessionsAfterExtensionRuntimeReset = async () =>');
+    expect(resultsSource).toContain("document.addEventListener('extension-runtime-reset'");
+    expect(resultsSource).toContain('if (extensionRuntimeResetObserved) {');
+    expect(resultsSource).toContain('sessionsState.sessions = [];');
   });
 });

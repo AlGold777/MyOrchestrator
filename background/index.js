@@ -18,7 +18,8 @@ const EXTENSION_VOLATILE_LOCAL_KEYS = [
   '__diagnostics_events__',
   'llmComparatorSelectedModelsByView.main',
   'llmComparatorSelectedModelsByView.pipeline',
-  'llmComparatorCrossViewUiState'
+  'llmComparatorCrossViewUiState',
+  'llm_saved_sessions_v1'
 ];
 
 self.__extensionLifecycleReady = new Promise((resolve) => {

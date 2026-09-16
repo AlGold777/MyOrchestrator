@@ -64,6 +64,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         nextId: 1,
         cardKeyToId: new Map()
     };
+    let extensionRuntimeResetObserved = false;
     const responseSelectionState = {
         range: null,
         target: null
@@ -9567,6 +9568,17 @@ document.addEventListener('click', (event) => {
                         raw = Array.isArray(result[SESSIONS_STORAGE_KEY]) ? result[SESSIONS_STORAGE_KEY] : [];
                     }
                 }
+                if (extensionRuntimeResetObserved) {
+                    await Promise.all(raw
+                        .map((session) => String(session?.id || '').trim())
+                        .filter(Boolean)
+                        .map((sessionId) => deleteSessionSnapshotFromIdb(sessionId)));
+                    sessionsState.sessions = [];
+                    sessionsState.selectedId = CURRENT_SESSION_ID;
+                    sessionsState.activeViewId = CURRENT_SESSION_ID;
+                    sessionsState.currentSnapshot = null;
+                    return;
+                }
                 if (isPageReloadNavigation()) {
                     await Promise.all(raw
                         .map((session) => String(session?.id || '').trim())
@@ -9587,12 +9599,24 @@ document.addEventListener('click', (event) => {
                     .filter(Boolean);
                 const migrated = [];
                 for (const session of normalized) {
+                    if (extensionRuntimeResetObserved) break;
                     if (session.__inlineSnapshot) {
                         await saveSessionSnapshotToIdb(session.id, session.__inlineSnapshot);
                         migrated.push(stripSessionSnapshotForManifest(session));
                     } else {
                         migrated.push(stripSessionSnapshotForManifest(session));
                     }
+                }
+                if (extensionRuntimeResetObserved) {
+                    await Promise.all(normalized
+                        .map((session) => String(session?.id || '').trim())
+                        .filter(Boolean)
+                        .map((sessionId) => deleteSessionSnapshotFromIdb(sessionId)));
+                    sessionsState.sessions = [];
+                    sessionsState.selectedId = CURRENT_SESSION_ID;
+                    sessionsState.activeViewId = CURRENT_SESSION_ID;
+                    sessionsState.currentSnapshot = null;
+                    return;
                 }
                 sessionsState.sessions = migrated;
                 sessionsState.selectedId = CURRENT_SESSION_ID;
@@ -9994,6 +10018,24 @@ document.addEventListener('click', (event) => {
                     void persistSidebarModePreference(sessionsState.isActive ? 'sessions' : 'notes');
                 }
             };
+
+            const resetSessionsAfterExtensionRuntimeReset = async () => {
+                const sessionIds = sessionsState.sessions
+                    .map((session) => String(session?.id || '').trim())
+                    .filter(Boolean);
+                sessionsState.sessions = [];
+                sessionsState.selectedId = CURRENT_SESSION_ID;
+                sessionsState.activeViewId = CURRENT_SESSION_ID;
+                sessionsState.currentSnapshot = null;
+                sessionsState.deleteArmedId = null;
+                await Promise.all(sessionIds.map((sessionId) => deleteSessionSnapshotFromIdb(sessionId)));
+                renderSessionsList();
+            };
+
+            document.addEventListener('extension-runtime-reset', () => {
+                extensionRuntimeResetObserved = true;
+                void resetSessionsAfterExtensionRuntimeReset();
+            });
 
             const getSelectedSession = () =>
                 sessionsState.sessions.find((session) => session.id === sessionsState.selectedId) || null;
@@ -16056,6 +16098,7 @@ document.addEventListener('click', (event) => {
             : (response?.state || {});
         syncStatusFromGlobalState(reconciliationState, { replace: true });
         if (response?.runtimeReset === true) {
+            extensionRuntimeResetObserved = true;
             applyModelButtonSelection([]);
             void safeStorageLocalRemove([
                 `llmComparatorSelectedModelsByView.main`,

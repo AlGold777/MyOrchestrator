@@ -1,5 +1,9 @@
 # CHANGELOG — Project
 
+### 2026-09-16 — Clear stale sessions after page or extension reload, version 2.81.429
+
+- Clear saved session manifests and their in-memory sidebar state when a page reload or extension runtime reset starts, including the race where asynchronous sidebar loading finishes after the reset.
+
 ### 2026-09-16 — Remove viewer chrome and repair response transfer, version 2.81.428
 
 - Make the response card fill the popup without an extra header, border, radius, or shadow, and retrieve the selected card payload through the service worker when direct delivery is unavailable.
