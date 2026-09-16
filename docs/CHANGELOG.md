@@ -1,5 +1,9 @@
 # CHANGELOG — Project
 
+### 2026-09-16 — Remove redundant HTML response separators, version 2.81.442
+
+- Remove the equals-sign separator from HTML exports now that model title color bands provide the visual separation.
+
 ### 2026-09-16 — Align Home and sticky Prompt controls in HTML export, version 2.81.441
 
 - Match the Home icon to the model icon size, center its label, and make the Prompt heading with its collapse control sticky below model navigation.
