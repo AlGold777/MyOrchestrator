@@ -1,5 +1,9 @@
 # CHANGELOG — Project
 
+### 2026-09-16 — Add highlighted separators to all-model HTML exports, version 2.81.424
+
+- Add the same three-line response separator to all-model HTML exports, with a yellow background behind it.
+
 ### 2026-09-16 — Connect popup viewer to regular model cards, version 2.81.423
 
 - Regular model response cards now open the popup viewer on header double-click, matching debate response cards.

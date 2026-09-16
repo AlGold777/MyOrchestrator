@@ -18101,7 +18101,14 @@ function buildAllResponsesExportHtml() {
         return '';
     }
 
-    const htmlSections = entries.map(({ name, text, html, metadataLine }) => `
+    const responseSeparatorHtml = `
+        <div class="response-separator" aria-hidden="true">
+            <div>=========================================================</div>
+            <div>=========================================================</div>
+            <div>=========================================================</div>
+        </div>
+    `;
+    const htmlSections = entries.map(({ name, text, html, metadataLine }, index) => `${index ? responseSeparatorHtml : ''}
         <section>
             <h2>${escapeHtml(name)}</h2>
             ${metadataLine ? `<p class="response-meta">${escapeHtml(metadataLine)}</p>` : ''}
@@ -18124,6 +18131,7 @@ function buildAllResponsesExportHtml() {
         .response-body th, .response-body td { border: 1px solid #ddd; padding: 6px 8px; vertical-align: top; }
         .response-body ul, .response-body ol { padding-left: 24px; }
         .response-meta { margin: 0 0 12px; color: #555; font-size: 14px; }
+        .response-separator { margin: 24px 0; padding: 8px 12px; background: #fff3a3; font-family: monospace; line-height: 1.2; white-space: nowrap; overflow-x: auto; }
     </style>
 </head>
 <body>
