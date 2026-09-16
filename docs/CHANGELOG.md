@@ -1,5 +1,9 @@
 # CHANGELOG — Project
 
+### 2026-09-16 — Remove viewer chrome and repair response transfer, version 2.81.428
+
+- Make the response card fill the popup without an extra header, border, radius, or shadow, and retrieve the selected card payload through the service worker when direct delivery is unavailable.
+
 ### 2026-09-16 — Refine all-model TXT and HTML exports, version 2.81.427
 
 - Place the export date beside the `LLMs answers` heading, remove the duplicate `LLM Responses` label, and add sticky model navigation links to the HTML export.

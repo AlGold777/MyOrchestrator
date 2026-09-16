@@ -2,7 +2,6 @@
     'use strict';
 
     const shell = document.getElementById('viewer-shell');
-    const title = document.getElementById('viewer-title');
     const content = document.getElementById('viewer-content');
     const closeButton = document.getElementById('viewer-close');
 
@@ -15,7 +14,6 @@
 
     function render(message = {}) {
         const model = String(message.model || 'Response').trim() || 'Response';
-        title.textContent = model;
         const rawHtml = String(message.html || '').trim();
         const rawText = String(message.text || '').trim();
         if (rawHtml && typeof DOMPurify !== 'undefined') {
@@ -34,11 +32,22 @@
 
     async function loadStoredContent() {
         const viewerId = new URLSearchParams(window.location.search).get('viewerId');
-        if (!viewerId || !chrome.storage?.session) return;
+        if (!viewerId) return;
+        const key = `llmResponseViewer.${viewerId}`;
+        let payload = null;
         try {
-            const stored = await chrome.storage.session.get(`llmResponseViewer.${viewerId}`);
-            render(stored?.[`llmResponseViewer.${viewerId}`] || {});
+            if (chrome.storage?.session) {
+                const stored = await chrome.storage.session.get(key);
+                payload = stored?.[key] || null;
+            }
         } catch (_) {}
+        if (!payload) {
+            try {
+                const response = await chrome.runtime.sendMessage({ type: 'RESPONSE_VIEWER_GET_CONTENT', key });
+                payload = response?.payload || null;
+            } catch (_) {}
+        }
+        if (payload) render(payload);
     }
 
     closeButton?.addEventListener('click', close);

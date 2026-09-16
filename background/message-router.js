@@ -1893,6 +1893,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ ok: true });
         return false;
     }
+    if (message?.type === 'RESPONSE_VIEWER_STORE_CONTENT') {
+        const key = String(message.key || '').trim();
+        if (!key || !message.payload || typeof message.payload !== 'object') {
+            sendResponse({ ok: false, error: 'invalid_response_viewer_payload' });
+            return false;
+        }
+        chrome.storage.session.set({ [key]: message.payload }, () => sendResponse({ ok: !chrome.runtime.lastError }));
+        return true;
+    }
+    if (message?.type === 'RESPONSE_VIEWER_GET_CONTENT') {
+        const key = String(message.key || '').trim();
+        if (!key) {
+            sendResponse({ ok: false, error: 'missing_response_viewer_key' });
+            return false;
+        }
+        chrome.storage.session.get(key, (stored) => sendResponse({ ok: !chrome.runtime.lastError, payload: stored?.[key] || null }));
+        return true;
+    }
     // Export must remain available during a cold service-worker start. It only
     // depends on the proof ledger, which is imported before this router, and
     // must not wait for unrelated job/tab/circuit initialization below.

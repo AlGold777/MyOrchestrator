@@ -19729,7 +19729,7 @@ function checkCompareButtonState() {
         });
     };
     const responseViewerPayload = (card) => {
-        const outputEl = card.querySelector('.debate-model-card-output');
+        const outputEl = card.querySelector('.debate-model-card-output, .output');
         const text = String(outputEl?.innerText || outputEl?.textContent || '').trim();
         const html = sanitizeInlineHtml(String(outputEl?.innerHTML || '').trim());
         return {
@@ -19746,6 +19746,13 @@ function checkCompareButtonState() {
         responseViewerId = responseViewerId || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
         try {
             await chrome.storage.session.set({ [responseViewerStorageKey()]: payload });
+        } catch (_) {}
+        try {
+            await chrome.runtime.sendMessage({
+                type: 'RESPONSE_VIEWER_STORE_CONTENT',
+                key: responseViewerStorageKey(),
+                payload
+            });
         } catch (_) {}
         let viewerWindow = null;
         if (Number.isInteger(responseViewerWindowId)) {
