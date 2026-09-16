@@ -18200,6 +18200,7 @@ function buildAllResponsesExportHtml() {
         .response-body table { width: 100%; border-collapse: collapse; margin: 8px 0; }
         .response-body th, .response-body td { border: 1px solid #ddd; padding: 6px 8px; vertical-align: top; }
         .response-body ul, .response-body ol { padding-left: 24px; }
+        .response-body, .response-body * { color: #27251eeb !important; }
         .response-meta { margin: 0 0 12px; color: #555; font-size: 14px; }
         .response-separator { margin: 24px 0; font-family: monospace; line-height: 1.2; white-space: nowrap; overflow-x: auto; }
         .model-title { display: block; width: 100%; box-sizing: border-box; padding: 2px 8px; background: #C2E7FF; scroll-margin-top: 100px; }

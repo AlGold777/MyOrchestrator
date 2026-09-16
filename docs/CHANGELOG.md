@@ -1,5 +1,9 @@
 # CHANGELOG — Project
 
+### 2026-09-16 — Set HTML export answer text color, version 2.81.436
+
+- Set the exported response text color to `#27251eeb`.
+
 ### 2026-09-16 — Embed model icons in standalone HTML exports, version 2.81.435
 
 - Embed the model SVG icons as data URIs so exported HTML files no longer depend on files from the extension directory.
