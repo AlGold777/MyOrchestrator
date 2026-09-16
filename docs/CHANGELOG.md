@@ -1,5 +1,9 @@
 # CHANGELOG — Project
 
+### 2026-09-16 — Place and collapse Prompt in HTML export, version 2.81.437
+
+- Place Prompt below the model navigation and limit prompts longer than three lines to a three-line visible height.
+
 ### 2026-09-16 — Set HTML export answer text color, version 2.81.436
 
 - Set the exported response text color to `#27251eeb`.

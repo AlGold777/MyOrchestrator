@@ -18185,6 +18185,7 @@ function buildAllResponsesExportHtml() {
         </section>
     `).join('\n');
     const favoriteSections = buildFavoriteExportSectionsHtml();
+    const promptIsLong = promptBlock.split(/\r?\n/).length > 3;
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -18197,6 +18198,7 @@ function buildAllResponsesExportHtml() {
         h1 { display: flex; align-items: baseline; gap: 20px; flex-wrap: wrap; }
         h2 { margin: 0 0 12px; font-size: 20px; }
         pre { background: #f6f8fa; padding: 12px; border-radius: 8px; white-space: pre-wrap; word-wrap: break-word; }
+        .export-prompt-collapsed { max-height: calc(3 * 1.5em + 24px); overflow: hidden; }
         .response-body table { width: 100%; border-collapse: collapse; margin: 8px 0; }
         .response-body th, .response-body td { border: 1px solid #ddd; padding: 6px 8px; vertical-align: top; }
         .response-body ul, .response-body ol { padding-left: 24px; }
@@ -18217,10 +18219,14 @@ function buildAllResponsesExportHtml() {
 </head>
 <body>
     <h1 id="export-top">LLMs answers <span class="export-timestamp">${formatSavedFileTimestamp()}</span></h1>
+    <nav class="model-navigation" aria-label="Model responses">
+        <a class="model-home-button" href="#export-top" aria-label="Back to top" title="Back to top">⌂</a>
+${responseNavigation}
+    </nav>
 ${promptBlock ? `
     <section>
         <h2>Prompt</h2>
-        <pre>${escapeHtml(promptBlock)}</pre>
+        <pre class="${promptIsLong ? 'export-prompt-collapsed' : ''}">${escapeHtml(promptBlock)}</pre>
     </section>
     <hr>
 ` : ''}${favoriteSections ? `
@@ -18228,10 +18234,6 @@ ${promptBlock ? `
 ${favoriteSections}
     <hr>
 ` : ''}
-    <nav class="model-navigation" aria-label="Model responses">
-        <a class="model-home-button" href="#export-top" aria-label="Back to top" title="Back to top">⌂</a>
-${responseNavigation}
-    </nav>
 ${htmlSections}
 </body>
 </html>`;
