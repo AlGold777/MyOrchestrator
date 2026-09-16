@@ -1,5 +1,9 @@
 # CHANGELOG — Project
 
+### 2026-09-16 — Refine response popup sizing and content, version 2.81.425
+
+- Increase popup height, set 40px side margins, remove a duplicated model heading, and reliably hydrate the viewer with the selected card content.
+
 ### 2026-09-16 — Add highlighted separators to all-model HTML exports, version 2.81.424
 
 - Add the same three-line response separator to all-model HTML exports, with a yellow background behind it.

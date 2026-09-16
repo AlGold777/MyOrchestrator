@@ -19692,6 +19692,7 @@ function checkCompareButtonState() {
     }
     let responseViewerWindowId = null;
     let responseViewerCard = null;
+    let responseViewerId = null;
     const responseViewerUrl = () => chrome.runtime.getURL('response-viewer.html');
     const responseViewerBounds = (card) => {
         const rect = card.getBoundingClientRect();
@@ -19699,15 +19700,16 @@ function checkCompareButtonState() {
         const availableHeight = Number(window.screen?.availHeight || window.innerHeight || 600);
         const availableLeft = Number(window.screen?.availLeft || 0);
         const availableTop = Number(window.screen?.availTop || 0);
-        const width = Math.min(availableWidth, Math.max(320, Math.round(rect.width * 1.05)));
-        const height = Math.max(240, Math.round(availableHeight - 60));
+        const width = Math.max(320, Math.round(availableWidth - 80));
+        const height = Math.min(availableHeight - 30, Math.max(240, Math.round((availableHeight - 60) * 1.06)));
         return {
             width,
             height,
-            left: Math.round(availableLeft + (availableWidth - width) / 2),
+            left: Math.round(availableLeft + 40),
             top: Math.round(availableTop + 30)
         };
     };
+    const responseViewerStorageKey = () => `llmResponseViewer.${responseViewerId || 'default'}`;
     const sendResponseViewerContent = (tabId, payload, attempt = 0) => {
         if (!Number.isInteger(tabId)) return;
         chrome.tabs.sendMessage(tabId, payload, () => {
@@ -19732,6 +19734,10 @@ function checkCompareButtonState() {
         if (!(card instanceof HTMLElement)) return;
         const bounds = responseViewerBounds(card);
         const payload = responseViewerPayload(card);
+        responseViewerId = responseViewerId || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        try {
+            await chrome.storage.session.set({ [responseViewerStorageKey()]: payload });
+        } catch (_) {}
         let viewerWindow = null;
         if (Number.isInteger(responseViewerWindowId)) {
             try {
@@ -19746,7 +19752,7 @@ function checkCompareButtonState() {
                 ...bounds,
                 focused: true,
                 type: 'popup',
-                url: responseViewerUrl()
+                url: `${responseViewerUrl()}?viewerId=${encodeURIComponent(responseViewerId)}`
             });
             responseViewerWindowId = viewerWindow?.id ?? null;
         }
@@ -19764,6 +19770,7 @@ function checkCompareButtonState() {
         const windowId = responseViewerWindowId;
         responseViewerWindowId = null;
         responseViewerCard = null;
+        responseViewerId = null;
         if (Number.isInteger(windowId)) chrome.windows.remove(windowId).catch(() => {});
     }
     if (typeof chrome !== 'undefined' && chrome.windows?.onRemoved?.addListener) {
@@ -19771,6 +19778,7 @@ function checkCompareButtonState() {
             if (windowId === responseViewerWindowId) {
                 responseViewerWindowId = null;
                 responseViewerCard = null;
+                responseViewerId = null;
             }
         });
     }
