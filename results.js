@@ -18202,13 +18202,14 @@ function buildAllResponsesExportHtml() {
         .response-body ul, .response-body ol { padding-left: 24px; }
         .response-meta { margin: 0 0 12px; color: #555; font-size: 14px; }
         .response-separator { margin: 24px 0; font-family: monospace; line-height: 1.2; white-space: nowrap; overflow-x: auto; }
-        .model-title { display: block; width: 100%; box-sizing: border-box; padding: 2px 8px; background: #fff204; scroll-margin-top: 100px; }
+        .model-title { display: block; width: 100%; box-sizing: border-box; padding: 2px 8px; background: #C2E7FF; scroll-margin-top: 100px; }
         .export-timestamp { color: #555; font-size: 14px; font-weight: normal; }
         .model-navigation { position: sticky; top: 0; z-index: 10; display: flex; justify-content: flex-start; align-items: center; flex-wrap: wrap; gap: 4.65px; margin: 0 0 24px; padding: 12px 0; background: #fff; }
-        .model-nav-button { display: inline-flex; flex: 0 0 auto; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-width: 58px; padding: 0; border: none; border-radius: 0; background: transparent; color: #b3bcc5; font-size: 12px; font-weight: 600; letter-spacing: 0.01em; text-decoration: none; }
+        .model-nav-button { display: inline-flex; flex: 0 0 auto; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-width: 58px; padding: 0; border: none; border-radius: 0; background: transparent; color: #b3bcc5; font-size: 12px; font-weight: 600; letter-spacing: 0.01em; cursor: pointer; transition: color 0.2s ease, transform 0.2s ease; }
         .model-nav-button:hover { color: #1f3b4c; transform: translateY(-1px); }
-        .model-nav-icon { width: 26px; height: 26px; display: block; object-fit: contain; filter: grayscale(1) saturate(0) opacity(0.446); }
+        .model-nav-icon { width: 26px; height: 26px; display: block; object-fit: contain; filter: grayscale(1) saturate(0) opacity(0.446); transition: filter 0.2s ease, transform 0.2s ease; }
         .model-nav-label { line-height: 1; text-align: center; }
+        .model-nav-button:hover .model-nav-icon { transform: scale(1.04); }
         .model-home-button { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 26px; height: 26px; padding: 0; border: none; color: #b3bcc5; font-size: 26px; line-height: 1; text-decoration: none; }
         .model-home-button:hover { color: #1f3b4c; transform: translateY(-1px); }
     </style>

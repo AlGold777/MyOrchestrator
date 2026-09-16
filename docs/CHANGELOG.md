@@ -1,5 +1,9 @@
 # CHANGELOG — Project
 
+### 2026-09-16 — Match HTML model title color and button styling, version 2.81.434
+
+- Set the full-width model title background to `#C2E7FF` and align exported model navigation icon styling with `models-row-header`.
+
 ### 2026-09-16 — Match exported model navigation to the main page, version 2.81.433
 
 - Use the same stacked model icon-and-name layout in HTML export navigation, with full-width model title highlights and no separator background.
