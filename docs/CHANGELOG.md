@@ -1,5 +1,9 @@
 # CHANGELOG — Project
 
+### 2026-09-16 — Make exported Prompt collapse interactive, version 2.81.440
+
+- Keep the full Prompt in the standalone HTML export, show it collapsed to three lines initially, and provide Show more/Show less controls; enlarge the Home icon by 50% and add its label.
+
 ### 2026-09-16 — Fix standalone HTML Prompt height limit, version 2.81.439
 
 - Use browser-compatible CSS for limiting long exported Prompts to three visible lines.
