@@ -1,5 +1,9 @@
 # CHANGELOG — Project
 
+### 2026-09-16 — Embed model icons in standalone HTML exports, version 2.81.435
+
+- Embed the model SVG icons as data URIs so exported HTML files no longer depend on files from the extension directory.
+
 ### 2026-09-16 — Match HTML model title color and button styling, version 2.81.434
 
 - Set the full-width model title background to `#C2E7FF` and align exported model navigation icon styling with `models-row-header`.
