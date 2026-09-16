@@ -1,5 +1,9 @@
 # CHANGELOG — Project
 
+### 2026-09-16 — Update HTML model title bar color, version 2.81.443
+
+- Change the exported model title bar background from `#C2E7FF` to `#e9eef2`.
+
 ### 2026-09-16 — Remove redundant HTML response separators, version 2.81.442
 
 - Remove the equals-sign separator from HTML exports now that model title color bands provide the visual separation.
