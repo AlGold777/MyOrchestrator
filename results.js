@@ -18197,7 +18197,7 @@ function buildAllResponsesExportHtml() {
         h1 { display: flex; align-items: baseline; gap: 20px; flex-wrap: wrap; }
         h2 { margin: 0 0 12px; font-size: 20px; }
         pre { background: #f6f8fa; padding: 12px; border-radius: 8px; white-space: pre-wrap; word-wrap: break-word; }
-        .export-prompt { max-height: calc(3 * 1.5em + 24px); overflow: hidden; }
+        .export-prompt { box-sizing: border-box; max-height: calc(4.5em + 24px); overflow: hidden; }
         .response-body table { width: 100%; border-collapse: collapse; margin: 8px 0; }
         .response-body th, .response-body td { border: 1px solid #ddd; padding: 6px 8px; vertical-align: top; }
         .response-body ul, .response-body ol { padding-left: 24px; }

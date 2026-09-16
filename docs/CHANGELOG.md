@@ -1,5 +1,9 @@
 # CHANGELOG — Project
 
+### 2026-09-16 — Fix standalone HTML Prompt height limit, version 2.81.439
+
+- Use browser-compatible CSS for limiting long exported Prompts to three visible lines.
+
 ### 2026-09-16 — Keep long Prompt exports within three lines, version 2.81.438
 
 - Limit the visible Prompt block in HTML exports to three rendered lines and darken model navigation labels to `#27251eeb`.
