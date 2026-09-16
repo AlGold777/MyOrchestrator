@@ -1,5 +1,9 @@
 # CHANGELOG — Project
 
+### 2026-09-16 — Keep long Prompt exports within three lines, version 2.81.438
+
+- Limit the visible Prompt block in HTML exports to three rendered lines and darken model navigation labels to `#27251eeb`.
+
 ### 2026-09-16 — Place and collapse Prompt in HTML export, version 2.81.437
 
 - Place Prompt below the model navigation and limit prompts longer than three lines to a three-line visible height.

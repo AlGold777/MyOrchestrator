@@ -18185,7 +18185,6 @@ function buildAllResponsesExportHtml() {
         </section>
     `).join('\n');
     const favoriteSections = buildFavoriteExportSectionsHtml();
-    const promptIsLong = promptBlock.split(/\r?\n/).length > 3;
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -18198,7 +18197,7 @@ function buildAllResponsesExportHtml() {
         h1 { display: flex; align-items: baseline; gap: 20px; flex-wrap: wrap; }
         h2 { margin: 0 0 12px; font-size: 20px; }
         pre { background: #f6f8fa; padding: 12px; border-radius: 8px; white-space: pre-wrap; word-wrap: break-word; }
-        .export-prompt-collapsed { max-height: calc(3 * 1.5em + 24px); overflow: hidden; }
+        .export-prompt { max-height: calc(3 * 1.5em + 24px); overflow: hidden; }
         .response-body table { width: 100%; border-collapse: collapse; margin: 8px 0; }
         .response-body th, .response-body td { border: 1px solid #ddd; padding: 6px 8px; vertical-align: top; }
         .response-body ul, .response-body ol { padding-left: 24px; }
@@ -18208,7 +18207,7 @@ function buildAllResponsesExportHtml() {
         .model-title { display: block; width: 100%; box-sizing: border-box; padding: 2px 8px; background: #C2E7FF; scroll-margin-top: 100px; }
         .export-timestamp { color: #555; font-size: 14px; font-weight: normal; }
         .model-navigation { position: sticky; top: 0; z-index: 10; display: flex; justify-content: flex-start; align-items: center; flex-wrap: wrap; gap: 4.65px; margin: 0 0 24px; padding: 12px 0; background: #fff; }
-        .model-nav-button { display: inline-flex; flex: 0 0 auto; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-width: 58px; padding: 0; border: none; border-radius: 0; background: transparent; color: #b3bcc5; font-size: 12px; font-weight: 600; letter-spacing: 0.01em; cursor: pointer; transition: color 0.2s ease, transform 0.2s ease; }
+        .model-nav-button { display: inline-flex; flex: 0 0 auto; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-width: 58px; padding: 0; border: none; border-radius: 0; background: transparent; color: #27251eeb; font-size: 12px; font-weight: 600; letter-spacing: 0.01em; cursor: pointer; transition: color 0.2s ease, transform 0.2s ease; }
         .model-nav-button:hover { color: #1f3b4c; transform: translateY(-1px); }
         .model-nav-icon { width: 26px; height: 26px; display: block; object-fit: contain; filter: grayscale(1) saturate(0) opacity(0.446); transition: filter 0.2s ease, transform 0.2s ease; }
         .model-nav-label { line-height: 1; text-align: center; }
@@ -18226,7 +18225,7 @@ ${responseNavigation}
 ${promptBlock ? `
     <section>
         <h2>Prompt</h2>
-        <pre class="${promptIsLong ? 'export-prompt-collapsed' : ''}">${escapeHtml(promptBlock)}</pre>
+        <pre class="export-prompt">${escapeHtml(promptBlock)}</pre>
     </section>
     <hr>
 ` : ''}${favoriteSections ? `
