@@ -1885,6 +1885,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message?.type === 'NOTES_CMD' || message?.type === 'NOTES_EVENT') {
         return false;
     }
+    if (message?.type === 'RESPONSE_VIEWER_CLOSE') {
+        const windowId = sender?.tab?.windowId;
+        if (Number.isInteger(windowId)) {
+            chrome.windows.remove(windowId).catch(() => {});
+        }
+        sendResponse({ ok: true });
+        return false;
+    }
     // Export must remain available during a cold service-worker start. It only
     // depends on the proof ledger, which is imported before this router, and
     // must not wait for unrelated job/tab/circuit initialization below.

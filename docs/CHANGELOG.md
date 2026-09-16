@@ -1,5 +1,9 @@
 # CHANGELOG — Project
 
+### 2026-09-16 — Popup viewer for debate response cards, version 2.81.422
+
+- Double-clicking a debate response card header opens a reusable popup viewer sized to 105% of the card width and the available screen height minus 30px top and bottom margins. The viewer closes with its close button, `Esc`, or a click on its empty background.
+
 ### 2026-09-16 — Readable separators in all-model TXT exports, version 2.81.421
 
 - Separate consecutive model responses in the all-model TXT export with three lines of equals signs and blank lines around them.

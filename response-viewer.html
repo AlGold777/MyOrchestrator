@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Response viewer</title>
+    <link rel="stylesheet" href="response-viewer.css">
+</head>
+<body>
+    <main id="viewer-shell" aria-label="Response viewer">
+        <article id="viewer-card">
+            <header id="viewer-header">
+                <h1 id="viewer-title">Response</h1>
+                <button id="viewer-close" type="button" aria-label="Close response viewer" title="Close">×</button>
+            </header>
+            <div id="viewer-content"></div>
+        </article>
+    </main>
+    <script src="lib/purify.min.js"></script>
+    <script src="response-viewer.js"></script>
+</body>
+</html>

@@ -19676,6 +19676,90 @@ function checkCompareButtonState() {
         if (outputEl) outputEl.insertAdjacentElement('afterend', btn);
         return btn;
     }
+    let responseViewerWindowId = null;
+    let responseViewerCard = null;
+    const responseViewerUrl = () => chrome.runtime.getURL('response-viewer.html');
+    const responseViewerBounds = (card) => {
+        const rect = card.getBoundingClientRect();
+        const availableWidth = Number(window.screen?.availWidth || window.innerWidth || rect.width);
+        const availableHeight = Number(window.screen?.availHeight || window.innerHeight || 600);
+        const availableLeft = Number(window.screen?.availLeft || 0);
+        const availableTop = Number(window.screen?.availTop || 0);
+        const width = Math.min(availableWidth, Math.max(320, Math.round(rect.width * 1.05)));
+        const height = Math.max(240, Math.round(availableHeight - 60));
+        return {
+            width,
+            height,
+            left: Math.round(availableLeft + (availableWidth - width) / 2),
+            top: Math.round(availableTop + 30)
+        };
+    };
+    const sendResponseViewerContent = (tabId, payload, attempt = 0) => {
+        if (!Number.isInteger(tabId)) return;
+        chrome.tabs.sendMessage(tabId, payload, () => {
+            const failed = Boolean(chrome.runtime.lastError);
+            if (failed && attempt < 20) {
+                setTimeout(() => sendResponseViewerContent(tabId, payload, attempt + 1), 100);
+            }
+        });
+    };
+    const responseViewerPayload = (card) => {
+        const outputEl = card.querySelector('.debate-model-card-output');
+        const text = String(outputEl?.innerText || outputEl?.textContent || '').trim();
+        const html = sanitizeInlineHtml(String(outputEl?.innerHTML || '').trim());
+        return {
+            type: 'RESPONSE_VIEWER_SET_CONTENT',
+            model: String(card.dataset.llmName || card.querySelector('.debate-model-card-name')?.textContent || 'Model').trim() || 'Model',
+            text,
+            html
+        };
+    };
+    async function openResponseViewerForCard(card) {
+        if (!(card instanceof HTMLElement)) return;
+        const bounds = responseViewerBounds(card);
+        const payload = responseViewerPayload(card);
+        let viewerWindow = null;
+        if (Number.isInteger(responseViewerWindowId)) {
+            try {
+                viewerWindow = await chrome.windows.get(responseViewerWindowId, { populate: true });
+                await chrome.windows.update(responseViewerWindowId, { ...bounds, focused: true, state: 'normal' });
+            } catch (_) {
+                responseViewerWindowId = null;
+            }
+        }
+        if (!viewerWindow) {
+            viewerWindow = await chrome.windows.create({
+                ...bounds,
+                focused: true,
+                type: 'popup',
+                url: responseViewerUrl()
+            });
+            responseViewerWindowId = viewerWindow?.id ?? null;
+        }
+        responseViewerCard = card;
+        let tabId = viewerWindow?.tabs?.[0]?.id;
+        if (!Number.isInteger(tabId) && Number.isInteger(responseViewerWindowId)) {
+            try {
+                const current = await chrome.windows.get(responseViewerWindowId, { populate: true });
+                tabId = current?.tabs?.[0]?.id;
+            } catch (_) {}
+        }
+        sendResponseViewerContent(tabId, payload);
+    }
+    function closeResponseViewer() {
+        const windowId = responseViewerWindowId;
+        responseViewerWindowId = null;
+        responseViewerCard = null;
+        if (Number.isInteger(windowId)) chrome.windows.remove(windowId).catch(() => {});
+    }
+    if (typeof chrome !== 'undefined' && chrome.windows?.onRemoved?.addListener) {
+        chrome.windows.onRemoved.addListener((windowId) => {
+            if (windowId === responseViewerWindowId) {
+                responseViewerWindowId = null;
+                responseViewerCard = null;
+            }
+        });
+    }
     function setDebateCardExpanded(card, expanded) {
         if (!(card instanceof HTMLElement)) return;
         card.dataset.expanded = expanded ? 'true' : 'false';
@@ -19688,6 +19772,14 @@ function checkCompareButtonState() {
     }
     function setDebateCardWideExpanded(card, expanded) {
         if (!(card instanceof HTMLElement)) return;
+        if (typeof chrome !== 'undefined' && typeof chrome.windows?.create === 'function') {
+            if (expanded) {
+                openResponseViewerForCard(card);
+            } else {
+                closeResponseViewer();
+            }
+            return;
+        }
         if (expanded) setDebateFeedWideExpanded(false);
         document.querySelectorAll('.debate-model-card.is-wide-expanded').forEach((other) => {
             if (other !== card) other.classList.remove('is-wide-expanded');
@@ -22294,7 +22386,11 @@ function exportSingleTemplate(templateName, sourceData = null) {
         if (!card || !debateModelCards.contains(card)) return;
         event.preventDefault();
         event.stopPropagation();
-        setDebateCardWideExpanded(card, !card.classList.contains('is-wide-expanded'));
+        if (typeof chrome !== 'undefined' && typeof chrome.windows?.create === 'function') {
+            setDebateCardWideExpanded(card, responseViewerCard !== card);
+        } else {
+            setDebateCardWideExpanded(card, !card.classList.contains('is-wide-expanded'));
+        }
     });
     debateSessionBar?.addEventListener('dblclick', (event) => {
         if (event.target.closest('button, a, input, select, textarea, [role="button"], [role="tab"]')) return;
