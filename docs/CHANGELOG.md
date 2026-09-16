@@ -1,5 +1,9 @@
 # CHANGELOG — Project
 
+### 2026-09-16 — Readable separators in all-model TXT exports, version 2.81.421
+
+- Separate consecutive model responses in the all-model TXT export with three lines of equals signs and blank lines around them.
+
 ### 2026-09-15 — Qwen Cmd+Enter in send-only recovery, version 2.81.420
 
 - The shared prepared-draft recovery now uses Cmd+Enter for Qwen on macOS, matching its primary adapter. Previously it always sent Ctrl+Enter. Other provider/platform shortcuts remain unchanged.

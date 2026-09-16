@@ -18028,7 +18028,9 @@ function buildFavoriteExportText(entries) {
 function buildAllResponsesExportText() {
     const promptBlock = getAllResponsesPromptText();
     const favoriteText = buildFavoriteExportText();
-    const { combinedText } = collectLLMResponses();
+    const { entries } = collectLLMResponses();
+    const responseSeparator = '=========================================================\n=========================================================\n=========================================================';
+    const combinedText = entries.map(entry => entry.formatted).join(`\n\n${responseSeparator}\n\n`).trim();
     if (!combinedText) return '';
     return [
         promptBlock ? `=== Prompt ===\n${promptBlock}` : '',
