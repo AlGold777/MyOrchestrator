@@ -70,4 +70,10 @@ describe('extension reload state reset', () => {
     expect(resultsSource).toContain('if (extensionRuntimeResetObserved) {');
     expect(resultsSource).toContain('sessionsState.sessions = [];');
   });
+
+  test('both session imports focus the first imported session', () => {
+    const resultsSource = read('results.js');
+    expect(resultsSource).toContain('switchSidebarSessionView(normalizedSessions[0].id)');
+    expect(resultsSource).toContain('switchSidebarSessionView(addedSessions[0].id)');
+  });
 });

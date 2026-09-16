@@ -1,5 +1,9 @@
 # CHANGELOG — Project
 
+### 2026-09-16 — Focus the first session after import, version 2.81.432
+
+- After either full backup import or add-only session import, select and open the first imported session.
+
 ### 2026-09-16 — Tune response viewer typography and position, version 2.81.431
 
 - Increase viewer text to 15px, set equal 48px horizontal padding, and move the popup 15px higher.

@@ -8344,6 +8344,10 @@ document.addEventListener('click', (event) => {
                     sessionsState.currentSnapshot = null;
                     await persistSessions();
                     renderSessionsList();
+                    if (normalizedSessions[0]?.id) {
+                        setSessionsActive(true, { persist: false });
+                        await switchSidebarSessionView(normalizedSessions[0].id);
+                    }
                     if (hasNotesPayload) {
                         await initNotes();
                     }
@@ -8409,6 +8413,8 @@ document.addEventListener('click', (event) => {
                     sessionsState.sessions = [...sessionsState.sessions, ...addedSessions];
                     await persistSessions();
                     renderSessionsList();
+                    setSessionsActive(true, { persist: false });
+                    await switchSidebarSessionView(addedSessions[0].id);
                     setStatus(`Added ${addedSessions.length} sessions`, 3600);
                 } catch (error) {
                     console.warn('[results] add saved sessions failed', error);
