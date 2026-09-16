@@ -18157,9 +18157,26 @@ function buildAllResponsesExportHtml() {
             <div>=========================================================</div>
         </div>
     `;
-    const responseNavigation = entries.map(({ name }, index) => `
-        <a class="model-nav-button" href="#response-${index + 1}">${escapeHtml(name)}</a>
-    `).join('');
+    const modelIconFiles = {
+        GPT: 'openai.svg',
+        Claude: 'claude.svg',
+        Qwen: 'qwen.svg',
+        'Z.ai': 'zai.svg',
+        Kimi: 'kimi.svg',
+        Gemini: 'gemini.svg',
+        Grok: 'grok.svg',
+        DeepSeek: 'deepseek.svg',
+        'Le Chat': 'le_chat.svg',
+        Perplexity: 'perplexity.svg'
+    };
+    const responseNavigation = entries.map(({ name }, index) => {
+        const iconFile = modelIconFiles[name] || '';
+        return `
+        <a class="model-nav-button" href="#response-${index + 1}" title="${escapeHtml(name)}">
+            ${iconFile ? `<img class="model-nav-icon" src="icons/models/${iconFile}" alt="${escapeHtml(name)} icon">` : ''}
+            <span class="model-nav-label">${escapeHtml(name)}</span>
+        </a>`;
+    }).join('');
     const htmlSections = entries.map(({ name, text, html, metadataLine }, index) => `${index ? responseSeparatorHtml : ''}
         <section>
             <h2 id="response-${index + 1}" class="model-title">${escapeHtml(name)}</h2>
@@ -18185,12 +18202,15 @@ function buildAllResponsesExportHtml() {
         .response-body ul, .response-body ol { padding-left: 24px; }
         .response-meta { margin: 0 0 12px; color: #555; font-size: 14px; }
         .response-separator { margin: 24px 0; font-family: monospace; line-height: 1.2; white-space: nowrap; overflow-x: auto; }
-        .model-title { display: inline-block; padding: 2px 8px; background: #fff204; }
+        .model-title { display: block; width: 100%; box-sizing: border-box; padding: 2px 8px; background: #fff204; scroll-margin-top: 100px; }
         .export-timestamp { color: #555; font-size: 14px; font-weight: normal; }
-        .model-navigation { position: sticky; top: 0; z-index: 10; display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 24px; padding: 12px 0; background: #fff; }
-        .model-nav-button { display: inline-block; padding: 6px 12px; border: 1px solid #d0d7de; border-radius: 6px; background: #f6f8fa; color: #111; font-size: 13px; font-weight: 600; text-decoration: none; }
-        .model-nav-button:hover { background: #eaeef2; }
-        .model-home-button { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 1px solid #d0d7de; border-radius: 6px; color: #555; font-size: 18px; line-height: 1; text-decoration: none; }
+        .model-navigation { position: sticky; top: 0; z-index: 10; display: flex; justify-content: flex-start; align-items: center; flex-wrap: wrap; gap: 4.65px; margin: 0 0 24px; padding: 12px 0; background: #fff; }
+        .model-nav-button { display: inline-flex; flex: 0 0 auto; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-width: 58px; padding: 0; border: none; border-radius: 0; background: transparent; color: #b3bcc5; font-size: 12px; font-weight: 600; letter-spacing: 0.01em; text-decoration: none; }
+        .model-nav-button:hover { color: #1f3b4c; transform: translateY(-1px); }
+        .model-nav-icon { width: 26px; height: 26px; display: block; object-fit: contain; filter: grayscale(1) saturate(0) opacity(0.446); }
+        .model-nav-label { line-height: 1; text-align: center; }
+        .model-home-button { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 26px; height: 26px; padding: 0; border: none; color: #b3bcc5; font-size: 26px; line-height: 1; text-decoration: none; }
+        .model-home-button:hover { color: #1f3b4c; transform: translateY(-1px); }
     </style>
 </head>
 <body>

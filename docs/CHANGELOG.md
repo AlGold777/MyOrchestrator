@@ -1,5 +1,9 @@
 # CHANGELOG — Project
 
+### 2026-09-16 — Match exported model navigation to the main page, version 2.81.433
+
+- Use the same stacked model icon-and-name layout in HTML export navigation, with full-width model title highlights and no separator background.
+
 ### 2026-09-16 — Focus the first session after import, version 2.81.432
 
 - After either full backup import or add-only session import, select and open the first imported session.
