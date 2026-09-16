@@ -11835,6 +11835,12 @@ document.addEventListener('click', (event) => {
                 if (event.target.closest('button, a, input, select, textarea, [role="button"], .status-control-cluster, .status-indicator, .api-indicator')) {
                     return;
                 }
+                if (typeof chrome !== 'undefined' && typeof chrome.windows?.create === 'function') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setDebateCardWideExpanded(panel, responseViewerCard !== panel);
+                    return;
+                }
                 const isExpanded = panel.classList.toggle('llm-panel-expanded');
                 if (isExpanded) {
                     outputEl.dataset.collapsedMaxHeight = document.body.classList.contains('llm-stream-preview-open')
@@ -19672,7 +19678,7 @@ function checkCompareButtonState() {
             event.stopPropagation();
             setDebateCardExpanded(card, card.dataset.expanded !== 'true');
         });
-        const outputEl = card.querySelector('.debate-model-card-output');
+        const outputEl = card.querySelector('.debate-model-card-output, .output');
         if (outputEl) outputEl.insertAdjacentElement('afterend', btn);
         return btn;
     }
@@ -19709,7 +19715,7 @@ function checkCompareButtonState() {
         const html = sanitizeInlineHtml(String(outputEl?.innerHTML || '').trim());
         return {
             type: 'RESPONSE_VIEWER_SET_CONTENT',
-            model: String(card.dataset.llmName || card.querySelector('.debate-model-card-name')?.textContent || 'Model').trim() || 'Model',
+            model: String(card.dataset.llmName || card.querySelector('.debate-model-card-name, .llm-title')?.textContent || 'Model').trim() || 'Model',
             text,
             html
         };

@@ -1,5 +1,9 @@
 # CHANGELOG — Project
 
+### 2026-09-16 — Connect popup viewer to regular model cards, version 2.81.423
+
+- Regular model response cards now open the popup viewer on header double-click, matching debate response cards.
+
 ### 2026-09-16 — Popup viewer for debate response cards, version 2.81.422
 
 - Double-clicking a debate response card header opens a reusable popup viewer sized to 105% of the card width and the available screen height minus 30px top and bottom margins. The viewer closes with its close button, `Esc`, or a click on its empty background.
