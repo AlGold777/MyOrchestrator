@@ -19791,6 +19791,9 @@ function checkCompareButtonState() {
             await chrome.storage.session.set({ [responseViewerStorageKey()]: payload });
         } catch (_) {}
         try {
+            await chrome.storage.local.set({ [responseViewerStorageKey()]: payload });
+        } catch (_) {}
+        try {
             await chrome.runtime.sendMessage({
                 type: 'RESPONSE_VIEWER_STORE_CONTENT',
                 key: responseViewerStorageKey(),

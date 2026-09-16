@@ -43,6 +43,12 @@
         } catch (_) {}
         if (!payload) {
             try {
+                const stored = await chrome.storage.local.get(key);
+                payload = stored?.[key] || null;
+            } catch (_) {}
+        }
+        if (!payload) {
+            try {
                 const response = await chrome.runtime.sendMessage({ type: 'RESPONSE_VIEWER_GET_CONTENT', key });
                 payload = response?.payload || null;
             } catch (_) {}

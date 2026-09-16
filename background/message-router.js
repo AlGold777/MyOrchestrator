@@ -1899,7 +1899,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             sendResponse({ ok: false, error: 'invalid_response_viewer_payload' });
             return false;
         }
-        chrome.storage.session.set({ [key]: message.payload }, () => sendResponse({ ok: !chrome.runtime.lastError }));
+        chrome.storage.local.set({ [key]: message.payload }, () => {
+            if (chrome.runtime.lastError) {
+                sendResponse({ ok: false, error: chrome.runtime.lastError.message });
+                return;
+            }
+            chrome.storage.session.set({ [key]: message.payload }, () => sendResponse({ ok: !chrome.runtime.lastError }));
+        });
         return true;
     }
     if (message?.type === 'RESPONSE_VIEWER_GET_CONTENT') {
@@ -1908,7 +1914,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             sendResponse({ ok: false, error: 'missing_response_viewer_key' });
             return false;
         }
-        chrome.storage.session.get(key, (stored) => sendResponse({ ok: !chrome.runtime.lastError, payload: stored?.[key] || null }));
+        chrome.storage.local.get(key, (stored) => {
+            if (stored?.[key]) {
+                sendResponse({ ok: !chrome.runtime.lastError, payload: stored[key] });
+                return;
+            }
+            chrome.storage.session.get(key, (sessionStored) => sendResponse({ ok: !chrome.runtime.lastError, payload: sessionStored?.[key] || null }));
+        });
         return true;
     }
     // Export must remain available during a cold service-worker start. It only
