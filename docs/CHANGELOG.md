@@ -1,5 +1,9 @@
 # CHANGELOG — Project
 
+### 2026-09-16 — Refine HTML export navigation and model highlights, version 2.81.430
+
+- Add a home link before the model navigation, remove the separator background, and highlight model title lines with `#fff204`.
+
 ### 2026-09-16 — Clear stale sessions after page or extension reload, version 2.81.429
 
 - Clear saved session manifests and their in-memory sidebar state when a page reload or extension runtime reset starts, including the race where asynchronous sidebar loading finishes after the reset.

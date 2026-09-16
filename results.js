@@ -18156,7 +18156,7 @@ function buildAllResponsesExportHtml() {
     `).join('');
     const htmlSections = entries.map(({ name, text, html, metadataLine }, index) => `${index ? responseSeparatorHtml : ''}
         <section>
-            <h2 id="response-${index + 1}">${escapeHtml(name)}</h2>
+            <h2 id="response-${index + 1}" class="model-title">${escapeHtml(name)}</h2>
             ${metadataLine ? `<p class="response-meta">${escapeHtml(metadataLine)}</p>` : ''}
             <div class="response-body">${(html && html.trim()) ? html : `<pre>${escapeHtml(text)}</pre>`}</div>
         </section>
@@ -18178,15 +18178,17 @@ function buildAllResponsesExportHtml() {
         .response-body th, .response-body td { border: 1px solid #ddd; padding: 6px 8px; vertical-align: top; }
         .response-body ul, .response-body ol { padding-left: 24px; }
         .response-meta { margin: 0 0 12px; color: #555; font-size: 14px; }
-        .response-separator { margin: 24px 0; padding: 8px 12px; background: #fff3a3; font-family: monospace; line-height: 1.2; white-space: nowrap; overflow-x: auto; }
+        .response-separator { margin: 24px 0; font-family: monospace; line-height: 1.2; white-space: nowrap; overflow-x: auto; }
+        .model-title { display: inline-block; padding: 2px 8px; background: #fff204; }
         .export-timestamp { color: #555; font-size: 14px; font-weight: normal; }
         .model-navigation { position: sticky; top: 0; z-index: 10; display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 24px; padding: 12px 0; background: #fff; }
         .model-nav-button { display: inline-block; padding: 6px 12px; border: 1px solid #d0d7de; border-radius: 6px; background: #f6f8fa; color: #111; font-size: 13px; font-weight: 600; text-decoration: none; }
         .model-nav-button:hover { background: #eaeef2; }
+        .model-home-button { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 1px solid #d0d7de; border-radius: 6px; color: #555; font-size: 18px; line-height: 1; text-decoration: none; }
     </style>
 </head>
 <body>
-    <h1>LLMs answers <span class="export-timestamp">${formatSavedFileTimestamp()}</span></h1>
+    <h1 id="export-top">LLMs answers <span class="export-timestamp">${formatSavedFileTimestamp()}</span></h1>
 ${promptBlock ? `
     <section>
         <h2>Prompt</h2>
@@ -18199,6 +18201,7 @@ ${favoriteSections}
     <hr>
 ` : ''}
     <nav class="model-navigation" aria-label="Model responses">
+        <a class="model-home-button" href="#export-top" aria-label="Back to top" title="Back to top">⌂</a>
 ${responseNavigation}
     </nav>
 ${htmlSections}
