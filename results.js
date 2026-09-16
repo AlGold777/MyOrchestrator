@@ -18199,7 +18199,9 @@ function buildAllResponsesExportHtml() {
         pre { background: #f6f8fa; padding: 12px; border-radius: 8px; white-space: pre-wrap; word-wrap: break-word; }
         .export-prompt { box-sizing: border-box; }
         .export-prompt.is-collapsed { max-height: calc(4.5em + 24px); overflow: hidden; }
-        .prompt-toggle { margin-top: -4px; padding: 4px 8px; border: 1px solid #d0d7de; border-radius: 6px; background: #f6f8fa; color: #27251eeb; cursor: pointer; }
+        .prompt-heading { position: sticky; top: var(--model-navigation-height, 0px); z-index: 9; display: flex; align-items: center; gap: 15px; margin: 0 0 12px; padding: 4px 0; background: #fff; }
+        .prompt-heading h2 { margin: 0; }
+        .prompt-toggle { padding: 4px 8px; border: 1px solid #d0d7de; border-radius: 6px; background: #f6f8fa; color: #27251eeb; cursor: pointer; }
         .response-body table { width: 100%; border-collapse: collapse; margin: 8px 0; }
         .response-body th, .response-body td { border: 1px solid #ddd; padding: 6px 8px; vertical-align: top; }
         .response-body ul, .response-body ol { padding-left: 24px; }
@@ -18214,22 +18216,22 @@ function buildAllResponsesExportHtml() {
         .model-nav-icon { width: 26px; height: 26px; display: block; object-fit: contain; filter: grayscale(1) saturate(0) opacity(0.446); transition: filter 0.2s ease, transform 0.2s ease; }
         .model-nav-label { line-height: 1; text-align: center; }
         .model-nav-button:hover .model-nav-icon { transform: scale(1.04); }
-        .model-home-button { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; flex: 0 0 auto; width: 58px; padding: 0; border: none; color: #27251eeb; font-size: 39px; line-height: 1; text-decoration: none; gap: 6px; }
-        .model-home-label { font-size: 12px; font-weight: 600; line-height: 1; }
+        .model-home-button { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; flex: 0 0 auto; width: 58px; padding: 0; border: none; color: #27251eeb; line-height: 1; text-decoration: none; gap: 6px; }
+        .model-home-icon { display: block; width: 26px; height: 26px; font-size: 26px; line-height: 1; text-align: center; }
+        .model-home-label { width: 100%; font-size: 12px; font-weight: 600; line-height: 1; text-align: center; }
         .model-home-button:hover { color: #1f3b4c; transform: translateY(-1px); }
     </style>
 </head>
 <body>
     <h1 id="export-top">LLMs answers <span class="export-timestamp">${formatSavedFileTimestamp()}</span></h1>
     <nav class="model-navigation" aria-label="Model responses">
-        <a class="model-home-button" href="#export-top" aria-label="Back to top" title="Back to top"><span aria-hidden="true">⌂</span><span class="model-home-label">Home</span></a>
+        <a class="model-home-button" href="#export-top" aria-label="Back to top" title="Back to top"><span class="model-home-icon" aria-hidden="true">⌂</span><span class="model-home-label">Home</span></a>
 ${responseNavigation}
     </nav>
 ${promptBlock ? `
-    <section>
-        <h2>Prompt</h2>
+    <section class="prompt-section">
+        <div class="prompt-heading"><h2>Prompt</h2><button type="button" class="prompt-toggle" hidden aria-expanded="false">Show more</button></div>
         <pre class="export-prompt is-collapsed">${escapeHtml(promptBlock)}</pre>
-        <button type="button" class="prompt-toggle" hidden aria-expanded="false">Show more</button>
     </section>
     <hr>
 ` : ''}${favoriteSections ? `
@@ -18240,6 +18242,12 @@ ${favoriteSections}
 ${htmlSections}
 <script>
     (() => {
+        const navigation = document.querySelector('.model-navigation');
+        const syncPromptHeadingOffset = () => {
+            if (navigation) document.documentElement.style.setProperty('--model-navigation-height', navigation.offsetHeight + 'px');
+        };
+        syncPromptHeadingOffset();
+        window.addEventListener('resize', syncPromptHeadingOffset);
         document.querySelectorAll('.export-prompt').forEach((prompt) => {
             const toggle = prompt.parentElement.querySelector('.prompt-toggle');
             if (!toggle || prompt.scrollHeight <= prompt.clientHeight + 1) {

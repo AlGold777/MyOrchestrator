@@ -1,5 +1,9 @@
 # CHANGELOG — Project
 
+### 2026-09-16 — Align Home and sticky Prompt controls in HTML export, version 2.81.441
+
+- Match the Home icon to the model icon size, center its label, and make the Prompt heading with its collapse control sticky below model navigation.
+
 ### 2026-09-16 — Make exported Prompt collapse interactive, version 2.81.440
 
 - Keep the full Prompt in the standalone HTML export, show it collapsed to three lines initially, and provide Show more/Show less controls; enlarge the Home icon by 50% and add its label.
