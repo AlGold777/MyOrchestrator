@@ -19761,7 +19761,7 @@ function checkCompareButtonState() {
             width,
             height,
             left: Math.round(availableLeft + 40),
-            top: Math.round(availableTop + 30)
+            top: Math.round(availableTop + 15)
         };
     };
     const responseViewerStorageKey = () => `llmResponseViewer.${responseViewerId || 'default'}`;

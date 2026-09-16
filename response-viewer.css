@@ -44,9 +44,14 @@ body { overflow: hidden; }
 #viewer-close:hover { background: #e2e8f0; color: #0f172a; }
 
 #viewer-content {
-    padding: 24px 48px 24px 24px;
+    padding: 24px 48px;
+    font-size: 15px;
     line-height: 1.55;
     overflow-wrap: anywhere;
+}
+
+#viewer-content :where(p, div, ul, ol, li, pre, code, blockquote, table, thead, tbody, tr, th, td, h1, h2, h3, h4, h5, h6) {
+    font-size: 15px;
 }
 
 #viewer-content pre {

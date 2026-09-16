@@ -1,5 +1,9 @@
 # CHANGELOG — Project
 
+### 2026-09-16 — Tune response viewer typography and position, version 2.81.431
+
+- Increase viewer text to 15px, set equal 48px horizontal padding, and move the popup 15px higher.
+
 ### 2026-09-16 — Refine HTML export navigation and model highlights, version 2.81.430
 
 - Add a home link before the model navigation, remove the separator background, and highlight model title lines with `#fff204`.
