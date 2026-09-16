@@ -1,5 +1,9 @@
 # CHANGELOG — Project
 
+### 2026-09-16 — Apply exact 6% popup height increase, version 2.81.426
+
+- Apply the requested six-percent increase directly to the previous popup height calculation.
+
 ### 2026-09-16 — Refine response popup sizing and content, version 2.81.425
 
 - Increase popup height, set 40px side margins, remove a duplicated model heading, and reliably hydrate the viewer with the selected card content.

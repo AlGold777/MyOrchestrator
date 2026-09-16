@@ -19701,7 +19701,7 @@ function checkCompareButtonState() {
         const availableLeft = Number(window.screen?.availLeft || 0);
         const availableTop = Number(window.screen?.availTop || 0);
         const width = Math.max(320, Math.round(availableWidth - 80));
-        const height = Math.min(availableHeight - 30, Math.max(240, Math.round((availableHeight - 60) * 1.06)));
+        const height = Math.max(240, Math.round((availableHeight - 60) * 1.06));
         return {
             width,
             height,
