@@ -802,13 +802,15 @@ describe('Pipeline debate favorites view', () => {
     const html = window.__resultsExportDebug.buildAllResponsesExportHtml();
     const text = window.__resultsExportDebug.buildAllResponsesExportText();
     const favoriteText = window.__resultsExportDebug.buildFavoriteExportText();
-    expect(html).toContain('<h2>LLM Responses</h2>');
+    expect(html).toContain('<nav class="model-navigation" aria-label="Model responses">');
+    expect(html).toContain('class="model-nav-button" href="#response-1"');
+    expect(html).toContain('.response-separator');
     expect(html).toContain('<h2>Favourite</h2>');
     expect(html).toContain('Base model response.');
     expect(text).toContain('=== Favourite ===');
     expect(text).toContain('--- GPT ---');
     expect(text).toContain('[12:00]');
-    expect(text).toContain('=== LLM Responses ===');
+    expect(text).not.toContain('LLM Responses');
     expect(text).toContain('Base model response.');
     expect(window.__resultsExportDebug.formatNamedExportStamp(new Date(2026, 6, 17, 18, 30))).toBe('jul26 18-30');
     document.getElementById('modTa').value = 'Разработка адаптера для новой версии провайдера';

@@ -18041,7 +18041,7 @@ function buildAllResponsesExportText() {
     return [
         promptBlock ? `=== Prompt ===\n${promptBlock}` : '',
         favoriteText ? `=== Favourite ===\n${favoriteText}` : '',
-        `=== LLM Responses ===\n${combinedText}`
+        combinedText
     ].filter(Boolean).join('\n\n').trim();
 }
 
@@ -18108,9 +18108,12 @@ function buildAllResponsesExportHtml() {
             <div>=========================================================</div>
         </div>
     `;
+    const responseNavigation = entries.map(({ name }, index) => `
+        <a class="model-nav-button" href="#response-${index + 1}">${escapeHtml(name)}</a>
+    `).join('');
     const htmlSections = entries.map(({ name, text, html, metadataLine }, index) => `${index ? responseSeparatorHtml : ''}
         <section>
-            <h2>${escapeHtml(name)}</h2>
+            <h2 id="response-${index + 1}">${escapeHtml(name)}</h2>
             ${metadataLine ? `<p class="response-meta">${escapeHtml(metadataLine)}</p>` : ''}
             <div class="response-body">${(html && html.trim()) ? html : `<pre>${escapeHtml(text)}</pre>`}</div>
         </section>
@@ -18125,6 +18128,7 @@ function buildAllResponsesExportHtml() {
     <style>
         body { font-family: Arial, sans-serif; background: #ffffff; color: #111; padding: 24px; line-height: 1.5; }
         section { margin-bottom: 24px; }
+        h1 { display: flex; align-items: baseline; gap: 20px; flex-wrap: wrap; }
         h2 { margin: 0 0 12px; font-size: 20px; }
         pre { background: #f6f8fa; padding: 12px; border-radius: 8px; white-space: pre-wrap; word-wrap: break-word; }
         .response-body table { width: 100%; border-collapse: collapse; margin: 8px 0; }
@@ -18132,11 +18136,14 @@ function buildAllResponsesExportHtml() {
         .response-body ul, .response-body ol { padding-left: 24px; }
         .response-meta { margin: 0 0 12px; color: #555; font-size: 14px; }
         .response-separator { margin: 24px 0; padding: 8px 12px; background: #fff3a3; font-family: monospace; line-height: 1.2; white-space: nowrap; overflow-x: auto; }
+        .export-timestamp { color: #555; font-size: 14px; font-weight: normal; }
+        .model-navigation { position: sticky; top: 0; z-index: 10; display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 24px; padding: 12px 0; background: #fff; }
+        .model-nav-button { display: inline-block; padding: 6px 12px; border: 1px solid #d0d7de; border-radius: 6px; background: #f6f8fa; color: #111; font-size: 13px; font-weight: 600; text-decoration: none; }
+        .model-nav-button:hover { background: #eaeef2; }
     </style>
 </head>
 <body>
-    <h1>LLMs answers</h1>
-    <p class="response-meta">${formatSavedFileTimestamp()}</p>
+    <h1>LLMs answers <span class="export-timestamp">${formatSavedFileTimestamp()}</span></h1>
 ${promptBlock ? `
     <section>
         <h2>Prompt</h2>
@@ -18148,7 +18155,9 @@ ${promptBlock ? `
 ${favoriteSections}
     <hr>
 ` : ''}
-    <h2>LLM Responses</h2>
+    <nav class="model-navigation" aria-label="Model responses">
+${responseNavigation}
+    </nav>
 ${htmlSections}
 </body>
 </html>`;
@@ -18212,7 +18221,7 @@ document.addEventListener('click', (event) => {
     }
 
     const now = new Date();
-    const textContent = `LLMs answers\n${formatSavedFileTimestamp(now)}\n\n${exportBody}`;
+    const textContent = `LLMs answers    ${formatSavedFileTimestamp(now)}\n\n${exportBody}`;
     const blob = new Blob([textContent], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');

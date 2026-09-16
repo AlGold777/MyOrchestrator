@@ -1,5 +1,9 @@
 # CHANGELOG — Project
 
+### 2026-09-16 — Refine all-model TXT and HTML exports, version 2.81.427
+
+- Place the export date beside the `LLMs answers` heading, remove the duplicate `LLM Responses` label, and add sticky model navigation links to the HTML export.
+
 ### 2026-09-16 — Apply exact 6% popup height increase, version 2.81.426
 
 - Apply the requested six-percent increase directly to the previous popup height calculation.
