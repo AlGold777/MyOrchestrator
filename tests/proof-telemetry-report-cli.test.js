@@ -105,8 +105,7 @@ describe('offline proof telemetry report CLI', () => {
     const source = JSON.parse(fs.readFileSync(path.join(
       __dirname,
       '..',
-      'docs',
-      'proof_oriented_telemetry_spec_v1',
+      'telemetry-spec',
       'all-presets.example.json'
     ), 'utf8'));
     source.sharedConfig.generatorVersion = 'proof-export@2.6.0';

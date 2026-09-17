@@ -164,8 +164,7 @@ describe('proof telemetry executable contracts', () => {
     const registry = JSON.parse(fs.readFileSync(path.join(
       __dirname,
       '..',
-      'docs',
-      'proof_oriented_telemetry_spec_v1',
+      'telemetry-spec',
       'registry',
       'report-dependency-registry.json'
     ), 'utf8'));
@@ -176,8 +175,7 @@ describe('proof telemetry executable contracts', () => {
     const schema = JSON.parse(fs.readFileSync(path.join(
       __dirname,
       '..',
-      'docs',
-      'proof_oriented_telemetry_spec_v1',
+      'telemetry-spec',
       'schemas',
       'telemetry-event-v6.schema.json'
     ), 'utf8'));

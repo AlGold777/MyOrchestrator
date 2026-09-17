@@ -7,7 +7,7 @@ require('../shared/proof-telemetry-policy.js');
 const Contracts = require('../shared/proof-telemetry-contracts.js');
 const ProofTelemetry = require('../shared/proof-oriented-telemetry.js');
 
-const root = path.join(__dirname, '..', 'docs', 'proof_oriented_telemetry_spec_v1');
+const root = path.join(__dirname, '..', 'telemetry-spec');
 const presetsDir = path.join(root, 'presets');
 
 function event(eventType, ts, metadata = {}) {

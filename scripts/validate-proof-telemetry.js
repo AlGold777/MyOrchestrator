@@ -10,7 +10,7 @@ const Contracts = require('../shared/proof-telemetry-contracts.js');
 const Incidents = require('../shared/proof-telemetry-incidents.js');
 
 const REQUIRED_REPORTS = ProofTelemetry.REPORT_TYPES;
-const SCHEMA_DIR = path.join(__dirname, '..', 'docs', 'proof_oriented_telemetry_spec_v1', 'schemas');
+const SCHEMA_DIR = path.join(__dirname, '..', 'telemetry-spec', 'schemas');
 const LEGACY_EMPTY_REGISTRY_HASHES = Object.freeze({
   '5.6.0': 'sha256:50b3e47c76283ecb1b7fa24fdbee3f679536517b353e0478149a8808740756ea',
   '5.7.0': 'sha256:f1de9ddd5ec7f7ada74cd048dd9f7c2d4cdbcafcf5d71723882fbf56c19018e7',

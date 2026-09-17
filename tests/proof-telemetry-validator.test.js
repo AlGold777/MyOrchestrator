@@ -108,8 +108,7 @@ describe('offline proof telemetry validator', () => {
     const schema = JSON.parse(fs.readFileSync(path.join(
       __dirname,
       '..',
-      'docs',
-      'proof_oriented_telemetry_spec_v1',
+      'telemetry-spec',
       'schemas',
       'diagnostic-report.schema.json'
     ), 'utf8'));

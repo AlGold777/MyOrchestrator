@@ -85,7 +85,7 @@ and payload identity with source materialization and delivery acknowledgement.
 All-presets exports inherit the policy ID from `RUN_CONFIG_RECORDED`, publish a
 separate diagnostic-usability audit, and no longer serialize repeated shared
 objects as `[CIRCULAR]`. The executable validator and schemas are kept in
-`proof_oriented_telemetry_spec_v1/`; incident-specific remediation belongs in
+`../telemetry-spec/`; incident-specific remediation belongs in
 the changelog or the relevant test, not in a second telemetry contract.
 
 ## Dispatch proof identity and ordering v2.81.184 - 2026-07-30
@@ -433,7 +433,7 @@ by `chrome.storage.local.proofTelemetryShadowCompare`. Missing observation is
 `unknown` and cannot satisfy automatic completion evidence.
 
 The current regression gate is recorded in the project changelog; executable
-schemas and validators remain in `proof_oriented_telemetry_spec_v1/`.
+schemas and validators remain in `../telemetry-spec/`.
 
 ## Segmented persistence v2.81.139 - 2026-08-28
 
@@ -1029,7 +1029,7 @@ INFERENCE / DECISION / ACTION / AUDIT непосредственно в runtime 
 completion и не превращает forced finalization в `inferred_complete`.
 
 Нормативный design package находится в
-`docs/proof_oriented_telemetry_spec_v1/`; текущий исполняемый контракт этого
+`../telemetry-spec/`; текущий исполняемый контракт этого
 этапа задают код и `tests/proof-oriented-telemetry.test.js`.
 
 ## Update v2.81.74 - 2026-07-25

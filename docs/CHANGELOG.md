@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-09-17 — Move executable telemetry assets out of docs, version 2.81.445
+
+- Moved proof telemetry schemas, registry and fixtures to the root
+  `telemetry-spec/` directory because runtime validators and tests read them.
+- Updated generators, validators and tests to use the new path.
+
 ### 2026-09-17 — Automatic bottom-and-collect pass, version 2.81.444
 
 - After Round 3 and before the final completion gate, run the existing Get it bottom-scroll route once for all selected models, including SUCCESS. Keep the two-second post-scroll dwell and collect without blocking subsequent visits on extraction. Return to results after the last visit.

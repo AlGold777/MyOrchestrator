@@ -105,7 +105,7 @@ function loadInput(filename) {
 
 async function main(argv = process.argv.slice(2)) {
   const filename = argv.find((arg) => !arg.startsWith('--'))
-    || path.join(__dirname, '..', 'docs', 'proof_oriented_telemetry_spec_v1', 'all-presets.example.json');
+    || path.join(__dirname, '..', 'telemetry-spec', 'all-presets.example.json');
   const result = analyzeContainer(loadInput(filename));
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 }
