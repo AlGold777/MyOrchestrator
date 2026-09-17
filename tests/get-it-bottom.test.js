@@ -167,3 +167,52 @@ test('Get it inline collection skips the health round-trip but validates the tab
   c.isEligibleTabForLlm = () => false;
   expect((await c.classifyLateCollectState(1, 'GPT', { inlineOnly: true })).reason).toBe('tab_ineligible');
 });
+
+function automaticSetup() {
+  const c=batchSetup();
+  c.jobState.session={};
+  c.jobState.llms={GPT:{tabId:1,status:'SUCCESS',answer:'partial'},Qwen:{tabId:2,status:'UNCERTAIN'},Claude:{tabId:3}};
+  Object.assign(c,{self:{},saveJobState:jest.fn(),resultsTabId:9,
+    getTabSafe:async id=>({id,windowId:1}),isEligibleTabForLlm:()=>true,isAppUiTab:t=>t?.id===9,
+    chrome:{tabs:{update:jest.fn()},windows:{update:jest.fn()}},
+    openOrFocusResultsTab:jest.fn(),runPreCollectScrollNudge:jest.fn(async()=>true)});
+  return c;
+}
+test('automatic pass visits selected successful and failed models once, manual repeat remains available',async()=>{
+  const c=automaticSetup();
+  await c.runAutomaticGetItPass(['GPT','Qwen'],1);
+  expect(c.handleManualResponsePing.mock.calls.map(([name])=>name)).toEqual(['GPT','Qwen']);
+  expect(c.runPreCollectScrollNudge).toHaveBeenCalledWith('GPT',1,1,'automatic_get_it_batch',{getIt:true,batchDwell:true});
+  expect(c.chrome.tabs.update).toHaveBeenCalledWith(9,{active:true});
+  await c.runAutomaticGetItPass(['GPT','Qwen'],1);
+  expect(c.handleManualResponsePing).toHaveBeenCalledTimes(2);
+  await c.collectGetItBatch(['GPT']);
+  expect(c.handleManualResponsePing).toHaveBeenCalledTimes(3);
+});
+test('automatic route advances and returns before slow extraction completes',async()=>{
+  const c=automaticSetup();let finish;
+  c.handleManualResponsePing.mockImplementationOnce(()=>new Promise(r=>{finish=r;}));
+  const pending=c.runAutomaticGetItPass(['GPT','Qwen'],1);
+  for(let i=0;i<30;i++) await Promise.resolve();
+  expect(c.handleManualResponsePing).toHaveBeenCalledTimes(2);
+  expect(c.chrome.tabs.update).toHaveBeenCalledWith(9,{active:true});
+  finish({status:'manual_ping_sent'});await pending;
+});
+test('cancelled automatic pass does not visit the next model or steal focus back',async()=>{
+  const c=automaticSetup();let active=true;c.isSessionActive=()=>active;
+  c.runPreCollectScrollNudge.mockImplementationOnce(async()=>{active=false;return true;});
+  await c.runAutomaticGetItPass(['GPT','Qwen'],1);
+  expect(c.runPreCollectScrollNudge).toHaveBeenCalledTimes(1);
+  expect(c.handleManualResponsePing).not.toHaveBeenCalled();
+  expect(c.chrome.tabs.update).not.toHaveBeenCalled();
+  expect(c.openOrFocusResultsTab).not.toHaveBeenCalled();
+});
+test('automatic pass waits for an existing manual batch without losing the all-model pass',async()=>{
+  const c=automaticSetup();let finish;
+  c.handleManualResponsePing.mockImplementationOnce(()=>new Promise(r=>{finish=r;}));
+  const manual=c.collectGetItBatch(['Qwen']);
+  const automatic=c.runAutomaticGetItPass(['GPT','Qwen'],1);
+  expect(c.runPreCollectScrollNudge).not.toHaveBeenCalled();
+  finish({status:'manual_ping_sent'});await manual;await automatic;
+  expect(c.handleManualResponsePing.mock.calls.map(([name])=>name)).toEqual(['Qwen','GPT','Qwen']);
+});

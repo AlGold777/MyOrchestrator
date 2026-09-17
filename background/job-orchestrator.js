@@ -6742,6 +6742,8 @@ async function runDispatchRounds(selectedLLMs, prompt, forceNewTabs, attachments
     if (sessionId && !isSessionActive(sessionId)) return;
 
     const trackedModels = resolveRoundModelNames(selectedLLMs);
+    await runAutomaticGetItPass(selectedLLMs, sessionId);
+    if (sessionId && !isSessionActive(sessionId)) return;
     await markRoundPhase('round4');
     const pendingBeforeGate = getPendingRoundModels(trackedModels);
     emitRoundEvent(4, 'GATE_START', 'waiting pending models', {
@@ -9833,6 +9835,27 @@ function persistRequestMetadata(llmName, updates = {}) {
 
 let getItBatchInFlight = null;
 
+async function runAutomaticGetItPass(selectedModels, sessionId) {
+  if (!isSessionActive(sessionId) || jobState.session?.automaticGetItStarted) return;
+  // A manual pass owns the same route. Wait for it rather than silently treating
+  // its failed-only model list as the automatic all-model pass.
+  if (getItBatchInFlight) await getItBatchInFlight.catch(() => {});
+  if (!isSessionActive(sessionId) || jobState.session?.automaticGetItStarted) return;
+  jobState.session.automaticGetItStarted = true;
+  saveJobState(jobState);
+  try {
+    return await collectGetItBatch(selectedModels, {
+      failedOnly: true, allModels: true, automatic: true,
+      returnToTabId: typeof resultsTabId === 'number' ? resultsTabId : null
+    });
+  } finally {
+    if (isSessionActive(sessionId)) {
+      jobState.session.automaticGetItFinished = true;
+      saveJobState(jobState);
+    }
+  }
+}
+
 function collectGetItBatch(selectedModels = [], options = {}) {
   if (getItBatchInFlight) return getItBatchInFlight;
   if (options.failedOnly === true) {
@@ -9878,10 +9901,10 @@ async function collectFailedGetItPages(selectedModels, options) {
   if (!sessionId) return {status:'get_it_unavailable', results:[], error:'Нет сохранённого запуска для ручного сбора.'};
   const names = [...new Set([
     ...(Array.isArray(selectedModels) ? selectedModels : []),
-    ...Object.keys(jobState?.llms || {})
+    ...(options.allModels ? [] : Object.keys(jobState?.llms || {}))
   ])].filter(name => {
     const entry = jobState?.llms?.[name];
-    return entry && (String(entry.finalStatus || entry.status).toUpperCase() !== 'SUCCESS' || !entry.answer);
+    return entry && (options.allModels || String(entry.finalStatus || entry.status).toUpperCase() !== 'SUCCESS' || !entry.answer);
   });
   if (!names.length) return {status:'get_it_empty', results:[]};
   const entries = new Map(names.map(name => [name, {
@@ -9898,7 +9921,8 @@ async function collectFailedGetItPages(selectedModels, options) {
       try {
         const tab = await getTabSafe(entry.tabId);
         if (!isEligibleTabForLlm(llmName, tab)) throw new Error('Привязанная вкладка недоступна');
-        const prepared = await runPreCollectScrollNudge(llmName, tab.id, sessionId, 'get_it_failed_batch', {
+        const reason = options.automatic ? 'automatic_get_it_batch' : 'get_it_failed_batch';
+        const prepared = await runPreCollectScrollNudge(llmName, tab.id, sessionId, reason, {
           getIt: true, batchDwell: true
         });
         if (!prepared) throw new Error('Не удалось прокрутить страницу до конца');
@@ -9907,7 +9931,7 @@ async function collectFailedGetItPages(selectedModels, options) {
         // Collection continues without owning focus; it must not delay the next visit.
         collections.push(handleManualResponsePing(llmName, {
           getIt: true, skipBottomPreparation: true, manualLatestRecovery: true,
-          manualRecovery: true, advanceStrategy: false, reason: 'get_it_failed_batch'
+          manualRecovery: true, advanceStrategy: false, reason
         }).then(result => results.push({ ...result, llmName }),
           err => results.push({llmName, status:'manual_ping_failed', error:err?.message || String(err)})));
       } catch (err) {
@@ -9916,10 +9940,12 @@ async function collectFailedGetItPages(selectedModels, options) {
     }
   } finally {
     try {
-      const tab = await getTabSafe(options.returnToTabId);
+      const tab = isSessionActive(sessionId) ? await getTabSafe(options.returnToTabId) : null;
       if (isAppUiTab(tab)) {
         await chrome.tabs.update(tab.id, {active:true});
         await chrome.windows.update(tab.windowId, {focused:true});
+      } else if (options.automatic && isSessionActive(sessionId)) {
+        await openOrFocusResultsTab();
       }
     } catch (_) { /* A closed source tab must not interrupt pending collection. */ }
   }

@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-09-17 — Automatic bottom-and-collect pass, version 2.81.444
+
+- After Round 3 and before the final completion gate, run the existing Get it bottom-scroll route once for all selected models, including SUCCESS. Keep the two-second post-scroll dwell and collect without blocking subsequent visits on extraction. Return to results after the last visit.
+- Reuse the Get it single-flight guard; an automatic pass waits for an existing manual batch. Session and dispatch checks prevent visiting stale targets, and cancellation no longer steals focus back. Missing tabs do not stop the route. Manual Get it remains available for a later repeat.
+- This intentionally applies the same recovery semantics as Get it automatically; a successful recovery is not independent proof of provider completion. The saved session marker prevents repeated automatic passes. An interrupted pass is not automatically resumed after a worker restart; manual Get it remains the recovery path.
+
 ### 2026-09-16 — Update HTML model title bar color, version 2.81.443
 
 - Change the exported model title bar background from `#C2E7FF` to `#e9eef2`.
