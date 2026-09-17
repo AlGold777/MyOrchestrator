@@ -1,7 +1,7 @@
 # Model tabs architecture
 
 > Нормативный документ для главной страницы результатов и вкладок выбранных
-> моделей. Общая карта документации — в `docs/documentation-map.md`.
+> моделей. Сводка текущей документации находится в `docs/project-overview.md`.
 
 ## Scope
 
@@ -183,8 +183,8 @@ policy/config, not in this document.
 This section is the normative description of foreground visits to provider
 pages on the main results-page path. It consolidates the architectural rules
 from this document, the current values from `docs/timings-settings.md`, the
-diagnostic vocabulary from `docs/telemetry.md`, the historical findings from
-`docs/timing-review-2026-07-02.md`, and the behavior currently implemented by:
+diagnostic vocabulary from `docs/telemetry.md`, and the behavior currently
+implemented by:
 
 - `background/job-orchestrator.js` — round order, forced visits, recovery and
   collection;
@@ -238,10 +238,7 @@ Visit-producing subsystems schedule their own work. They are coordinated by:
 - hard caps and focus restoration.
 
 Therefore the actual winner between two simultaneously eligible automated
-visits is determined by which request reaches the lease first. The historical
-proposal `materialize > round3 > round2 verification` in
-`docs/timing-review-2026-07-02.md` is not an implemented priority policy and
-must not be treated as one.
+visits is determined by which request reaches the lease first.
 
 The user has the highest effective focus authority. An unmarked user activation
 preempts an automated visit but is recorded as a separate observation, not as
@@ -614,8 +611,6 @@ that order.
 - This section owns the visit-ordering and focus-ownership contract.
 - `docs/timings-settings.md` owns every current numeric timing value.
 - `docs/telemetry.md` owns event schema/export and UI interpretation.
-- `docs/timing-review-2026-07-02.md` is a historical audit and rationale, not
-  current policy.
 - `docs/CHANGELOG.md` records how the behavior evolved; it is not a substitute
   for this contract.
 - Executable truth remains in the owner modules listed at the start of this
@@ -1006,11 +1001,12 @@ When changing model tabs or main-page selection:
 3. Add/adjust focused tests for selection, tab scope, dispatch or lifecycle.
 4. Update this document only when the contract or ownership changes.
 5. Add one concise entry to `docs/CHANGELOG.md`.
-6. Put unresolved work in `docs/disput/OPEN-ITEMS-v3.0.md`, not in this document.
+6. Put unresolved work in an issue or focused test; do not create a second
+   architecture contract here.
 
 Related operational documents:
 
-- `docs/selectors-tab-first-run-guide.md` — first-run selector workflow;
-- `docs/devtools-selectors-user-guide.md` — selector health/override UI;
-- `docs/storage-tab-guide.md` — storage-oriented tab troubleshooting;
-- `docs/timings-settings.md` — timing ownership, ladder decisions and current values.
+- `docs/project-overview.md` — product behavior and module map;
+- `docs/completion-protocol-v2.md` — completion authority;
+- `docs/telemetry.md` — evidence and export vocabulary;
+- `docs/timings-settings.md` — timing ownership and current values.

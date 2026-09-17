@@ -4,7 +4,7 @@
 проекта. Он обновляется вместе с кодом при любом изменении timeout, interval,
 delay, retry, debounce, TTL, budget или retention window.
 
-Актуальность: extension `2.81.75`, аудит `2026-07-25`.
+Актуальность: extension `2.81.444`, аудит `2026-09-17`.
 
 Исторические значения фиксируются отдельными датированными snapshots только
 тогда, когда это требуется конкретной задачей. Snapshot не является источником
@@ -33,9 +33,7 @@ Scope: runtime-настройки времени из `config/`, `background/`,
 | Telemetry, storage и selectors | `background/telemetry-logs.js`, `background/selector-metrics.js`, `results.js` | flush, retention, export snapshot и UI refresh |
 
 Архитектура вкладок и правила владения focus описаны в
-[`model-tabs-architecture.md`](model-tabs-architecture.md). Обоснования
-предыдущего аудита находятся в
-[`timing-review-2026-07-02.md`](timing-review-2026-07-02.md). Инварианты
+[`model-tabs-architecture.md`](model-tabs-architecture.md). Инварианты
 профильной лестницы проверяет `tests/timing-ladder.test.js`.
 
 ### Лестница зависимостей Standard / Long
@@ -97,11 +95,7 @@ tab create/attach
 
 ### Исторические снимки
 
-- [`timings-settings - jul24.md`](<timings-settings - jul24.md>) — состояние
-  до перехода на актуальную лестницу Standard/Long.
-
-Новые snapshots создаются только в рамках задач, которым действительно нужно
-сравнение до/после. Они не редактируются как актуальная документация.
+Исторические snapshots не входят в текущий комплект документации.
 
 ## Полный актуальный перечень
 

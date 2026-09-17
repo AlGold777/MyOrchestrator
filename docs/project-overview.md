@@ -6,16 +6,19 @@ The project is optimized for unstable provider UIs. Its core design assumes sele
 
 ## Status
 
-- Current version: `2.81.350`, synchronized in `manifest.json`, `package.json`
+- Current version: `2.81.444`, synchronized in `manifest.json`, `package.json`
   and the root package entry in `package-lock.json`
 - Extension type: Chrome Manifest V3
 - Package name: `llm-selector-manager`
 - Stability: internal / advanced local use
-- Test status: run `npm test -- --runInBand` for the live count
+- Test status: `281` suites / `2,177` tests passed on 2026-09-17; run
+  `npm test -- --runInBand` for the live count
 - Primary risk: external LLM web UI and selector drift
 
-For documentation ownership and the correct place for new information, start
-with [documentation-map.md](documentation-map.md).
+The current documentation set is intentionally compact: this overview covers
+product behavior, `model-tabs-architecture.md` covers tab/dispatch ownership,
+`completion-protocol-v2.md` covers completion authority, `telemetry.md` covers
+diagnostics, and `timings-settings.md` owns current runtime timing values.
 
 ## What It Does
 
@@ -30,23 +33,24 @@ with [documentation-map.md](documentation-map.md).
 - Records telemetry and diagnostics for failure analysis.
 - Maintains selector profiles, fallback discovery, and signed remote selector updates.
 - Disput has three fixed topologies — Duel, Triad and Multi — plus the
-  trigger-driven FreeTalk. Architecture and state ownership live in
-  the current contracts in [docs/disput/README-disput.md](disput/README-disput.md);
-  topology-specific historical material is archived separately.
+  trigger-driven FreeTalk. Runtime ownership is implemented in `disput/` and
+  covered by the Disput tests; the former prose contract set was removed from
+  `/docs` when it became stale.
 - Disput also includes pipeline profiles, a persistent state case/map and the
   trigger-driven `FreeTalk MVP`. FreeTalk accepts one or more selected models,
   has no fixed round/model ceiling, reserves finalization budget and chooses
   work from open claims, blockers, evidence gaps and dissent. Its contract is
-  [docs/disput/README-disput.md](disput/README-disput.md).
+  the runtime contracts in `disput/` and `results.js`.
 - All Debate topologies share typed task/stage/action contracts, bounded
   provenance-aware context and prompt pack `3.0.0`; accepted semantic changes
   reach the map only through an anchored StateDelta. The prompt contract is in
-  [docs/disput/README-disput.md](disput/README-disput.md).
+  the runtime contracts in `disput/` and `results.js`.
 - FreeTalk rules are profile-driven; the same rules run in shadow mode after
   fixed-topology checkpoints. Typed moderator forks, progress windows,
   cross-run rule history and the map History page are specified in
-  [docs/disput/README-disput.md](disput/README-disput.md).
-- Built-in presets and their current plan are defined in [PLAN-universal-pipeline-v3.0.md](disput/PLAN-universal-pipeline-v3.0.md).
+  the runtime contracts in `disput/` and `results.js`.
+- Built-in presets and their current plan are defined by the executable
+  pipeline profiles and their tests.
 - Saved Pipelines store runnable protocol settings, including topology, models, run policy, limits, synthesizer and round plan.
 - Release-by-release project history is intentionally kept only in [CHANGELOG.md](CHANGELOG.md).
 
@@ -277,13 +281,12 @@ The `shared/` directory contains cross-context contracts. Changes here affect ba
 
 ## Selector Policy
 
-Selector sources, overrides, health checks, signing and provider-specific failure
-modes are maintained in the selector operational guides. The main-page tab
-contract is in [model-tabs-architecture.md](model-tabs-architecture.md); this
-overview only points to the canonical entry points:
+Selector sources, overrides, health checks, signing and provider-specific
+failure modes are maintained in `selectors/`, `selector-manager.js` and their
+tests. The main-page tab contract is in
+[model-tabs-architecture.md](model-tabs-architecture.md); this overview only
+points to the canonical entry points:
 
-- [selectors-tab-first-run-guide.md](selectors-tab-first-run-guide.md) — first-run workflow;
-- [devtools-selectors-user-guide.md](devtools-selectors-user-guide.md) — health and overrides;
 - `selectors/*.config.js` — canonical provider configuration;
 - `selectors-override.json` — local runtime overrides.
 
@@ -455,7 +458,7 @@ Only `Duel Long` and `Triad Long` show the round selector. Fixed `Duel`,
 > Consolidation note: the former shadow background executor was removed. Debate
 > semantics stay in page protocol FSMs; background owns delivery/control state
 > through `PipelineRunState`, `PipelineFSM` and `PipelineMessageHandlers`.
-> See [orchestrator-contract-v1.0.md](disput/orchestrator-contract-v1.0.md).
+> The executable ownership is in `results.js`, `background/` and `disput/`.
 
 This layer coordinates debate-style execution over collected model outputs. It depends on stable run completion, answer availability, and UI controls in `results.js`. Changes to this layer should include behavioural tests for start, cancel/pause lifecycle, approval routing, immutable participants, public-turn accounting, the opening A0/B0 phase gate, duplicate-card prevention, registry feedback, and malformed (error-string) answer handling.
 
@@ -593,7 +596,8 @@ Verify:
 
 ## Roadmap
 
-Current deferred work is tracked in [disput/OPEN-ITEMS-v3.0.md](disput/OPEN-ITEMS-v3.0.md).
+Deferred work is tracked in code comments, focused tests and current changelog
+entries; no separate stale backlog document is maintained.
 
 ## License / Internal Use
 

@@ -84,8 +84,9 @@ Validated lifecycle answers now emit an explicit accepted
 and payload identity with source materialization and delivery acknowledgement.
 All-presets exports inherit the policy ID from `RUN_CONFIG_RECORDED`, publish a
 separate diagnostic-usability audit, and no longer serialize repeated shared
-objects as `[CIRCULAR]`. The full incident review and remediation mapping is in
-`telemetry-runtime-recovery-2026-07-30.md`.
+objects as `[CIRCULAR]`. The executable validator and schemas are kept in
+`proof_oriented_telemetry_spec_v1/`; incident-specific remediation belongs in
+the changelog or the relevant test, not in a second telemetry contract.
 
 ## Dispatch proof identity and ordering v2.81.184 - 2026-07-30
 
@@ -431,9 +432,8 @@ standalone closure path have been removed. Optional shadow comparison is gated
 by `chrome.storage.local.proofTelemetryShadowCompare`. Missing observation is
 `unknown` and cannot satisfy automatic completion evidence.
 
-Final regression gate: 184 suites / 1244 tests. The completed numbered gates
-and acceptance evidence are recorded in
-[temetria-plan-2026-08-28.md](temetria-plan-2026-08-28.md).
+The current regression gate is recorded in the project changelog; executable
+schemas and validators remain in `proof_oriented_telemetry_spec_v1/`.
 
 ## Segmented persistence v2.81.139 - 2026-08-28
 
