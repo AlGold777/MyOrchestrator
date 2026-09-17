@@ -26,6 +26,30 @@ test('healthy existing conversation is immediately reusable without reload', asy
   expect(await run()).toMatchObject({ok:true,reloaded:false});
   expect(c.chrome.tabs.reload).not.toHaveBeenCalled();
 });
+test('a slow healthy renderer is accepted without repeatedly discarding its PONG', async () => {
+  const {c,run}=setup();
+  c.chrome.tabs.sendMessage.mockImplementation((_id,_msg,cb) => {
+    setTimeout(() => cb({type:'HEALTH_CHECK_PONG',llmName:'Claude'}),1600);
+  });
+  const pending=run();await jest.advanceTimersByTimeAsync(1800);
+  expect(await pending).toMatchObject({ok:true,reloaded:false});
+  expect(c.chrome.tabs.sendMessage).toHaveBeenCalledTimes(1);
+  expect(c.chrome.tabs.reload).not.toHaveBeenCalled();
+});
+test('a PONG after the overall deadline cannot revive preparation', async () => {
+  const {c,run}=setup();let reply;
+  c.chrome.tabs.sendMessage.mockImplementation((_id,_msg,cb) => {reply=cb;});
+  const pending=run();await jest.advanceTimersByTimeAsync(21000);
+  expect(await pending).toMatchObject({ok:false,reason:'receiver_timeout'});
+  reply({type:'HEALTH_CHECK_PONG',llmName:'Claude'});
+  expect(c.chrome.tabs.reload).not.toHaveBeenCalled();
+});
+test('Stop releases a silent receiver wait promptly', async () => {
+  const {c,run,stop}=setup(['silent']);
+  const pending=run();stop();await jest.advanceTimersByTimeAsync(100);
+  expect(await pending).toMatchObject({ok:false,reason:'session_changed'});
+  expect(c.chrome.tabs.reload).not.toHaveBeenCalled();
+});
 test('orphan page reloads once at its current address and waits for the actual listener', async () => {
   const {c,run}=setup(['missing','missing','missing','ready']);
   const pending=run();await jest.advanceTimersByTimeAsync(1000);
@@ -58,16 +82,55 @@ test('a navigating page waits for natural registration without reloading', async
   const pending=run();await jest.advanceTimersByTimeAsync(300);
   expect(await pending).toMatchObject({ok:true,reloaded:false});
 });
+test.each(['delayed', 'silent'])('reload %s acknowledgement does not reject a receiver that becomes ready', async mode => {
+  const {c,run}=setup(['missing','missing','missing','missing','missing','missing','missing','missing','ready']);
+  c.chrome.tabs.reload.mockImplementation((_id,_options,cb) => {
+    if (mode === 'delayed') setTimeout(cb, 3000);
+  });
+  const pending=run();await jest.advanceTimersByTimeAsync(2500);
+  expect(await pending).toMatchObject({ok:true,reloaded:true});
+  expect(c.chrome.tabs.reload).toHaveBeenCalledTimes(1);
+});
+test('an explicit reload API error remains a failure', async () => {
+  const {c,run}=setup(['missing']);
+  c.chrome.tabs.reload.mockImplementation((_id,_options,cb) => {
+    c.chrome.runtime.lastError={message:'No tab with id: 12'};cb();delete c.chrome.runtime.lastError;
+  });
+  expect(await run()).toMatchObject({ok:false,reason:'reload_failed',reloadError:'No tab with id: 12'});
+});
+test('a reload with no acknowledgement and no receiver stays bounded and is not retried', async () => {
+  const {c,run}=setup(['missing']);
+  c.chrome.tabs.reload.mockImplementation(()=>{});
+  const pending=run();await jest.advanceTimersByTimeAsync(21000);
+  expect(await pending).toMatchObject({ok:false,reason:'receiver_timeout'});
+  expect(c.chrome.tabs.reload).toHaveBeenCalledTimes(1);
+});
 
 test('a hung tab lookup cannot hang bootstrap or reload later', async () => {
-  const {c,run}=setup();let release;
+  const {c,run}=setup(['missing']);let release;
   c.getTabSafe.mockImplementation(() => new Promise(resolve => {release=resolve;}));
-  const pending=run();await jest.advanceTimersByTimeAsync(1100);
-  expect(await pending).toMatchObject({ok:false,reason:'tab_ineligible'});
+  const pending=run();await jest.advanceTimersByTimeAsync(21000);
+  expect(await pending).toMatchObject({ok:false,reason:'tab_lookup_timeout'});
+  expect(c.getTabSafe).toHaveBeenCalledTimes(1);
   release({status:'complete'});await jest.advanceTimersByTimeAsync(100);
   expect(c.chrome.tabs.reload).not.toHaveBeenCalled();
 });
-test('Round 0 prepares reused pages concurrently and resumes without touching an issued command', async () => {
+test('a valid old tab returned after one second is recovered in the same visit', async () => {
+  const {c,run}=setup(['missing','missing','ready']);
+  c.getTabSafe.mockImplementation(() => new Promise(resolve => setTimeout(() => resolve({status:'complete'}), 1600)));
+  const pending=run();await jest.advanceTimersByTimeAsync(3000);
+  expect(await pending).toMatchObject({ok:true,reloaded:true});
+  expect(c.getTabSafe).toHaveBeenCalledTimes(1);
+  expect(c.chrome.tabs.reload).toHaveBeenCalledTimes(1);
+});
+test.each(['tab_missing', 'tab_ineligible'])('real %s still prevents reload', async reason => {
+  const {c,run}=setup(['missing']);
+  c.getTabSafe.mockResolvedValue(reason === 'tab_missing' ? null : {url:'https://other.example/'});
+  c.isEligibleTabForLlm=() => false;
+  expect(await run()).toMatchObject({ok:false,reason});
+  expect(c.chrome.tabs.reload).not.toHaveBeenCalled();
+});
+test('Round 0 binds reused pages without waiting on receiver recovery or touching an issued command', async () => {
   const {c}=setup();
   const orch=fs.readFileSync(require.resolve('../background/job-orchestrator'),'utf8');
   Object.assign(c, {
@@ -83,8 +146,7 @@ test('Round 0 prepares reused pages concurrently and resumes without touching an
   const pending=c.openTabsSequentially(['Claude','GPT','Gemini'],'8 / 4',false,[],1,{resume:true});
   await jest.advanceTimersByTimeAsync(4000);
   expect(await pending).toBe(true);
-  expect(started).toEqual([[12,1000],[13,1000]]);
-  expect(c.jobState.llms.Claude.receiverPreparation.ok).toBe(true);
-  expect(c.jobState.llms.GPT.receiverPreparation.ok).toBe(true);
+  expect(started).toEqual([]);
+  expect(c.prepareReusableTabReceiver).not.toHaveBeenCalled();
   expect(c.startModelForLLM).not.toHaveBeenCalled();
 });

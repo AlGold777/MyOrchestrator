@@ -726,16 +726,20 @@
     try {
       composer.focus?.({ preventScroll: true });
     } catch (_) { try { composer.focus?.(); } catch (_) {} }
+    const useMeta = llmName === 'Qwen' && typeof navigator !== 'undefined'
+      && /Mac/i.test(navigator.userAgentData?.platform || navigator.platform || '');
     try {
       composer.dispatchEvent(new KeyboardEvent('keydown', {
-        key: 'Enter', code: 'Enter', ctrlKey: true, bubbles: true, cancelable: true
+        key: 'Enter', code: 'Enter', keyCode: 13, which: 13,
+        ctrlKey: !useMeta, metaKey: useMeta, bubbles: true, cancelable: true
       }));
       composer.dispatchEvent(new KeyboardEvent('keyup', {
-        key: 'Enter', code: 'Enter', ctrlKey: true, bubbles: true, cancelable: true
+        key: 'Enter', code: 'Enter', keyCode: 13, which: 13,
+        ctrlKey: !useMeta, metaKey: useMeta, bubbles: true, cancelable: true
       }));
     } catch (_) {}
     await sleep(600);
-    let method = 'ctrl_enter';
+    let method = useMeta ? 'cmd_enter' : 'ctrl_enter';
     if (!noLongerPrepared()) {
       const buttons = Array.from(document.querySelectorAll([
         'button[data-testid*="send" i]',

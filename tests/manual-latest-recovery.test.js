@@ -45,7 +45,7 @@ describe('manual latest-answer recovery from status indicator', () => {
     expect(orchestrator).toContain('recovery.strategyIndex = bottomMostIndex;');
     expect(orchestrator).toContain('let strategy = manualRecoveryRequested ? resolveManualRecoveryStrategy(recovery) : null;');
     expect(orchestrator).toContain('if (manualLatestRecovery && !strategy && recovery) {');
-    expect(orchestrator).toContain('buildManualLatestRecoveryOptions(liveEntry, llmName, strategy)');
+    expect(orchestrator).toContain('buildManualLatestRecoveryOptions(liveEntry, llmName, strategy, { keepCurrentAnswer: options.getIt === true })');
     // The hardcoded latest-recovery strategy object must be gone.
     expect(orchestrator).not.toContain("? { id: 'bottom_most', label: 'Latest visible answer candidate'");
   });

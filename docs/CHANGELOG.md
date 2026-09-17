@@ -1,5 +1,240 @@
 # CHANGELOG — Project
 
+### 2026-09-17 — Automatic bottom-and-collect pass, version 2.81.444
+
+- After Round 3 and before the final completion gate, run the existing Get it bottom-scroll route once for all selected models, including SUCCESS. Keep the two-second post-scroll dwell and collect without blocking subsequent visits on extraction. Return to results after the last visit.
+- Reuse the Get it single-flight guard; an automatic pass waits for an existing manual batch. Session and dispatch checks prevent visiting stale targets, and cancellation no longer steals focus back. Missing tabs do not stop the route. Manual Get it remains available for a later repeat.
+- This intentionally applies the same recovery semantics as Get it automatically; a successful recovery is not independent proof of provider completion. The saved session marker prevents repeated automatic passes. An interrupted pass is not automatically resumed after a worker restart; manual Get it remains the recovery path.
+
+### 2026-09-16 — Update HTML model title bar color, version 2.81.443
+
+- Change the exported model title bar background from `#C2E7FF` to `#e9eef2`.
+
+### 2026-09-16 — Remove redundant HTML response separators, version 2.81.442
+
+- Remove the equals-sign separator from HTML exports now that model title color bands provide the visual separation.
+
+### 2026-09-16 — Align Home and sticky Prompt controls in HTML export, version 2.81.441
+
+- Match the Home icon to the model icon size, center its label, and make the Prompt heading with its collapse control sticky below model navigation.
+
+### 2026-09-16 — Make exported Prompt collapse interactive, version 2.81.440
+
+- Keep the full Prompt in the standalone HTML export, show it collapsed to three lines initially, and provide Show more/Show less controls; enlarge the Home icon by 50% and add its label.
+
+### 2026-09-16 — Fix standalone HTML Prompt height limit, version 2.81.439
+
+- Use browser-compatible CSS for limiting long exported Prompts to three visible lines.
+
+### 2026-09-16 — Keep long Prompt exports within three lines, version 2.81.438
+
+- Limit the visible Prompt block in HTML exports to three rendered lines and darken model navigation labels to `#27251eeb`.
+
+### 2026-09-16 — Place and collapse Prompt in HTML export, version 2.81.437
+
+- Place Prompt below the model navigation and limit prompts longer than three lines to a three-line visible height.
+
+### 2026-09-16 — Set HTML export answer text color, version 2.81.436
+
+- Set the exported response text color to `#27251eeb`.
+
+### 2026-09-16 — Embed model icons in standalone HTML exports, version 2.81.435
+
+- Embed the model SVG icons as data URIs so exported HTML files no longer depend on files from the extension directory.
+
+### 2026-09-16 — Match HTML model title color and button styling, version 2.81.434
+
+- Set the full-width model title background to `#C2E7FF` and align exported model navigation icon styling with `models-row-header`.
+
+### 2026-09-16 — Match exported model navigation to the main page, version 2.81.433
+
+- Use the same stacked model icon-and-name layout in HTML export navigation, with full-width model title highlights and no separator background.
+
+### 2026-09-16 — Focus the first session after import, version 2.81.432
+
+- After either full backup import or add-only session import, select and open the first imported session.
+
+### 2026-09-16 — Tune response viewer typography and position, version 2.81.431
+
+- Increase viewer text to 15px, set equal 48px horizontal padding, and move the popup 15px higher.
+
+### 2026-09-16 — Refine HTML export navigation and model highlights, version 2.81.430
+
+- Add a home link before the model navigation, remove the separator background, and highlight model title lines with `#fff204`.
+
+### 2026-09-16 — Clear stale sessions after page or extension reload, version 2.81.429
+
+- Clear saved session manifests and their in-memory sidebar state when a page reload or extension runtime reset starts, including the race where asynchronous sidebar loading finishes after the reset.
+
+### 2026-09-16 — Remove viewer chrome and repair response transfer, version 2.81.428
+
+- Make the response card fill the popup without an extra header, border, radius, or shadow, and retrieve the selected card payload through the service worker when direct delivery is unavailable.
+
+### 2026-09-16 — Refine all-model TXT and HTML exports, version 2.81.427
+
+- Place the export date beside the `LLMs answers` heading, remove the duplicate `LLM Responses` label, and add sticky model navigation links to the HTML export.
+
+### 2026-09-16 — Apply exact 6% popup height increase, version 2.81.426
+
+- Apply the requested six-percent increase directly to the previous popup height calculation.
+
+### 2026-09-16 — Refine response popup sizing and content, version 2.81.425
+
+- Increase popup height, set 40px side margins, remove a duplicated model heading, and reliably hydrate the viewer with the selected card content.
+
+### 2026-09-16 — Add highlighted separators to all-model HTML exports, version 2.81.424
+
+- Add the same three-line response separator to all-model HTML exports, with a yellow background behind it.
+
+### 2026-09-16 — Connect popup viewer to regular model cards, version 2.81.423
+
+- Regular model response cards now open the popup viewer on header double-click, matching debate response cards.
+
+### 2026-09-16 — Popup viewer for debate response cards, version 2.81.422
+
+- Double-clicking a debate response card header opens a reusable popup viewer sized to 105% of the card width and the available screen height minus 30px top and bottom margins. The viewer closes with its close button, `Esc`, or a click on its empty background.
+
+### 2026-09-16 — Readable separators in all-model TXT exports, version 2.81.421
+
+- Separate consecutive model responses in the all-model TXT export with three lines of equals signs and blank lines around them.
+
+### 2026-09-15 — Qwen Cmd+Enter in send-only recovery, version 2.81.420
+
+- The shared prepared-draft recovery now uses Cmd+Enter for Qwen on macOS, matching its primary adapter. Previously it always sent Ctrl+Enter. Other provider/platform shortcuts remain unchanged.
+- Raw run 1789493770142 records Qwen insertion at seq52, send request at seq53 and departure 5087ms later (seq55). Round2 repair starts at seq201. Thus neither absent insertion nor absent repair scheduling explains the run; the actual shortcut outcome is not recorded.
+- This closes an identified recovery-path inconsistency without claiming it proves the cause of the initial send failure. 18 targeted tests passed, including Qwen Mac/Windows and unchanged Claude recovery.
+
+### 2026-09-15 — Do not cancel Grok on prompt verification failure, version 2.81.419
+
+- Removed automatic Stop clicks when the posted prompt is missing, collapsed or differs from the expected text. Verification still reports failure and does not falsely confirm the payload, but leaves the provider generation running.
+- Recheck a cached Send node immediately before a synchronous click: reject Stop/Cancel identities, disabled/disconnected controls and empty drafts. Remove the immediate keyboard submission after clicking. This prevents a cached Send control that has become Stop from being clicked by the button fallback.
+- 50 targeted tests passed, including mismatch/unobserved verification without cancellation, Send-to-Stop mutation, ordinary Send and attachment/dispatch contracts. Live reproduction of the user interruption message remains unverified.
+
+### 2026-09-14 — Prefer Cmd+Enter for Qwen on macOS, version 2.81.418
+
+- Focus the composer and dispatch Cmd+Enter before resolving/clicking Send on macOS, following the user’s successful manual shortcut test. Confirm submission by a new matching user turn.
+- If the shortcut consumes/changes/detaches the draft, wait for late confirmation without clicking Send again. Button fallback is permitted after two seconds only when the complete draft and user-turn count remain unchanged. Other platforms retain their existing path.
+- 14 targeted tests pass. The extension uses DOM keyboard events, which are not trusted physical keystrokes; actual Qwen acceptance requires a browser run.
+
+### 2026-09-14 — Restore Qwen sending to 2.81.408, version 2.81.417
+
+- Removed the experimental unchanged-draft retry from 2.81.415 at the user’s request. Send selection and submission functions match commit 66e827d (2.81.408) exactly. Collection fixes remain separate.
+- Historical report for run 1789277976208 records Qwen submission, generation and delivered answer on 2.81.408. Available raw runs on 2.81.413/414/416 show failed or unconfirmed submission. The send path was already identical between 408 and 414, so this evidence does not identify a breaking commit or prove that restoring the sender fixes the attachment scenario.
+- Withdraw the prior implication that the first-click branch caused this regression: it was present in the successful 408 run. Nine targeted tests pass; live attachment sending remains to be verified.
+
+### 2026-09-14 — Preserve displayed manual recovery during snapshot hydration, version 2.81.416
+
+- Global-state unverified artifacts now hydrate empty cards only, matching accepted-answer hydration. A repeated snapshot can no longer overwrite the answer already displayed by manual recovery.
+- MANUAL_PING_RESULT uses one rendering entry point: updateLLMPanelOutput updates both views. The redundant debate update could close the card before the panel update and divert the latter into a post-terminal revision.
+- Regression tests cover repeated old artifacts after manual recovery, recovery after clearing a card and single rendering dispatch. These reproduce concrete UI overwrite paths; they do not establish that every Grok disappearance had the same cause.
+
+### 2026-09-14 — Recover an ignored Qwen Send click, version 2.81.415
+
+- After an unconfirmed first click, retry once using the current composer and current enabled Send control, only if the complete original draft remains, no new user turn exists and generation is inactive. Empty/edited/detached drafts and busy controls do not permit retry. The initial attempt remains immediate.
+- The terminal first-click branch dates to 1dd570a; versions 410–414 did not change Qwen sending. This fixes a reproducible recovery gap, not proof of the exact browser event behind the reported failure.
+- 16 targeted tests passed, covering refreshed controls and duplicate-send guards. Live Qwen was inspected read-only; its composer was already empty and an answer present, so the failed state could not be reproduced there.
+
+### 2026-09-14 — Export Get it batch entry point, version 2.81.414
+
+- Export collectGetItBatch from the orchestrator closure so the message router can start both single-click collection and double-click failed-page recovery. Previously both routes threw ReferenceError before collection started.
+- Regression tests load the complete orchestrator module and invoke the actual GET_IT_BATCH route; both reproduced the reported error before the fix.
+
+### 2026-09-14 — Preserve empty dispatch baselines and verify Qwen fallback, version 2.81.413
+
+- An explicit empty baselineText now means no previous answer. It no longer triggers a post-submission DOM read that can mistake a fast current answer for the previous baseline. Omitting baselineText retains the existing discovery behavior; positional dispatch anchors remain required by verification.
+- Qwen DOM and last-chance fallback paths now carry verification from their original pipeline, with exact text matching. Last-chance extraction still requires confirmed submission.
+- Regression tests reproduce the explicit-empty baseline bug. This is a plausible contributor to missed fast answers, not a proven explanation for every early UNCERTAIN result in the field.
+
+### 2026-09-14 — Verify provider DOM fallback results, version 2.81.412
+
+- Claude, Gemini and Perplexity retain the original pipeline instance when falling back to DOM extraction. Before returning the fallback, they run its existing structural/stability verifier and attach answerVerification to response metadata. Previously these branches always sent null verification.
+- Verification retains the original dispatch anchor and baseline, and must match the exact returned text hash and length. A shortened fallback, old baseline, active/unknown generation, missing identity or incomplete structure remains unverified. No forced-success or new automatic scrolling is introduced.
+- This repairs the fallback proof handoff; it does not establish that all field observation/selector failures are resolved.
+
+### 2026-09-14 — Make Get it available on restored results pages, version 2.81.411
+
+- Get it is enabled when the results page opens and is not disabled by Start. Previously it was disabled on initialization and only enabled in the Start handler finally block, preventing native double-click events after restoring/reloading the results page.
+- Failed-page recovery includes unsuccessful models from the current background run even if no model buttons are selected on the reopened page. Successful models with answers remain excluded.
+- An active initial send pass, missing run, empty recovery list, active UI collection or messaging error now has an explicit user-facing explanation instead of a silent no-op. Initial dispatch retains its focus ownership.
+
+### 2026-09-14 — Sequential failed-page Get it experiment, version 2.81.410
+
+- Double-click Get it to visit selected models without SUCCESS or without answer text, in selection order. Each bound page is scrolled to the bottom and held for two seconds; answer collection continues without blocking subsequent visits. Return to the originating extension tab after the final visit. Missing pages do not stop the route; session/dispatch changes prevent collecting for the wrong request.
+- Single click retains ordinary Get it; it waits 600 ms to distinguish a double-click. Both routes share the same in-flight guard.
+- Status-indicator double-click now counts scroll/render preparation within its 2.5-second dwell and removes the extra 250 ms stabilization. It also returns when bottom preparation is unsuccessful. Chrome activation and return API latency remains outside the dwell; this is not a hard wall-clock guarantee.
+
+### 2026-09-13 — Decouple reload acknowledgement from receiver readiness, version 2.81.409
+
+- Reused-tab recovery requests one same-tab reload and then observes receiver readiness within the existing 20-second budget. A silent or delayed reload callback no longer produces reload_failed at 1500 ms. Actual Chrome API errors remain failures and are included in recovery diagnostics.
+- Raw run 1789277976208 (export 1789278385135) deferred Grok, DeepSeek, Le Chat and Perplexity with reload_failed before GET_ANSWER. Version 2.81.408 conflated callback timeout with API failure; the export cannot prove which branch fired. Regression coverage reproduces the false rejection and now covers slow/silent reload acknowledgement, an actual API error, no receiver, delayed PONG, cancellation and ordered dispatch: 34 tests pass.
+- This corrects another premature failure in receiver preparation; field recovery and automatic answer completeness remain unverified.
+
+### 2026-09-13 — Preserve delayed receiver acknowledgements, version 2.81.408
+
+- Receiver preparation now accepts a delayed PONG within the existing 20-second overall deadline. Previously each probe expired after 750 ms and permanently discarded its later reply, so a consistently slow renderer could never pass preparation. Only health probes change; GET_ANSWER remains single-delivery. Cancellation releases the pending probe within 100 ms.
+- Regression tests cover a 1600 ms PONG, silence, a reply after the deadline, cancellation, receiver reload and ordered dispatch (30 tests pass).
+- Raw run 1789253099910, export 1789275362909, confirms receiver_timeout before command delivery for Gemini, Grok, DeepSeek and Perplexity. Qwen submitted successfully. Kimi is absent; the supplied summary includes incompatible events and must not be treated as the event ledger. Probe timing is not preserved in that ledger, so the reproduced timing defect is not claimed as the proven sole cause of this field run.
+
+### 2026-09-13 — Qwen send readiness and failure ownership, version 2.81.407
+
+- Send discovery re-reads live enabled controls for up to 1.5 seconds after paste/upload instead of awaiting the generic 12-second selector finder. Disabled and aria-disabled controls are rejected. A DOM regression confirms a button enabled after 300 ms is clicked within the foreground slot.
+- Last-chance answer extraction is allowed only after this dispatch has confirmed submission. Existing assistant text and unrelated generation signals cannot confirm a late Send. This prevents the false fallback observed in run 1789248077227 after Qwen inserted 143 characters without confirmed submission.
+- The exact reason the field click failed remains unproven. A read-only inspection of the original Qwen tab later found an empty composer and existing answers, not the original failed draft; no live send was performed.
+
+### 2026-09-12 — Distinguish slow tab lookup from an invalid tab, version 2.81.406
+
+- Receiver recovery retains a slow tabs.get request within its existing 20-second budget instead of treating the one-second timeout as tab_ineligible. Closed tabs, ineligible URLs and lookup timeouts now have separate outcomes. A late result cannot reload after cancellation or deadline.
+- Run 1789248077227 skipped Perplexity before GET_ANSWER with tab_ineligible. The export cannot distinguish a lookup timeout from an invalid URL in that version; the false-invalid branch is reproduced by regression tests, not established as the exact field cause.
+
+### 2026-09-12 — Return focus after status recovery, version 2.81.405
+
+- After a status-indicator double-click successfully prepares the bottom of a model page, keep it focused for 2.5 seconds, then activate the originating extension tab and its window. The dwell and return share the preparation focus lock.
+- Validate the source tab again before returning; a closed or navigated-away source does not prevent answer collection. Get it batch routing is unchanged.
+
+### 2026-09-12 — Recover old-page receivers in their focused send slots, version 2.81.404
+
+- Round 0 now only acquires eligible existing tabs and persists their bindings. It does not wait for page load, probe draft/busy surfaces, invoke donor readiness or prepare/reload content-script receivers for every provider before dispatch starts.
+- Round 1 activates each selected tab, then prepares its receiver while the usual two-second settling period runs. Recovery retains its 20-second bound and same-URL reload rules. A stale receiverPreparation failure is rechecked in the active page rather than permanently skipping it.
+- Run 1789211262685 (export 1789211438461) contains no submit attempts through roughly 176 seconds, only page/receiver events before dispatch. This establishes a pre-dispatch failure; the canonical export does not identify the exact hung await. The change removes the shared receiver-readiness barrier rather than claiming that a specific Chrome operation was proven to hang.
+
+### 2026-09-12 — Prefer the bound conversation on repeat dispatch, version 2.81.403
+
+- Reusable-tab discovery prioritizes the run binding, then the persisted model mapping, before recency. A still-eligible bound tab is not lost because of an additional query-pattern filter.
+- A mapped conversation is selected before probing unrelated tabs for a cleaner surface. Drafts or active generation are handled by dispatch readiness instead of sending the follow-up into a different conversation. Unmapped discovery retains its existing ordering and run-scope checks.
+- Regression coverage verifies that an older mapped conversation with a busy/draft surface wins over a newer unrelated clean tab. The specific field misidentification still needs a live reproduction if it persists.
+
+### 2026-09-12 — Forced status recovery uses bottom preparation, version 2.81.402
+
+- A status-indicator double-click requests the same bottom preparation and fresh inline collection as Get it for the individual model, independently of the shared batch/button state.
+- Manual collection validates the run-bound tab before acting, prefers it over the cached mapping and reports a missing/ineligible binding instead of silently reading another conversation. A discarded but valid tab remains eligible for activation.
+- The reported post-idle failure of Get it has not been reproduced; this adds an independent explicit recovery path, not a claim that the idle root cause is resolved.
+
+### 2026-09-12 — Run the Get it queue in the background, version 2.81.401
+
+- The results page now sends one GET_IT_BATCH message with the selected model order. The background owns sequential collection and advances as soon as the preceding manual collection returns, without waiting for a hidden results page to resume and send the next command.
+- Duplicate batch requests share the active operation; repeated model names are deduplicated. Per-model errors continue to the next model. Session changes cancel the remaining queue; changed dispatches are skipped. There is no added dwell between models.
+- After successful Get it preparation, inline collection validates the tab and extracts directly instead of waiting for a content-script health ping and a redundant scripting probe. Automatic collection keeps its existing health checks.
+- Runtime tests cover a UI-independent sequence, duplicate clicks, per-model failure, session changes and bypass of the manual health round-trip while retaining tab eligibility checks. Live timing still needs confirmation on provider pages.
+
+### 2026-09-12 — Extend Get it bottom recovery to all selected models, version 2.81.400
+
+- Get it now requests fresh inline recovery for every selected provider, including those already marked terminal. All providers use the existing mandatory manual bottom preparation: activate the page, try a labelled bottom control, follow rendered growth and verify the position before collecting. An unsuccessful visit reports failure rather than returning cached text as a fresh result.
+- Collection remains sequential; automatic answer handling receives no new prerequisite. The same-answer reread, previous-dispatch exclusion and first-pass focus protection remain in place.
+- Parameterized tests exercise manual preparation of all ten provider names after terminal status and automatic focus expiry; the button test verifies fresh recovery for providers beyond GPT/Qwen. These are simulated DOM checks, not live validation of every provider's controls.
+
+### 2026-09-11 — Move GPT/Qwen bottom preparation to Get it, version 2.81.399
+
+- Remove the automatic acceptance prerequisite from 2.81.398. GPT/Qwen automatic response handling no longer depends on a bottom-visit proof. The unfinished empty-UNCERTAIN recovery experiment was removed before release.
+- Get it requests fresh inline recovery for GPT/Qwen, bypassing the cached-terminal shortcut. Before collection, activate the page, try its labelled bottom button and verify the scroll position. Explicit manual recovery also works for finalized entries and expired automatic focus budgets. Failure to reach the bottom stops this manual collection and is reported to the user.
+- Get it processes models sequentially and awaits collection; repeated clicks cannot start a competing sequence. Previously pending card text is flushed before fresh retrieval, so it cannot overwrite the newly retrieved answer. Other manual controls and automatic collection retain their previous optional preparation behavior.
+- Run 1789159635727 finalized Qwen empty about 6.5 seconds after send confirmation and GPT empty about 8.5 seconds after confirmation. The field log does not prove which browser action caused the initial uncertainty or whether a bottom visit ran. GPT later had 1897 extracted characters and 1907 rendered characters; `incomparable` is a normalization/comparison failure, not an explicit delivery rejection. No Qwen generation-start event is not proof that generation never started.
+
+### 2026-09-11 — GPT/Qwen mandatory bottom experiment, version 2.81.398
+
+- GPT and Qwen defer successful response handling until a bottom visit succeeds for the current dispatch. The initiating payload is discarded; the next collection explicitly requests a response even if text is unchanged. Evidence expires after 30 seconds and cannot authorize another dispatch or run.
+- Try visible, explicitly labelled scroll-to-bottom/latest controls, then direct instant scrolling and stable bottom measurements. Failed, hidden or unmeasurable pages do not grant the acceptance prerequisite. The operation remains bounded and cannot interrupt the initial ordered send pass.
+- This is a necessary preparation step, not proof of generation completion. Existing identity and completion gates still apply. Other providers retain optional pre-collection scrolling. The experiment lives on `codex/gpt-qwen-required-bottom`; baseline tag: `before-gpt-qwen-required-bottom`.
+
 ### 2026-09-11 — Follow the rendered conversation bottom before collection, version 2.81.397
 
 - Pre-collection scrolling now discovers visible vertical scroll containers even with generated class names. It prefers the large main conversation viewport and its scrolling ancestors, excluding navigation and code panes, instead of taking the first five selector matches.

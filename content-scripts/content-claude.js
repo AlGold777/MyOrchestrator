@@ -1211,6 +1211,7 @@ if (typeof window.SelectorFinder === 'undefined') {
     heartbeat?.({ stage: 'start', expectedLength: pipelineExpectedLength(promptText), pipeline: 'UnifiedAnswerPipeline' });
     try {
       const pipeline = new window.UnifiedAnswerPipeline('claude', Object.assign({ expectedLength: pipelineExpectedLength(promptText), baselineText: claudeDispatchBaseline || '' }, pipelineOverrides));
+      lifecycle.onPipeline?.(pipeline);
       const result = await pipeline.execute();
       if (result?.success && result.answer) {
         heartbeat?.({ stage: 'success', answerLength: result.answer.length, pipeline: 'UnifiedAnswerPipeline' });
@@ -2175,7 +2176,9 @@ function isLikelyClaudeModelLabel(text = '') {
         let responseMeta = null;
         let sendConfirmationRecovered = false;
         emitTiming('Pipeline start');
+        let fallbackVerifier = null;
         await tryClaudePipeline(prompt, {
+          onPipeline: pipeline => { fallbackVerifier = text => pipeline.verifyFallbackAnswer?.(text); },
           heartbeat: (meta = {}) => activity.heartbeat(0.8, Object.assign({ phase: 'pipeline' }, meta)),
           stop: async ({ answer, answerHtml, metadata }) => {
             pipelineAnswer = answer || '';
@@ -2302,11 +2305,11 @@ function isLikelyClaudeModelLabel(text = '') {
           duration: Date.now() - startTime
         });
         activity.heartbeat(0.9, { phase: 'response-processed' });
-        activity.stop({ status: 'success', answerLength: cleanedResponse.length });
         console.log(`[content-claude] Process completed. Response length: ${cleanedResponse.length}`);
         if (!pipelineAnswer || response !== String(pipelineAnswer || '').trim()) {
-          responseMeta = window.ContentUtils?.buildResponseMeta?.(null, { source: 'dom_fallback' }) || null;
+          responseMeta = window.ContentUtils?.buildResponseMeta?.(null, { source: 'dom_fallback', answerVerification: await fallbackVerifier?.(cleanedResponse) }) || null;
         }
+        activity.stop({ status: 'success', answerLength: cleanedResponse.length });
         if (sendConfirmationRecovered) {
           responseMeta = Object.assign({}, responseMeta || {}, {
             freshTurnEvidence: true,

@@ -1885,6 +1885,44 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message?.type === 'NOTES_CMD' || message?.type === 'NOTES_EVENT') {
         return false;
     }
+    if (message?.type === 'RESPONSE_VIEWER_CLOSE') {
+        const windowId = sender?.tab?.windowId;
+        if (Number.isInteger(windowId)) {
+            chrome.windows.remove(windowId).catch(() => {});
+        }
+        sendResponse({ ok: true });
+        return false;
+    }
+    if (message?.type === 'RESPONSE_VIEWER_STORE_CONTENT') {
+        const key = String(message.key || '').trim();
+        if (!key || !message.payload || typeof message.payload !== 'object') {
+            sendResponse({ ok: false, error: 'invalid_response_viewer_payload' });
+            return false;
+        }
+        chrome.storage.local.set({ [key]: message.payload }, () => {
+            if (chrome.runtime.lastError) {
+                sendResponse({ ok: false, error: chrome.runtime.lastError.message });
+                return;
+            }
+            chrome.storage.session.set({ [key]: message.payload }, () => sendResponse({ ok: !chrome.runtime.lastError }));
+        });
+        return true;
+    }
+    if (message?.type === 'RESPONSE_VIEWER_GET_CONTENT') {
+        const key = String(message.key || '').trim();
+        if (!key) {
+            sendResponse({ ok: false, error: 'missing_response_viewer_key' });
+            return false;
+        }
+        chrome.storage.local.get(key, (stored) => {
+            if (stored?.[key]) {
+                sendResponse({ ok: !chrome.runtime.lastError, payload: stored[key] });
+                return;
+            }
+            chrome.storage.session.get(key, (sessionStored) => sendResponse({ ok: !chrome.runtime.lastError, payload: sessionStored?.[key] || null }));
+        });
+        return true;
+    }
     // Export must remain available during a cold service-worker start. It only
     // depends on the proof ledger, which is imported before this router, and
     // must not wait for unrelated job/tab/circuit initialization below.
@@ -5028,6 +5066,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             sendResponse({ status: 'all_sessions_cleared' });
             break;
 
+            case 'GET_IT_BATCH': {
+                collectGetItBatch(message.llmNames, {
+                    failedOnly: message.failedOnly === true,
+                    returnToTabId: isAppUiTab(sender?.tab) ? sender.tab.id : null
+                }).then(sendResponse, err => {
+                    sendResponse({ status: 'get_it_failed', error: err?.message || String(err) });
+                });
+                return true;
+            }
+
             case 'MANUAL_RESPONSE_PING': {
                 (async () => {
                     try {
@@ -5072,6 +5120,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     try {
                         const result = await handleManualResponsePing(llmName, {
                             advanceStrategy: shouldAdvanceStrategy,
+                            getIt: message.getIt === true,
+                            returnToTabId: message.reason === 'status_indicator_dblclick' && isAppUiTab(sender?.tab)
+                                ? sender.tab.id : null,
                             manualLatestRecovery,
                             manualRecovery: message.manualRecovery !== false,
                             reason: message.reason || 'request_llm_response'

@@ -853,6 +853,7 @@ const pipelineExpectedLength = (text = '') => {
       expectedLength: pipelineExpectedLength(promptText),
       baselineText: baselineText || ''
     }, pipelineOverrides));
+    lifecycle.onPipeline?.(pipeline);
     const result = await pipeline.execute();
     console.log("[DIAGNOSTIC] Perplexity pipeline result:", { success: result?.success, hasAnswer: !!result?.answer, answerLength: result?.answer?.length, error: result?.error });
     if (result?.success && result.answer) {
@@ -1785,7 +1786,9 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
     activity.heartbeat(0.6, { phase: 'waiting-response' });
 
     let pipelineAnswer = null;
-    await tryPerplexityPipeline(prompt, {
+    let fallbackVerifier = null;
+        await tryPerplexityPipeline(prompt, {
+          onPipeline: pipeline => { fallbackVerifier = text => pipeline.verifyFallbackAnswer?.(text); },
       heartbeat: (meta = {}) => activity.heartbeat(0.8, Object.assign({ phase: 'pipeline' }, meta)),
       stop: async ({ answer, answerHtml, metadata }) => {
         console.log('[content-perplexity] UnifiedAnswerPipeline captured response, skipping legacy watcher');
@@ -1821,11 +1824,12 @@ async function injectAndGetResponse(prompt, attachments = [], meta = null) {
       if (cleanedFallback) {
         console.warn('[content-perplexity] Pipeline empty, using DOM fallback');
         if (latestMarkup.html) lastResponseHtml = latestMarkup.html;
-        activity.stop({ status: 'success', answerLength: cleanedFallback.length, source: 'dom-fallback' });
+        const fallbackVerification = await fallbackVerifier?.(cleanedFallback);
+            activity.stop({ status: 'success', answerLength: cleanedFallback.length, source: 'dom-fallback' });
         return {
           text: cleanedFallback,
           html: latestMarkup.html || '',
-          meta: window.ContentUtils?.buildResponseMeta?.(null, { source: 'dom_fallback' }) || null
+          meta: window.ContentUtils?.buildResponseMeta?.(null, { source: 'dom_fallback', answerVerification: fallbackVerification }) || null
         };
       }
     } catch (fallbackErr) {

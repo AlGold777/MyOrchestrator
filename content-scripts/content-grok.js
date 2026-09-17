@@ -250,36 +250,6 @@
     };
   }
 
-  async function stopGrokWrongGeneration() {
-    const selectors = [
-      'button[data-testid="grok-stop-button"]',
-      'button[data-testid="stop-button"]',
-      'button[data-testid*="stop" i]',
-      'button[aria-label*="Stop" i]',
-      'button[aria-label*="Останов" i]'
-    ];
-    let stopBtn = null;
-    const startedAt = Date.now();
-    while (!stopBtn && Date.now() - startedAt < 3000) {
-      for (const selector of selectors) {
-        try {
-          stopBtn = document.querySelector(selector);
-        } catch (_) {}
-        if (stopBtn && !stopBtn.disabled && stopBtn.getAttribute('aria-disabled') !== 'true') break;
-        stopBtn = null;
-      }
-      if (!stopBtn) await sleep(100);
-    }
-    if (!stopBtn) return false;
-    try {
-      if (window.Humanoid?.click) await window.Humanoid.click(stopBtn);
-      else stopBtn.click();
-      return true;
-    } catch (_) {
-      return false;
-    }
-  }
-
   function grabLatestAssistantText() {
     try {
       const selectorsFromBundle = (window.AnswerPipelineSelectors?.PLATFORM_SELECTORS?.grok?.lastMessage
@@ -1239,16 +1209,19 @@
   }
 
   async function attemptSendViaButton(sendBtn, composerEl) {
-    const humanoid = window.Humanoid;
-    if (!humanoid) return false;
+    // The node was found before the keyboard attempt and may now be Stop.
+    // Check its live identity immediately before a synchronous click.
+    const identity = ['aria-label', 'title', 'data-testid', 'data-state']
+      .map(name => sendBtn?.getAttribute?.(name) || '').join(' ')
+      + ' ' + String(sendBtn?.textContent || '');
+    if (!sendBtn?.isConnected || sendBtn.disabled
+      || sendBtn.getAttribute('aria-disabled') === 'true'
+      || /stop|cancel|останов|прерва|отмен/i.test(identity)
+      || sendBtn.querySelector('[data-testid*="stop" i], [aria-label*="stop" i], [class*="stop" i]')
+      || !(composerEl?.value ?? composerEl?.textContent ?? '').trim()) return false;
     const responseWatcher = watchResponseActivity(9000);
-    emitDiagnostic({ type: 'SEND', label: 'Attempt via send button', details: 'humanoid.click', level: 'info' });
-    await humanoid.click(sendBtn);
-    const composerTextBefore = (composerEl?.value ?? composerEl?.textContent ?? '').trim();
-    if (composerTextBefore.length) {
-      emitDiagnostic({ type: 'SEND', label: 'Text remained after click, pressing Ctrl+Enter', level: 'info' });
-      simulateCtrlEnter(composerEl);
-    }
+    emitDiagnostic({ type: 'SEND', label: 'Attempt via send button', details: 'guarded_click', level: 'info' });
+    sendBtn.click();
     const cleared = await waitForComposerClear(composerEl, 3500);
     const responseStarted = await responseWatcher;
     const success = cleared || responseStarted;
@@ -2337,7 +2310,7 @@
 
         const submittedPrompt = await waitForGrokSubmittedPrompt(prompt, userMessageBaseline, 10000, 200);
         if (!submittedPrompt.observed || !submittedPrompt.matches) {
-          const stopped = await stopGrokWrongGeneration();
+          const stopped = false; // Verification failure must not cancel the provider generation.
           const expected = normalizeForComparison(prompt);
           const actual = normalizeForComparison(submittedPrompt.text);
           const mismatchType = submittedPrompt.observed ? 'send_payload_mismatch' : 'send_payload_unverified';
@@ -2361,8 +2334,8 @@
           throw {
             type: mismatchType,
             message: submittedPrompt.observed
-              ? 'Grok changed or truncated the prompt while submitting it; generation was stopped.'
-              : 'Grok submitted the prompt, but the posted user turn could not be verified; generation was stopped.'
+              ? 'Grok posted prompt differs from the expected text; generation was left running.'
+              : 'Grok submitted the prompt, but the posted user turn could not be verified; generation was left running.'
           };
         }
 

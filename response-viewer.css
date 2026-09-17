@@ -1,0 +1,64 @@
+:root {
+    color-scheme: light;
+    font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: #eef2f7;
+    color: #111827;
+}
+
+* { box-sizing: border-box; }
+
+html, body { width: 100%; height: 100%; margin: 0; }
+
+body { overflow: hidden; }
+
+#viewer-shell {
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    cursor: default;
+}
+
+#viewer-card {
+    width: 100%;
+    min-height: 100%;
+    background: #fff;
+    overflow: hidden;
+}
+
+#viewer-close {
+    position: fixed;
+    z-index: 2;
+    top: 10px;
+    right: 12px;
+    width: 32px;
+    height: 32px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: #475569;
+    font-size: 25px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+#viewer-close:hover { background: #e2e8f0; color: #0f172a; }
+
+#viewer-content {
+    padding: 24px 48px;
+    font-size: 15px;
+    line-height: 1.55;
+    overflow-wrap: anywhere;
+}
+
+#viewer-content :where(p, div, ul, ol, li, pre, code, blockquote, table, thead, tbody, tr, th, td, h1, h2, h3, h4, h5, h6) {
+    font-size: 15px;
+}
+
+#viewer-content pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+#viewer-content table { max-width: 100%; border-collapse: collapse; }
+#viewer-content th, #viewer-content td { border: 1px solid #cbd5e1; padding: 6px 8px; vertical-align: top; }
+#viewer-content img { max-width: 100%; height: auto; }

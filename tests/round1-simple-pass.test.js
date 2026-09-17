@@ -11,6 +11,7 @@ function setup(names, send) {
     jobState: {session: {startTime:1}, llms: Object.fromEntries(names.map((name,i) => [name,
       {tabId:i+1, lastDispatchMeta:{dispatchId:name, runSessionId:1}}]))},
     dispatchSleepMs: ms => new Promise(resolve => setTimeout(resolve,ms)),
+    prepareReusableTabReceiver: jest.fn(async tabId => ({ ok: true, tabId })),
     saveJobState: async () => {}, emitTelemetry: jest.fn(),
     activateTabForDispatch: async id => {events.push(['focus',id,Date.now()]);return true;},
     chrome: {runtime:{}, storage: {session: {
@@ -73,6 +74,19 @@ test('all models get one ordered command after 2s; next focus is 5s after comman
     ['focus',2,8000],['command',2,10000],
     ['focus',3,15000],['command',3,17000]
   ]);
+});
+
+test('receiver recovery starts after focus and a previous preparation failure is rechecked', async () => {
+  const {c, events} = setup(['GPT','Qwen']);
+  c.jobState.llms.GPT.receiverPreparation = {tabId:1,ok:false,reason:'receiver_timeout'};
+  c.prepareReusableTabReceiver.mockImplementation(async id => {
+    expect(events[events.length - 1][0]).toBe('focus');
+    await new Promise(resolve => setTimeout(resolve, 2500));
+    return {ok:true,tabId:id};
+  });
+  const run = c.dispatchRound1Sequentially(['GPT','Qwen'],'8 / 4',[],1);
+  await jest.advanceTimersByTimeAsync(20000); await run;
+  expect(events.filter(e => e[0] === 'command').map(e => e[1])).toEqual([1,2]);
 });
 
 test('a silent page gets no retries and cannot hold the rest of the pass', async () => {

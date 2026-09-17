@@ -765,11 +765,14 @@ const sendTabMessageForLateCollect = (tabId, payload, timeoutMs) => withLateColl
   }
 }), timeoutMs, (err) => ({ ok: false, error: err?.message || 'timeout' }));
 
-async function classifyLateCollectState(tabId, llmName) {
+async function classifyLateCollectState(tabId, llmName, options = {}) {
   const tab = await getTabSafe(tabId);
   if (!tab) return { state: 'DEAD', reason: 'tab_missing' };
   if (tab.discarded === true) return { state: 'DEAD', reason: 'tab_discarded', tab: buildTabSnapshot(tab) };
   if (!isEligibleTabForLlm(llmName, tab)) return { state: 'DEAD', reason: 'tab_ineligible', tab: buildTabSnapshot(tab) };
+  // Get it has just prepared the visible page and uses inline extraction.
+  // A content-script ping and a second scripting probe add no prerequisite.
+  if (options.inlineOnly === true) return { state: 'REINJECTABLE', reason: 'manual_inline_collection', tab: buildTabSnapshot(tab) };
   const pingTimeout = LATE_COLLECT_SLOW_MODELS.has(llmName) ? LATE_COLLECT_SLOW_PING_TIMEOUT_MS : LATE_COLLECT_PING_TIMEOUT_MS;
   const ping = await sendTabMessageForLateCollect(tabId, {
     action: 'LATE_COLLECT_PING',
@@ -890,7 +893,7 @@ async function lateCollectAnswer({ llmName, tabId, reason = 'late_collect', meta
       });
     }
     const usableCached = cachedIsStaleForDispatch ? null : cached;
-    const state = await classifyLateCollectState(tabId, llmName);
+    const state = await classifyLateCollectState(tabId, llmName, { inlineOnly: meta?.getIt === true && manualLatestRecovery });
     if (state.state === 'ALIVE' || state.state === 'REINJECTABLE') {
       clearUnavailableObservationRecovery(entry, dispatchId);
     } else if (state.state === 'UNAVAILABLE') {
@@ -3520,14 +3523,16 @@ const getManualRecoveryState = (entry) => {
   return entry.manualRecovery;
 };
 
-const buildManualLatestRecoveryOptions = (entry, llmName, strategy = null) => {
+const buildManualLatestRecoveryOptions = (entry, llmName, strategy = null, options = {}) => {
   const signatures = [];
   const pushSignature = (value) => {
     const normalized = normalizeAnswerSignatureBg(value);
     if (normalized && !signatures.includes(normalized)) signatures.push(normalized);
   };
-  pushSignature(entry?.answer || '');
-  pushSignature(entry?.pendingFinalAnswer || '');
+  if (!options.keepCurrentAnswer) {
+    pushSignature(entry?.answer || '');
+    pushSignature(entry?.pendingFinalAnswer || '');
+  }
   pushSignature(entry?.preDispatchAnswerSignature || '');
   return {
     enabled: true,
@@ -3754,7 +3759,7 @@ const triggerResponseCollectionPing = (llmName, tabId, source = 'auto_collect', 
     runSessionId: Number(jobState?.session?.startTime || 0) || null,
     sessionId: Number(jobState?.session?.startTime || 0) || null,
     dispatchId: liveEntry?.lastDispatchMeta?.dispatchId || null,
-    forceEmitOnUnchanged: false
+    forceEmitOnUnchanged: opts.forceEmitOnUnchanged === true
   };
   sendPassiveMessageWithRetries(tabId, llmName, { action: 'getResponses', meta: responseMeta }, {
     maxAttempts,
@@ -3767,6 +3772,13 @@ const triggerResponseCollectionPing = (llmName, tabId, source = 'auto_collect', 
         successEntry.pingTransportErrorCount = 0;
       }
       if (response?.status === 'ignored_terminal') {
+        if (opts.forceEmitOnUnchanged === true && typeof self.recoverAnswerViaDomSnapshot === 'function') {
+          // The provider adapter may already have closed its observer after the
+          // discarded pre-scroll delivery. Read fresh DOM through recovery.
+          self.recoverAnswerViaDomSnapshot(llmName, tabId, `terminal_observer:${source}`, {
+            dispatchId: successEntry?.lastDispatchMeta?.dispatchId || null
+          }).catch(() => {});
+        }
         return;
       }
       broadcastDiagnostic(llmName, {
@@ -5495,7 +5507,7 @@ async function runModelThroughTabs(llmName, prompt, forceNewTabs, attachments = 
   // Le Chat and Perplexity deliberately retain the donor's sticky-conversation
   // behaviour: if any valid provider tab exists, use it before the generic
   // draft/modal preflight can redirect the request into a duplicate new tab.
-  if (await reuseMappedDonorProviderTab(llmName, prompt, attachments, options)) {
+  if (!options.deferDispatch && await reuseMappedDonorProviderTab(llmName, prompt, attachments, options)) {
     return true;
   }
 
@@ -5550,14 +5562,8 @@ async function openTabsSequentially(selectedLLMs, prompt, forceNewTabs, attachme
       }
       const entry = jobState?.llms?.[llmName];
       const tabId = resolveBoundTabIdForOrchestrator(llmName, entry);
-      const current = () => jobState?.session?.startTime === capturedSessionId
-        && jobState?.llms?.[llmName] === entry
-        && resolveBoundTabIdForOrchestrator(llmName, entry) === tabId;
-      // Resume must preserve any command already issued before suspension.
-      if (isValidTabId(tabId) && !entry?.lastDispatchMeta?.dispatchId && !entry?.promptSubmittedAt) {
-        const preparation = await prepareReusableTabReceiver(tabId, llmName, current);
-        if (current()) entry.receiverPreparation = preparation;
-      }
+      // Round 0 binds pages only. Receiver recovery runs in the focused
+      // Round 1 slot, so an idle page cannot hold every provider behind it.
       emitTelemetry(llmName, 'ROUND0_TAB_OPENED', {
         details: `${index + 1}/${selectedLLMs.length}`,
         meta: { index, total: selectedLLMs.length, tabId: jobState?.llms?.[llmName]?.tabId || null, acquisitionMode: 'parallel_reuse' }
@@ -5798,19 +5804,21 @@ async function focusTabForVerification(llmName, tabId, durationMs, sessionId) {
   });
 }
 
-async function runPreCollectScrollNudge(llmName, tabId, sessionId, reason = 'precollect_nudge') {
+
+async function runPreCollectScrollNudge(llmName, tabId, sessionId, reason = 'precollect_nudge', options = {}) {
+  const requiredBottom = options.getIt === true;
   if (self.isInitialPromptPassActive?.()) return false;
   if (!llmName || !isValidTabId(tabId)) return false;
   if (sessionId && !isSessionActive(sessionId)) return false;
   const initialEntry = jobState?.llms?.[llmName];
-  if (!initialEntry || isFinalizedEntry(initialEntry)) {
+  if (!initialEntry || (!requiredBottom && isFinalizedEntry(initialEntry))) {
     emitTelemetry(llmName, 'PRECOLLECT_NUDGE_SKIP', {
       details: 'terminal',
       meta: { tabId, reason }
     });
     return false;
   }
-  if (self.isActiveFocusAllowedForEntry?.(initialEntry) === false) {
+  if (!requiredBottom && self.isActiveFocusAllowedForEntry?.(initialEntry) === false) {
     emitTelemetry(llmName, 'PRECOLLECT_NUDGE_SKIP', {
       details: 'active_focus_window_exhausted',
       meta: { tabId, reason, activeFocusDeadlineAt: initialEntry.activeFocusDeadlineAt || null }
@@ -5820,17 +5828,31 @@ async function runPreCollectScrollNudge(llmName, tabId, sessionId, reason = 'pre
   const performNudge = async () => {
     const liveEntry = jobState?.llms?.[llmName];
     if (self.isInitialPromptPassActive?.() || (sessionId && !isSessionActive(sessionId))
-      || liveEntry !== initialEntry || isFinalizedEntry(liveEntry)) return false;
-    if (self.isActiveFocusAllowedForEntry?.(liveEntry) === false) return false;
+      || liveEntry !== initialEntry || (!requiredBottom && isFinalizedEntry(liveEntry))) return false;
+    if (!requiredBottom && self.isActiveFocusAllowedForEntry?.(liveEntry) === false) return false;
     if (typeof activateTabForDispatch === 'function') {
       await activateTabForDispatch(tabId);
     }
     if (self.isInitialPromptPassActive?.() || (sessionId && !isSessionActive(sessionId))
-      || jobState?.llms?.[llmName] !== liveEntry || isFinalizedEntry(liveEntry)) return false;
+      || jobState?.llms?.[llmName] !== liveEntry || (!requiredBottom && isFinalizedEntry(liveEntry))) return false;
+    const manualVisitStartedAt = Date.now();
     const results = await chrome.scripting.executeScript({
       target: { tabId },
       func: (meta = {}) => {
         const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        const requiredBottom = meta.requiredBottom === true;
+        let arrowClicks = 0;
+        const clickBottomArrow = () => {
+          if (!requiredBottom) return;
+          // Only explicit navigation controls; never a generic down-arrow SVG
+          // that might instead be Send, Download or a model-selection menu.
+          const button = Array.from(document.querySelectorAll('button, [role="button"]')).find(node => {
+            if (node.disabled || node.getAttribute('aria-disabled') === 'true' || !node.getClientRects().length) return false;
+            const label = [node.getAttribute('aria-label'), node.getAttribute('title'), node.getAttribute('data-testid')].filter(Boolean).join(' ');
+            return /scroll[\s_-]*to[\s_-]*(bottom|latest)|scroll[\s_-]*down|jump[\s_-]*to[\s_-]*(bottom|latest)|прокрутить.*вниз|к последнему сообщению|滚动到底部|回到底部/i.test(label);
+          });
+          if (button) { button.click(); arrowClicks += 1; }
+        };
         const resolveScrollableTargets = () => {
           const set = new Set();
           const root = document.scrollingElement || document.documentElement || document.body;
@@ -5859,6 +5881,7 @@ async function runPreCollectScrollNudge(llmName, tabId, sessionId, reason = 'pre
           set.clear();
           for (let node = primary; node; node = node.parentElement) add(node);
           add(root);
+          if (requiredBottom && !set.size && root?.clientHeight > 0 && root?.scrollHeight > 0) set.add(root);
           return Array.from(set);
         };
         const getTop = (node) => {
@@ -5880,12 +5903,14 @@ async function runPreCollectScrollNudge(llmName, tabId, sessionId, reason = 'pre
         return Promise.resolve().then(async () => {
           let previousTargets = [], previousSignature = '', stableSamples = 0;
           for (let pass = 0; pass < 8; pass += 1) {
+            if (requiredBottom && document.visibilityState === 'hidden') return { ok: false, settled: false, reason: 'page_hidden' };
+            clickBottomArrow();
             // Re-resolve after rendering: both the node and its height can change.
             const targets = resolveScrollableTargets();
             targets.forEach(node => setTop(node, node.scrollHeight - node.clientHeight));
             window.dispatchEvent(new Event('scroll'));
             await sleep(150);
-            const atBottom = targets.every(node => node.scrollHeight - node.clientHeight - getTop(node) <= 4);
+            const atBottom = (!requiredBottom || targets.length > 0) && targets.every(node => node.isConnected && node.scrollHeight - node.clientHeight - getTop(node) <= 4);
             const signature = targets.map(node => {
               const text = node.innerText || node.textContent || '';
               return `${node.scrollHeight}:${node.clientHeight}:${text.length}:${text.slice(-160)}`;
@@ -5893,7 +5918,7 @@ async function runPreCollectScrollNudge(llmName, tabId, sessionId, reason = 'pre
             const sameNodes = targets.length === previousTargets.length
               && targets.every((node, index) => node === previousTargets[index]);
             stableSamples = atBottom && sameNodes && signature === previousSignature ? stableSamples + 1 : 0;
-            if (stableSamples >= 2) return { ok: true, settled: true, targets: targets.length, passes: pass + 1 };
+            if (stableSamples >= 2) return { ok: true, settled: true, targets: targets.length, passes: pass + 1, arrowClicks };
             previousTargets = targets;
             previousSignature = signature;
           }
@@ -5901,14 +5926,34 @@ async function runPreCollectScrollNudge(llmName, tabId, sessionId, reason = 'pre
           return { ok: true, settled: false, targets: previousTargets.length, passes: 8 };
         });
       },
-      args: [{ reason, llmName }]
+      args: [{ reason, llmName, requiredBottom }]
     });
-    await orchestratorSleepMs(PRECOLLECT_NUDGE_STABILIZE_MS);
+    // Manual visits already wait for rendering in the page script. Do not add
+    // the automatic nudge's extra stabilization delay on top of their dwell.
+    if (!requiredBottom) await orchestratorSleepMs(PRECOLLECT_NUDGE_STABILIZE_MS);
     emitTelemetry(llmName, 'PRECOLLECT_NUDGE', {
       details: reason,
       meta: { tabId, reason, scrollPreparation: results?.[0]?.result || null }
     });
-    return true;
+    if (requiredBottom && (Number.isInteger(options.returnToTabId) || options.batchDwell === true)) {
+      // Keep this dwell and return inside the focus lock, so another model
+      // cannot take this recovery's slot while we are waiting.
+      await orchestratorSleepMs(options.batchDwell === true ? 2000
+        : Math.max(0, 2500 - (Date.now() - manualVisitStartedAt)));
+      try {
+        const returnTab = Number.isInteger(options.returnToTabId) ? await getTabSafe(options.returnToTabId) : null;
+        if (isAppUiTab(returnTab)) {
+          await chrome.tabs.update(returnTab.id, { active: true });
+          await chrome.windows.update(returnTab.windowId, { focused: true });
+        }
+      } catch (err) {
+        // A closed source tab must not turn successful preparation into failure.
+        emitTelemetry(llmName, 'MANUAL_RECOVERY_RETURN_FAILED', {
+          level: 'warning', details: err?.message || String(err)
+        });
+      }
+    }
+    return !requiredBottom || results?.[0]?.result?.settled === true;
   };
   try {
     // Keep focus for the full render preparation, not just tabs.update().
@@ -6697,6 +6742,8 @@ async function runDispatchRounds(selectedLLMs, prompt, forceNewTabs, attachments
     if (sessionId && !isSessionActive(sessionId)) return;
 
     const trackedModels = resolveRoundModelNames(selectedLLMs);
+    await runAutomaticGetItPass(selectedLLMs, sessionId);
+    if (sessionId && !isSessionActive(sessionId)) return;
     await markRoundPhase('round4');
     const pendingBeforeGate = getPendingRoundModels(trackedModels);
     emitRoundEvent(4, 'GATE_START', 'waiting pending models', {
@@ -9786,11 +9833,137 @@ function persistRequestMetadata(llmName, updates = {}) {
   return merged;
 }
 
+let getItBatchInFlight = null;
+
+async function runAutomaticGetItPass(selectedModels, sessionId) {
+  if (!isSessionActive(sessionId) || jobState.session?.automaticGetItStarted) return;
+  // A manual pass owns the same route. Wait for it rather than silently treating
+  // its failed-only model list as the automatic all-model pass.
+  if (getItBatchInFlight) await getItBatchInFlight.catch(() => {});
+  if (!isSessionActive(sessionId) || jobState.session?.automaticGetItStarted) return;
+  jobState.session.automaticGetItStarted = true;
+  saveJobState(jobState);
+  try {
+    return await collectGetItBatch(selectedModels, {
+      failedOnly: true, allModels: true, automatic: true,
+      returnToTabId: typeof resultsTabId === 'number' ? resultsTabId : null
+    });
+  } finally {
+    if (isSessionActive(sessionId)) {
+      jobState.session.automaticGetItFinished = true;
+      saveJobState(jobState);
+    }
+  }
+}
+
+function collectGetItBatch(selectedModels = [], options = {}) {
+  if (getItBatchInFlight) return getItBatchInFlight;
+  if (options.failedOnly === true) {
+    getItBatchInFlight = collectFailedGetItPages(selectedModels, options)
+      .finally(() => { getItBatchInFlight = null; });
+    return getItBatchInFlight;
+  }
+  const names = [...new Set(Array.isArray(selectedModels) ? selectedModels : [])]
+    .filter(name => typeof name === 'string' && (jobState?.llms?.[name] || LLM_TARGETS?.[name]));
+  const dispatches = new Map(names.map(name => [name, jobState?.llms?.[name]?.lastDispatchMeta?.dispatchId || null]));
+  let sessionId = getActiveSessionId();
+  getItBatchInFlight = (async () => {
+    const results = [];
+    for (const llmName of names) {
+      if (sessionId && !isSessionActive(sessionId)) return { status: 'get_it_cancelled', results };
+      const dispatchId = jobState?.llms?.[llmName]?.lastDispatchMeta?.dispatchId || null;
+      if (dispatchId !== dispatches.get(llmName)) {
+        results.push({ llmName, status: 'manual_ping_failed', error: 'Запрос модели изменился во время Get it.' });
+        continue;
+      }
+      try {
+        const result = await handleManualResponsePing(llmName, {
+          getIt: true, manualLatestRecovery: true, manualRecovery: true,
+          advanceStrategy: false, reason: 'get_it_batch'
+        });
+        results.push({ ...result, llmName });
+      } catch (err) {
+        results.push({ llmName, status: 'manual_ping_failed', error: err?.message || String(err) });
+      }
+      // Manual recovery can create the initial session when none existed.
+      if (!sessionId) sessionId = getActiveSessionId();
+    }
+    return { status: 'get_it_completed', results };
+  })().finally(() => { getItBatchInFlight = null; });
+  return getItBatchInFlight;
+}
+
+async function collectFailedGetItPages(selectedModels, options) {
+  if (self.isInitialPromptPassActive?.()) {
+    return {status:'get_it_busy', results:[], error:'Сначала должен закончиться первоначальный проход отправки запросов.'};
+  }
+  const sessionId = getActiveSessionId();
+  if (!sessionId) return {status:'get_it_unavailable', results:[], error:'Нет сохранённого запуска для ручного сбора.'};
+  const names = [...new Set([
+    ...(Array.isArray(selectedModels) ? selectedModels : []),
+    ...(options.allModels ? [] : Object.keys(jobState?.llms || {}))
+  ])].filter(name => {
+    const entry = jobState?.llms?.[name];
+    return entry && (options.allModels || String(entry.finalStatus || entry.status).toUpperCase() !== 'SUCCESS' || !entry.answer);
+  });
+  if (!names.length) return {status:'get_it_empty', results:[]};
+  const entries = new Map(names.map(name => [name, {
+    entry: jobState.llms[name], dispatchId: jobState.llms[name].lastDispatchMeta?.dispatchId
+  }]));
+  const collections = [];
+  const results = [];
+  try {
+    for (const llmName of names) {
+      if (!isSessionActive(sessionId) || self.isInitialPromptPassActive?.()) break;
+      const captured = entries.get(llmName);
+      const entry = jobState.llms[llmName];
+      if (entry !== captured.entry || entry.lastDispatchMeta?.dispatchId !== captured.dispatchId) continue;
+      try {
+        const tab = await getTabSafe(entry.tabId);
+        if (!isEligibleTabForLlm(llmName, tab)) throw new Error('Привязанная вкладка недоступна');
+        const reason = options.automatic ? 'automatic_get_it_batch' : 'get_it_failed_batch';
+        const prepared = await runPreCollectScrollNudge(llmName, tab.id, sessionId, reason, {
+          getIt: true, batchDwell: true
+        });
+        if (!prepared) throw new Error('Не удалось прокрутить страницу до конца');
+        if (!isSessionActive(sessionId) || jobState.llms[llmName] !== entry
+          || entry.lastDispatchMeta?.dispatchId !== captured.dispatchId) continue;
+        // Collection continues without owning focus; it must not delay the next visit.
+        collections.push(handleManualResponsePing(llmName, {
+          getIt: true, skipBottomPreparation: true, manualLatestRecovery: true,
+          manualRecovery: true, advanceStrategy: false, reason
+        }).then(result => results.push({ ...result, llmName }),
+          err => results.push({llmName, status:'manual_ping_failed', error:err?.message || String(err)})));
+      } catch (err) {
+        results.push({llmName, status:'manual_ping_failed', error:err?.message || String(err)});
+      }
+    }
+  } finally {
+    try {
+      const tab = isSessionActive(sessionId) ? await getTabSafe(options.returnToTabId) : null;
+      if (isAppUiTab(tab)) {
+        await chrome.tabs.update(tab.id, {active:true});
+        await chrome.windows.update(tab.windowId, {focused:true});
+      } else if (options.automatic && isSessionActive(sessionId)) {
+        await openOrFocusResultsTab();
+      }
+    } catch (_) { /* A closed source tab must not interrupt pending collection. */ }
+  }
+  await Promise.all(collections);
+  return {status:'get_it_completed', results};
+}
+
 async function handleManualResponsePing(llmName, options = {}) {
   if (!llmName) {
     return { status: 'manual_ping_failed', error: 'LLM name missing' };
   }
-  let tabId = TabMapManager.get(llmName);
+  let tabId = jobState?.llms?.[llmName]?.tabId || TabMapManager.get(llmName);
+  if (tabId) {
+    const boundTab = await getTabSafe(tabId);
+    if (!boundTab || !isEligibleTabForLlm(llmName, boundTab)) {
+      return { status: 'manual_ping_failed', error: 'Привязанная вкладка модели недоступна. Откройте нужный диалог перед сбором ответа.' };
+    }
+  }
   if (!tabId) {
     broadcastDiagnostic(llmName, {
       type: 'PING',
@@ -9909,7 +10082,13 @@ async function handleManualResponsePing(llmName, options = {}) {
     });
     return { status: 'manual_ping_sent' };
   }
-  if (!isFinalizedEntry(liveEntry)) {
+  if (options.getIt === true && options.skipBottomPreparation !== true) {
+    const prepared = await runPreCollectScrollNudge(llmName, tabId, getActiveSessionId(), 'get_it_precollect', {
+      getIt: true,
+      returnToTabId: options.reason === 'status_indicator_dblclick' ? options.returnToTabId : null
+    });
+    if (!prepared) return { status: 'manual_ping_failed', error: 'Не удалось перейти к концу беседы. Повторите Get it после завершения отправки запросов.' };
+  } else if (options.skipBottomPreparation !== true && !isFinalizedEntry(liveEntry)) {
     await runPreCollectScrollNudge(llmName, tabId, getActiveSessionId(), 'manual_ping_precollect');
   } else if (allowRecoverableTerminalPing || allowManualSelectorRecovery) {
     broadcastDiagnostic(llmName, {
@@ -9923,7 +10102,7 @@ async function handleManualResponsePing(llmName, options = {}) {
   }
   extendPingWindowForLLM(llmName, MANUAL_PING_WINDOW_MS);
   const manualRecoveryMeta = manualLatestRecovery
-    ? buildManualLatestRecoveryOptions(liveEntry, llmName, strategy)
+    ? buildManualLatestRecoveryOptions(liveEntry, llmName, strategy, { keepCurrentAnswer: options.getIt === true })
     : (manualRecoveryRequested ? {
     enabled: true,
     manualRecovery: true,
@@ -9937,6 +10116,7 @@ async function handleManualResponsePing(llmName, options = {}) {
   } : null);
   const responseMeta = {
     source: 'manual_ping',
+    getIt: options.getIt === true,
     runSessionId: Number(jobState?.session?.startTime || 0) || null,
     sessionId: Number(jobState?.session?.startTime || 0) || null,
     dispatchId: liveEntry?.lastDispatchMeta?.dispatchId || null,
@@ -10053,7 +10233,7 @@ async function handleManualResponsePing(llmName, options = {}) {
         error: manualBudget.reason
       });
     } else {
-        lateCollectAnswer({
+        await lateCollectAnswer({
           llmName,
           tabId,
           reason: manualLatestRecovery ? 'manual_latest_recovery' : 'manual_ping_late_collect',
@@ -10198,6 +10378,7 @@ function sendCleanupCommand(llmName) {
   self.stopAllProcesses = stopAllProcesses;
   self.startProcess = startProcess;
   self.collectResponses = collectResponses;
+  self.collectGetItBatch = collectGetItBatch;
   self.collectResponsesStaged = collectResponsesStaged;
   self.handleLLMResponse = handleLLMResponse;
   self.startBudgetPhase = startBudgetPhase;

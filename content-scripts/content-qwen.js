@@ -365,6 +365,7 @@ const keepAliveMutex = (() => {
         expectedLength: pipelineExpectedLength(promptText),
         baselineText: baselineText || ''
       }, pipelineOverrides));
+      lifecycle.onPipeline?.(pipeline);
       const result = await pipeline.execute();
       if (result?.success && result.answer) {
         heartbeat?.({
@@ -1573,10 +1574,11 @@ const keepAliveMutex = (() => {
   }
 
   function isSafeQwenSendControl(btn) {
-    return Boolean(btn && isElementInteractable(btn) && hasExplicitQwenSendIdentity(btn));
+    return Boolean(btn && !btn.disabled && btn.getAttribute?.('aria-disabled') !== 'true'
+      && isElementInteractable(btn) && hasExplicitQwenSendIdentity(btn));
   }
 
-  async function resolveSendButton(referenceInput) {
+  async function resolveSendButton(referenceInput, scanOnly = false) {
     const scoreSendButtonCandidate = (btn) => {
       if (!isSafeQwenSendControl(btn)) return 0;
       const text = describeQwenComposerControl(btn);
@@ -1623,17 +1625,14 @@ const keepAliveMutex = (() => {
         .sort((a, b) => b.score - a.score);
       if (candidates[0]?.btn) return candidates[0].btn;
     } catch (_) {}
-    if (window.SelectorFinder?.findOrDetectSelector) {
-      try {
-        const result = await window.SelectorFinder.findOrDetectSelector({
-          modelName: MODEL,
-          elementType: 'sendButton',
-          timeout: 12000,
-          referenceElement: referenceInput || null
-        });
-        if (isSafeQwenSendControl(result?.element)) return result.element;
-      } catch (err) {
-        console.warn('[content-qwen] SelectorFinder send button resolution failed', err);
+    if (!scanOnly) {
+      // React may replace/enable Send just after paste or upload. Re-read the
+      // live controls instead of blocking the foreground slot on a 12s finder.
+      const deadline = Date.now() + 1500;
+      while (Date.now() < deadline) {
+        await sleep(100);
+        const button = await resolveSendButton(referenceInput, true);
+        if (button) return button;
       }
     }
     return null;
@@ -1708,16 +1707,27 @@ const keepAliveMutex = (() => {
       const deadline = Date.now() + timeout;
       while (Date.now() < deadline) {
         if (hasSubmittedUserMessage()) return true;
-        if (hasQwenGenerationSignal(scope)) return true;
-        const assistants = getAssistantMessages(scope);
-        if (assistants.length > 0) {
-          const latest = extractMessageText(assistants[assistants.length - 1]);
-          if (isQwenAnswerCandidate(latest, options.prompt || '', '')) return true;
-        }
         await sleep(140);
       }
       return false;
     };
+
+    const isMac = typeof navigator !== 'undefined'
+      && /Mac/i.test(navigator.userAgentData?.platform || navigator.platform || '');
+    if (isMac) {
+      input.focus?.({ preventScroll: true });
+      dispatchEnter({ metaKey: true });
+      if (await confirmQwenSend(null, 2000)) return true;
+      // Do not click Send again if the shortcut consumed or changed the draft.
+      // A new user turn may become visible only after a delayed UI update.
+      const expected = normalizeForComparison(options.prompt || '');
+      if (!input.isConnected || !expected
+        || normalizeForComparison(readComposerValue(input)) !== expected
+        || getUserMessages(document).length !== baselineUserCount) {
+        if (await waitForLateSendSignals(6000)) return true;
+        throw { type: 'send_failed', message: 'Qwen Cmd+Enter send not confirmed' };
+      }
+    }
 
     // The draft is already verified. Do not spend the foreground slot waiting
     // before trying the visible Send control.
@@ -2667,6 +2677,8 @@ const keepAliveMutex = (() => {
       let baselineAssistantText = '';
       let baselineAssistantCount = 0;
       let baselineContainerCount = 0;
+      let submissionConfirmed = false;
+      let fallbackVerifier = null;
       try {
         await sleep(1000);
           activity.heartbeat(0.15, { phase: 'composer-search' });
@@ -2799,6 +2811,7 @@ const keepAliveMutex = (() => {
               scope: qwenScope,
               baselineUserCount
             });
+            submissionConfirmed = true;
           } catch (err) {
             emitDiagnostic({
               type: 'DISPATCH',
@@ -2826,6 +2839,7 @@ const keepAliveMutex = (() => {
           const responsePayload = await withSmartScroll(async () => {
             let pipelineAnswer = null;
             await tryQwenPipeline(prompt, {
+              onPipeline: pipeline => { fallbackVerifier = text => pipeline.verifyFallbackAnswer?.(text); },
               heartbeat: (meta = {}) => activity.heartbeat(0.8, Object.assign({ phase: 'pipeline' }, meta)),
             stop: async ({ answer, answerHtml, metadata }) => {
                 let cleaned = contentCleaner.clean(answer, { maxLength: 50000 });
@@ -2889,7 +2903,7 @@ const keepAliveMutex = (() => {
             const fallbackPayload = {
               text: cleaned,
               html: latestMarkup.html || lastResponseHtml,
-              meta: window.ContentUtils?.buildResponseMeta?.(null, { source: 'dom_fallback' }) || null
+              meta: window.ContentUtils?.buildResponseMeta?.(null, { source: 'dom_fallback', answerVerification: await fallbackVerifier?.(cleaned) }) || null
             };
             sendResult(fallbackPayload, true, context);
             activity.heartbeat(0.9, { phase: 'response-processed' });
@@ -2903,6 +2917,9 @@ const keepAliveMutex = (() => {
           throw e;
         }
         try {
+          // An insertion/upload/send failure must remain a dispatch failure.
+          // An older answer is not evidence that the current draft was sent.
+          if (!submissionConfirmed) throw e;
           const scope = qwenScope || resolveQwenChatRoot();
           const fallback = await waitForQwenReply(prompt, 18000, {
             baselineText: baselineAssistantText || '',
@@ -2921,7 +2938,7 @@ const keepAliveMutex = (() => {
             const fallbackPayload = {
               text: cleanedFallback,
               html: latestMarkup.html || lastResponseHtml,
-              meta: window.ContentUtils?.buildResponseMeta?.(null, { source: 'last_chance_fallback' }) || null
+              meta: window.ContentUtils?.buildResponseMeta?.(null, { source: 'last_chance_fallback', answerVerification: await fallbackVerifier?.(cleanedFallback) }) || null
             };
             sendResult(fallbackPayload, true, context);
             activity.stop({ status: 'success', answerLength: cleanedFallback.length, source: 'last_chance_fallback' });
