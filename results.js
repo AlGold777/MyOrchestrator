@@ -21298,20 +21298,17 @@ function checkCompareButtonState() {
     const alignSubmittedPromptWithHeader = () => {
         if (document.body.classList.contains('pipeline-page') || !promptInput) return;
         const header = document.querySelector('.top-control-bar');
-        const promptGroup = promptInput.closest('.prompt-group');
         const headerBottom = Number(header?.getBoundingClientRect?.().bottom || 0);
-        const promptGroupRect = promptGroup?.getBoundingClientRect?.();
         const promptTop = Number(promptInput.getBoundingClientRect?.().top || 0);
-        if (!Number.isFinite(headerBottom) || !Number.isFinite(promptTop) || !promptGroupRect) return;
+        if (!Number.isFinite(headerBottom) || !Number.isFinite(promptTop)) return;
 
         const targetTop = headerBottom + 5;
-        const promptOffset = promptTop - promptGroupRect.top;
-        const groupTop = targetTop - promptOffset;
-        const root = document.documentElement;
-        root.style.setProperty('--submitted-prompt-group-top', `${groupTop}px`);
-        root.style.setProperty('--submitted-prompt-group-left', `${promptGroupRect.left}px`);
-        root.style.setProperty('--submitted-prompt-group-width', `${promptGroupRect.width}px`);
-        root.style.setProperty('--submitted-prompt-group-height', `${promptGroupRect.height}px`);
+        const delta = promptTop - targetTop;
+        if (Math.abs(delta) < 1) return;
+        window.scrollTo({
+            top: Math.max(0, window.scrollY + delta),
+            behavior: 'auto'
+        });
     };
 
     let submittedPromptAlignmentFrame = 0;
@@ -21326,16 +21323,6 @@ function checkCompareButtonState() {
             alignSubmittedPromptWithHeader();
         });
     };
-    const submittedLayoutObserver = typeof ResizeObserver === 'function'
-        ? new ResizeObserver(scheduleSubmittedPromptAlignment)
-        : null;
-    if (submittedLayoutObserver) {
-        submittedLayoutObserver.observe(promptInput);
-        const submittedPromptContainer = promptInput.closest('.prompt-container');
-        const submittedHeader = document.querySelector('.top-control-bar');
-        if (submittedPromptContainer) submittedLayoutObserver.observe(submittedPromptContainer);
-        if (submittedHeader) submittedLayoutObserver.observe(submittedHeader);
-    }
     const promptSelectionObserver = typeof MutationObserver === 'function'
         ? new MutationObserver(scheduleSubmittedPromptAlignment)
         : null;
