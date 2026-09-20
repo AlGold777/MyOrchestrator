@@ -21247,6 +21247,7 @@ function checkCompareButtonState() {
         if (!Number.isFinite(headerBottom) || !Number.isFinite(promptTop)) return;
 
         const targetTop = headerBottom + 5;
+        document.documentElement.style.setProperty('--submitted-prompt-sticky-top', `${targetTop}px`);
         const delta = promptTop - targetTop;
         if (Math.abs(delta) < 1) return;
         window.scrollTo({

@@ -950,14 +950,16 @@ body:not(.pipeline-page):not(.prompt-submitted) .app-main .container:has(.prompt
 }
 
 body.prompt-submitted:not(.pipeline-page) .app-main .input-section {
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    justify-content: flex-start;
+    display: contents;
     min-height: 0;
-    /* Keep the prompt close to the sticky header once response cards appear. */
-    padding-top: 5px;
     overflow-anchor: none;
+}
+
+body.prompt-submitted:not(.pipeline-page) .app-main .prompt-group {
+    position: sticky;
+    top: var(--submitted-prompt-sticky-top, 5px);
+    z-index: 11;
+    background: #f3f4f6;
 }
 
 body.prompt-submitted:not(.pipeline-page) .prompt-container.prompt-sandwich:not(.debate-composer) {
