@@ -21287,18 +21287,20 @@ function checkCompareButtonState() {
     const alignSubmittedPromptWithHeader = () => {
         if (document.body.classList.contains('pipeline-page') || !promptInput) return;
         const header = document.querySelector('.top-control-bar');
+        const promptGroup = promptInput.closest('.prompt-group');
         const headerBottom = Number(header?.getBoundingClientRect?.().bottom || 0);
+        const promptGroupRect = promptGroup?.getBoundingClientRect?.();
         const promptTop = Number(promptInput.getBoundingClientRect?.().top || 0);
-        if (!Number.isFinite(headerBottom) || !Number.isFinite(promptTop)) return;
+        if (!Number.isFinite(headerBottom) || !Number.isFinite(promptTop) || !promptGroupRect) return;
 
         const targetTop = headerBottom + 5;
-        document.documentElement.style.setProperty('--submitted-prompt-sticky-top', `${targetTop}px`);
-        const delta = promptTop - targetTop;
-        if (Math.abs(delta) < 1) return;
-        window.scrollTo({
-            top: Math.max(0, window.scrollY + delta),
-            behavior: 'auto'
-        });
+        const promptOffset = promptTop - promptGroupRect.top;
+        const groupTop = targetTop - promptOffset;
+        const root = document.documentElement;
+        root.style.setProperty('--submitted-prompt-group-top', `${groupTop}px`);
+        root.style.setProperty('--submitted-prompt-group-left', `${promptGroupRect.left}px`);
+        root.style.setProperty('--submitted-prompt-group-width', `${promptGroupRect.width}px`);
+        root.style.setProperty('--submitted-prompt-group-height', `${promptGroupRect.height}px`);
     };
 
     let submittedPromptAlignmentFrame = 0;

@@ -949,10 +949,14 @@ body.prompt-submitted:not(.pipeline-page) .app-main .input-section {
     overflow-anchor: none;
 }
 
-body.prompt-submitted:not(.pipeline-page) .app-main .prompt-group {
-    position: sticky;
-    top: var(--submitted-prompt-sticky-top, 5px);
+body.prompt-submitted:not(.pipeline-page) .app-main .prompt-group,
+body:not(.pipeline-page):not(.prompt-submitted) .app-main .prompt-group:has(.prompt-container.has-selected-models) {
+    position: fixed;
+    top: var(--submitted-prompt-group-top, 5px);
+    left: var(--submitted-prompt-group-left, 0px);
+    width: var(--submitted-prompt-group-width, 100%);
     z-index: 11;
+    box-sizing: border-box;
     background: #f3f4f6;
 }
 
@@ -970,6 +974,11 @@ body.prompt-submitted:not(.pipeline-page) .prompt-container.prompt-sandwich:not(
 body.prompt-submitted:not(.pipeline-page) .app-main .container + .llm-controls,
 body.prompt-submitted:not(.pipeline-page) .app-main .container:has(#prefix-container:not(:empty), #suffix-container:not(:empty)) + .llm-controls {
     margin-top: 10px;
+}
+
+body.prompt-submitted:not(.pipeline-page) .app-main .container + .llm-controls,
+body:not(.pipeline-page):not(.prompt-submitted) .app-main .container:has(.prompt-container.has-selected-models) + .llm-controls {
+    padding-top: var(--submitted-prompt-group-height, 0px);
 }
 
 .dev-tools-panel {
