@@ -1,5 +1,9 @@
 # CHANGELOG — Project
 
+### 2026-09-20 — Refine HTML export header and model navigation, version 2.81.462
+
+- Move the export date into the Prompt row, hide the duplicate top title, use 17px vertical navigation padding, and set inactive model labels to `#8c98a3` while preserving the active label color.
+
 ### 2026-09-20 — Save cards into Current session, version 2.81.461
 
 - Кнопка `Save` теперь обновляет `Current session`, не создавая новую сессию.

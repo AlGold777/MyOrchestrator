@@ -18114,6 +18114,7 @@ function buildSessionExportBlock(sessionName, snapshot = {}) {
 
 function buildAllResponsesExportHtml() {
     const promptBlock = getAllResponsesPromptText();
+    const exportTimestamp = formatSavedFileTimestamp();
 
     const { entries } = collectLLMResponses();
     if (!entries.length) {
@@ -18178,12 +18179,13 @@ function buildAllResponsesExportHtml() {
         .response-separator { margin: 24px 0; font-family: monospace; line-height: 1.2; white-space: nowrap; overflow-x: auto; }
         .model-title { display: block; width: 100%; box-sizing: border-box; padding: 2px 8px; background: #e9eef2; scroll-margin-top: 100px; }
         .export-timestamp { color: #555; font-size: 14px; font-weight: normal; }
-        .model-navigation { position: sticky; top: 0; z-index: 10; display: flex; justify-content: flex-start; align-items: center; flex-wrap: wrap; gap: 4.65px; margin: 0 0 24px; padding: 12px 0; background: #fff; }
-        .model-nav-button { display: inline-flex; flex: 0 0 auto; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-width: 58px; padding: 0; border: none; border-radius: 0; background: transparent; color: #27251eeb; font-size: 12px; font-weight: 600; letter-spacing: 0.01em; cursor: pointer; transition: color 0.2s ease, transform 0.2s ease; }
-        .model-nav-button:hover { color: #1f3b4c; transform: translateY(-1px); }
+        .model-navigation { position: sticky; top: 0; z-index: 10; display: flex; justify-content: flex-start; align-items: center; flex-wrap: wrap; gap: 4.65px; margin: 0 0 24px; padding: 17px 0; background: #fff; }
+        .model-nav-button { display: inline-flex; flex: 0 0 auto; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-width: 58px; padding: 0; border: none; border-radius: 0; background: transparent; color: #8c98a3; font-size: 12px; font-weight: 600; letter-spacing: 0.01em; cursor: pointer; transition: color 0.2s ease, transform 0.2s ease; }
+        .model-nav-button:hover { color: #8c98a3; transform: translateY(-1px); }
         .model-nav-icon { width: 34px; height: 34px; display: block; background-color: rgba(39, 37, 30, 0.446); -webkit-mask: var(--model-icon) center / contain no-repeat; mask: var(--model-icon) center / contain no-repeat; transition: background-color 0.2s ease, transform 0.2s ease; }
         .model-nav-label { line-height: 1; text-align: center; }
         .model-nav-button:hover .model-nav-icon { transform: scale(1.04); }
+        .model-nav-button.is-active, .model-nav-button.is-active:hover { color: #27251eeb; }
         .model-nav-button.is-active .model-nav-icon { background-color: #27251eeb; }
         .model-home-button { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; flex: 0 0 auto; width: 58px; padding: 0; border: none; color: #27251eeb; line-height: 1; text-decoration: none; gap: 6px; }
         .model-home-icon { display: block; width: 34px; height: 34px; font-size: 34px; line-height: 1; text-align: center; }
@@ -18192,15 +18194,15 @@ function buildAllResponsesExportHtml() {
     </style>
 </head>
 <body>
-    <h1 id="export-top">LLMs answers <span class="export-timestamp">${formatSavedFileTimestamp()}</span></h1>
+    <h1 id="export-top" hidden>LLMs answers</h1>
     <nav class="model-navigation" aria-label="Model responses">
         <a class="model-home-button" href="#export-top" aria-label="Back to top" title="Back to top"><span class="model-home-icon" aria-hidden="true">⌂</span><span class="model-home-label">Home</span></a>
 ${responseNavigation}
     </nav>
-${promptBlock ? `
+${promptBlock || exportTimestamp ? `
     <section class="prompt-section">
-        <div class="prompt-heading"><h2>Prompt</h2><button type="button" class="prompt-toggle" hidden aria-expanded="false">Show more</button></div>
-        <pre class="export-prompt is-collapsed">${escapeHtml(promptBlock)}</pre>
+        <div class="prompt-heading">${promptBlock ? '<h2>Prompt</h2>' : ''}<span class="export-timestamp">${exportTimestamp}</span>${promptBlock ? '<button type="button" class="prompt-toggle" hidden aria-expanded="false">Show more</button>' : ''}</div>
+        ${promptBlock ? `<pre class="export-prompt is-collapsed">${escapeHtml(promptBlock)}</pre>` : ''}
     </section>
     <hr>
 ` : ''}${favoriteSections ? `
