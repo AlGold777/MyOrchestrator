@@ -1,5 +1,9 @@
 # CHANGELOG — Project
 
+### 2026-09-20 — Update fully expanded card background, version 2.81.457
+
+- Change the background of fully expanded model cards to `#fbf9f9`.
+
 ### 2026-09-20 — Highlight the selected HTML export model, version 2.81.456
 
 - Give the selected model icon the exact `#27251eeb` color in the standalone HTML export.
