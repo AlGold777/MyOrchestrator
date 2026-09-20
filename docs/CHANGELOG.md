@@ -1,5 +1,9 @@
 # CHANGELOG — Project
 
+### 2026-09-20 — Align HTML model anchors and clean stray text, version 2.81.468
+
+- Match model-page anchor spacing to the navigation height and remove the stray `Конфигурации (docker-compose.yml, .env.example, Makefile).` line from standalone HTML exports.
+
 ### 2026-09-20 — Reduce HTML export navigation spacing, version 2.81.467
 
 - Reduce the gap between model navigation and Prompt to 8px and the page top padding to 12px.
