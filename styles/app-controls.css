@@ -960,16 +960,6 @@ body.prompt-submitted:not(.pipeline-page) .prompt-container.prompt-sandwich:not(
     justify-content: flex-start;
 }
 
-/* После запуска сохраняем 20px до header, но уплотняем сам prompt-контейнер,
-   чтобы вокруг textarea не оставалось лишнего вертикального пространства. */
-body.prompt-submitted:not(.pipeline-page) .prompt-container.prompt-sandwich:not(.debate-composer) {
-    min-height: 102px;
-    height: 102px;
-    max-height: 102px;
-    padding-top: 0;
-    padding-bottom: 0;
-}
-
 body.prompt-submitted:not(.pipeline-page) .app-main .container + .llm-controls,
 body.prompt-submitted:not(.pipeline-page) .app-main .container:has(#prefix-container:not(:empty), #suffix-container:not(:empty)) + .llm-controls {
     margin-top: 30px;

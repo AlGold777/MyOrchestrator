@@ -21256,6 +21256,22 @@ function checkCompareButtonState() {
         return finalParts.join('\n\n');
     }
 
+    const alignSubmittedPromptWithHeader = () => {
+        if (document.body.classList.contains('pipeline-page') || !promptInput) return;
+        const header = document.querySelector('.top-control-bar');
+        const headerBottom = Number(header?.getBoundingClientRect?.().bottom || 0);
+        const promptTop = Number(promptInput.getBoundingClientRect?.().top || 0);
+        if (!Number.isFinite(headerBottom) || !Number.isFinite(promptTop)) return;
+
+        const targetTop = headerBottom + 20;
+        const delta = promptTop - targetTop;
+        if (Math.abs(delta) < 1) return;
+        window.scrollTo({
+            top: Math.max(0, window.scrollY + delta),
+            behavior: 'auto'
+        });
+    };
+
     startButton?.addEventListener('click', async () => {
 
         try {
@@ -21325,6 +21341,13 @@ function checkCompareButtonState() {
             }
 
             syncProStreamVisibility();
+
+            // The submitted layout changes the document flow. Scroll after the
+            // new layout is painted so the textarea sits 20px below the sticky
+            // header while the footer remains inside its natural-height box.
+            requestAnimationFrame(() => {
+                requestAnimationFrame(alignSubmittedPromptWithHeader);
+            });
 
             // Запрос отправлен — поле ввода возвращается к размеру по умолчанию,
             // а вложения сбрасываются, чтобы не уехать повторно со следующим запросом.
