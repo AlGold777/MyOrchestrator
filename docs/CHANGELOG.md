@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-09-20 — Save cards into Current session, version 2.81.461
+
+- Кнопка `Save` теперь обновляет `Current session`, не создавая новую сессию.
+- Имя текущей сессии формируется из первых 50 символов textarea и даты (`sep20`); при пустом textarea используется `Session sep20`.
+- Карточки ответов, избранное и выбранные модели сохраняются в snapshot текущей сессии.
+
 ### 2026-09-20 — Preserve focus after adding favorites, version 2.81.460
 
 - Stop scrolling the page to the Favourite card when adding a selected fragment or response card, so users can continue selecting text without losing their current position.

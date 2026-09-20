@@ -634,8 +634,8 @@ describe('release log regression guards', () => {
     expect(source).toContain('|| session.savedPromptText');
     expect(source).toContain('promptText: inlineSnapshot.promptText,');
     expect(source).toContain('activeSession.promptText = snapshot.promptText;');
-    expect(source).toContain('existingSession.promptText = pageSnapshot.promptText;');
-    expect(source).toContain('promptText: pageSnapshot.promptText,');
+    expect(source).toContain('sessionsState.currentSnapshot = pageSnapshot;');
+    expect(source).toContain('promptText: inlineSnapshot.promptText,');
     expect(source).toContain('const previewPromptText = normalizedSnapshot.promptText || String(session.promptText || \'\').trim();');
     expect(source).toContain('const previewText = formatSessionPreview(session.urls, previewPromptText);');
   });
@@ -651,6 +651,20 @@ describe('release log regression guards', () => {
     expect(source).toContain('const restoreSessionPreview = (snapshot = null) => {');
     expect(source).toContain('const normalizedSnapshot = snapshot ? normalizeSessionPageSnapshot(snapshot) : null;');
     expect(source).toContain('const restoredText = normalizedSnapshot?.promptText ?? sessionPreview.text;');
+  });
+
+  test('Save updates Current session instead of creating a saved session', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'results.js'), 'utf8');
+    const saveStart = source.indexOf('const saveCurrentSession = async () => {');
+    const saveEnd = source.indexOf('\n            const runSessionById', saveStart);
+    const saveBlock = source.slice(saveStart, saveEnd);
+
+    expect(source).toContain('currentSessionName: \'Current session\'');
+    expect(source).toContain('const buildCurrentSessionName = (promptText = \'\', value = new Date()) => {');
+    expect(source).toContain("return subject ? `${subject} - ${dateLabel}` : `Session ${dateLabel}`;");
+    expect(saveBlock).toContain('await saveSessionSnapshotToIdb(CURRENT_SESSION_ID, pageSnapshot);');
+    expect(saveBlock).toContain('sessionsState.currentSessionName = buildCurrentSessionName(pageSnapshot.promptText, now);');
+    expect(saveBlock).not.toContain('sessionsState.sessions.unshift(session);');
   });
 
   test('deleting active saved sidebar session returns textarea to Current session', () => {

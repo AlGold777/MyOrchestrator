@@ -7224,6 +7224,7 @@ document.addEventListener('click', (event) => {
                 selectedId: null,
                 activeViewId: CURRENT_SESSION_ID,
                 currentSnapshot: null,
+                currentSessionName: 'Current session',
                 dragId: null,
                 dragOverId: null,
                 dragPosition: null,
@@ -9278,6 +9279,18 @@ document.addEventListener('click', (event) => {
                 return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
             };
 
+            const formatCurrentSessionDate = (value = new Date()) => {
+                const date = value instanceof Date ? value : new Date(value);
+                const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+                return `${months[date.getMonth()]}${date.getDate()}`;
+            };
+
+            const buildCurrentSessionName = (promptText = '', value = new Date()) => {
+                const subject = String(promptText || '').replace(/\s+/g, ' ').trim().slice(0, 50).trim();
+                const dateLabel = formatCurrentSessionDate(value);
+                return subject ? `${subject} - ${dateLabel}` : `Session ${dateLabel}`;
+            };
+
             const createSessionId = () => `session_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
 
             const normalizeSessionUrls = (urls = []) => (
@@ -9855,6 +9868,7 @@ document.addEventListener('click', (event) => {
                     collectSidebarSessionPageSnapshot,
                     applySidebarSessionPageSnapshot,
                     getSessionSnapshotSummary,
+                    buildCurrentSessionName,
                     buildSavedSessionsExportText,
                     sessionsState
                 };
@@ -9882,7 +9896,7 @@ document.addEventListener('click', (event) => {
                     : sessionsState.currentSnapshot || normalizeSessionPageSnapshot();
                 return {
                     id: CURRENT_SESSION_ID,
-                    name: 'Current session',
+                    name: sessionsState.currentSessionName || 'Current session',
                     urls: [],
                     pageSnapshot: liveSnapshot,
                     responseCards: liveSnapshot.responseCards,
@@ -10144,18 +10158,10 @@ document.addEventListener('click', (event) => {
             };
 
             const saveCurrentSession = async () => {
-                const existingSession = getSelectedSession();
-                await captureActiveSidebarSessionView();
                 const manualUrls = extractSessionUrlsFromText(getEditorValue());
-                const trackedTabs = manualUrls.length
-                    ? []
-                    : await fetchTrackedSessionTabs(existingSession || null, { currentRunOnly: !existingSession });
+                const trackedTabs = manualUrls.length ? [] : await fetchTrackedSessionTabs(null, { currentRunOnly: true });
                 const trackedUrls = Array.from(new Set(trackedTabs.map((tab) => tab.url).filter(Boolean)));
-                const urls = manualUrls.length
-                    ? manualUrls
-                    : existingSession
-                        ? (trackedUrls.length ? trackedUrls : normalizeSessionUrls(existingSession.urls))
-                        : trackedUrls;
+                const urls = manualUrls.length ? manualUrls : trackedUrls;
                 const now = Date.now();
                 const pageSnapshot = collectSidebarSessionPageSnapshot();
                 const hasSnapshotContent = pageSnapshot.responseCards.length
@@ -10166,35 +10172,11 @@ document.addEventListener('click', (event) => {
                     setStatus('No session content to save');
                     return;
                 }
-                if (existingSession) {
-                    await saveSessionSnapshotToIdb(existingSession.id, pageSnapshot);
-                    existingSession.urls = normalizeSessionUrls(urls);
-                    existingSession.promptText = pageSnapshot.promptText;
-                    if (trackedTabs.length) {
-                        existingSession.boundTabIds = normalizeSessionTabIds(trackedTabs.map((tab) => tab.tabId));
-                    }
-                    Object.assign(existingSession, getSessionSnapshotSummary(pageSnapshot));
-                    existingSession.updatedAt = now;
-                    sessionsState.selectedId = existingSession.id;
-                    sessionsState.activeViewId = existingSession.id;
-                } else {
-                    const sessionId = createSessionId();
-                    await saveSessionSnapshotToIdb(sessionId, pageSnapshot);
-                    const session = {
-                        id: sessionId,
-                        name: `Session ${formatTimestamp(now)}`,
-                        urls: normalizeSessionUrls(urls),
-                        boundTabIds: normalizeSessionTabIds(trackedTabs.map((tab) => tab.tabId)),
-                        promptText: pageSnapshot.promptText,
-                        ...getSessionSnapshotSummary(pageSnapshot),
-                        createdAt: now,
-                        updatedAt: now
-                    };
-                    sessionsState.sessions.unshift(session);
-                    sessionsState.selectedId = session.id;
-                    sessionsState.activeViewId = session.id;
-                }
-                await persistSessions();
+                await saveSessionSnapshotToIdb(CURRENT_SESSION_ID, pageSnapshot);
+                sessionsState.currentSnapshot = pageSnapshot;
+                sessionsState.currentSessionName = buildCurrentSessionName(pageSnapshot.promptText, now);
+                sessionsState.selectedId = CURRENT_SESSION_ID;
+                sessionsState.activeViewId = CURRENT_SESSION_ID;
                 renderSessionsList();
                 setStatus('Session saved');
             };
