@@ -1,5 +1,9 @@
 # CHANGELOG — Project
 
+### 2026-09-20 — Reduce HTML export navigation spacing, version 2.81.467
+
+- Reduce the gap between model navigation and Prompt to 8px and the page top padding to 12px.
+
 ### 2026-09-20 — Remove all HTML export divider lines, version 2.81.466
 
 - Remove every horizontal divider line from standalone HTML exports.
