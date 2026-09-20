@@ -663,8 +663,11 @@ describe('release log regression guards', () => {
     expect(source).toContain('const buildCurrentSessionName = (promptText = \'\', value = new Date()) => {');
     expect(source).toContain("return subject ? `${subject} - ${dateLabel}` : `Session ${dateLabel}`;");
     expect(saveBlock).toContain('await saveSessionSnapshotToIdb(CURRENT_SESSION_ID, pageSnapshot);');
+    expect(saveBlock).toContain('sessionsState.currentSessionUrls = normalizeSessionUrls(urls);');
+    expect(saveBlock).toContain('setEditorValue(formatSessionPreview(sessionsState.currentSessionUrls, pageSnapshot.promptText));');
     expect(saveBlock).toContain('sessionsState.currentSessionName = buildCurrentSessionName(pageSnapshot.promptText, now);');
     expect(saveBlock).not.toContain('sessionsState.sessions.unshift(session);');
+    expect(source).toContain('sessionsState.activeViewId === CURRENT_SESSION_ID\n                        ? sessionsState.currentSessionUrls');
   });
 
   test('deleting active saved sidebar session returns textarea to Current session', () => {

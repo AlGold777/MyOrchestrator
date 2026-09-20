@@ -10174,7 +10174,9 @@ document.addEventListener('click', (event) => {
                 }
                 await saveSessionSnapshotToIdb(CURRENT_SESSION_ID, pageSnapshot);
                 sessionsState.currentSnapshot = pageSnapshot;
+                sessionsState.currentSessionUrls = normalizeSessionUrls(urls);
                 sessionsState.currentSessionName = buildCurrentSessionName(pageSnapshot.promptText, now);
+                setEditorValue(formatSessionPreview(sessionsState.currentSessionUrls, pageSnapshot.promptText));
                 sessionsState.selectedId = CURRENT_SESSION_ID;
                 sessionsState.activeViewId = CURRENT_SESSION_ID;
                 renderSessionsList();
@@ -18032,7 +18034,7 @@ function formatExportPromptName(promptText = getExportPromptSource()) {
 
 function buildResponseExportFilename(modelName, extension, date = new Date()) {
     const promptName = formatExportPromptName();
-    const subject = modelName ? String(modelName).replace(/[\\/:?<>|*"']/g, '').trim() : 'all_LLM';
+    const subject = modelName ? String(modelName).replace(/[\\/:?<>|*"']/g, '').trim() : 'LLMs';
     return `${promptName} - ${subject} ${formatNamedExportStamp(date)}.${extension}`;
 }
 
@@ -18193,8 +18195,7 @@ function buildAllResponsesExportHtml() {
         .model-home-button:hover { color: #1f3b4c; transform: translateY(-1px); }
     </style>
 </head>
-<body>
-    <h1 id="export-top" hidden>LLMs answers</h1>
+<body id="export-top">
     <nav class="model-navigation" aria-label="Model responses">
         <a class="model-home-button" href="#export-top" aria-label="Back to top" title="Back to top"><span class="model-home-icon" aria-hidden="true">⌂</span><span class="model-home-label">Home</span></a>
 ${responseNavigation}
