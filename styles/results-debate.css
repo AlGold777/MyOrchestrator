@@ -639,6 +639,10 @@ body.llm-stream-preview-open .llm-results .llm-panel:not(.favorite-panel) .outpu
   min-height: 300px;
 }
 
+.llm-results.view-grid .llm-panel .output {
+  min-height: 300px;
+}
+
 .llm-results .llm-panel.llm-panel-session-restored:not(.favorite-panel) {
   position: static;
   transform: none;

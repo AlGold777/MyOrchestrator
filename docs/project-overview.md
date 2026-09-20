@@ -88,7 +88,7 @@ When you send a prompt with an attached file, the app tries to attach the file t
 - If the file cannot be attached automatically, the model card shows an "action required" status — but the prompt text is still placed into the provider's input box (currently wired for Grok). To finish, just attach the file manually on that page and press send.
 - A model card only turns green when the app actually holds the answer text. If a status says "success" but no answer was captured anywhere, the card shows an honest "uncertain" state instead of a false green.
 - After starting a run on the main page, the document scrolls so the textarea sits 5px below the sticky header; the gap before the response cards is 10px, while the prompt footer remains inside its natural-height container.
-- In the horizontal response-card layout, each model card has a minimum height of 300px.
+- In the horizontal response-card layout, each model card and its response area have a minimum height of 300px.
 - On the Pipeline page, the same composer lift is applied when opening Pro or pressing the Pipeline start button.
 - An answer that arrived while the prompt was never actually sent (for example, an old answer left on the page from a previous conversation) is no longer accepted as a result.
 - If the provider page keeps showing a "busy" spinner after the answer has visibly finished (a known stuck-indicator glitch), the app verifies the text has stopped changing across several checks and then marks the answer green instead of leaving it orange as "partial".
