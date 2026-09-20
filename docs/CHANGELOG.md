@@ -1,5 +1,9 @@
 # CHANGELOG — Project
 
+### 2026-09-20 — Enlarge HTML export icons, version 2.81.447
+
+- Increase the model and Home icon dimensions in the HTML export from 26px to 34px, approximately 30% larger.
+
 ### 2026-09-20 — Mark model response boundaries in exports, version 2.81.446
 
 - Add a blank line before each model response and a `<model> END` line after it in TXT and HTML exports.
