@@ -409,6 +409,14 @@ body.left-sidebar-open .mode-pill .pill-dot {
     margin-top: clamp(0px, calc((100dvh - 322px) / 2 - 3px), 360px);
 }
 
+/* После открытия Pro или запуска Pipeline поднимаем composer к sticky header. */
+.pipeline-page .app-main .input-section:has(.prompt-container.is-pipeline-composer-raised) {
+    padding-top: 20px;
+}
+.pipeline-page .prompt-group:has(.prompt-container.is-pipeline-composer-raised) {
+    margin-top: 0;
+}
+
 .pipeline-page .prompt-group + .control-buttons {
     margin-top: 0;
 }

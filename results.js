@@ -3251,11 +3251,13 @@ document.addEventListener('click', (event) => {
         if (pipelineTitle) {
             pipelineTitle.setAttribute('aria-expanded', 'true');
             pipelineTitle.addEventListener('click', () => {
+                promptContainer?.classList.add('is-pipeline-composer-raised');
                 setPipelineCollapsed(!pipelinePanel.classList.contains('is-collapsed'));
             });
             pipelineTitle.addEventListener('keydown', (event) => {
                 if (event.key !== 'Enter' && event.key !== ' ') return;
                 event.preventDefault();
+                promptContainer?.classList.add('is-pipeline-composer-raised');
                 setPipelineCollapsed(!pipelinePanel.classList.contains('is-collapsed'));
             });
         }
@@ -7101,6 +7103,7 @@ document.addEventListener('click', (event) => {
                 event.preventDefault();
                 return;
             }
+            promptContainer?.classList.add('is-pipeline-composer-raised');
             if (controls.action === 'resume') {
                 event.preventDefault();
                 setDebatePausedState(false, 'resume_button');
