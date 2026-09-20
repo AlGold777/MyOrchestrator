@@ -259,6 +259,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         if (mainPromptContainer) {
             mainPromptContainer.classList.toggle('has-debate-feed', hasPromptBeenSubmitted);
+            mainPromptContainer.classList.toggle('has-selected-models', hasSelectedLLMs);
         }
         if (proLink) {
             proLink.setAttribute('aria-pressed', String(hasPromptBeenSubmitted && hasSelectedLLMs));

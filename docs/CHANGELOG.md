@@ -1,5 +1,9 @@
 # CHANGELOG — Project
 
+### 2026-09-20 — Raise textarea with selected models, version 2.81.470
+
+- Keep the textarea top edge raised consistently after saved-session import and when at least one model is selected.
+
 ### 2026-09-20 — Match HTML model-page navigation spacing, version 2.81.469
 
 - Keep sticky model navigation 12px below the page top and include that top gap in model anchor scrolling so Home and model pages use the same navigation spacing.
