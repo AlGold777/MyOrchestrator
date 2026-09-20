@@ -1,5 +1,9 @@
 # CHANGELOG — Project
 
+### 2026-09-20 — Tighten HTML export Prompt spacing, version 2.81.465
+
+- Remove the divider after `prompt-section` and reduce the gap below model navigation from 24px to 12px.
+
 ### 2026-09-20 — Remove HTML export title element, version 2.81.464
 
 - Remove the `LLMs answers` title element from generated HTML exports completely while keeping the Home anchor on the document body.
