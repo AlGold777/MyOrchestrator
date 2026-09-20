@@ -169,6 +169,37 @@
         }
     }
 
+    function selectionRectForScope(scope) {
+        const selection = window.getSelection?.();
+        if (!selection || !selection.rangeCount || selection.isCollapsed) return null;
+        const range = selection.getRangeAt(0);
+        if (!scope.contains(range.commonAncestorContainer)) return null;
+        const rect = range.getBoundingClientRect();
+        return rect && (rect.width || rect.height) ? rect : null;
+    }
+
+    function positionPanel(scope) {
+        if (!panel) return;
+        const selectionRect = selectionRectForScope(scope);
+        const formattingToolbar = document.querySelector('#responseSelTb.vis, #debateSelTb.vis');
+        const formattingRect = formattingToolbar?.getBoundingClientRect?.();
+        const anchorRect = formattingRect && (formattingRect.width || formattingRect.height)
+            ? formattingRect
+            : selectionRect;
+        if (!anchorRect) return;
+
+        const gap = 8;
+        const panelWidth = panel.offsetWidth || 420;
+        const panelHeight = panel.offsetHeight || 34;
+        const top = Math.max(8, anchorRect.top - panelHeight - gap);
+        const center = selectionRect
+            ? selectionRect.left + selectionRect.width / 2
+            : anchorRect.left + anchorRect.width / 2;
+        const left = Math.max(8, Math.min(center - panelWidth / 2, window.innerWidth - panelWidth - 8));
+        panel.style.left = `${left}px`;
+        panel.style.top = `${top}px`;
+    }
+
     function close() {
         if (panel) panel.hidden = true;
         activeScope = null;
@@ -179,11 +210,11 @@
     function open(scope) {
         if (!scope) return;
         activeScope = scope;
-        const host = scope.closest?.('.llm-panel, .debate-model-card') || scope.parentElement;
         const view = ensurePanel();
-        if (host && view.parentElement !== host) host.appendChild(view);
+        if (view.parentElement !== document.body) document.body.appendChild(view);
         view.hidden = false;
         currentMatch = -1;
+        positionPanel(scope);
         input('find')?.focus();
         input('find')?.select?.();
         refresh();
@@ -197,6 +228,11 @@
     }
 
     function init() {
+        const reposition = () => {
+            if (panel && !panel.hidden && activeScope) positionPanel(activeScope);
+        };
+        window.addEventListener('scroll', reposition, { passive: true });
+        window.addEventListener('resize', reposition);
         document.addEventListener('keydown', (event) => {
             if (event.key === 'Escape' && panel && !panel.hidden) {
                 event.preventDefault();

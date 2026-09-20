@@ -636,11 +636,11 @@ body.llm-stream-preview-open .llm-results .llm-panel:not(.favorite-panel) .outpu
 
 /* Horizontal response cards keep a consistent minimum reading height. */
 .llm-results.view-grid .llm-panel {
-  min-height: 300px;
+  min-height: 360px;
 }
 
 .llm-results.view-grid .llm-panel .output {
-  min-height: 300px;
+  min-height: 360px;
 }
 
 .llm-results .llm-panel.llm-panel-session-restored:not(.favorite-panel) {
@@ -931,10 +931,8 @@ body.llm-stream-preview-open .llm-results .llm-panel.llm-panel-session-restored:
 }
 
 .response-find-replace {
-  position: absolute;
-  z-index: 20;
-  top: 6px;
-  right: 8px;
+  position: fixed;
+  z-index: 2147483646;
   width: min(660px, calc(100% - 16px));
   box-sizing: border-box;
   padding: 2px;

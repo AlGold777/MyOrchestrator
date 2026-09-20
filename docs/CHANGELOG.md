@@ -1,5 +1,10 @@
 # CHANGELOG — Project
 
+### 2026-09-20 — Position find-and-replace above selected text and increase horizontal response cards, version 2.81.477
+
+- Position the response find-and-replace panel above the selected text and the formatting toolbar instead of at the top of the response card.
+- Increase horizontal response card and output minimum heights from `300px` to `360px`.
+
 ### 2026-09-20 — Immutable Current session snapshot, version 2.81.474
 
 - `Current session` фиксируется один раз при открытии левого Sidebar и не изменяется при навигации.
