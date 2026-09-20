@@ -954,10 +954,14 @@ body.prompt-submitted:not(.pipeline-page) .app-main .input-section {
 }
 
 body.prompt-submitted:not(.pipeline-page) .prompt-container.prompt-sandwich:not(.debate-composer) {
-    min-height: 122px;
+    min-height: 102px;
     height: auto;
     max-height: none;
     justify-content: flex-start;
+    /* Compact the space around the textarea without constraining the footer. */
+    gap: 0;
+    padding-top: 0;
+    padding-bottom: 0;
 }
 
 body.prompt-submitted:not(.pipeline-page) .app-main .container + .llm-controls,
