@@ -16844,7 +16844,7 @@ function collectLLMResponses() {
                 text,
                 html: htmlContent,
                 metadataLine,
-                formatted: `${headerParts.join('\n')}\n${text}`
+                formatted: `${headerParts.join('\n')}\n\n${text}\n${name} END`
             });
         }
     });
@@ -18087,11 +18087,12 @@ function buildAllResponsesExportText() {
     const responseSeparator = '=========================================================\n=========================================================\n=========================================================';
     const combinedText = entries.map(entry => entry.formatted).join(`\n\n${responseSeparator}\n\n`).trim();
     if (!combinedText) return '';
-    return [
+    const exportBody = [
         promptBlock ? `=== Prompt ===\n${promptBlock}` : '',
         favoriteText ? `=== Favourite ===\n${favoriteText}` : '',
         combinedText
     ].filter(Boolean).join('\n\n').trim();
+    return `${exportBody}\n\n`;
 }
 
 const SESSION_EXPORT_INDENT = '    ';
@@ -18174,7 +18175,10 @@ function buildAllResponsesExportHtml() {
         <section>
             <h2 id="response-${index + 1}" class="model-title">${escapeHtml(name)}</h2>
             ${metadataLine ? `<p class="response-meta">${escapeHtml(metadataLine)}</p>` : ''}
+            <div class="response-blank-line" aria-hidden="true"></div>
             <div class="response-body">${(html && html.trim()) ? html : `<pre>${escapeHtml(text)}</pre>`}</div>
+            <div class="response-end">${escapeHtml(name)} END</div>
+            <div class="response-blank-line" aria-hidden="true"></div>
         </section>
     `).join('\n');
     const favoriteSections = buildFavoriteExportSectionsHtml();
@@ -18200,6 +18204,8 @@ function buildAllResponsesExportHtml() {
         .response-body ul, .response-body ol { padding-left: 24px; }
         .response-body, .response-body * { color: #27251eeb !important; }
         .response-meta { margin: 0 0 12px; color: #555; font-size: 14px; }
+        .response-blank-line { height: 1.5em; }
+        .response-end { margin-top: 12px; color: #27251eeb; }
         .response-separator { margin: 24px 0; font-family: monospace; line-height: 1.2; white-space: nowrap; overflow-x: auto; }
         .model-title { display: block; width: 100%; box-sizing: border-box; padding: 2px 8px; background: #e9eef2; scroll-margin-top: 100px; }
         .export-timestamp { color: #555; font-size: 14px; font-weight: normal; }

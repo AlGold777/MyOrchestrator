@@ -1,5 +1,9 @@
 # CHANGELOG — Project
 
+### 2026-09-20 — Mark model response boundaries in exports, version 2.81.446
+
+- Add a blank line before each model response and a `<model> END` line after it in TXT and HTML exports.
+
 ### 2026-09-17 — Move executable telemetry assets out of docs, version 2.81.445
 
 - Moved proof telemetry schemas, registry and fixtures to the root
