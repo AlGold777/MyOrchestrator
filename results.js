@@ -21303,6 +21303,10 @@ function checkCompareButtonState() {
 
     let submittedPromptAlignmentFrame = 0;
     const scheduleSubmittedPromptAlignment = () => {
+        const submittedPromptContainer = promptInput?.closest('.prompt-container');
+        const shouldAlign = document.body.classList.contains('prompt-submitted')
+            || submittedPromptContainer?.classList.contains('has-selected-models');
+        if (!shouldAlign) return;
         if (submittedPromptAlignmentFrame) return;
         submittedPromptAlignmentFrame = requestAnimationFrame(() => {
             submittedPromptAlignmentFrame = 0;
@@ -21318,6 +21322,16 @@ function checkCompareButtonState() {
         const submittedHeader = document.querySelector('.top-control-bar');
         if (submittedPromptContainer) submittedLayoutObserver.observe(submittedPromptContainer);
         if (submittedHeader) submittedLayoutObserver.observe(submittedHeader);
+    }
+    const promptSelectionObserver = typeof MutationObserver === 'function'
+        ? new MutationObserver(scheduleSubmittedPromptAlignment)
+        : null;
+    const promptSelectionContainer = promptInput?.closest('.prompt-container');
+    if (promptSelectionObserver && promptSelectionContainer) {
+        promptSelectionObserver.observe(promptSelectionContainer, {
+            attributes: true,
+            attributeFilter: ['class']
+        });
     }
 
     startButton?.addEventListener('click', async () => {

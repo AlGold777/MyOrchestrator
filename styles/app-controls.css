@@ -395,12 +395,6 @@ body.left-sidebar-open .mode-pill .pill-dot {
     align-items: center;
 }
 
-/* Поднимаем textarea, когда выбрана хотя бы одна модель, до отправки prompt. */
-body:not(.pipeline-page):not(.prompt-submitted)
-    .prompt-container.prompt-sandwich.has-selected-models {
-    transform: translateY(-20px);
-}
-
 .pipeline-page .app-main .input-section {
     flex-direction: column;
     align-items: stretch;
