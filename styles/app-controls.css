@@ -957,6 +957,7 @@ body.prompt-submitted:not(.pipeline-page) .app-main .input-section {
     min-height: 0;
     /* Keep the prompt close to the sticky header once response cards appear. */
     padding-top: 5px;
+    overflow-anchor: none;
 }
 
 body.prompt-submitted:not(.pipeline-page) .prompt-container.prompt-sandwich:not(.debate-composer) {

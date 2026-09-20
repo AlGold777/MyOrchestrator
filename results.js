@@ -21244,7 +21244,7 @@ function checkCompareButtonState() {
         const promptTop = Number(promptInput.getBoundingClientRect?.().top || 0);
         if (!Number.isFinite(headerBottom) || !Number.isFinite(promptTop)) return;
 
-        const targetTop = headerBottom + 20;
+        const targetTop = headerBottom + 5;
         const delta = promptTop - targetTop;
         if (Math.abs(delta) < 1) return;
         window.scrollTo({
@@ -21252,6 +21252,25 @@ function checkCompareButtonState() {
             behavior: 'auto'
         });
     };
+
+    let submittedPromptAlignmentFrame = 0;
+    const scheduleSubmittedPromptAlignment = () => {
+        if (submittedPromptAlignmentFrame) return;
+        submittedPromptAlignmentFrame = requestAnimationFrame(() => {
+            submittedPromptAlignmentFrame = 0;
+            alignSubmittedPromptWithHeader();
+        });
+    };
+    const submittedLayoutObserver = typeof ResizeObserver === 'function'
+        ? new ResizeObserver(scheduleSubmittedPromptAlignment)
+        : null;
+    if (submittedLayoutObserver) {
+        submittedLayoutObserver.observe(promptInput);
+        const submittedPromptContainer = promptInput.closest('.prompt-container');
+        const submittedHeader = document.querySelector('.top-control-bar');
+        if (submittedPromptContainer) submittedLayoutObserver.observe(submittedPromptContainer);
+        if (submittedHeader) submittedLayoutObserver.observe(submittedHeader);
+    }
 
     startButton?.addEventListener('click', async () => {
 
@@ -21324,7 +21343,7 @@ function checkCompareButtonState() {
             syncProStreamVisibility();
 
             // The submitted layout changes the document flow. Scroll after the
-            // new layout is painted so the textarea sits 20px below the sticky
+            // new layout is painted so the textarea sits 5px below the sticky
             // header while the footer remains inside its natural-height box.
             requestAnimationFrame(() => {
                 requestAnimationFrame(alignSubmittedPromptWithHeader);
