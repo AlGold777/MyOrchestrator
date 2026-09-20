@@ -2557,6 +2557,9 @@ document.addEventListener('click', (event) => {
             const widthValue = isOpen ? leftSidebarWidth : defaultLeftSidebarWidth;
             leftSidebarResizer.setAttribute('aria-valuenow', String(Math.round(widthValue)));
         }
+        document.dispatchEvent(new CustomEvent('left-sidebar-visibility-change', {
+            detail: { isOpen: !!isOpen }
+        }));
     };
 
     if (leftSidebarToggleBtn) {
@@ -7226,6 +7229,7 @@ document.addEventListener('click', (event) => {
                 activeViewId: CURRENT_SESSION_ID,
                 currentSnapshot: null,
                 currentSessionName: 'Current session',
+                currentSessionUrls: [],
                 dragId: null,
                 dragOverId: null,
                 dragPosition: null,
@@ -9752,8 +9756,13 @@ document.addEventListener('click', (event) => {
             const getSidebarSessionPromptTextForSnapshot = () => {
                 const text = String(getEditorValue() || '');
                 const activeSession = sessionsState.sessions.find((session) => session.id === sessionsState.activeViewId);
-                if (!activeSession?.urls?.length) return text.trim();
-                const urlBlock = activeSession.urls.map((url) => String(url || '').trim()).filter(Boolean).join('\n');
+                const urls = activeSession?.urls?.length
+                    ? activeSession.urls
+                    : sessionsState.activeViewId === CURRENT_SESSION_ID
+                        ? sessionsState.currentSessionUrls
+                        : [];
+                if (!urls?.length) return text.trim();
+                const urlBlock = urls.map((url) => String(url || '').trim()).filter(Boolean).join('\n');
                 if (!urlBlock || !text.startsWith(urlBlock)) return text.trim();
                 return text.slice(urlBlock.length).replace(/^\s+/, '').trim();
             };
@@ -9876,11 +9885,10 @@ document.addEventListener('click', (event) => {
             }
 
             const captureActiveSidebarSessionView = async () => {
-                const snapshot = collectSidebarSessionPageSnapshot();
                 if (sessionsState.activeViewId === CURRENT_SESSION_ID) {
-                    sessionsState.currentSnapshot = snapshot;
-                    return snapshot;
+                    return sessionsState.currentSnapshot || ensureCurrentSessionSnapshot();
                 }
+                const snapshot = collectSidebarSessionPageSnapshot();
                 const activeSession = sessionsState.sessions.find((session) => session.id === sessionsState.activeViewId);
                 if (activeSession) {
                     await saveSessionSnapshotToIdb(activeSession.id, snapshot);
@@ -9891,14 +9899,26 @@ document.addEventListener('click', (event) => {
                 return snapshot;
             };
 
+            const ensureCurrentSessionSnapshot = () => {
+                if (!sessionsState.currentSnapshot) {
+                    sessionsState.currentSnapshot = collectSidebarSessionPageSnapshot();
+                    sessionsState.currentSessionUrls = extractSessionUrlsFromText(sessionsState.currentSnapshot.promptText);
+                }
+                return sessionsState.currentSnapshot;
+            };
+
+            const resetCurrentSessionSnapshot = () => {
+                sessionsState.currentSnapshot = null;
+                sessionsState.currentSessionName = 'Current session';
+                sessionsState.currentSessionUrls = [];
+            };
+
             const getCurrentSessionEntry = () => {
-                const liveSnapshot = sessionsState.activeViewId === CURRENT_SESSION_ID
-                    ? collectSidebarSessionPageSnapshot()
-                    : sessionsState.currentSnapshot || normalizeSessionPageSnapshot();
+                const liveSnapshot = sessionsState.currentSnapshot || normalizeSessionPageSnapshot();
                 return {
                     id: CURRENT_SESSION_ID,
                     name: sessionsState.currentSessionName || 'Current session',
-                    urls: [],
+                    urls: sessionsState.currentSessionUrls.slice(),
                     pageSnapshot: liveSnapshot,
                     responseCards: liveSnapshot.responseCards,
                     favorites: liveSnapshot.favorites,
@@ -9911,10 +9931,9 @@ document.addEventListener('click', (event) => {
                 const targetId = sessionId || CURRENT_SESSION_ID;
                 if (targetId === sessionsState.activeViewId && sessionsState.selectedId === targetId) return;
                 if (targetId !== CURRENT_SESSION_ID && await navigateToMainViewForSidebarSession(targetId)) return;
-                await captureActiveSidebarSessionView();
                 await persistSessions();
                 if (targetId === CURRENT_SESSION_ID) {
-                    const currentSnapshot = sessionsState.currentSnapshot || normalizeSessionPageSnapshot();
+                    const currentSnapshot = ensureCurrentSessionSnapshot();
                     sessionsState.activeViewId = CURRENT_SESSION_ID;
                     sessionsState.selectedId = CURRENT_SESSION_ID;
                     await applySidebarSessionPageSnapshot(currentSnapshot);
@@ -10024,6 +10043,9 @@ document.addEventListener('click', (event) => {
 
             const setSessionsActive = (isActive, options = {}) => {
                 sessionsState.isActive = !!isActive;
+                if (sessionsState.isActive && document.body.classList.contains('left-sidebar-open')) {
+                    ensureCurrentSessionSnapshot();
+                }
                 if (notesSidebar) {
                     notesSidebar.classList.toggle('is-sessions-active', sessionsState.isActive);
                 }
@@ -10050,7 +10072,7 @@ document.addEventListener('click', (event) => {
                 sessionsState.sessions = [];
                 sessionsState.selectedId = CURRENT_SESSION_ID;
                 sessionsState.activeViewId = CURRENT_SESSION_ID;
-                sessionsState.currentSnapshot = null;
+                resetCurrentSessionSnapshot();
                 sessionsState.deleteArmedId = null;
                 await Promise.all(sessionIds.map((sessionId) => deleteSessionSnapshotFromIdb(sessionId)));
                 renderSessionsList();
@@ -10059,6 +10081,15 @@ document.addEventListener('click', (event) => {
             document.addEventListener('extension-runtime-reset', () => {
                 extensionRuntimeResetObserved = true;
                 void resetSessionsAfterExtensionRuntimeReset();
+            });
+
+            document.addEventListener('left-sidebar-visibility-change', (event) => {
+                if (event.detail?.isOpen) {
+                    ensureCurrentSessionSnapshot();
+                    renderSessionsList();
+                } else {
+                    resetCurrentSessionSnapshot();
+                }
             });
 
             const getSelectedSession = () =>
@@ -10159,27 +10190,37 @@ document.addEventListener('click', (event) => {
             };
 
             const saveCurrentSession = async () => {
-                const manualUrls = extractSessionUrlsFromText(getEditorValue());
+                const currentSnapshot = ensureCurrentSessionSnapshot();
+                const manualUrls = extractSessionUrlsFromText(currentSnapshot.promptText);
                 const trackedTabs = manualUrls.length ? [] : await fetchTrackedSessionTabs(null, { currentRunOnly: true });
                 const trackedUrls = Array.from(new Set(trackedTabs.map((tab) => tab.url).filter(Boolean)));
                 const urls = manualUrls.length ? manualUrls : trackedUrls;
                 const now = Date.now();
-                const pageSnapshot = collectSidebarSessionPageSnapshot();
-                const hasSnapshotContent = pageSnapshot.responseCards.length
-                    || pageSnapshot.favorites.entries.length
-                    || pageSnapshot.promptText
-                    || pageSnapshot.selectedModels.length;
+                const hasSnapshotContent = currentSnapshot.responseCards.length
+                    || currentSnapshot.favorites.entries.length
+                    || currentSnapshot.promptText
+                    || currentSnapshot.selectedModels.length;
                 if (!urls.length && !hasSnapshotContent) {
                     setStatus('No session content to save');
                     return;
                 }
-                await saveSessionSnapshotToIdb(CURRENT_SESSION_ID, pageSnapshot);
-                sessionsState.currentSnapshot = pageSnapshot;
-                sessionsState.currentSessionUrls = normalizeSessionUrls(urls);
-                sessionsState.currentSessionName = buildCurrentSessionName(pageSnapshot.promptText, now);
-                setEditorValue(formatSessionPreview(sessionsState.currentSessionUrls, pageSnapshot.promptText));
-                sessionsState.selectedId = CURRENT_SESSION_ID;
-                sessionsState.activeViewId = CURRENT_SESSION_ID;
+                const sessionId = createSessionId();
+                await saveSessionSnapshotToIdb(sessionId, currentSnapshot);
+                const session = {
+                    id: sessionId,
+                    name: buildCurrentSessionName(currentSnapshot.promptText, now),
+                    urls: normalizeSessionUrls(urls),
+                    boundTabIds: normalizeSessionTabIds(trackedTabs.map((tab) => tab.tabId)),
+                    promptText: currentSnapshot.promptText,
+                    ...getSessionSnapshotSummary(currentSnapshot),
+                    createdAt: now,
+                    updatedAt: now
+                };
+                sessionsState.sessions.unshift(session);
+                sessionsState.selectedId = session.id;
+                sessionsState.activeViewId = session.id;
+                await showSessionPreview(session);
+                await persistSessions();
                 renderSessionsList();
                 setStatus('Session saved');
             };
@@ -11811,6 +11852,10 @@ document.addEventListener('click', (event) => {
             if (pendingSidebarSessionId) {
                 setSessionsActive(true, { persist: false });
                 await switchSidebarSessionView(pendingSidebarSessionId);
+            }
+            if (document.body.classList.contains('left-sidebar-open')) {
+                ensureCurrentSessionSnapshot();
+                renderSessionsList();
             }
 
             setEditorEnabled(false);

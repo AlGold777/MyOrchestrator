@@ -1,5 +1,10 @@
 # CHANGELOG — Project
 
+### 2026-09-20 — Immutable Current session snapshot, version 2.81.474
+
+- `Current session` фиксируется один раз при открытии левого Sidebar и не изменяется при навигации.
+- `Save` создаёт постоянную session-копию из этого snapshot; при закрытии Sidebar временный snapshot сбрасывается.
+
 ### 2026-09-20 — Stabilize standalone HTML export navigation, version 2.81.472
 
 - Remove the top gap above the sticky model navigation and hide the export until its navigation height is measured, preventing first-load layout shift and text from showing through above the navigation.
