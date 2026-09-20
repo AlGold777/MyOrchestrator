@@ -18208,7 +18208,6 @@ ${promptBlock || exportTimestamp ? `
 ` : ''}${favoriteSections ? `
     <h2>Favourite</h2>
 ${favoriteSections}
-    <hr>
 ` : ''}
 ${htmlSections}
 <script>
