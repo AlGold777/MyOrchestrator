@@ -18170,7 +18170,7 @@ function buildAllResponsesExportHtml() {
         const iconSrc = modelIconData[name] || '';
         return `
         <a class="model-nav-button" href="#response-${index + 1}" title="${escapeHtml(name)}">
-            ${iconSrc ? `<img class="model-nav-icon" src="${iconSrc}" alt="${escapeHtml(name)} icon">` : ''}
+            ${iconSrc ? `<span class="model-nav-icon" role="img" aria-label="${escapeHtml(name)} icon" style="--model-icon: url('${iconSrc}')"></span>` : ''}
             <span class="model-nav-label">${escapeHtml(name)}</span>
         </a>`;
     }).join('');
@@ -18215,9 +18215,10 @@ function buildAllResponsesExportHtml() {
         .model-navigation { position: sticky; top: 0; z-index: 10; display: flex; justify-content: flex-start; align-items: center; flex-wrap: wrap; gap: 4.65px; margin: 0 0 24px; padding: 12px 0; background: #fff; }
         .model-nav-button { display: inline-flex; flex: 0 0 auto; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-width: 58px; padding: 0; border: none; border-radius: 0; background: transparent; color: #27251eeb; font-size: 12px; font-weight: 600; letter-spacing: 0.01em; cursor: pointer; transition: color 0.2s ease, transform 0.2s ease; }
         .model-nav-button:hover { color: #1f3b4c; transform: translateY(-1px); }
-        .model-nav-icon { width: 34px; height: 34px; display: block; object-fit: contain; filter: grayscale(1) saturate(0) opacity(0.446); transition: filter 0.2s ease, transform 0.2s ease; }
+        .model-nav-icon { width: 34px; height: 34px; display: block; background-color: rgba(39, 37, 30, 0.446); -webkit-mask: var(--model-icon) center / contain no-repeat; mask: var(--model-icon) center / contain no-repeat; transition: background-color 0.2s ease, transform 0.2s ease; }
         .model-nav-label { line-height: 1; text-align: center; }
         .model-nav-button:hover .model-nav-icon { transform: scale(1.04); }
+        .model-nav-button.is-active .model-nav-icon { background-color: #27251eeb; }
         .model-home-button { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; flex: 0 0 auto; width: 58px; padding: 0; border: none; color: #27251eeb; line-height: 1; text-decoration: none; gap: 6px; }
         .model-home-icon { display: block; width: 34px; height: 34px; font-size: 34px; line-height: 1; text-align: center; }
         .model-home-label { width: 100%; font-size: 12px; font-weight: 600; line-height: 1; text-align: center; }
@@ -18263,6 +18264,18 @@ ${htmlSections}
                 toggle.textContent = expanded ? 'Show less' : 'Show more';
             });
         });
+        const modelNavButtons = Array.from(document.querySelectorAll('.model-nav-button'));
+        const syncActiveModel = () => {
+            const currentHash = window.location.hash;
+            modelNavButtons.forEach((button) => {
+                button.classList.toggle('is-active', Boolean(currentHash && button.getAttribute('href') === currentHash));
+            });
+        };
+        modelNavButtons.forEach((button) => button.addEventListener('click', () => {
+            window.setTimeout(syncActiveModel, 0);
+        }));
+        window.addEventListener('hashchange', syncActiveModel);
+        syncActiveModel();
     })();
 </script>
 </body>
