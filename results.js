@@ -16961,21 +16961,6 @@ function scrollFavoritePanelToBottom({ smooth = false } = {}) {
     requestAnimationFrame(() => requestAnimationFrame(run));
 }
 
-// Прокручиваем панель Favourite в зону видимости, чтобы пользователь видел, как
-// карточка появляется. Без этого избранное добавляется в DOM наверху страницы и
-// при добавлении из развёрнутой карточки-оверлея (position: fixed) или просто
-// при прокрутке вниз остаётся за кадром — кажется, что Favourite «не появляется».
-function scrollFavoritePanelIntoView({ smooth = true } = {}) {
-    if (!favoriteSectionEl) return;
-    requestAnimationFrame(() => {
-        try {
-            favoriteSectionEl.scrollIntoView({ block: 'nearest', behavior: smooth ? 'smooth' : 'auto' });
-        } catch (_) {
-            try { favoriteSectionEl.scrollIntoView(); } catch (_) {}
-        }
-    });
-}
-
 function favoriteEntryKeyForCard(outputId) {
     return `card:${String(outputId || '').trim()}`;
 }
@@ -17144,7 +17129,6 @@ function addFavoriteEntry({ sourceName = 'Model', modelKey = '', sourceOutputId 
         favoriteSectionEl.style.display = 'block';
     }
     scrollFavoritePanelToBottom({ smooth: false });
-    scrollFavoritePanelIntoView({ smooth: true });
     return entry;
 }
 

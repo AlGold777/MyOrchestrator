@@ -1,5 +1,9 @@
 # CHANGELOG — Project
 
+### 2026-09-20 — Preserve focus after adding favorites, version 2.81.460
+
+- Stop scrolling the page to the Favourite card when adding a selected fragment or response card, so users can continue selecting text without losing their current position.
+
 ### 2026-09-20 — Update fully expanded card background, version 2.81.458
 
 - Change the background of fully expanded model cards to `#f7f8ff`.
