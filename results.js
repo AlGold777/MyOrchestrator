@@ -18084,6 +18084,21 @@ function buildResponseExportFilename(modelName, extension, date = new Date()) {
     return `${promptName} - ${subject} ${formatNamedExportStamp(date)}.${extension}`;
 }
 
+function formatExportPromptExcerpt(promptText = getExportPromptSource()) {
+    const normalized = String(promptText || '')
+        .replace(/\s+/g, ' ')
+        .replace(/[\\/:?<>|*"']/g, '')
+        .trim();
+    return Array.from(normalized).slice(0, 50).join('').trim() || 'Prompt';
+}
+
+function buildSingleCardExportFilename(subject, extension, date = new Date()) {
+    const safeSubject = String(subject || 'Model')
+        .replace(/[\\/:?<>|*"']/g, '')
+        .trim() || 'Model';
+    return `${safeSubject} - ${formatExportPromptExcerpt()} - ${formatNamedExportStamp(date)}.${extension}`;
+}
+
 function buildFavoriteExportText(entries) {
     const groups = buildFavoriteGroups(entries);
     return groups.map((group) => {
@@ -18383,10 +18398,8 @@ document.addEventListener('click', (event) => {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     const now = new Date();
-    const pad = (value) => String(value).padStart(2, '0');
-    const dateStr = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}`;
     anchor.href = url;
-    anchor.download = `Favourite ${dateStr}.txt`;
+    anchor.download = buildSingleCardExportFilename('Favourite', 'txt', now);
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
@@ -18473,9 +18486,7 @@ document.addEventListener('click', (event) => {
         anchor.href = url;
 
         const now = new Date();
-        const pad = n => String(n).padStart(2, '0');
-        const dateStr = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}`;
-        anchor.download = `Favourite ${dateStr}.html`;
+        anchor.download = buildSingleCardExportFilename('Favourite', 'html', now);
 
         document.body.appendChild(anchor);
         anchor.click();
@@ -18551,7 +18562,7 @@ document.addEventListener('click', (event) => {
 
     const modelForFile = String(modelName || 'Model').replace(/[\/\\:?<>|*"']/g, '').trim() || 'Model';
     const now = new Date();
-    anchor.download = buildResponseExportFilename(modelForFile, 'html', now);
+    anchor.download = buildSingleCardExportFilename(modelForFile, 'html', now);
 
     document.body.appendChild(anchor);
     anchor.click();
@@ -18578,7 +18589,7 @@ document.addEventListener('click', (event) => {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = buildResponseExportFilename(modelName, 'txt');
+    anchor.download = buildSingleCardExportFilename(modelName, 'txt');
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();

@@ -1,5 +1,9 @@
 # CHANGELOG — Project
 
+### 2026-09-20 — Use prompt-based names for card exports, version 2.81.478
+
+- Name individual model and Favourite HTML/TXT exports as `Subject - first 50 prompt characters - date`.
+
 ### 2026-09-20 — Position find-and-replace above selected text and increase horizontal response cards, version 2.81.477
 
 - Position the response find-and-replace panel above the selected text and the formatting toolbar instead of at the top of the response card.
