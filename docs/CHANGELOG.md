@@ -1,5 +1,9 @@
 # CHANGELOG — Project
 
+### 2026-09-20 — Match HTML model-page navigation spacing, version 2.81.469
+
+- Keep sticky model navigation 12px below the page top and include that top gap in model anchor scrolling so Home and model pages use the same navigation spacing.
+
 ### 2026-09-20 — Align HTML model anchors and clean stray text, version 2.81.468
 
 - Match model-page anchor spacing to the navigation height and remove the stray `Конфигурации (docker-compose.yml, .env.example, Makefile).` line from standalone HTML exports.
