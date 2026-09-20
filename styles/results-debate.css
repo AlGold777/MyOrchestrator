@@ -634,6 +634,11 @@ body.llm-stream-preview-open .llm-results .llm-panel:not(.favorite-panel) .outpu
   grid-column: 1 / -1;
 }
 
+/* Horizontal response cards keep a consistent minimum reading height. */
+.llm-results.view-grid .llm-panel {
+  min-height: 300px;
+}
+
 .llm-results .llm-panel.llm-panel-session-restored:not(.favorite-panel) {
   position: static;
   transform: none;
