@@ -1,5 +1,9 @@
 # CHANGELOG — Project
 
+### 2026-09-20 — Stabilize standalone HTML export navigation, version 2.81.472
+
+- Remove the top gap above the sticky model navigation and hide the export until its navigation height is measured, preventing first-load layout shift and text from showing through above the navigation.
+
 ### 2026-09-20 — Raise textarea with selected models, version 2.81.470
 
 - Keep the textarea top edge raised consistently after saved-session import and when at least one model is selected.

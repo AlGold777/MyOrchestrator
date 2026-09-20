@@ -18162,7 +18162,8 @@ function buildAllResponsesExportHtml() {
     <meta charset="UTF-8">
     <title>LLM Responses Export</title>
     <style>
-        body { font-family: Arial, sans-serif; background: #ffffff; color: #111; padding: 12px 24px 24px; line-height: 1.5; }
+        body { font-family: Arial, sans-serif; background: #ffffff; color: #111; padding: 0 24px 24px; line-height: 1.5; }
+        body.export-loading { visibility: hidden; }
         section { margin-bottom: 24px; }
         h1 { display: flex; align-items: baseline; gap: 20px; flex-wrap: wrap; }
         h2 { margin: 0 0 12px; font-size: 20px; }
@@ -18182,7 +18183,7 @@ function buildAllResponsesExportHtml() {
         .response-separator { margin: 24px 0; font-family: monospace; line-height: 1.2; white-space: nowrap; overflow-x: auto; }
         .model-title { display: block; width: 100%; box-sizing: border-box; padding: 2px 8px; background: #e9eef2; scroll-margin-top: calc(var(--model-navigation-height, 0px) + 20px); }
         .export-timestamp { color: #555; font-size: 14px; font-weight: normal; }
-        .model-navigation { position: sticky; top: 12px; z-index: 10; display: flex; justify-content: flex-start; align-items: center; flex-wrap: wrap; gap: 4.65px; margin: 0 0 8px; padding: 17px 0; background: #fff; }
+        .model-navigation { position: sticky; top: 0; z-index: 10; display: flex; justify-content: flex-start; align-items: center; flex-wrap: wrap; gap: 4.65px; margin: 0 0 8px; padding: 17px 0; background: #fff; }
         .model-nav-button { display: inline-flex; flex: 0 0 auto; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-width: 58px; padding: 0; border: none; border-radius: 0; background: transparent; color: #8c98a3; font-size: 12px; font-weight: 600; letter-spacing: 0.01em; cursor: pointer; transition: color 0.2s ease, transform 0.2s ease; }
         .model-nav-button:hover { color: #8c98a3; transform: translateY(-1px); }
         .model-nav-icon { width: 34px; height: 34px; display: block; background-color: rgba(39, 37, 30, 0.446); -webkit-mask: var(--model-icon) center / contain no-repeat; mask: var(--model-icon) center / contain no-repeat; transition: background-color 0.2s ease, transform 0.2s ease; }
@@ -18196,7 +18197,7 @@ function buildAllResponsesExportHtml() {
         .model-home-button:hover { color: #1f3b4c; transform: translateY(-1px); }
     </style>
 </head>
-<body id="export-top">
+<body id="export-top" class="export-loading">
     <nav class="model-navigation" aria-label="Model responses">
         <a class="model-home-button" href="#export-top" aria-label="Back to top" title="Back to top"><span class="model-home-icon" aria-hidden="true">⌂</span><span class="model-home-label">Home</span></a>
 ${responseNavigation}
@@ -18218,6 +18219,7 @@ ${htmlSections}
             if (navigation) document.documentElement.style.setProperty('--model-navigation-height', navigation.offsetHeight + 'px');
         };
         syncPromptHeadingOffset();
+        document.body.classList.remove('export-loading');
         window.addEventListener('resize', syncPromptHeadingOffset);
         document.querySelectorAll('.export-prompt').forEach((prompt) => {
             const toggle = prompt.parentElement.querySelector('.prompt-toggle');
