@@ -1,5 +1,9 @@
 # CHANGELOG — Project
 
+### 2026-09-21 — Read prompt from the active composer for card filenames, version 2.81.480
+
+- Use the first non-empty value from the main and moderator prompt fields when naming individual model and Favourite exports.
+
 ### 2026-09-20 — Use prompt-based names for card exports, version 2.81.478
 
 - Name individual model and Favourite HTML/TXT exports as `Subject - first 50 prompt characters - date`.

@@ -18063,8 +18063,11 @@ function formatModelCardExportStamp(date = new Date()) {
 }
 
 function getExportPromptSource() {
-    const promptEl = document.getElementById('prompt-input') || document.getElementById('modTa');
-    return String(promptEl?.value || '').trim();
+    const promptValues = [
+        document.getElementById('prompt-input')?.value,
+        document.getElementById('modTa')?.value
+    ];
+    return promptValues.map((value) => String(value || '').trim()).find(Boolean) || '';
 }
 
 function formatExportPromptName(promptText = getExportPromptSource()) {
