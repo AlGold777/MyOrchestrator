@@ -18063,7 +18063,7 @@ function formatExportPromptName(promptText = getExportPromptSource()) {
 
 function buildResponseExportFilename(modelName, extension, date = new Date()) {
     const promptName = formatExportPromptName();
-    const subject = modelName ? String(modelName).replace(/[\\/:?<>|*"']/g, '').trim() : 'all_LLM';
+    const subject = modelName ? String(modelName).replace(/[\\/:?<>|*"']/g, '').trim() : 'LLMs';
     return `${promptName} - ${subject} ${formatNamedExportStamp(date)}.${extension}`;
 }
 
