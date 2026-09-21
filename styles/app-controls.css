@@ -18,6 +18,19 @@
     box-sizing: border-box;
 }
 
+/* The sticky bar keeps the 12px app-shell inset to avoid a position jump.
+   Paint that inset as a cover so scrolled content cannot show through it. */
+.top-control-bar::before {
+    content: "";
+    position: absolute;
+    top: -12px;
+    left: 0;
+    right: 0;
+    height: 12px;
+    background: #F3F4F6;
+    pointer-events: none;
+}
+
 .top-bar-left {
     display: flex;
     align-items: center;

@@ -6,7 +6,7 @@ The project is optimized for unstable provider UIs. Its core design assumes sele
 
 ## Status
 
-- Current version: `2.81.484`, synchronized in `manifest.json`, `package.json`
+- Current version: `2.81.485`, synchronized in `manifest.json`, `package.json`
   and the root package entry in `package-lock.json`
 - Extension type: Chrome Manifest V3
 - Package name: `llm-selector-manager`
@@ -87,7 +87,7 @@ When you send a prompt with an attached file, the app tries to attach the file t
 
 - If the file cannot be attached automatically, the model card shows an "action required" status — but the prompt text is still placed into the provider's input box (currently wired for Grok). To finish, just attach the file manually on that page and press send.
 - A model card only turns green when the app actually holds the answer text. If a status says "success" but no answer was captured anywhere, the card shows an honest "uncertain" state instead of a false green.
-- After starting a run on the main page, or after selecting at least one model, the prompt and its input section use normal page flow at 5px below the header. This is handled by CSS flow rather than a compensating scroll operation, so model clicks do not move the sticky header or change the page scroll position. The sticky header keeps the same 12px top inset as its initial layout position, preventing a jump when scrolling upward. Root pull-down overscroll is disabled, so the prompt cannot be dragged downward away from the header, while normal page scrolling still moves it upward together with the rest of the content.
+- After starting a run on the main page, or after selecting at least one model, the prompt and its input section use normal page flow at 5px below the header. This is handled by CSS flow rather than a compensating scroll operation, so model clicks do not move the sticky header or change the page scroll position. The sticky header keeps the same 12px top inset as its initial layout position, preventing a jump when scrolling upward, and paints that inset as a cover so scrolled prompt content cannot show through. Root pull-down overscroll is disabled, so the prompt cannot be dragged downward away from the header, while normal page scrolling still moves it upward together with the rest of the content.
 - In the horizontal response-card layout, each model card and its response area have a minimum height of 300px.
 - On the Pipeline page, the same composer lift is applied when opening Pro or pressing the Pipeline start button.
 - An answer that arrived while the prompt was never actually sent (for example, an old answer left on the page from a previous conversation) is no longer accepted as a result.
