@@ -22,6 +22,9 @@ describe('release log regression guards', () => {
     expect(controlsCss).toContain('.app-main .input-section:has(.prompt-container.has-selected-models)');
     expect(controlsCss).toContain('min-height: 0;');
     expect(controlsCss).toContain('align-items: stretch;');
+    const source = fs.readFileSync(path.join(__dirname, '..', 'results.js'), 'utf8');
+    expect(source).not.toContain('alignSubmittedPromptWithHeader');
+    expect(source).not.toContain('submittedPromptAlignmentFrame');
   });
 
   test('Favourite card exposes TXT export immediately after its HTML export', () => {
