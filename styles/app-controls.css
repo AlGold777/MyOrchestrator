@@ -954,6 +954,19 @@ body.prompt-submitted:not(.pipeline-page) .app-main .input-section {
     overflow-anchor: none;
 }
 
+/* A selected model must use the same top-flow layout before submission.
+   The alignment helper may scroll the page once, but the layout itself must
+   remain anchored at the header when the user returns to scrollTop = 0. */
+body:not(.pipeline-page) .app-main .input-section:has(.prompt-container.has-selected-models) {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    min-height: 0;
+    padding-top: 5px;
+    overflow-anchor: none;
+}
+
 body.prompt-submitted:not(.pipeline-page) .prompt-container.prompt-sandwich:not(.debate-composer) {
     min-height: 102px;
     height: auto;
@@ -965,7 +978,18 @@ body.prompt-submitted:not(.pipeline-page) .prompt-container.prompt-sandwich:not(
     padding-bottom: 0;
 }
 
+body:not(.pipeline-page) .app-main .input-section:has(.prompt-container.has-selected-models) .prompt-container.prompt-sandwich:not(.debate-composer) {
+    min-height: 102px;
+    height: auto;
+    max-height: none;
+    justify-content: flex-start;
+    gap: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+}
+
 body.prompt-submitted:not(.pipeline-page) .app-main .container + .llm-controls,
+body:not(.pipeline-page) .app-main .container:has(.prompt-container.has-selected-models) + .llm-controls,
 body.prompt-submitted:not(.pipeline-page) .app-main .container:has(#prefix-container:not(:empty), #suffix-container:not(:empty)) + .llm-controls {
     margin-top: 10px;
 }

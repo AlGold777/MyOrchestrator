@@ -19,6 +19,9 @@ describe('release log regression guards', () => {
     expect(baseCss).toMatch(/html\s*\{[^}]*overscroll-behavior-y:\s*none;/s);
     expect(baseCss).toMatch(/body\s*\{[^}]*overscroll-behavior-y:\s*none;/s);
     expect(controlsCss).not.toMatch(/body\.prompt-submitted[^}]*\.prompt-group\s*\{[^}]*position:\s*fixed/s);
+    expect(controlsCss).toContain('.app-main .input-section:has(.prompt-container.has-selected-models)');
+    expect(controlsCss).toContain('min-height: 0;');
+    expect(controlsCss).toContain('align-items: stretch;');
   });
 
   test('Favourite card exposes TXT export immediately after its HTML export', () => {
