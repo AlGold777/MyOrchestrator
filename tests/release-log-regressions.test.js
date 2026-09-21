@@ -12,6 +12,15 @@ const readResolvedCss = () => {
 };
 
 describe('release log regression guards', () => {
+  test('root pull-down cannot drag the submitted prompt away from the header', () => {
+    const baseCss = fs.readFileSync(path.join(__dirname, '..', 'styles', 'base.css'), 'utf8');
+    const controlsCss = fs.readFileSync(path.join(__dirname, '..', 'styles', 'app-controls.css'), 'utf8');
+
+    expect(baseCss).toMatch(/html\s*\{[^}]*overscroll-behavior-y:\s*none;/s);
+    expect(baseCss).toMatch(/body\s*\{[^}]*overscroll-behavior-y:\s*none;/s);
+    expect(controlsCss).not.toMatch(/body\.prompt-submitted[^}]*\.prompt-group\s*\{[^}]*position:\s*fixed/s);
+  });
+
   test('Favourite card exposes TXT export immediately after its HTML export', () => {
     const source = fs.readFileSync(path.join(__dirname, '..', 'results.js'), 'utf8');
     const htmlButtonIndex = source.indexOf('class="panel-action-btn panel-export-html-btn favorite-export-btn"');

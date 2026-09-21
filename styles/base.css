@@ -66,6 +66,7 @@ button i.ti {
 
 html {
     scrollbar-gutter: stable;
+    overscroll-behavior-y: none;
 }
 
 body {
@@ -75,6 +76,7 @@ body {
     padding: 0;
     overflow-x: hidden;
     overflow-y: scroll;
+    overscroll-behavior-y: none;
 }
 
 body, button, input, select, textarea {
