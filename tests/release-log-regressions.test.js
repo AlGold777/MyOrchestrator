@@ -28,6 +28,9 @@ describe('release log regression guards', () => {
     const source = fs.readFileSync(path.join(__dirname, '..', 'results.js'), 'utf8');
     expect(source).not.toContain('alignSubmittedPromptWithHeader');
     expect(source).not.toContain('submittedPromptAlignmentFrame');
+    expect(source).toContain("mainPromptContainer.classList.add('is-pipeline-composer-raised');");
+    expect(source).toContain("promptContainer?.classList.toggle('is-pipeline-composer-raised', !collapsed);");
+    expect(source).toContain("if (!pipelinePanel.classList.contains('is-collapsed')) {");
   });
 
   test('Favourite card exposes TXT export immediately after its HTML export', () => {

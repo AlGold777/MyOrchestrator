@@ -260,6 +260,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (mainPromptContainer) {
             mainPromptContainer.classList.toggle('has-debate-feed', hasPromptBeenSubmitted);
             mainPromptContainer.classList.toggle('has-selected-models', hasSelectedLLMs);
+            if (document.body.classList.contains('pipeline-page') && hasSelectedLLMs) {
+                mainPromptContainer.classList.add('is-pipeline-composer-raised');
+            }
         }
         if (proLink) {
             proLink.setAttribute('aria-pressed', String(hasPromptBeenSubmitted && hasSelectedLLMs));
@@ -3240,6 +3243,7 @@ document.addEventListener('click', (event) => {
         const PIPELINE_COLLAPSED_STORAGE_KEY = 'llmComparatorPipelineCollapsed';
         const setPipelineCollapsed = (collapsed) => {
             pipelinePanel.classList.toggle('is-collapsed', collapsed);
+            promptContainer?.classList.toggle('is-pipeline-composer-raised', !collapsed);
             if (pipelineTitle) {
                 pipelineTitle.setAttribute('aria-expanded', String(!collapsed));
             }
@@ -3255,15 +3259,16 @@ document.addEventListener('click', (event) => {
         if (pipelineTitle) {
             pipelineTitle.setAttribute('aria-expanded', 'true');
             pipelineTitle.addEventListener('click', () => {
-                promptContainer?.classList.add('is-pipeline-composer-raised');
                 setPipelineCollapsed(!pipelinePanel.classList.contains('is-collapsed'));
             });
             pipelineTitle.addEventListener('keydown', (event) => {
                 if (event.key !== 'Enter' && event.key !== ' ') return;
                 event.preventDefault();
-                promptContainer?.classList.add('is-pipeline-composer-raised');
                 setPipelineCollapsed(!pipelinePanel.classList.contains('is-collapsed'));
             });
+        }
+        if (!pipelinePanel.classList.contains('is-collapsed')) {
+            promptContainer?.classList.add('is-pipeline-composer-raised');
         }
         try {
             if (chrome?.storage?.local) {
