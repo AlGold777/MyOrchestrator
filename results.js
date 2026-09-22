@@ -18070,7 +18070,8 @@ function formatModelCardExportStamp(date = new Date()) {
 function getExportPromptSource() {
     const promptValues = [
         document.getElementById('prompt-input')?.value,
-        document.getElementById('modTa')?.value
+        document.getElementById('modTa')?.value,
+        window.__lastExportPromptText
     ];
     return promptValues.map((value) => String(value || '').trim()).find(Boolean) || '';
 }
@@ -21311,6 +21312,7 @@ function checkCompareButtonState() {
                 showNotification('Please enter a prompt.');
                 return;
             }
+            window.__lastExportPromptText = String(finalPrompt).trim();
             if (!(await ensureNoOtherViewRun())) {
                 return;
             }

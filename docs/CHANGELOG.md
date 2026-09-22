@@ -1,5 +1,9 @@
 # CHANGELOG — Project
 
+### 2026-09-22 — Preserve submitted prompt for card export filenames, version 2.81.488
+
+- Use the last submitted prompt as a fallback when the visible prompt field is empty during model or Favourite export.
+
 ### 2026-09-21 — Read prompt from the active composer for card filenames, version 2.81.480
 
 - Use the first non-empty value from the main and moderator prompt fields when naming individual model and Favourite exports.
