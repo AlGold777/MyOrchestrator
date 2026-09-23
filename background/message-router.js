@@ -356,7 +356,7 @@ try {
 } catch (_) {}
 
 async function materializeGeminiAttachments(attachments = []) {
-    const items = Array.isArray(attachments) ? attachments.slice(0, 5) : [];
+    const items = Array.isArray(attachments) ? attachments : [];
     if (!items.length) throw new Error('no_attachments');
     const totalBytes = items.reduce((sum, item) => sum + String(item?.base64 || '').length, 0);
     if (totalBytes > 100 * 1024 * 1024) throw new Error('attachments_too_large');

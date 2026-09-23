@@ -62,6 +62,15 @@ describe('ResultsAttachments.clearPromptAttachments', () => {
 });
 
 describe('ResultsAttachments.buildAttachmentPayload', () => {
+  test('keeps and serializes more than five attachments', async () => {
+    const { api, bar } = makeAttach();
+    const files = Array.from({ length: 6 }, (_, index) => txtFile(`file-${index + 1}.txt`));
+    api.addPromptAttachments(files);
+
+    expect(bar.querySelectorAll('.attachment-pill')).toHaveLength(6);
+    await expect(api.buildAttachmentPayload()).resolves.toHaveLength(6);
+  });
+
   test('reads attachments into base64 payloads', async () => {
     const { api } = makeAttach();
     api.addPromptAttachments([txtFile('h.txt', 'hello world')]);

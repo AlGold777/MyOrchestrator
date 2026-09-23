@@ -1,5 +1,14 @@
 # CHANGELOG — Project
 
+### 2026-09-23 — Bound provider send transactions, version 2.81.490
+
+- Bound Qwen's shortcut/button fallback ladder so an unconfirmed send cannot hold the dispatch queue for tens of seconds.
+- Bound Z.ai send confirmation and record explicit send completion/failure duration in dispatch telemetry.
+
+### 2026-09-23 — Remove the five-file attachment cap, version 2.81.489
+
+- Accept and pass through all selected, dropped, or pasted attachments instead of truncating each request to five files.
+
 ### 2026-09-22 — Preserve submitted prompt for card export filenames, version 2.81.488
 
 - Use the last submitted prompt as a fallback when the visible prompt field is empty during model or Favourite export.

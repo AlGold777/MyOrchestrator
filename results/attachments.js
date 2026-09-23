@@ -17,7 +17,6 @@
 
         const attachedFiles = [];
         const attachmentKeys = new Set();
-        const MAX_ATTACHMENTS = 5;
         const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
         const MAX_TOTAL_BYTES = 25 * 1024 * 1024;
 
@@ -69,7 +68,7 @@
 
         const addPromptAttachments = (files = []) => {
             let added = false;
-            files.slice(0, MAX_ATTACHMENTS).forEach((file) => {
+            files.forEach((file) => {
                 if (!file || !file.name) return;
                 const key = `${file.name}-${file.size}-${file.type}`;
                 if (attachmentKeys.has(key)) return;
@@ -99,10 +98,9 @@
         };
 
         const buildAttachmentPayload = async () => {
-            const slice = attachedFiles.slice(0, MAX_ATTACHMENTS);
             const payload = [];
             let total = 0;
-            for (const file of slice) {
+            for (const file of attachedFiles) {
                 if (!file || !file.name) continue;
                 if (file.size > MAX_ATTACHMENT_BYTES) {
                     showNotification(`File ${file.name} is too large (>${Math.round(MAX_ATTACHMENT_BYTES / 1024 / 1024)}MB)`);
