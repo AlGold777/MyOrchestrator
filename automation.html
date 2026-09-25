@@ -3,49 +3,69 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Automation Layer — Web Runtime Test</title>
+  <title>Automation</title>
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="automation.css">
 </head>
-<body>
-  <div class="container automation-page">
-    <div class="prompt-input">
-      <textarea id="prompt" placeholder="Enter a prompt..."></textarea>
-      <button id="send-button" type="button" aria-label="Run automation">✈️</button>
-    </div>
-
-    <div class="llm-selector" aria-label="Model selection">
-      <label><input type="checkbox" name="llm" value="chatgpt" checked> ChatGPT</label>
-      <label><input type="checkbox" name="llm" value="claude" checked> Claude</label>
-      <label><input type="checkbox" name="llm" value="gemini"> Gemini</label>
-      <label><input type="checkbox" name="llm" value="grok"> Grok</label>
-      <label><input type="checkbox" name="llm" value="lechat"> Lechat</label>
-      <label><input type="checkbox" name="llm" value="qwen"> Qwen</label>
-      <label><input type="checkbox" name="llm" value="deepseek"> DeepSeek</label>
-      <label><input type="checkbox" name="llm" value="perplex"> Perplex</label>
-      <label><input type="checkbox" name="llm" value="zai"> Z.ai</label>
-      <label><input type="checkbox" name="llm" value="kimi"> Kimi</label>
-    </div>
-
-    <div class="automation-runtime-bar" role="status" aria-live="polite">
-      <div>
+<body class="automation-body">
+  <div class="automation-page">
+    <header class="automation-topbar">
+      <div class="automation-runtime" role="status" aria-live="polite">
         <strong id="automation-status">IDLE</strong>
-        <span id="automation-run-id" class="automation-muted">No active run</span>
+        <span id="automation-run-id">No active run</span>
       </div>
-      <div class="automation-actions">
-        <button id="automation-cancel" type="button" disabled>Cancel</button>
-        <button id="automation-download-result" type="button" disabled>Download result</button>
-        <button id="automation-download-audit" type="button" disabled>Download audit</button>
-      </div>
-    </div>
 
-    <section class="automation-feed-shell" aria-label="Automation messages">
-      <div class="automation-feed-heading">
-        <h2>Messages</h2>
-        <span id="automation-feed-summary" class="automation-muted">No messages yet</span>
+      <div class="llm-selector" aria-label="Model selection">
+        <label><input type="checkbox" name="llm" value="chatgpt" checked> GPT</label>
+        <label><input type="checkbox" name="llm" value="claude" checked> Claude</label>
+        <label><input type="checkbox" name="llm" value="gemini"> Gemini</label>
+        <label><input type="checkbox" name="llm" value="grok"> Grok</label>
+        <label><input type="checkbox" name="llm" value="lechat"> Le Chat</label>
+        <label><input type="checkbox" name="llm" value="qwen"> Qwen</label>
+        <label><input type="checkbox" name="llm" value="deepseek"> DeepSeek</label>
+        <label><input type="checkbox" name="llm" value="perplex"> Perplexity</label>
+        <label><input type="checkbox" name="llm" value="zai"> Z.ai</label>
+        <label><input type="checkbox" name="llm" value="kimi"> Kimi</label>
       </div>
-      <div id="automation-feed" class="automation-feed" data-automation-feed aria-live="polite"></div>
-    </section>
+
+      <div class="automation-actions">
+        <button id="automation-download-result" type="button" disabled>Result</button>
+        <button id="automation-download-audit" type="button" disabled>Audit</button>
+      </div>
+    </header>
+
+    <main class="automation-workspace">
+      <section class="automation-lane automation-model-lane">
+        <header class="automation-lane-header">
+          <h2 id="automation-model-a-name">GPT</h2>
+        </header>
+        <div id="automation-model-a-feed" class="automation-lane-feed" aria-live="polite"></div>
+        <textarea id="automation-model-a-request" class="automation-composer automation-model-request" readonly></textarea>
+      </section>
+
+      <section class="automation-lane automation-moderator-lane">
+        <header class="automation-lane-header">
+          <h2>Moderator</h2>
+          <span id="automation-feed-summary" class="automation-feed-summary">IDLE</span>
+        </header>
+        <div id="automation-feed" class="automation-lane-feed" data-automation-feed aria-live="polite"></div>
+        <div class="automation-moderator-composer">
+          <textarea id="prompt" class="automation-composer" placeholder=""></textarea>
+          <div class="automation-composer-actions">
+            <button id="send-button" type="button">Send</button>
+            <button id="automation-cancel" type="button" disabled>Cansel</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="automation-lane automation-model-lane">
+        <header class="automation-lane-header">
+          <h2 id="automation-model-b-name">Claude</h2>
+        </header>
+        <div id="automation-model-b-feed" class="automation-lane-feed" aria-live="polite"></div>
+        <textarea id="automation-model-b-request" class="automation-composer automation-model-request" readonly></textarea>
+      </section>
+    </main>
 
     <details class="automation-diagnostics">
       <summary>Runtime / Diagnostics</summary>
