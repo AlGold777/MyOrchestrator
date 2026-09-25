@@ -55,9 +55,11 @@ It does **not** mean:
 
 This distinction is stated in every dispatched structural instruction.
 
-## 5. IDs, versions and object references
+## 5. Snapshot, IDs, versions and object references
 
-Canonical IDs are machine-owned.
+`passport.input_snapshot_id` is machine-owned and identifies the exact input snapshot for the run. The model only echoes it; validator requires an exact match.
+
+Canonical object IDs are machine-owned.
 
 `passport.input_refs` contains authoritative references:
 
@@ -150,7 +152,7 @@ Malformed or semantically inconsistent envelopes become `STRUCTURE_INVALID` and 
 
 ## 12. UI projection
 
-The full JSON remains in state/audit.
+The full JSON, snapshot identity and runtime hashes remain in state/audit.
 
 The normal UI shows:
 
