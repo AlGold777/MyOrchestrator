@@ -313,7 +313,7 @@
         return;
       }
 
-      if (state.models.every((model) => Boolean(roundState.answers?.[model]?.text))) {
+      if (state.models.every((model) => Boolean(roundState.answers?.[model]?.structure))) {
         if (round === 1) {
           await completeRoundOne();
         } else {
@@ -515,7 +515,7 @@
       model: event.model,
       round: event.round,
       status: 'ACCEPTED',
-      text: parsed.content,
+      text: parsed.content || (parsed.structure?.completion?.empty_by_design ? 'Empty by design' : ''),
       structure: parsed.structure,
       runtime: runtimeMeta,
       structureSummary: parsed.summary
@@ -580,7 +580,7 @@
     if (state.phase !== expectedPhase) return;
 
     const roundState = state.rounds[String(round)];
-    const pending = state.models.filter((model) => !roundState.answers?.[model]?.text);
+    const pending = state.models.filter((model) => !roundState.answers?.[model]?.structure);
     if (!pending.length || Number(roundState.recoveryCount || 0) >= 1) return;
 
     roundState.recoveryCount = Number(roundState.recoveryCount || 0) + 1;
@@ -605,7 +605,7 @@
 
     setTimeout(async () => {
       if (!state || state.phase !== expectedPhase) return;
-      const pendingAfter = state.models.filter((model) => !state.rounds[String(round)].answers?.[model]?.text);
+      const pendingAfter = state.models.filter((model) => !state.rounds[String(round)].answers?.[model]?.structure);
       if (pendingAfter.length) {
         await failRun(`Finalization stalled after recovery: ${pendingAfter.join(', ')}`);
       }
@@ -785,7 +785,12 @@
         appendLaneMessage(section, 'Moderator', roundState.sentPrompt, 'moderator');
       }
       if (answer) {
-        const message = appendLaneMessage(section, model, answer.text, 'model');
+        const message = appendLaneMessage(
+          section,
+          model,
+          answer.text || (answer.structure?.completion?.empty_by_design ? 'Empty by design' : ''),
+          'model'
+        );
         renderStructureCompact(message, answer);
       }
       container.appendChild(section);
