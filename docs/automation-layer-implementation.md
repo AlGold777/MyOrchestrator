@@ -250,3 +250,40 @@ Verify:
 10. a provider terminal failure produces `ERROR`, not false `COMPLETED`.
 
 The current execution environment used to produce this branch cannot authenticate into the user's local Chrome provider sessions, so the real provider run remains the required final field test.
+
+
+## Structured response contract v1.1
+
+Each model response is now required to satisfy the compact `AL-STRUCT-1` contract:
+
+```text
+passport
+outputs
+annotations
+trace
+input_fate
+changes
+completion
+```
+
+The controller validates the contract before accepting an answer. Plain unstructured prose is rejected as `STRUCTURE_INVALID`.
+
+All semantic marker types are represented through the single `annotations` array rather than separate empty sections.
+
+Runtime-owned identity/integrity fields (`run_id`, model, round, prompt hash, payload hash) are added by the controller and shown with the parsed structure.
+
+The main feed still shows the readable answer normally; full structure is available in a collapsed `Structure` disclosure.
+
+## Finalization supervisor
+
+The field test showed that a provider can visibly finish while the existing runtime has not yet materialized a terminal `jobState`.
+
+The controller therefore performs one bounded supervisory recovery after 60 seconds of missing terminal progress:
+
+```text
+GET_IT_BATCH(pending models)
+```
+
+This reuses the existing MyOrchestrator extraction/recovery path. It does not add a second scraper or resend the model prompt.
+
+If pending models still have no accepted answer 60 seconds after that recovery pass, the automation run fails closed with `Finalization stalled after recovery`.
