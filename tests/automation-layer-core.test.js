@@ -141,6 +141,27 @@ describe('Automation Layer final structured core', () => {
     expect(rejected.reason).toBe('STRUCTURE_TRACE_COVERAGE');
   });
 
+  test('accepts explicit empty-by-design result without fake output', () => {
+    const value = {
+      passport: { contract: 'AL-STRUCT-1', stage: 'ROUND_1', input_refs: refs(1) },
+      outputs: [],
+      annotations: [],
+      trace: [],
+      input_fate: [{ input_id: 'IDEA-001', disposition: 'CONSUMED', output_ids: [] }],
+      changes: [],
+      completion: {
+        status: 'COMPLETE',
+        output_ids: [],
+        output_count: 0,
+        empty_by_design: true,
+        anomalies: []
+      }
+    };
+    const parsed = Core.validateStructuredAnswer(JSON.stringify(value), 'ROUND_1', refs(1));
+    expect(parsed.ok).toBe(true);
+    expect(parsed.content).toBe('');
+  });
+
   test('persisted stage correlation survives compaction', () => {
     const jobState = { session: { pipelineRunId: Core.stageRunId('RUN-A', 2) } };
     expect(Core.matchingJobState(jobState, 'RUN-A', 2)).toBe(true);
