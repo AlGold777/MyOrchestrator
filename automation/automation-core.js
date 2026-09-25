@@ -241,7 +241,7 @@
       }
     }
 
-    if (!Array.isArray(value.outputs) || value.outputs.length < 1) return { ok: false, reason: 'STRUCTURE_NO_OUTPUT' };
+    if (!Array.isArray(value.outputs)) return { ok: false, reason: 'STRUCTURE_BAD_OUTPUTS' };
     const outputIds = new Set();
     const answerContents = [];
     for (const output of value.outputs) {
@@ -256,7 +256,6 @@
       outputIds.add(id);
       if (type === 'ANSWER' && content) answerContents.push(content);
     }
-    if (!answerContents.length) return { ok: false, reason: 'STRUCTURE_NO_ANSWER_OUTPUT' };
 
     if (!Array.isArray(value.annotations)) return { ok: false, reason: 'STRUCTURE_BAD_ANNOTATIONS' };
     for (const item of value.annotations) {
@@ -281,7 +280,9 @@
       }
     }
     if (tracedOutputs.size !== outputIds.size) return { ok: false, reason: 'STRUCTURE_TRACE_OUTPUT_COVERAGE' };
-    if (expected.some((ref) => !traceSources.has(ref.id))) return { ok: false, reason: 'STRUCTURE_TRACE_COVERAGE' };
+    if (value.outputs.length > 0 && expected.some((ref) => !traceSources.has(ref.id))) {
+      return { ok: false, reason: 'STRUCTURE_TRACE_COVERAGE' };
+    }
 
     if (!Array.isArray(value.input_fate) || value.input_fate.length !== expected.length) {
       return { ok: false, reason: 'STRUCTURE_BAD_INPUT_FATE' };
@@ -331,10 +332,17 @@
       return { ok: false, reason: 'STRUCTURE_BAD_COMPLETION' };
     }
 
+    if (completion.empty_by_design) {
+      if (value.outputs.length !== 0) return { ok: false, reason: 'STRUCTURE_EMPTY_WITH_OUTPUTS' };
+      if (value.trace.length !== 0) return { ok: false, reason: 'STRUCTURE_EMPTY_WITH_TRACE' };
+    } else if (!answerContents.length) {
+      return { ok: false, reason: 'STRUCTURE_NO_ANSWER_OUTPUT' };
+    }
+
     return {
       ok: true,
       structure: value,
-      content: answerContents.join('\n\n'),
+      content: completion.empty_by_design ? '' : answerContents.join('\n\n'),
       summary: {
         contract: STRUCTURE_CONTRACT_ID,
         outputs: value.outputs.length,
