@@ -41,7 +41,7 @@ No second scraper, provider adapter or completion detector is introduced.
 3. Round 1 dispatches the same task independently to both models.
 4. Each accepted response must pass `AL-STRUCT-1`.
 5. Controller wraps both accepted responses as `role:"prior_output"`.
-6. Round 2 receives original IDEA + both Round 1 outputs + synthesis task under a new input snapshot.
+6. Round 2 receives original IDEA + both Round 1 structured results + synthesis task under a new input snapshot.
 7. Both Round 2 responses must pass the same contract.
 8. Result and audit artifacts are exported.
 
