@@ -13,6 +13,7 @@
     ROUND2_DISPATCHING: 'ROUND 2 · DISPATCHING',
     ROUND2_RUNNING: 'ROUND 2 · RUNNING',
     COMPLETED: 'COMPLETED',
+    FINALIZATION_STALLED: 'FINALIZATION_STALLED',
     ERROR: 'ERROR',
     CANCELLED: 'CANCELLED'
   });
@@ -23,11 +24,16 @@
     PHASE.ROUND2_DISPATCHING,
     PHASE.ROUND2_RUNNING
   ]);
+  const SUPERVISORY_IDLE_MS = 20000;
+  const SUPERVISORY_MAX_ATTEMPTS = 2;
+  const SUPERVISORY_POLL_MS = 1000;
+  const GET_IT_TIMEOUT_MS = 90000;
 
   const ui = {};
   let state = null;
   let transitionBusy = false;
   let reconcileBusy = false;
+  let supervisorKey = null;
 
   document.addEventListener('DOMContentLoaded', init);
 
@@ -40,6 +46,7 @@
     chrome.runtime.onMessage.addListener(onRuntimeMessage);
     if (state && ACTIVE_PHASES.has(state.phase)) {
       await resumeRun();
+      ensureSupervisor();
     }
   }
 
@@ -121,8 +128,8 @@
       models: selected,
       synthesisInstruction: Core.DEFAULT_SYNTHESIS_INSTRUCTION,
       rounds: {
-        '1': { promptHash: null, sessionId: null, answers: {}, terminalKeys: [] },
-        '2': { promptHash: null, sessionId: null, answers: {}, terminalKeys: [] }
+        '1': createRoundState(),
+        '2': createRoundState()
       },
       feed: [],
       journal: [],
@@ -180,6 +187,7 @@
     addJournal('ROUND_DISPATCH_ACCEPTED', { round });
     await persist();
     render();
+    ensureSupervisor();
 
     await reconcileJobState(await readJobState());
   }
@@ -209,6 +217,7 @@
       const roundState = state.rounds[String(round)];
       if (!roundState.sessionId && jobState?.session?.startTime) {
         roundState.sessionId = jobState.session.startTime;
+        roundState.lastProgressAt = Date.now();
         addJournal('ROUND_SESSION_BOUND', { round, sessionId: roundState.sessionId });
       }
 
@@ -223,6 +232,7 @@
       let terminalFailure = null;
       for (const event of events) {
         roundState.terminalKeys.push(event.key);
+        roundState.lastProgressAt = Date.now();
         if (event.success) {
           roundState.answers[event.model] = {
             text: event.answer,
@@ -233,6 +243,11 @@
             source: event.source
           };
           addModelMessage(event);
+          if ((roundState.recoveryRequestedModels || []).includes(event.model)) {
+            addModelStatus(event.model, 'RECOVERY_ACCEPTED', round, 'Existing runtime finalized the recovered answer.');
+            addJournal('RECOVERY_ACCEPTED', { round, model: event.model, finalizedAt: event.finalizedAt });
+            roundState.recoveryRequestedModels = roundState.recoveryRequestedModels.filter((model) => model !== event.model);
+          }
           addJournal('MODEL_ANSWER_ACCEPTED', {
             round,
             model: event.model,
@@ -242,6 +257,10 @@
           });
         } else {
           addFailureMessage(event);
+          if ((roundState.recoveryRequestedModels || []).includes(event.model)) {
+            addModelStatus(event.model, 'RECOVERY_FAILED', round, `Runtime finalized recovery as ${event.status}.`, 'error');
+            roundState.recoveryRequestedModels = roundState.recoveryRequestedModels.filter((model) => model !== event.model);
+          }
           addJournal('MODEL_TERMINAL_FAILURE', {
             round,
             model: event.model,
@@ -326,12 +345,13 @@
     }
   }
 
-  async function failRun(reason) {
+  async function failRun(reason, terminalPhase = PHASE.ERROR, details = {}) {
     if (!state) return;
-    state.phase = PHASE.ERROR;
+    state.phase = terminalPhase;
+    state.failureCode = terminalPhase;
     state.completedAt = new Date().toISOString();
-    addSystemMessage(`Run failed\n${reason}`, activeRoundNumber(), 'error');
-    addJournal('RUN_FAILED', { reason });
+    addSystemMessage(`${terminalPhase}\n${reason}`, activeRoundNumber(), 'error');
+    addJournal(terminalPhase === PHASE.FINALIZATION_STALLED ? 'FINALIZATION_STALLED' : 'RUN_FAILED', { reason, ...details });
     await persist();
     render();
   }
@@ -417,6 +437,151 @@
     }
   }
 
+  function createRoundState() {
+    return {
+      promptHash: null,
+      sessionId: null,
+      answers: {},
+      terminalKeys: [],
+      recoveryAttempts: 0,
+      recoveryRequestedModels: [],
+      pendingLoggedModels: [],
+      lastProgressAt: 0,
+      lastRecoveryStartedAt: 0,
+      lastRecoveryCompletedAt: 0
+    };
+  }
+
+  function ensureRoundState(round) {
+    state.rounds = state.rounds && typeof state.rounds === 'object' ? state.rounds : {};
+    const key = String(round);
+    state.rounds[key] = { ...createRoundState(), ...(state.rounds[key] || {}) };
+    const current = state.rounds[key];
+    for (const field of ['terminalKeys', 'recoveryRequestedModels', 'pendingLoggedModels']) {
+      if (!Array.isArray(current[field])) current[field] = [];
+    }
+    if (!Number.isFinite(Number(current.recoveryAttempts))) current.recoveryAttempts = 0;
+    if (!Number(current.lastProgressAt)) current.lastProgressAt = Date.now();
+    return current;
+  }
+
+  function ensureSupervisor() {
+    if (!state || !ACTIVE_PHASES.has(state.phase)) return;
+    const round = activeRoundNumber();
+    if (!round || (round === 1 && state.phase === PHASE.ROUND1_COMPLETE)) return;
+    const key = `${state.runId}:R${round}`;
+    if (supervisorKey === key) return;
+    supervisorKey = key;
+    superviseRound(round, key).catch(reportFatal).finally(() => {
+      if (supervisorKey === key) supervisorKey = null;
+      if (state && ACTIVE_PHASES.has(state.phase) && activeRoundNumber() !== round) ensureSupervisor();
+    });
+  }
+
+  async function superviseRound(round, supervisorRunKey) {
+    const roundState = ensureRoundState(round);
+    const expectedPhase = round === 1 ? PHASE.ROUND1_RUNNING : PHASE.ROUND2_RUNNING;
+
+    while (state && state.runId && `${state.runId}:R${round}` === supervisorRunKey
+      && ACTIVE_PHASES.has(state.phase) && activeRoundNumber() === round) {
+      if (state.phase !== expectedPhase) {
+        await sleep(SUPERVISORY_POLL_MS);
+        continue;
+      }
+      await sleep(SUPERVISORY_POLL_MS);
+      if (!state || !ACTIVE_PHASES.has(state.phase) || activeRoundNumber() !== round) return;
+      if (reconcileBusy) continue;
+
+      let jobState = await readJobState();
+      if (!Core.matchingJobState(jobState, state.runId, round)) continue;
+      await reconcileJobState(jobState);
+      if (!state || !ACTIVE_PHASES.has(state.phase) || activeRoundNumber() !== round) return;
+      if (reconcileBusy) continue;
+
+      let pendingModels = Core.pendingModelsFromJobState(jobState, state.runId, round, state.models);
+      if (!pendingModels.length) continue;
+
+      const lastProgress = Math.max(
+        Number(roundState.lastProgressAt || 0),
+        Number(roundState.lastRecoveryStartedAt || 0),
+        Number(roundState.lastRecoveryCompletedAt || 0)
+      );
+      const idleFor = Date.now() - lastProgress;
+      if (idleFor < SUPERVISORY_IDLE_MS) continue;
+
+      // Refresh once more at the recovery boundary. A terminal write may have
+      // raced with the idle timer or a just-completed storage event.
+      jobState = await readJobState();
+      if (!Core.matchingJobState(jobState, state.runId, round)) continue;
+      await reconcileJobState(jobState);
+      if (!state || !ACTIVE_PHASES.has(state.phase) || activeRoundNumber() !== round) return;
+      if (reconcileBusy) continue;
+      pendingModels = Core.pendingModelsFromJobState(jobState, state.runId, round, state.models);
+      if (!pendingModels.length) continue;
+
+      for (const model of pendingModels) {
+        if (roundState.pendingLoggedModels.includes(model)) continue;
+        roundState.pendingLoggedModels.push(model);
+        addModelStatus(model, 'ANSWER_PENDING_FINALIZATION', round, 'Provider answer is visible; waiting for existing runtime extraction and finalization.');
+        addJournal('ANSWER_PENDING_FINALIZATION', { round, model });
+      }
+
+      if (roundState.recoveryAttempts >= SUPERVISORY_MAX_ATTEMPTS) {
+        const stalled = pendingModels.map((model) => `${model}: no terminal result after recovery`).join('\n');
+        pendingModels.forEach((model) => addModelStatus(model, 'FINALIZATION_STALLED', round, 'No terminal result after recovery.', 'error'));
+        await failRun(stalled, PHASE.FINALIZATION_STALLED, { round, models: pendingModels });
+        return;
+      }
+
+      roundState.recoveryAttempts += 1;
+      roundState.lastRecoveryStartedAt = Date.now();
+      roundState.recoveryRequestedModels = Array.from(new Set([
+        ...roundState.recoveryRequestedModels,
+        ...pendingModels
+      ]));
+      addSystemMessage('RECOVERY_STARTED', round);
+      addSystemMessage(`GET_IT_BATCH → ${pendingModels.join(', ')}`, round);
+      addJournal('RECOVERY_STARTED', {
+        round,
+        attempt: roundState.recoveryAttempts,
+        models: pendingModels.slice(),
+        primitive: 'GET_IT_BATCH'
+      });
+      await persist();
+      render();
+
+      let batchResult;
+      try {
+        batchResult = await runtimeMessage({ type: 'GET_IT_BATCH', llmNames: pendingModels.slice() }, GET_IT_TIMEOUT_MS);
+        addJournal('GET_IT_BATCH_RESULT', {
+          round,
+          attempt: roundState.recoveryAttempts,
+          status: batchResult?.status || 'unknown',
+          results: (batchResult?.results || []).map((result) => ({
+            model: result?.llmName || null,
+            status: result?.status || null,
+            error: result?.error || null
+          }))
+        });
+      } catch (error) {
+        addJournal('GET_IT_BATCH_RESULT', {
+          round,
+          attempt: roundState.recoveryAttempts,
+          status: 'request_error',
+          error: error?.message || String(error)
+        });
+      }
+      roundState.lastRecoveryCompletedAt = Date.now();
+      await persist();
+      render();
+
+      const recoveredState = await readJobState();
+      if (Core.matchingJobState(recoveredState, state.runId, round)) {
+        await reconcileJobState(recoveredState);
+      }
+    }
+  }
+
   function activeRoundNumber() {
     if (!state) return null;
     if ([PHASE.ROUND1_DISPATCHING, PHASE.ROUND1_RUNNING, PHASE.ROUND1_COMPLETE].includes(state.phase)) return 1;
@@ -460,6 +625,20 @@
       model: 'SYSTEM',
       round: round || null,
       status: null,
+      text: String(text || '')
+    });
+    sortFeed();
+  }
+
+  function addModelStatus(model, status, round, text, severity) {
+    state.feed.push({
+      id: createEventId('status'),
+      type: 'status',
+      severity: severity || 'info',
+      timestamp: Date.now(),
+      model,
+      round,
+      status,
       text: String(text || '')
     });
     sortFeed();
@@ -572,7 +751,7 @@
     ui.runId.textContent = state?.runId || 'No active run';
     ui.send.disabled = Boolean(state && ACTIVE_PHASES.has(state.phase));
     ui.cancel.disabled = !(state && ACTIVE_PHASES.has(state.phase));
-    ui.downloadResult.disabled = !state || ![PHASE.COMPLETED, PHASE.ERROR, PHASE.CANCELLED].includes(state.phase);
+    ui.downloadResult.disabled = !state || ![PHASE.COMPLETED, PHASE.ERROR, PHASE.FINALIZATION_STALLED, PHASE.CANCELLED].includes(state.phase);
     ui.downloadAudit.disabled = !state;
 
     if (state?.originalPrompt && !ui.prompt.value) ui.prompt.value = state.originalPrompt;

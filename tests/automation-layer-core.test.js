@@ -57,4 +57,16 @@ describe('Automation Layer independent smoke core', () => {
     expect(first).toHaveLength(1);
     expect(second).toHaveLength(0);
   });
+
+  test('supervisory recovery selects only non-terminal models from the matching stage', () => {
+    const jobState = {
+      session: { pipelineRunId: Core.stageRunId('RUN-A', 1) },
+      llms: {
+        GPT: { finalStatusRecorded: true, finalStatus: 'SUCCESS', answer: 'accepted' },
+        Claude: { status: 'GENERATING', answer: 'visible but not finalized' }
+      }
+    };
+    expect(Core.pendingModelsFromJobState(jobState, 'RUN-A', 1, ['GPT', 'Claude'])).toEqual(['Claude']);
+    expect(Core.pendingModelsFromJobState(jobState, 'RUN-B', 1, ['GPT', 'Claude'])).toEqual([]);
+  });
 });

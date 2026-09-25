@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-09-25 — Supervise Automation finalization recovery, version 2.81.495
+
+- Detect answers that remain non-terminal after the provider has finished and call existing `GET_IT_BATCH` for pending models only.
+- Bound recovery to two passes per round, record recovery lifecycle events, and end in `FINALIZATION_STALLED` if terminal results still do not arrive.
+- Keep extraction, stale-answer checks, and finalization inside MyOrchestrator.
+
 ### 2026-09-25 — Connect Automation controller to the existing page, version 2.81.494
 
 - Connect the two-round Automation Controller to the existing `#modTa`, model buttons, and run control on `automation.html`.
