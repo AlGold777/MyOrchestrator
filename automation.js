@@ -4,7 +4,7 @@
   const Core = globalThis.AutomationLayerCore;
   if (!Core) throw new Error('AutomationLayerCore is not loaded');
 
-  const STORAGE_KEY = 'automationLayerWebRuntimeTest.v1';
+  const STORAGE_KEY = 'automationLayerWebRuntimeTest.v2';
   const PHASE = Object.freeze({
     IDLE: 'IDLE',
     ROUND1_DISPATCHING: 'ROUND 1 · DISPATCHING',
@@ -104,7 +104,7 @@
 
     const runId = createRunId();
     state = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       controllerVersion: Core.VERSION,
       architecture: 'event-driven-controller-over-existing-myorchestrator-runtime',
       runId,
