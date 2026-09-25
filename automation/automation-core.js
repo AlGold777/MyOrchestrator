@@ -274,11 +274,11 @@
         return { ok: false, reason: 'STRUCTURE_BAD_TRACE' };
       }
       tracedOutputs.add(outputId);
-      item.source_ids.forEach((id) => {
+      for (const id of item.source_ids) {
         const sourceId = String(id);
-        if (!expectedById.has(sourceId)) throw new Error('TRACE_UNKNOWN_SOURCE');
+        if (!expectedById.has(sourceId)) return { ok: false, reason: 'STRUCTURE_TRACE_UNKNOWN_SOURCE' };
         traceSources.add(sourceId);
-      });
+      }
     }
     if (tracedOutputs.size !== outputIds.size) return { ok: false, reason: 'STRUCTURE_TRACE_OUTPUT_COVERAGE' };
     if (expected.some((ref) => !traceSources.has(ref.id))) return { ok: false, reason: 'STRUCTURE_TRACE_COVERAGE' };
