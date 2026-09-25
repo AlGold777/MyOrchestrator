@@ -4,7 +4,7 @@
   const Core = globalThis.AutomationLayerCore;
   if (!Core) throw new Error('AutomationLayerCore is not loaded');
 
-  const STORAGE_KEY = 'automationLayerWebRuntimeTest.v2';
+  const STORAGE_KEY = 'automationLayerWebRuntimeTest.v3';
   const PHASE = Object.freeze({
     IDLE: 'IDLE',
     ROUND1_DISPATCHING: 'ROUND 1 · DISPATCHING',
@@ -56,6 +56,12 @@
     ui.feed = resolveExistingFeed();
     ui.feedSummary = document.getElementById('automation-feed-summary');
     ui.diagnostics = document.getElementById('automation-diagnostics-log');
+    ui.modelAName = document.getElementById('automation-model-a-name');
+    ui.modelBName = document.getElementById('automation-model-b-name');
+    ui.modelAFeed = document.getElementById('automation-model-a-feed');
+    ui.modelBFeed = document.getElementById('automation-model-b-feed');
+    ui.modelARequest = document.getElementById('automation-model-a-request');
+    ui.modelBRequest = document.getElementById('automation-model-b-request');
 
     const missing = ['prompt', 'send', 'status', 'runId', 'cancel', 'downloadResult', 'downloadAudit', 'feed', 'diagnostics']
       .filter((name) => !ui[name]);
@@ -70,6 +76,7 @@
 
   function bindEvents() {
     ui.send.addEventListener('click', onSendClick);
+    ui.modelControls.forEach((control) => control.addEventListener('change', renderModelHeaders));
     ui.cancel.addEventListener('click', () => cancelRun().catch(reportFatal));
     ui.downloadResult.addEventListener('click', () => downloadResult().catch(showError));
     ui.downloadAudit.addEventListener('click', () => downloadAudit().catch(showError));
@@ -104,7 +111,7 @@
 
     const runId = createRunId();
     state = {
-      schemaVersion: 2,
+      schemaVersion: 3,
       controllerVersion: Core.VERSION,
       architecture: 'event-driven-controller-over-existing-myorchestrator-runtime',
       runId,
@@ -113,6 +120,7 @@
       completedAt: null,
       originalPrompt,
       originalPromptHash: await sha256(originalPrompt),
+      ideaRef: Core.makeIdeaRef(runId),
       models: selected,
       synthesisInstruction: Core.DEFAULT_SYNTHESIS_INSTRUCTION,
       rounds: {
@@ -124,12 +132,21 @@
       exportState: { resultDownloadedAt: null, auditDownloadedAt: null }
     };
 
+    addModeratorMessage(originalPrompt);
     addSystemMessage('Round 1 started', 1);
-    addJournal('RUN_CREATED', { models: selected, originalPromptHash: state.originalPromptHash });
+    addJournal('RUN_CREATED', {
+      models: selected,
+      ideaRef: state.ideaRef,
+      originalPromptHash: state.originalPromptHash
+    });
+    ui.prompt.value = '';
     await persist();
     render();
 
-    await dispatchRound(1, Core.buildRoundOnePrompt(originalPrompt));
+    await dispatchRound(
+      1,
+      Core.buildRoundOnePrompt(originalPrompt, Core.expectedInputRefs(1, selected, state.ideaRef))
+    );
   }
 
   async function dispatchRound(round, prompt) {
@@ -141,7 +158,9 @@
     const phaseRunning = round === 1 ? PHASE.ROUND1_RUNNING : PHASE.ROUND2_RUNNING;
 
     state.phase = phaseDispatch;
+    state.rounds[roundKey].sentPrompt = prompt;
     state.rounds[roundKey].promptHash = await sha256(prompt);
+    showTransientModelRequests(prompt);
     addJournal('ROUND_DISPATCH_INTENT', {
       round,
       promptHash: state.rounds[roundKey].promptHash,
@@ -173,6 +192,7 @@
 
     state.phase = phaseRunning;
     state.rounds[roundKey].dispatchedAt = Date.now();
+    clearTransientModelRequestsSoon();
     addJournal('ROUND_DISPATCH_ACCEPTED', { round });
     await persist();
     render();
@@ -224,7 +244,7 @@
           const parsed = Core.validateStructuredAnswer(
             event.answer,
             round === 1 ? 'ROUND_1' : 'ROUND_2',
-            Core.expectedInputIds(round, state.models)
+            Core.expectedInputRefs(round, state.models, state.ideaRef)
           );
           if (!parsed.ok) {
             addFailureMessage({ ...event, status: 'STRUCTURE_INVALID', reason: parsed.reason });
@@ -423,12 +443,16 @@
 
       if (!active?.active) {
         const prompt = retryRound === 1
-          ? Core.buildRoundOnePrompt(state.originalPrompt)
+          ? Core.buildRoundOnePrompt(
+              state.originalPrompt,
+              Core.expectedInputRefs(1, state.models, state.ideaRef)
+            )
           : Core.buildRoundTwoPrompt({
               originalPrompt: state.originalPrompt,
               modelOrder: state.models,
               answers: state.rounds['1'].answers,
-              instruction: state.synthesisInstruction
+              instruction: state.synthesisInstruction,
+              inputRefs: Core.expectedInputRefs(2, state.models, state.ideaRef)
             });
         addJournal('DISPATCH_RECOVERY_RETRY', { round: retryRound });
         await persist();
@@ -455,7 +479,32 @@
     return null;
   }
 
-  function addModelMessage(event, parsed, runtimeMeta) {
+  function addModeratorMessage(text) {
+    state.feed.push({
+      id: createEventId('moderator'),
+      type: 'moderator',
+      timestamp: Date.now(),
+      model: 'Moderator',
+      round: null,
+      status: null,
+      text: String(text || '')
+    });
+    sortFeed();
+  }
+
+  function showTransientModelRequests(prompt) {
+    if (ui.modelARequest) ui.modelARequest.value = prompt;
+    if (ui.modelBRequest) ui.modelBRequest.value = prompt;
+  }
+
+  function clearTransientModelRequestsSoon() {
+    setTimeout(() => {
+      if (ui.modelARequest) ui.modelARequest.value = '';
+      if (ui.modelBRequest) ui.modelBRequest.value = '';
+    }, 900);
+  }
+
+    function addModelMessage(event, parsed, runtimeMeta) {
     state.feed.push({
       id: createEventId('answer'),
       type: 'model',
@@ -653,58 +702,127 @@
     ui.downloadResult.disabled = !state || ![PHASE.COMPLETED, PHASE.ERROR, PHASE.CANCELLED].includes(state.phase);
     ui.downloadAudit.disabled = !state;
 
-    if (state?.originalPrompt && !ui.prompt.value) ui.prompt.value = state.originalPrompt;
-
+    renderModelHeaders();
     renderFeed();
+    renderModelLanes();
     renderDiagnostics();
   }
 
-  function renderFeed() {
+  function selectedOrStateModels() {
+    if (state?.models?.length === 2) return state.models.slice();
+    return Core.selectedModelsFromValues(
+      ui.modelControls.filter((control) => control.checked).map((control) => control.value)
+    ).slice(0, 2);
+  }
+
+  function renderModelHeaders() {
+    const models = selectedOrStateModels();
+    if (ui.modelAName) ui.modelAName.textContent = models[0] || 'Model A';
+    if (ui.modelBName) ui.modelBName.textContent = models[1] || 'Model B';
+  }
+
+  function renderStructureCompact(container, answer) {
+    if (!answer?.structure) return;
+    const s = answer.structure;
+    const box = document.createElement('div');
+    box.className = 'automation-structure-compact';
+    const rows = [
+      ['Output', (s.outputs || []).map((o) => `${o.id} · ${o.type} · v${o.version}`).join(', ') || '—'],
+      ['Annotations', (s.annotations || []).map((a) => a.type).join(', ') || '—'],
+      ['Trace', (s.trace || []).flatMap((t) => t.source_ids || []).join(', ') || '—'],
+      ['Input fate', (s.input_fate || []).map((f) => `${f.input_id} → ${f.disposition}`).join(' · ') || '—'],
+      ['Completion', `${s.completion?.status || '—'} · ${s.completion?.output_count ?? 0} output${Number(s.completion?.output_count || 0) === 1 ? '' : 's'}`]
+    ];
+    rows.forEach(([label, value]) => {
+      const row = document.createElement('div');
+      row.className = 'automation-structure-row';
+      const k = document.createElement('span');
+      k.textContent = label;
+      const v = document.createElement('span');
+      v.textContent = value;
+      row.append(k, v);
+      box.appendChild(row);
+    });
+    container.appendChild(box);
+  }
+
+  function appendLaneMessage(container, role, text, cssClass) {
+    const item = document.createElement('div');
+    item.className = `automation-lane-message ${cssClass || ''}`;
+    const who = document.createElement('div');
+    who.className = 'automation-lane-role';
+    who.textContent = role;
+    const body = document.createElement('div');
+    body.className = 'automation-lane-body';
+    body.textContent = text || '';
+    item.append(who, body);
+    container.appendChild(item);
+    return item;
+  }
+
+  function renderModelLane(container, model) {
+    if (!container) return;
+    container.textContent = '';
+    if (!state || !model) return;
+    [1, 2].forEach((round) => {
+      const roundState = state.rounds?.[String(round)];
+      const answer = roundState?.answers?.[model];
+      if (!roundState?.sentPrompt && !answer) return;
+
+      const section = document.createElement('section');
+      section.className = 'automation-round-section';
+      const title = document.createElement('div');
+      title.className = 'automation-round-title';
+      title.textContent = `Round ${round}`;
+      section.appendChild(title);
+
+      if (roundState?.sentPrompt) {
+        appendLaneMessage(section, 'Moderator', roundState.sentPrompt, 'moderator');
+      }
+      if (answer) {
+        const message = appendLaneMessage(section, model, answer.text, 'model');
+        renderStructureCompact(message, answer);
+      }
+      container.appendChild(section);
+    });
+    container.scrollTop = container.scrollHeight;
+  }
+
+  function renderModelLanes() {
+    const models = selectedOrStateModels();
+    renderModelLane(ui.modelAFeed, models[0]);
+    renderModelLane(ui.modelBFeed, models[1]);
+  }
+
+    function renderFeed() {
     ui.feed.textContent = '';
     const feed = state?.feed || [];
-    feed.forEach((item) => {
-      const article = document.createElement('article');
-      article.className = `automation-message ${item.type || 'system'} ${item.severity === 'error' ? 'error' : ''}`;
 
-      const header = document.createElement('div');
-      header.className = 'automation-message-header';
+    const moderator = feed.find((item) => item.type === 'moderator');
+    if (moderator) appendLaneMessage(ui.feed, 'Moderator', moderator.text, 'moderator');
 
-      const model = document.createElement('span');
-      model.className = 'automation-message-model';
-      model.textContent = item.model || 'SYSTEM';
+    [1, 2].forEach((round) => {
+      const roundItems = feed.filter((item) => item.type === 'model' && Number(item.round) === round);
+      if (!roundItems.length) return;
+      const section = document.createElement('section');
+      section.className = 'automation-round-section';
+      const title = document.createElement('div');
+      title.className = 'automation-round-title';
+      title.textContent = `Round ${round}`;
+      section.appendChild(title);
 
-      const meta = document.createElement('span');
-      meta.className = 'automation-message-meta';
-      const parts = [Core.localTime(item.timestamp)];
-      if (item.round) parts.push(`Round ${item.round}`);
-      if (item.status) parts.push(item.status);
-      meta.textContent = parts.join(' · ');
-
-      const body = document.createElement('div');
-      body.className = 'automation-message-body';
-      body.textContent = item.text || '';
-
-      header.append(model, meta);
-      article.append(header, body);
-
-      if (item.structureSummary && item.structure) {
-        const structure = document.createElement('details');
-        structure.className = 'automation-structure';
-        const summary = document.createElement('summary');
-        summary.textContent = `Structure · ${item.structureSummary.contract} · annotations ${item.structureSummary.annotations} · COMPLETE`;
-        const pre = document.createElement('pre');
-        pre.textContent = JSON.stringify({ runtime: item.runtime || null, response: item.structure }, null, 2);
-        structure.append(summary, pre);
-        article.appendChild(structure);
-      }
-
-      ui.feed.appendChild(article);
+      roundItems.forEach((item) => {
+        const message = appendLaneMessage(section, item.model, item.text, item.severity === 'error' ? 'error' : 'model');
+        if (item.structure) {
+          renderStructureCompact(message, { structure: item.structure });
+        }
+      });
+      ui.feed.appendChild(section);
     });
 
     if (ui.feedSummary) {
-      ui.feedSummary.textContent = feed.length
-        ? `${feed.length} message${feed.length === 1 ? '' : 's'}`
-        : 'No messages yet';
+      const accepted = feed.filter((item) => item.type === 'model').length;
+      ui.feedSummary.textContent = state ? `${state.phase} · ${accepted} model result${accepted === 1 ? '' : 's'}` : 'IDLE';
     }
     ui.feed.scrollTop = ui.feed.scrollHeight;
   }
