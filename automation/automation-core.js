@@ -45,7 +45,7 @@
     'trace: [{"output_id":"OUT-1","source_ids":[...]}].',
     'input_fate: one entry per input: {"input_id":"...","disposition":"CONSUMED|PRESERVED|REJECTED|SUPERSEDED|NOT_USED","output_ids":["OUT-1"]}.',
     'changes: structural mutations such as SYNTHESIZED, MERGED, REVISED or [] when none apply.',
-    'completion: {"status":"COMPLETE","empty_by_design":false,"anomalies":[]}.'
+    'completion: {"status":"COMPLETE","output_ids":["OUT-1"],"output_count":1,"empty_by_design":false,"anomalies":[]}.'
   ].join('\n');
 
   function canonicalModelName(value) {
@@ -178,7 +178,13 @@
     if (!value.completion || String(value.completion.status || '').toUpperCase() !== 'COMPLETE') {
       return { ok: false, reason: 'STRUCTURE_NOT_COMPLETE' };
     }
-    if (typeof value.completion.empty_by_design !== 'boolean' || !Array.isArray(value.completion.anomalies)) {
+    if (
+      typeof value.completion.empty_by_design !== 'boolean'
+      || !Array.isArray(value.completion.anomalies)
+      || !Array.isArray(value.completion.output_ids)
+      || Number(value.completion.output_count) !== value.outputs.length
+      || !value.completion.output_ids.includes(String(output.id))
+    ) {
       return { ok: false, reason: 'STRUCTURE_BAD_COMPLETION' };
     }
 
