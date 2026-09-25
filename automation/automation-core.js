@@ -5,7 +5,7 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
-  const VERSION = '1.2.0';
+  const VERSION = '1.3.0';
   const STRUCTURE_CONTRACT_ID = 'AL-STRUCT-1';
 
   const CONTROL_TO_MODEL = Object.freeze({
