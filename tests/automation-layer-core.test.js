@@ -49,7 +49,8 @@ describe('Automation Layer final structured core', () => {
     const prompt = Core.buildRoundOnePrompt('Question', refs(1));
     expect(prompt).toContain('AL-STRUCT-1');
     expect(prompt).toContain('CONSUMED означает только «вход обработан»');
-    expect(prompt).toContain('Пример корректного формата:');
+    expect(prompt).toContain('schema_example');
+    expect(prompt).toContain('"role":"schema_example"');
     expect(prompt).toContain('"input_refs":[{"id":"IDEA-001","type":"IDEA","version":1}]');
     expect(prompt).toContain('"role":"task_input"');
   });
