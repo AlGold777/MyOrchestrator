@@ -289,3 +289,43 @@ GET_IT_BATCH(pending models)
 This reuses the existing MyOrchestrator extraction/recovery path. It does not add a second scraper or resend the model prompt.
 
 If pending models still have no accepted answer 60 seconds after that recovery pass, the automation run fails closed with `Finalization stalled after recovery`.
+
+
+## Final prototype-derived interaction rules
+
+The final Automation page follows the runtime instead of explaining it.
+
+- Three equal work lanes: selected model A, Moderator, selected model B.
+- In every lane, output/history is above and the request composer is below.
+- The Moderator's original request exists in the composer only before Send. After Send it is cleared and preserved in the Moderator history.
+- Model request composers are transient: the exact dispatched prompt appears while dispatching and clears after send.
+- Each model history preserves the exact sent prompt and the accepted response.
+- Round headings are emitted once per round, not repeated before every message.
+- Round 2 visibly preserves the consolidated prompt built from both structured Round 1 outputs.
+- Human-readable answer content is primary; structural metadata is compact and subordinate.
+- Diagnostics are separate from the reading flow.
+- The page is light, minimal and designed to fit a normal MacBook Chrome viewport with internal lane scrolling.
+
+These are observability requirements, not decoration: a user must be able to infer what the orchestrator did from the page without reading implementation documentation.
+
+## Final structural additions
+
+The final contract adds the following requirements beyond the prototype-visible metadata:
+
+- machine-owned IDEA/object references with exact IDs and versions;
+- support for existing decision/object refs through `passport.input_refs`;
+- response-local `temp_id` only for newly proposed domain objects;
+- explicit `CONSUMED = processed, not resolved` semantics;
+- mandatory instruction + generated valid JSON example on every dispatch;
+- closed vocabularies;
+- explicit `prior_output` role wrappers in Round 2;
+- provenance-only `trace`, never reasoning trace;
+- fail-closed validation of refs, fates, completion counts and canonical-ID ownership.
+
+## Final controller state
+
+Persistent key:
+
+`chrome.storage.local['automationLayerWebRuntimeTest.v3']`
+
+The state includes the machine-owned `ideaRef`, exact sent prompts for both rounds, structured answers, runtime integrity metadata, feed and journal.
