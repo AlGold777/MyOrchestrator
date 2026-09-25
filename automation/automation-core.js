@@ -449,7 +449,7 @@
 
   function buildAuditObject(state) {
     return {
-      schemaVersion: 3,
+      schemaVersion: 4,
       contract: STRUCTURE_CONTRACT_ID,
       runId: state?.runId || null,
       ideaRef: state?.ideaRef || null,
