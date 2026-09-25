@@ -8,7 +8,7 @@ function structured(stage, inputIds, content = 'Answer') {
     trace: [{ output_id: 'OUT-1', source_ids: inputIds }],
     input_fate: inputIds.map((id) => ({ input_id: id, disposition: 'CONSUMED', output_ids: ['OUT-1'] })),
     changes: stage === 'ROUND_2' ? [{ kind: 'SYNTHESIZED', target: 'OUT-1' }] : [],
-    completion: { status: 'COMPLETE', empty_by_design: false, anomalies: [] }
+    completion: { status: 'COMPLETE', output_ids: ['OUT-1'], output_count: 1, empty_by_design: false, anomalies: [] }
   });
 }
 
