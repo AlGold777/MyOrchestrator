@@ -2,7 +2,7 @@
 
 Branch: `automation-gpt`  
 Semantic contract: `AL-STRUCT-1`  
-Controller/Core: `1.2.0`
+Controller/Core: `1.3.0`
 
 ## Purpose
 
@@ -174,7 +174,7 @@ Failure after bounded recovery is explicit and fail-closed.
 
 Controller key:
 
-`automationLayerWebRuntimeTest.v3`
+`automationLayerWebRuntimeTest.v4`
 
 Persisted state includes:
 
