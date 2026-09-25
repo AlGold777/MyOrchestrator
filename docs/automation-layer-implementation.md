@@ -83,13 +83,15 @@ chrome.runtime.sendMessage({
 
 The page listens to `chrome.storage.local.jobState` changes.
 
-A result is consumed only when:
+A result is consumed only when it belongs to the current automation stage.
+
+For live in-memory state the controller can use `pipelineContext`. For persisted/compacted state it uses the stage-scoped persisted identifier:
 
 ```text
-jobState.session.pipelineContext.sourceView == automation
-jobState.session.pipelineContext.automationRunId == current controller run
-jobState.session.pipelineContext.automationRound == expected round
+jobState.session.pipelineRunId == <automationRunId>:R<round>
 ```
+
+The dispatch sets that value through `pipelineContext.pipelineRunId`, and the existing MyOrchestrator compactor preserves `session.pipelineRunId` across storage/reload.
 
 The controller then uses the existing terminal facts:
 
