@@ -222,10 +222,13 @@ npm test -- --runInBand tests/automation-layer-core.test.js
 The tests cover:
 
 - model-name normalization from existing UI values;
-- Round 1 structural-contract injection;
+- Round 1 structural-contract injection with `schema_example`;
+- exact IDEA/object refs and snapshot identity;
 - valid `AL-STRUCT-1` acceptance;
-- rejection of missing input/provenance coverage;
-- Round 2 structured-source construction;
+- rejection of missing/mismatched input/provenance coverage;
+- model-created canonical ID rejection and temp-ID allowance;
+- explicit `EMPTY_BY_DESIGN`;
+- Round 2 `prior_output` construction and provenance;
 - persisted stage correlation;
 - acceptance chronology from `finalizedAt`.
 
@@ -311,6 +314,7 @@ These are observability requirements, not decoration: a user must be able to inf
 
 The final contract adds the following requirements beyond the prototype-visible metadata:
 
+- machine-owned input snapshot identity;
 - machine-owned IDEA/object references with exact IDs and versions;
 - support for existing decision/object refs through `passport.input_refs`;
 - response-local `temp_id` only for newly proposed domain objects;
