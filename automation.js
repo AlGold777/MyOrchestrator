@@ -742,10 +742,16 @@
     const box = document.createElement('div');
     box.className = 'automation-structure-compact';
     const rows = [
+      ['Snapshot', s.passport?.input_snapshot_id || '—'],
+      ['Inputs', (s.passport?.input_refs || []).map((r) => `${r.id} · ${r.type} · v${r.version}`).join(' · ') || '—'],
       ['Output', (s.outputs || []).map((o) => `${o.id} · ${o.type} · v${o.version}`).join(', ') || '—'],
       ['Annotations', (s.annotations || []).map((a) => a.type).join(', ') || '—'],
       ['Trace', (s.trace || []).flatMap((t) => t.source_ids || []).join(', ') || '—'],
       ['Input fate', (s.input_fate || []).map((f) => `${f.input_id} → ${f.disposition}`).join(' · ') || '—'],
+      ['Changes', (s.changes || []).map((ch) => {
+        const target = ch.temp_id || ch.target_id || ch.object_type || '';
+        return [ch.op, ch.object_type, target].filter(Boolean).join(' · ');
+      }).join(' · ') || '—'],
       ['Completion', `${s.completion?.status || '—'} · ${s.completion?.output_count ?? 0} output${Number(s.completion?.output_count || 0) === 1 ? '' : 's'}`]
     ];
     rows.forEach(([label, value]) => {
