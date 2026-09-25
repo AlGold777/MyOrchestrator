@@ -66,6 +66,11 @@
     return { id: `R1-${modelSlug(model)}-OUT-1`, type: 'MODEL_OUTPUT', version: 1 };
   }
 
+  function inputSnapshotId(runId, round) {
+    const compact = String(runId || 'RUN').replace(/[^a-z0-9]+/gi, '').slice(-14).toUpperCase() || 'RUN';
+    return `SNAP-${compact}-R${Number(round || 0)}`;
+  }
+
   function expectedInputRefs(round, models, ideaRef) {
     const idea = normalizeRef(ideaRef || { id: 'IDEA-UNBOUND', type: 'IDEA', version: 1 });
     if (Number(round) === 1) return [idea];
@@ -84,13 +89,14 @@
     };
   }
 
-  function structureExample(stage, inputRefs) {
+  function structureExample(stage, inputRefs, snapshotId) {
     const refs = (inputRefs || []).map(normalizeRef);
     const sourceIds = refs.map((ref) => ref.id);
     return {
       passport: {
         contract: STRUCTURE_CONTRACT_ID,
         stage,
+        input_snapshot_id: String(snapshotId || 'SNAP-UNBOUND'),
         input_refs: refs
       },
       outputs: [{
@@ -120,8 +126,8 @@
     };
   }
 
-  function structureInstruction(stage, inputRefs) {
-    const example = structureExample(stage, inputRefs);
+  function structureInstruction(stage, inputRefs, snapshotId) {
+    const example = structureExample(stage, inputRefs, snapshotId);
     return [
       'Верни только один JSON-объект по AL-STRUCT-1; без markdown и текста вне JSON.',
       'Обязательные поля: passport, outputs, annotations, trace, input_fate, changes, completion.',
@@ -134,18 +140,19 @@
     ].join('\n');
   }
 
-  function buildRoundOnePrompt(originalPrompt, inputRefs) {
+  function buildRoundOnePrompt(originalPrompt, inputRefs, snapshotId) {
     const original = String(originalPrompt || '').trim();
     if (!original) throw new Error('missing_original_prompt');
     const refs = (inputRefs && inputRefs.length ? inputRefs : [{ id: 'IDEA-UNBOUND', type: 'IDEA', version: 1 }]).map(normalizeRef);
     return [
       'AUTOMATION LAYER — ROUND 1',
       '',
-      structureInstruction('ROUND_1', refs),
+      structureInstruction('ROUND_1', refs, snapshotId),
       '',
       'INPUT:',
       JSON.stringify({
         role: 'task_input',
+        input_snapshot_id: String(snapshotId || 'SNAP-UNBOUND'),
         input_refs: refs,
         original_request: original
       })
@@ -171,7 +178,7 @@
     return modelOrder.map((model) => priorOutputEnvelope(model, answers?.[model]));
   }
 
-  function buildRoundTwoPrompt({ originalPrompt, modelOrder, answers, instruction, inputRefs }) {
+  function buildRoundTwoPrompt({ originalPrompt, modelOrder, answers, instruction, inputRefs, snapshotId }) {
     const original = String(originalPrompt || '').trim();
     if (!original) throw new Error('missing_original_prompt');
     const combined = deterministicCombine(modelOrder, answers);
@@ -184,11 +191,12 @@
     return [
       'AUTOMATION LAYER — ROUND 2',
       '',
-      structureInstruction('ROUND_2', refs),
+      structureInstruction('ROUND_2', refs, snapshotId),
       '',
       'INPUT:',
       JSON.stringify({
         role: 'task_input',
+        input_snapshot_id: String(snapshotId || 'SNAP-UNBOUND'),
         input_refs: refs,
         original_request: original,
         prior_outputs: combined,
@@ -206,7 +214,7 @@
     return match ? match[1].trim() : text;
   }
 
-  function validateStructuredAnswer(raw, expectedStage, expectedRefs) {
+  function validateStructuredAnswer(raw, expectedStage, expectedRefs, expectedSnapshotId) {
     let value;
     try {
       value = JSON.parse(stripJsonFence(raw));
@@ -226,6 +234,9 @@
     if (passport.contract !== STRUCTURE_CONTRACT_ID) return { ok: false, reason: 'STRUCTURE_BAD_CONTRACT' };
     if (String(passport.stage || '').toUpperCase() !== String(expectedStage || '').toUpperCase()) {
       return { ok: false, reason: 'STRUCTURE_BAD_STAGE' };
+    }
+    if (String(passport.input_snapshot_id || '') !== String(expectedSnapshotId || '')) {
+      return { ok: false, reason: 'STRUCTURE_BAD_SNAPSHOT_ID' };
     }
     if (!Array.isArray(passport.input_refs)) return { ok: false, reason: 'STRUCTURE_BAD_INPUT_REFS' };
 
@@ -468,6 +479,7 @@
     modelSlug,
     makeIdeaRef,
     priorOutputRef,
+    inputSnapshotId,
     expectedInputRefs,
     expectedInputIds,
     structureExample,
