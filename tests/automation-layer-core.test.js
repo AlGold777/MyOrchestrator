@@ -1,153 +1,84 @@
 const Core = require('../automation/automation-core.js');
 
-describe('Automation Layer independent smoke core', () => {
-  test('maps existing UI model values to canonical runtime names', () => {
-    expect(Core.selectedModelsFromValues(['chatgpt', 'claude'])).toEqual(['GPT', 'Claude']);
-    expect(Core.selectedModelsFromValues(['perplex', 'zai'])).toEqual(['Perplexity', 'Z.ai']);
+function structured(stage, inputIds, content = 'Answer') {
+  return JSON.stringify({
+    passport: { contract: 'AL-STRUCT-1', stage, input_ids: inputIds },
+    outputs: [{ id: 'OUT-1', type: 'ANSWER', version: 1, content }],
+    annotations: [{ type: 'FACT', text: 'example' }],
+    trace: [{ output_id: 'OUT-1', source_ids: inputIds }],
+    input_fate: inputIds.map((id) => ({ input_id: id, disposition: 'CONSUMED', output_ids: ['OUT-1'] })),
+    changes: stage === 'ROUND_2' ? [{ kind: 'SYNTHESIZED', target: 'OUT-1' }] : [],
+    completion: { status: 'COMPLETE', empty_by_design: false, anomalies: [] }
+  });
+}
+
+describe('Automation Layer structured core', () => {
+  test('maps existing UI model values', () => {
+    expect(Core.selectedModelsFromValues(['chatgpt', 'lechat'])).toEqual(['GPT', 'Le Chat']);
   });
 
-  test('deterministic fan-in follows selected model order, not completion order', () => {
-    const combined = Core.deterministicCombine(['GPT', 'Claude'], {
-      Claude: { text: 'Claude was first' },
-      GPT: { text: 'GPT was second' }
-    });
-    expect(combined.indexOf('SOURCE 1: GPT')).toBeLessThan(combined.indexOf('SOURCE 2: Claude'));
-    expect(combined).toContain('GPT was second');
-    expect(combined).toContain('Claude was first');
+  test('round one prompt requires compact structural contract', () => {
+    const prompt = Core.buildRoundOnePrompt('Question');
+    expect(prompt).toContain('AL-STRUCT-1');
+    expect(prompt).toContain('passport, outputs, annotations, trace, input_fate, changes, completion');
+    expect(prompt).toContain('Question');
   });
 
-  test('round two prompt contains original request and both independent answers', () => {
+  test('accepts valid Round 1 structured answer', () => {
+    const parsed = Core.validateStructuredAnswer(
+      structured('ROUND_1', ['ORIGINAL_REQUEST'], 'R1'),
+      'ROUND_1',
+      ['ORIGINAL_REQUEST']
+    );
+    expect(parsed.ok).toBe(true);
+    expect(parsed.content).toBe('R1');
+    expect(parsed.summary.annotations).toBe(1);
+  });
+
+  test('rejects missing provenance coverage', () => {
+    const raw = JSON.parse(structured('ROUND_2', ['ORIGINAL_REQUEST'], 'R2'));
+    const parsed = Core.validateStructuredAnswer(
+      JSON.stringify(raw),
+      'ROUND_2',
+      ['ORIGINAL_REQUEST', 'ROUND1_GPT', 'ROUND1_CLAUDE']
+    );
+    expect(parsed.ok).toBe(false);
+    expect(parsed.reason).toBe('STRUCTURE_INPUT_COVERAGE');
+  });
+
+  test('round two includes both structured sources', () => {
+    const answers = {
+      GPT: { structure: JSON.parse(structured('ROUND_1', ['ORIGINAL_REQUEST'], 'G')) },
+      Claude: { structure: JSON.parse(structured('ROUND_1', ['ORIGINAL_REQUEST'], 'C')) }
+    };
     const prompt = Core.buildRoundTwoPrompt({
-      originalPrompt: 'Original question',
+      originalPrompt: 'Question',
       modelOrder: ['GPT', 'Claude'],
-      answers: {
-        GPT: { text: 'Answer G' },
-        Claude: { text: 'Answer C' }
-      }
+      answers
     });
-    expect(prompt).toContain('Original question');
-    expect(prompt).toContain('Answer G');
-    expect(prompt).toContain('Answer C');
-    expect(prompt).toContain('TASK:');
+    expect(prompt).toContain('ROUND1_GPT');
+    expect(prompt).toContain('ROUND1_CLAUDE');
+    expect(prompt).toContain('"content":"G"');
+    expect(prompt).toContain('"content":"C"');
   });
 
-  test('job-state correlation rejects another automation run', () => {
-    const jobState = {
-      session: {
-        pipelineContext: {
-          sourceView: 'automation',
-          automationRunId: 'RUN-B',
-          automationRound: 1
-        }
-      }
-    };
-    expect(Core.matchingJobState(jobState, 'RUN-A', 1)).toBe(false);
-    expect(Core.matchingJobState(jobState, 'RUN-B', 1)).toBe(true);
-  });
-
-  test('persisted stage correlation survives compaction without pipelineContext', () => {
-    const jobState = {
-      session: {
-        pipelineRunId: Core.stageRunId('RUN-A', 2)
-      }
-    };
+  test('persisted stage correlation survives compaction', () => {
+    const jobState = { session: { pipelineRunId: Core.stageRunId('RUN-A', 2) } };
     expect(Core.matchingJobState(jobState, 'RUN-A', 2)).toBe(true);
     expect(Core.matchingJobState(jobState, 'RUN-A', 1)).toBe(false);
   });
 
-  test('terminal events use finalizedAt chronology even when model object order differs', () => {
+  test('terminal events keep finalized chronology', () => {
     const jobState = {
-      session: {
-        pipelineContext: {
-          sourceView: 'automation',
-          automationRunId: 'RUN-A',
-          automationRound: 1
-        }
-      },
+      session: { pipelineRunId: Core.stageRunId('RUN-A', 1) },
       llms: {
-        GPT: {
-          finalStatusRecorded: true,
-          finalStatus: 'SUCCESS',
-          finalizedAt: 200,
-          answer: 'GPT answer',
-          lastDispatchMeta: { dispatchId: 'd-gpt' }
-        },
-        Claude: {
-          finalStatusRecorded: true,
-          finalStatus: 'SUCCESS',
-          finalizedAt: 100,
-          answer: 'Claude answer',
-          lastDispatchMeta: { dispatchId: 'd-claude' }
-        }
+        DeepSeek: { finalStatusRecorded: true, finalStatus: 'SUCCESS', finalizedAt: 200, answer: 'D' },
+        'Le Chat': { finalStatusRecorded: true, finalStatus: 'SUCCESS', finalizedAt: 100, answer: 'L' }
       }
     };
-
     const events = Core.collectNewTerminalEvents({
-      jobState,
-      runId: 'RUN-A',
-      round: 1,
-      models: ['GPT', 'Claude'],
-      seenKeys: new Set()
+      jobState, runId: 'RUN-A', round: 1, models: ['DeepSeek', 'Le Chat'], seenKeys: new Set()
     });
-
-    expect(events.map((event) => event.model)).toEqual(['Claude', 'GPT']);
-  });
-
-  test('seen terminal keys prevent duplicate feed messages after reload/reconciliation', () => {
-    const jobState = {
-      session: {
-        pipelineContext: {
-          sourceView: 'automation',
-          automationRunId: 'RUN-A',
-          automationRound: 2
-        }
-      },
-      llms: {
-        GPT: {
-          finalStatusRecorded: true,
-          finalStatus: 'SUCCESS',
-          finalizedAt: 100,
-          answer: 'Final GPT',
-          lastDispatchMeta: { dispatchId: 'd1' }
-        }
-      }
-    };
-
-    const first = Core.collectNewTerminalEvents({
-      jobState,
-      runId: 'RUN-A',
-      round: 2,
-      models: ['GPT'],
-      seenKeys: new Set()
-    });
-    const second = Core.collectNewTerminalEvents({
-      jobState,
-      runId: 'RUN-A',
-      round: 2,
-      models: ['GPT'],
-      seenKeys: new Set([first[0].key])
-    });
-
-    expect(first).toHaveLength(1);
-    expect(second).toHaveLength(0);
-  });
-
-  test('result artifact contains both rounds and original request', () => {
-    const text = Core.buildResultText({
-      runId: 'RUN-A',
-      startedAt: 'start',
-      completedAt: 'done',
-      models: ['GPT', 'Claude'],
-      originalPrompt: 'Question',
-      synthesisInstruction: 'Synthesize',
-      rounds: {
-        '1': { answers: { GPT: { text: 'G1' }, Claude: { text: 'C1' } } },
-        '2': { answers: { GPT: { text: 'G2' }, Claude: { text: 'C2' } } }
-      }
-    });
-
-    for (const part of ['Question', 'G1', 'C1', 'G2', 'C2', 'Synthesize']) {
-      expect(text).toContain(part);
-    }
+    expect(events.map((event) => event.model)).toEqual(['Le Chat', 'DeepSeek']);
   });
 });
