@@ -28,6 +28,7 @@
   let state = null;
   let transitionBusy = false;
   let reconcileBusy = false;
+  let recoveryTimer = null;
 
   document.addEventListener('DOMContentLoaded', init);
 
@@ -115,8 +116,8 @@
       models: selected,
       synthesisInstruction: Core.DEFAULT_SYNTHESIS_INSTRUCTION,
       rounds: {
-        '1': { promptHash: null, sessionId: null, answers: {}, terminalKeys: [] },
-        '2': { promptHash: null, sessionId: null, answers: {}, terminalKeys: [] }
+        '1': { promptHash: null, sessionId: null, dispatchedAt: null, recoveryCount: 0, recoveryRequestedAt: null, answers: {}, terminalKeys: [] },
+        '2': { promptHash: null, sessionId: null, dispatchedAt: null, recoveryCount: 0, recoveryRequestedAt: null, answers: {}, terminalKeys: [] }
       },
       feed: [],
       journal: [],
@@ -128,7 +129,7 @@
     await persist();
     render();
 
-    await dispatchRound(1, originalPrompt);
+    await dispatchRound(1, Core.buildRoundOnePrompt(originalPrompt));
   }
 
   async function dispatchRound(round, prompt) {
@@ -171,9 +172,11 @@
     }
 
     state.phase = phaseRunning;
+    state.rounds[roundKey].dispatchedAt = Date.now();
     addJournal('ROUND_DISPATCH_ACCEPTED', { round });
     await persist();
     render();
+    scheduleFinalizationRecovery(round);
 
     await reconcileJobState(await readJobState());
   }
@@ -218,20 +221,42 @@
       for (const event of events) {
         roundState.terminalKeys.push(event.key);
         if (event.success) {
+          const parsed = Core.validateStructuredAnswer(
+            event.answer,
+            round === 1 ? 'ROUND_1' : 'ROUND_2',
+            Core.expectedInputIds(round, state.models)
+          );
+          if (!parsed.ok) {
+            addFailureMessage({ ...event, status: 'STRUCTURE_INVALID', reason: parsed.reason });
+            addJournal('MODEL_STRUCTURE_REJECTED', {
+              round,
+              model: event.model,
+              reason: parsed.reason,
+              answerHash: await sha256(event.answer)
+            });
+            terminalFailure = { ...event, status: 'STRUCTURE_INVALID', reason: parsed.reason };
+            continue;
+          }
+
           roundState.answers[event.model] = {
-            text: event.answer,
+            text: parsed.content,
+            raw: event.answer,
+            structure: parsed.structure,
+            structureSummary: parsed.summary,
             acceptedAt: new Date(event.finalizedAt).toISOString(),
             finalizedAt: event.finalizedAt,
             dispatchId: event.dispatchId,
             requestId: event.requestId,
             source: event.source
           };
-          addModelMessage(event);
+          addModelMessage(event, parsed);
           addJournal('MODEL_ANSWER_ACCEPTED', {
             round,
             model: event.model,
             finalizedAt: event.finalizedAt,
             dispatchId: event.dispatchId,
+            contract: parsed.summary.contract,
+            annotations: parsed.summary.annotations,
             answerHash: await sha256(event.answer)
           });
         } else {
@@ -302,7 +327,8 @@
     if (transitionBusy || !state || state.phase === PHASE.COMPLETED) return;
     transitionBusy = true;
     try {
-      state.phase = PHASE.COMPLETED;
+      if (recoveryTimer) clearTimeout(recoveryTimer);
+    state.phase = PHASE.COMPLETED;
       state.completedAt = new Date().toISOString();
       addSystemMessage('Run completed', 2);
       addJournal('RUN_COMPLETED', { completedAt: state.completedAt });
@@ -322,6 +348,7 @@
 
   async function failRun(reason) {
     if (!state) return;
+    if (recoveryTimer) clearTimeout(recoveryTimer);
     state.phase = PHASE.ERROR;
     state.completedAt = new Date().toISOString();
     addSystemMessage(`Run failed\n${reason}`, activeRoundNumber(), 'error');
@@ -332,6 +359,7 @@
 
   async function cancelRun() {
     if (!state || !ACTIVE_PHASES.has(state.phase)) return;
+    if (recoveryTimer) clearTimeout(recoveryTimer);
     await runtimeMessage({ type: 'STOP_ALL', platforms: state.models }, 10000).catch(() => null);
     state.phase = PHASE.CANCELLED;
     state.completedAt = new Date().toISOString();
@@ -386,7 +414,7 @@
 
       if (!active?.active) {
         const prompt = retryRound === 1
-          ? state.originalPrompt
+          ? Core.buildRoundOnePrompt(state.originalPrompt)
           : Core.buildRoundTwoPrompt({
               originalPrompt: state.originalPrompt,
               modelOrder: state.models,
@@ -418,7 +446,7 @@
     return null;
   }
 
-  function addModelMessage(event) {
+  function addModelMessage(event, parsed) {
     state.feed.push({
       id: createEventId('answer'),
       type: 'model',
@@ -426,7 +454,9 @@
       model: event.model,
       round: event.round,
       status: 'ACCEPTED',
-      text: event.answer
+      text: parsed.content,
+      structure: parsed.structure,
+      structureSummary: parsed.summary
     });
     sortFeed();
   }
@@ -473,6 +503,51 @@
       type,
       payload: payload || {}
     });
+  }
+
+  function scheduleFinalizationRecovery(round, delayMs = 60000) {
+    if (recoveryTimer) clearTimeout(recoveryTimer);
+    recoveryTimer = setTimeout(() => {
+      runFinalizationRecovery(round).catch(reportFatal);
+    }, delayMs);
+  }
+
+  async function runFinalizationRecovery(round) {
+    if (!state) return;
+    const expectedPhase = round === 1 ? PHASE.ROUND1_RUNNING : PHASE.ROUND2_RUNNING;
+    if (state.phase !== expectedPhase) return;
+
+    const roundState = state.rounds[String(round)];
+    const pending = state.models.filter((model) => !roundState.answers?.[model]?.text);
+    if (!pending.length || Number(roundState.recoveryCount || 0) >= 1) return;
+
+    roundState.recoveryCount = Number(roundState.recoveryCount || 0) + 1;
+    roundState.recoveryRequestedAt = Date.now();
+    addJournal('FINALIZATION_RECOVERY_REQUESTED', { round, models: pending.slice() });
+    addSystemMessage(`Finalization recovery · ${pending.join(', ')}`, round);
+    await persist();
+    render();
+
+    const result = await runtimeMessage({
+      type: 'GET_IT_BATCH',
+      llmNames: pending,
+      failedOnly: true
+    }, 150000).catch((error) => ({ status: 'get_it_failed', error: error?.message || String(error) }));
+
+    addJournal('FINALIZATION_RECOVERY_RESULT', {
+      round,
+      status: result?.status || null,
+      error: result?.error || null
+    });
+    await persist();
+
+    setTimeout(async () => {
+      if (!state || state.phase !== expectedPhase) return;
+      const pendingAfter = state.models.filter((model) => !state.rounds[String(round)].answers?.[model]?.text);
+      if (pendingAfter.length) {
+        await failRun(`Finalization stalled after recovery: ${pendingAfter.join(', ')}`);
+      }
+    }, 60000);
   }
 
   async function waitForBackgroundIdle(timeoutMs) {
@@ -601,6 +676,18 @@
 
       header.append(model, meta);
       article.append(header, body);
+
+      if (item.structureSummary && item.structure) {
+        const structure = document.createElement('details');
+        structure.className = 'automation-structure';
+        const summary = document.createElement('summary');
+        summary.textContent = `Structure · ${item.structureSummary.contract} · annotations ${item.structureSummary.annotations} · COMPLETE`;
+        const pre = document.createElement('pre');
+        pre.textContent = JSON.stringify(item.structure, null, 2);
+        structure.append(summary, pre);
+        article.appendChild(structure);
+      }
+
       ui.feed.appendChild(article);
     });
 
