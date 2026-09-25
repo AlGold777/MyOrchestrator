@@ -4,9 +4,9 @@
 
 Repository: `AlGold777/MyOrchestrator`
 
-Implementation branch: `codex/automation-layer-independent-v1`
+Implementation branch: `automation-gpt`
 
-The branch is based directly on `main`.
+The implementation branch is isolated for the GPT architecture experiment and contains only this implementation's changes on top of the project baseline.
 
 Important repository observation made during implementation: `automation.html` was not present in `main` or the other existing working branches. The implementation therefore created `automation.html` using the established UI contract from `popup.html`:
 
@@ -102,11 +102,13 @@ The controller then uses the existing terminal facts:
 
 Only terminal `SUCCESS` with a non-empty accepted answer advances the business flow.
 
-## Why no custom response markers
+## Transport correlation vs structural response contract
 
-The existing runtime already has dispatch/session identity, prompt-send evidence, stale-answer guards, completion authority, answer verification and finalization. A second model-visible protocol would duplicate transport responsibility and make the test less representative of the existing product.
+Transport correlation remains runtime-owned: the existing MyOrchestrator runtime provides dispatch/session identity, stale-answer guards, completion authority, extraction and finalization.
 
-The automation layer therefore correlates at the runtime/state boundary instead of requiring the model to echo orchestration metadata.
+Separately, model outputs must satisfy the compact semantic contract `AL-STRUCT-1`. This contract structures the content and provenance of the answer; it is not used as the Web transport correlation mechanism.
+
+The controller therefore keeps transport identity outside the model response while still machine-validating the semantic structure before accepting an answer.
 
 ## Round 1
 
@@ -186,7 +188,7 @@ Already accepted answers remain in the feed and stored state.
 
 Controller state is checkpointed in:
 
-`chrome.storage.local['automationLayerWebRuntimeTest.v1']`
+`chrome.storage.local['automationLayerWebRuntimeTest.v2']`
 
 On page reload:
 
@@ -221,12 +223,12 @@ npm test -- --runInBand tests/automation-layer-core.test.js
 The tests cover:
 
 - model-name normalization from existing UI values;
-- deterministic fan-in ordering;
-- Round 2 prompt composition;
-- run/round correlation;
-- acceptance chronology from `finalizedAt`;
-- duplicate-event suppression after reconciliation/reload;
-- result artifact composition.
+- Round 1 structural-contract injection;
+- valid `AL-STRUCT-1` acceptance;
+- rejection of missing input/provenance coverage;
+- Round 2 structured-source construction;
+- persisted stage correlation;
+- acceptance chronology from `finalizedAt`.
 
 ## Required real Chrome field test
 
