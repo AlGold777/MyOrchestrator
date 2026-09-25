@@ -1,7 +1,7 @@
 # Automation Layer — final structural protocol
 
 Contract: `AL-STRUCT-1`  
-Controller/Core version: `1.2.0`
+Controller/Core version: `1.3.0`
 
 ## 1. Final response envelope
 
