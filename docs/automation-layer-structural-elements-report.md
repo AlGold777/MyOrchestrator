@@ -50,11 +50,7 @@ Round 2 не продолжает Round 1 chat.
 
 Controller не принимает произвольный текущий `jobState`.
 
-Требуются одновременно:
-
-- `sourceView === "automation"`;
-- совпадение `automationRunId`;
-- совпадение `automationRound`.
+Для live in-memory state controller использует `pipelineContext`. Для persisted/compacted state используется stage-scoped идентификатор `session.pipelineRunId = <automationRunId>:R<round>`, который штатно сохраняется MyOrchestrator.
 
 При невозможности восстановить связь после reload controller завершает run ошибкой, а не угадывает состояние.
 
@@ -221,7 +217,7 @@ Page controller после reload сверяет persisted controller state с p
 
 Добавление второго model-visible correlation protocol создало бы дублирующую transport abstraction.
 
-Для этого теста correlation проводится на trusted runtime boundary через `automationRunId + automationRound + jobState`.
+Для этого теста correlation проводится на trusted runtime boundary через stage-scoped `pipelineRunId` и live `automationRunId/automationRound`.
 
 ### 2. Специальный PAF response envelope
 
