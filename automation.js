@@ -124,8 +124,8 @@
       models: selected,
       synthesisInstruction: Core.DEFAULT_SYNTHESIS_INSTRUCTION,
       rounds: {
-        '1': { promptHash: null, sessionId: null, dispatchedAt: null, recoveryCount: 0, recoveryRequestedAt: null, answers: {}, terminalKeys: [] },
-        '2': { promptHash: null, sessionId: null, dispatchedAt: null, recoveryCount: 0, recoveryRequestedAt: null, answers: {}, terminalKeys: [] }
+        '1': { snapshotId: Core.inputSnapshotId(runId, 1), promptHash: null, sessionId: null, dispatchedAt: null, recoveryCount: 0, recoveryRequestedAt: null, answers: {}, terminalKeys: [] },
+        '2': { snapshotId: Core.inputSnapshotId(runId, 2), promptHash: null, sessionId: null, dispatchedAt: null, recoveryCount: 0, recoveryRequestedAt: null, answers: {}, terminalKeys: [] }
       },
       feed: [],
       journal: [],
@@ -145,7 +145,11 @@
 
     await dispatchRound(
       1,
-      Core.buildRoundOnePrompt(originalPrompt, Core.expectedInputRefs(1, selected, state.ideaRef))
+      Core.buildRoundOnePrompt(
+        originalPrompt,
+        Core.expectedInputRefs(1, selected, state.ideaRef),
+        state.rounds['1'].snapshotId
+      )
     );
   }
 
@@ -181,6 +185,7 @@
         pipelineRunId: Core.stageRunId(state.runId, round),
         automationRunId: state.runId,
         automationRound: round,
+        automationSnapshotId: state.rounds[roundKey].snapshotId,
         automationControllerVersion: Core.VERSION,
         automationIdeaRef: state.ideaRef,
         automationModels: state.models.slice()
@@ -245,7 +250,8 @@
           const parsed = Core.validateStructuredAnswer(
             event.answer,
             round === 1 ? 'ROUND_1' : 'ROUND_2',
-            Core.expectedInputRefs(round, state.models, state.ideaRef)
+            Core.expectedInputRefs(round, state.models, state.ideaRef),
+            roundState.snapshotId
           );
           if (!parsed.ok) {
             addFailureMessage({ ...event, status: 'STRUCTURE_INVALID', reason: parsed.reason });
@@ -340,7 +346,8 @@
         modelOrder: state.models,
         answers: state.rounds['1'].answers,
         instruction: state.synthesisInstruction,
-        inputRefs: Core.expectedInputRefs(2, state.models, state.ideaRef)
+        inputRefs: Core.expectedInputRefs(2, state.models, state.ideaRef),
+        snapshotId: state.rounds['2'].snapshotId
       });
 
       addSystemMessage('Round 2 started', 2);
@@ -415,7 +422,8 @@
         modelOrder: state.models,
         answers: state.rounds['1'].answers,
         instruction: state.synthesisInstruction,
-        inputRefs: Core.expectedInputRefs(2, state.models, state.ideaRef)
+        inputRefs: Core.expectedInputRefs(2, state.models, state.ideaRef),
+        snapshotId: state.rounds['2'].snapshotId
       });
       addSystemMessage('Round 2 resumed after page reload', 2);
       await persist();
@@ -448,14 +456,16 @@
         const prompt = retryRound === 1
           ? Core.buildRoundOnePrompt(
               state.originalPrompt,
-              Core.expectedInputRefs(1, state.models, state.ideaRef)
+              Core.expectedInputRefs(1, state.models, state.ideaRef),
+              state.rounds['1'].snapshotId
             )
           : Core.buildRoundTwoPrompt({
               originalPrompt: state.originalPrompt,
               modelOrder: state.models,
               answers: state.rounds['1'].answers,
               instruction: state.synthesisInstruction,
-              inputRefs: Core.expectedInputRefs(2, state.models, state.ideaRef)
+              inputRefs: Core.expectedInputRefs(2, state.models, state.ideaRef),
+              snapshotId: state.rounds['2'].snapshotId
             });
         addJournal('DISPATCH_RECOVERY_RETRY', { round: retryRound });
         await persist();
@@ -504,7 +514,7 @@
     setTimeout(() => {
       if (ui.modelARequest) ui.modelARequest.value = '';
       if (ui.modelBRequest) ui.modelBRequest.value = '';
-    }, 900);
+    }, 1800);
   }
 
     function addModelMessage(event, parsed, runtimeMeta) {
