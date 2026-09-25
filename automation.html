@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Automation Layer v2.1 — Web Runtime Smoke Test</title>
+  <link rel="stylesheet" href="automation.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Product→Architecture · Web Runtime</p>
+        <h1>Automation Layer v2.1 — smoke test</h1>
+        <p class="subtitle">Two independent web-model calls → deterministic merge → second calls → durable export.</p>
+      </div>
+      <div class="run-state">
+        <span id="phase-badge" class="badge idle">IDLE</span>
+        <span id="run-id" class="mono muted">No active run</span>
+      </div>
+    </header>
+
+    <section class="panel">
+      <label class="field-label" for="automation-prompt">Human request</label>
+      <textarea id="automation-prompt" rows="8" placeholder="Enter the request that must be sent independently to two models..."></textarea>
+
+      <div class="model-section">
+        <div class="field-label">Models — select exactly two</div>
+        <div id="model-grid" class="model-grid">
+          <label><input type="checkbox" value="GPT" checked> GPT</label>
+          <label><input type="checkbox" value="Claude" checked> Claude</label>
+          <label><input type="checkbox" value="Gemini"> Gemini</label>
+          <label><input type="checkbox" value="Grok"> Grok</label>
+          <label><input type="checkbox" value="Le Chat"> Le Chat</label>
+          <label><input type="checkbox" value="Qwen"> Qwen</label>
+          <label><input type="checkbox" value="DeepSeek"> DeepSeek</label>
+          <label><input type="checkbox" value="Perplexity"> Perplexity</label>
+          <label><input type="checkbox" value="Z.ai"> Z.ai</label>
+          <label><input type="checkbox" value="Kimi"> Kimi</label>
+        </div>
+      </div>
+
+      <label class="field-label" for="synthesis-instruction">Round 2 instruction</label>
+      <textarea id="synthesis-instruction" rows="5"></textarea>
+
+      <div class="actions">
+        <button id="run-test" class="primary">Run two-round test</button>
+        <button id="cancel-test" disabled>Cancel</button>
+        <button id="download-result" disabled>Download result .txt</button>
+        <button id="download-audit" disabled>Download audit .json</button>
+      </div>
+      <p id="error-box" class="error" hidden></p>
+    </section>
+
+    <section class="round-grid">
+      <article class="panel round-card">
+        <div class="round-title">
+          <h2>Round 1</h2>
+          <span class="muted">Independent answers</span>
+        </div>
+        <div id="round1-models" class="model-status-list"></div>
+        <textarea id="round1-combined" class="output" rows="14" readonly placeholder="Combined Round 1 answers will appear here."></textarea>
+      </article>
+
+      <article class="panel round-card">
+        <div class="round-title">
+          <h2>Round 2</h2>
+          <span class="muted">Both models receive the same combined input</span>
+        </div>
+        <div id="round2-models" class="model-status-list"></div>
+        <textarea id="round2-final" class="output" rows="14" readonly placeholder="Final Round 2 answers will appear here."></textarea>
+      </article>
+    </section>
+
+    <section class="panel">
+      <div class="round-title">
+        <h2>Runtime ledger</h2>
+        <span class="muted">Durable controller events; model chat text is not state.</span>
+      </div>
+      <pre id="ledger-view" class="ledger"></pre>
+    </section>
+  </main>
+
+  <script src="automation-test-protocol.js"></script>
+  <script src="automation.js"></script>
+</body>
+</html>
