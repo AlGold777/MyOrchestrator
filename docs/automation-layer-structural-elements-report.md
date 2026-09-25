@@ -86,7 +86,7 @@ Round 2 prior results are wrapped explicitly as data:
 ```json
 {
   "role": "prior_output",
-  "source_ref": {"id":"R1-GPT-OUT-1","type":"MODEL_OUTPUT","version":1},
+  "source_ref": {"id":"R1-GPT-RESULT","type":"MODEL_RESULT","version":1},
   "model": "GPT",
   "contract": "AL-STRUCT-1",
   "response": {}
@@ -106,8 +106,8 @@ It is **not** chain-of-thought or model reasoning.
 Every output must reference real IDs from `passport.input_refs`. Round 2 must cover:
 
 - the original `IDEA` ref;
-- model A Round 1 output ref;
-- model B Round 1 output ref.
+- model A Round 1 result ref;
+- model B Round 1 result ref.
 
 Unknown source IDs fail validation.
 
