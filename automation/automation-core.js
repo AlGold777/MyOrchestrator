@@ -63,7 +63,7 @@
   }
 
   function priorOutputRef(model) {
-    return { id: `R1-${modelSlug(model)}-OUT-1`, type: 'MODEL_OUTPUT', version: 1 };
+    return { id: `R1-${modelSlug(model)}-RESULT`, type: 'MODEL_RESULT', version: 1 };
   }
 
   function inputSnapshotId(runId, round) {
