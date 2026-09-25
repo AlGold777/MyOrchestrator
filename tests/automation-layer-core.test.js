@@ -45,6 +45,16 @@ describe('Automation Layer independent smoke core', () => {
     expect(Core.matchingJobState(jobState, 'RUN-B', 1)).toBe(true);
   });
 
+  test('persisted stage correlation survives compaction without pipelineContext', () => {
+    const jobState = {
+      session: {
+        pipelineRunId: Core.stageRunId('RUN-A', 2)
+      }
+    };
+    expect(Core.matchingJobState(jobState, 'RUN-A', 2)).toBe(true);
+    expect(Core.matchingJobState(jobState, 'RUN-A', 1)).toBe(false);
+  });
+
   test('terminal events use finalizedAt chronology even when model object order differs', () => {
     const jobState = {
       session: {
