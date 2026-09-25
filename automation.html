@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Automation Layer — Web Runtime Test</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="automation.css">
+</head>
+<body>
+  <div class="container automation-page">
+    <div class="prompt-input">
+      <textarea id="prompt" placeholder="Enter a prompt..."></textarea>
+      <button id="send-button" type="button" aria-label="Run automation">✈️</button>
+    </div>
+
+    <div class="llm-selector" aria-label="Model selection">
+      <label><input type="checkbox" name="llm" value="chatgpt" checked> ChatGPT</label>
+      <label><input type="checkbox" name="llm" value="claude" checked> Claude</label>
+      <label><input type="checkbox" name="llm" value="gemini"> Gemini</label>
+      <label><input type="checkbox" name="llm" value="grok"> Grok</label>
+      <label><input type="checkbox" name="llm" value="lechat"> Lechat</label>
+      <label><input type="checkbox" name="llm" value="qwen"> Qwen</label>
+      <label><input type="checkbox" name="llm" value="deepseek"> DeepSeek</label>
+      <label><input type="checkbox" name="llm" value="perplex"> Perplex</label>
+      <label><input type="checkbox" name="llm" value="zai"> Z.ai</label>
+      <label><input type="checkbox" name="llm" value="kimi"> Kimi</label>
+    </div>
+
+    <div class="automation-runtime-bar" role="status" aria-live="polite">
+      <div>
+        <strong id="automation-status">IDLE</strong>
+        <span id="automation-run-id" class="automation-muted">No active run</span>
+      </div>
+      <div class="automation-actions">
+        <button id="automation-cancel" type="button" disabled>Cancel</button>
+        <button id="automation-download-result" type="button" disabled>Download result</button>
+        <button id="automation-download-audit" type="button" disabled>Download audit</button>
+      </div>
+    </div>
+
+    <section class="automation-feed-shell" aria-label="Automation messages">
+      <div class="automation-feed-heading">
+        <h2>Messages</h2>
+        <span id="automation-feed-summary" class="automation-muted">No messages yet</span>
+      </div>
+      <div id="automation-feed" class="automation-feed" data-automation-feed aria-live="polite"></div>
+    </section>
+
+    <details class="automation-diagnostics">
+      <summary>Runtime / Diagnostics</summary>
+      <pre id="automation-diagnostics-log"></pre>
+    </details>
+  </div>
+
+  <script src="automation/automation-core.js"></script>
+  <script src="automation.js"></script>
+</body>
+</html>
