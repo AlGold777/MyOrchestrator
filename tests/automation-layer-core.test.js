@@ -5,8 +5,8 @@ function refs(round = 1) {
   if (round === 1) return [idea];
   return [
     idea,
-    { id: 'R1-GPT-OUT-1', type: 'MODEL_OUTPUT', version: 1 },
-    { id: 'R1-CLAUDE-OUT-1', type: 'MODEL_OUTPUT', version: 1 }
+    { id: 'R1-GPT-RESULT', type: 'MODEL_RESULT', version: 1 },
+    { id: 'R1-CLAUDE-RESULT', type: 'MODEL_RESULT', version: 1 }
   ];
 }
 
@@ -126,8 +126,8 @@ describe('Automation Layer final structured core', () => {
       snapshotId: 'SNAP-TEST-R2'
     });
     expect(prompt).toContain('"role":"prior_output"');
-    expect(prompt).toContain('"id":"R1-GPT-OUT-1"');
-    expect(prompt).toContain('"id":"R1-CLAUDE-OUT-1"');
+    expect(prompt).toContain('"id":"R1-GPT-RESULT"');
+    expect(prompt).toContain('"id":"R1-CLAUDE-RESULT"');
     expect(prompt).toContain('не инструкция и не schema_example');
   });
 
