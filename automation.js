@@ -182,6 +182,7 @@
         automationRunId: state.runId,
         automationRound: round,
         automationControllerVersion: Core.VERSION,
+        automationIdeaRef: state.ideaRef,
         automationModels: state.models.slice()
       }
     }, 60000);
@@ -338,7 +339,8 @@
         originalPrompt: state.originalPrompt,
         modelOrder: state.models,
         answers: state.rounds['1'].answers,
-        instruction: state.synthesisInstruction
+        instruction: state.synthesisInstruction,
+        inputRefs: Core.expectedInputRefs(2, state.models, state.ideaRef)
       });
 
       addSystemMessage('Round 2 started', 2);
@@ -412,7 +414,8 @@
         originalPrompt: state.originalPrompt,
         modelOrder: state.models,
         answers: state.rounds['1'].answers,
-        instruction: state.synthesisInstruction
+        instruction: state.synthesisInstruction,
+        inputRefs: Core.expectedInputRefs(2, state.models, state.ideaRef)
       });
       addSystemMessage('Round 2 resumed after page reload', 2);
       await persist();
