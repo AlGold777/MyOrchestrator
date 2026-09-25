@@ -25,8 +25,10 @@ It does not introduce:
 - a second DOM scraper;
 - provider-specific automation in `automation.js`;
 - model API calls;
-- a custom model response envelope;
+- a second transport-correlation protocol;
 - a second completion detector.
+
+It does introduce one compact semantic response contract, `AL-STRUCT-1`, which is validated after the existing Web runtime has accepted the provider response.
 
 The existing MyOrchestrator background/content-script stack remains responsible for:
 
@@ -159,20 +161,17 @@ The source blocks are explicitly described as data, not instructions.
 
 Round 2 runs through another fresh MyOrchestrator batch with API fallback disabled.
 
-## Feed
+## Observable workspace
 
-The main feed is chronological.
+The page has three parallel lanes: model A, Moderator, model B.
 
-Each accepted answer shows:
+The Moderator lane preserves the user's original request after Send and groups accepted model results under a single `Round 1` and `Round 2` heading.
 
-- model;
-- acceptance time;
-- round;
-- accepted answer text.
+Each model lane preserves the exact prompt dispatched for that round, followed by the accepted readable answer and a compact structural projection.
 
-System transitions such as Round 1 start/completion, Round 2 start and overall completion are short separate messages.
+The lower request box in each model lane is transient and clears after dispatch. The lower Moderator composer clears after Send.
 
-Diagnostics are kept in the collapsed `Runtime / Diagnostics` area, not mixed into the reading flow.
+Diagnostics stay in the collapsed `Runtime / Diagnostics` area and never replace the human-readable execution history.
 
 ## Failure model
 
@@ -188,7 +187,7 @@ Already accepted answers remain in the feed and stored state.
 
 Controller state is checkpointed in:
 
-`chrome.storage.local['automationLayerWebRuntimeTest.v2']`
+`chrome.storage.local['automationLayerWebRuntimeTest.v3']`
 
 On page reload:
 
