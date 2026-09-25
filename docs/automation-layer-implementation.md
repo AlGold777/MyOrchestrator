@@ -187,7 +187,7 @@ Already accepted answers remain in the feed and stored state.
 
 Controller state is checkpointed in:
 
-`chrome.storage.local['automationLayerWebRuntimeTest.v3']`
+`chrome.storage.local['automationLayerWebRuntimeTest.v4']`
 
 On page reload:
 
@@ -329,6 +329,6 @@ The final contract adds the following requirements beyond the prototype-visible 
 
 Persistent key:
 
-`chrome.storage.local['automationLayerWebRuntimeTest.v3']`
+`chrome.storage.local['automationLayerWebRuntimeTest.v4']`
 
 The state includes the machine-owned `ideaRef`, exact sent prompts for both rounds, structured answers, runtime integrity metadata, feed and journal.
