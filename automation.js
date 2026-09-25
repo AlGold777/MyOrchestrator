@@ -238,10 +238,19 @@
             continue;
           }
 
+          const answerHash = await sha256(event.answer);
+          const runtimeMeta = {
+            run_id: state.runId,
+            model: event.model,
+            round,
+            prompt_hash: roundState.promptHash,
+            payload_hash: answerHash
+          };
           roundState.answers[event.model] = {
             text: parsed.content,
             raw: event.answer,
             structure: parsed.structure,
+            runtime: runtimeMeta,
             structureSummary: parsed.summary,
             acceptedAt: new Date(event.finalizedAt).toISOString(),
             finalizedAt: event.finalizedAt,
@@ -249,7 +258,7 @@
             requestId: event.requestId,
             source: event.source
           };
-          addModelMessage(event, parsed);
+          addModelMessage(event, parsed, runtimeMeta);
           addJournal('MODEL_ANSWER_ACCEPTED', {
             round,
             model: event.model,
@@ -257,7 +266,7 @@
             dispatchId: event.dispatchId,
             contract: parsed.summary.contract,
             annotations: parsed.summary.annotations,
-            answerHash: await sha256(event.answer)
+            answerHash
           });
         } else {
           addFailureMessage(event);
@@ -446,7 +455,7 @@
     return null;
   }
 
-  function addModelMessage(event, parsed) {
+  function addModelMessage(event, parsed, runtimeMeta) {
     state.feed.push({
       id: createEventId('answer'),
       type: 'model',
@@ -456,6 +465,7 @@
       status: 'ACCEPTED',
       text: parsed.content,
       structure: parsed.structure,
+      runtime: runtimeMeta,
       structureSummary: parsed.summary
     });
     sortFeed();
@@ -683,7 +693,7 @@
         const summary = document.createElement('summary');
         summary.textContent = `Structure · ${item.structureSummary.contract} · annotations ${item.structureSummary.annotations} · COMPLETE`;
         const pre = document.createElement('pre');
-        pre.textContent = JSON.stringify(item.structure, null, 2);
+        pre.textContent = JSON.stringify({ runtime: item.runtime || null, response: item.structure }, null, 2);
         structure.append(summary, pre);
         article.appendChild(structure);
       }
