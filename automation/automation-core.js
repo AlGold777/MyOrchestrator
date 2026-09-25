@@ -99,11 +99,18 @@
       && Boolean(String(entry?.answer || '').trim());
   }
 
+  function stageRunId(runId, round) {
+    return `${String(runId || '')}:R${Number(round || 0)}`;
+  }
+
   function matchingJobState(jobState, runId, round) {
-    const ctx = jobState?.session?.pipelineContext || {};
-    return String(ctx.automationRunId || '') === String(runId || '')
+    const session = jobState?.session || {};
+    const ctx = session.pipelineContext || {};
+    const contextMatch = String(ctx.automationRunId || '') === String(runId || '')
       && Number(ctx.automationRound || 0) === Number(round || 0)
       && String(ctx.sourceView || '') === 'automation';
+    const persistedMatch = String(session.pipelineRunId || '') === stageRunId(runId, round);
+    return contextMatch || persistedMatch;
   }
 
   function collectNewTerminalEvents({ jobState, runId, round, models, seenKeys }) {
@@ -208,6 +215,7 @@
     terminalStatus,
     isTerminalEntry,
     isSuccessfulTerminal,
+    stageRunId,
     matchingJobState,
     collectNewTerminalEvents,
     localTime,
