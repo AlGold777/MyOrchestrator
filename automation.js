@@ -174,13 +174,12 @@
     await persist();
     render();
 
-    const stored = await chrome.storage.local.get('jobState');
-    await reconcileJobState(stored?.jobState || null);
+    await reconcileJobState(await readJobState());
   }
 
   async function onStorageChanged(changes, areaName) {
     if (areaName !== 'local' || !changes.jobState || !state || !ACTIVE_PHASES.has(state.phase)) return;
-    await reconcileJobState(changes.jobState.newValue || null);
+    await reconcileJobState(await readJobState());
   }
 
   function onRuntimeMessage(message) {
@@ -342,8 +341,7 @@
   }
 
   async function resumeRun() {
-    const stored = await chrome.storage.local.get('jobState');
-    const jobState = stored?.jobState || null;
+    const jobState = await readJobState();
     const round = activeRoundNumber();
 
     if (round && Core.matchingJobState(jobState, state.runId, round)) {
@@ -366,8 +364,7 @@
 
     if (state.phase === PHASE.ROUND1_DISPATCHING || state.phase === PHASE.ROUND2_DISPATCHING) {
       await sleep(1800);
-      const retryStored = await chrome.storage.local.get('jobState');
-      const retryJobState = retryStored?.jobState || null;
+      const retryJobState = await readJobState();
       const retryRound = activeRoundNumber();
       if (retryRound && Core.matchingJobState(retryJobState, state.runId, retryRound)) {
         state.phase = retryRound === 1 ? PHASE.ROUND1_RUNNING : PHASE.ROUND2_RUNNING;
@@ -537,6 +534,18 @@
     } finally {
       setTimeout(() => URL.revokeObjectURL(url), 5000);
     }
+  }
+
+  async function readJobState() {
+    if (globalThis.CompressedStorage?.get) {
+      return await globalThis.CompressedStorage.get('jobState');
+    }
+    const raw = await chrome.storage.local.get('jobState');
+    const value = raw?.jobState || null;
+    if (typeof value === 'string' && value.startsWith('__LZ__')) {
+      throw new Error('Compressed jobState cannot be decoded: CompressedStorage is unavailable.');
+    }
+    return value;
   }
 
   async function persist() {
