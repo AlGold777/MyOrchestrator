@@ -125,12 +125,12 @@
     return [
       'Верни только один JSON-объект по AL-STRUCT-1; без markdown и текста вне JSON.',
       'Обязательные поля: passport, outputs, annotations, trace, input_fate, changes, completion.',
-      `output.type: ${OUTPUT_TYPES.join('|')}; annotations[].type: ${ANNOTATION_TYPES.join('|')}; input_fate.disposition: ${INPUT_DISPOSITIONS.join('|')}; completion.status: ${COMPLETION_STATUSES.join('|')}.`,
+      `output.type: ${OUTPUT_TYPES.join('|')}; annotations[].type: ${ANNOTATION_TYPES.join('|')}; input_fate.disposition: ${INPUT_DISPOSITIONS.join('|')}; completion.status: ${COMPLETION_STATUSES.join('|')}; changes[].op: ${CHANGE_OPS.join('|')}.`,
       'CONSUMED означает только «вход обработан»; это НЕ означает «решён», «проверен» или «закрыт».',
       'Все существующие IDEA/PD/REQ/CON/FCT/ASM/UNK/RSK/EVD/AD/FND/CHG IDs и версии копируй только из passport.input_refs; canonical IDs не придумывай.',
       'Если создаёшь новый domain object, используй changes[].op="CREATE" и response-local temp_id вида "tmp-pd-1"; canonical ID назначит orchestrator.',
-      'Пример корректного формата:',
-      JSON.stringify(example)
+      'Пример корректного формата помечен как schema_example; wrapper не копируй, верни только объект response:',
+      JSON.stringify({ role: 'schema_example', response: example })
     ].join('\n');
   }
 
