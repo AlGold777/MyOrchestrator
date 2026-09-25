@@ -712,10 +712,12 @@
   }
 
   function selectedOrStateModels() {
-    if (state?.models?.length === 2) return state.models.slice();
-    return Core.selectedModelsFromValues(
+    if (state?.models?.length === 2 && ACTIVE_PHASES.has(state.phase)) return state.models.slice();
+    const selected = Core.selectedModelsFromValues(
       ui.modelControls.filter((control) => control.checked).map((control) => control.value)
     ).slice(0, 2);
+    if (selected.length === 2) return selected;
+    return state?.models?.length === 2 ? state.models.slice() : selected;
   }
 
   function renderModelHeaders() {
