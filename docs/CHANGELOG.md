@@ -1,5 +1,26 @@
 # CHANGELOG — Project
 
+### 2026-09-25 — Connect Automation controller to the existing page, version 2.81.494
+
+- Connect the two-round Automation Controller to the existing `#modTa`, model buttons, and run control on `automation.html`.
+- Add persisted run status, chronological answer feed, cancellation, diagnostics, and result/audit downloads.
+- Load the compressed-storage decoder used to recover the background runtime state after reload.
+- Document the local extension field-test steps and the remaining need for signed-in provider tabs.
+
+### 2026-09-25 — Keep Automation state map free of groups, version 2.81.493
+
+- Disabled state-map group rendering on Automation so sections such as “Текущие позиции” do not appear in the test copy.
+
+### 2026-09-25 — Remove stray Pipeline label, version 2.81.492
+
+- Removed the redundant hidden Pipeline text node from its icon button; the button keeps its accessible `aria-label`.
+
+### 2026-09-25 — Add Automation test page, version 2.81.491
+
+- Added `automation.html` as a copy of the Pipeline panel with a dedicated toolbar icon for navigation.
+- Left the state map workspace empty in the copied page markup.
+- Registered the new page with extension tab handling and allowed-page checks.
+
 ### 2026-09-23 — Bound provider send transactions, version 2.81.490
 
 - Bound Qwen's shortcut/button fallback ladder so an unconfirmed send cannot hold the dispatch queue for tens of seconds.
