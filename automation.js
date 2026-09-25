@@ -158,6 +158,7 @@
       sourceView: 'automation',
       pipelineContext: {
         sourceView: 'automation',
+        pipelineRunId: Core.stageRunId(state.runId, round),
         automationRunId: state.runId,
         automationRound: round,
         automationControllerVersion: Core.VERSION,
