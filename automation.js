@@ -4,7 +4,7 @@
   const Core = globalThis.AutomationLayerCore;
   if (!Core) throw new Error('AutomationLayerCore is not loaded');
 
-  const STORAGE_KEY = 'automationLayer.v1';
+  const STORAGE_KEY = 'automationLayerWebRuntimeTest.v4';
   const PHASE = Object.freeze({
     IDLE: 'IDLE',
     ROUND1_DISPATCHING: 'ROUND 1 · DISPATCHING',
@@ -13,7 +13,6 @@
     ROUND2_DISPATCHING: 'ROUND 2 · DISPATCHING',
     ROUND2_RUNNING: 'ROUND 2 · RUNNING',
     COMPLETED: 'COMPLETED',
-    FINALIZATION_STALLED: 'FINALIZATION_STALLED',
     ERROR: 'ERROR',
     CANCELLED: 'CANCELLED'
   });
@@ -24,16 +23,12 @@
     PHASE.ROUND2_DISPATCHING,
     PHASE.ROUND2_RUNNING
   ]);
-  const SUPERVISORY_IDLE_MS = 20000;
-  const SUPERVISORY_MAX_ATTEMPTS = 2;
-  const SUPERVISORY_POLL_MS = 1000;
-  const GET_IT_TIMEOUT_MS = 90000;
 
   const ui = {};
   let state = null;
   let transitionBusy = false;
   let reconcileBusy = false;
-  let supervisorKey = null;
+  let recoveryTimer = null;
 
   document.addEventListener('DOMContentLoaded', init);
 
@@ -46,14 +41,13 @@
     chrome.runtime.onMessage.addListener(onRuntimeMessage);
     if (state && ACTIVE_PHASES.has(state.phase)) {
       await resumeRun();
-      ensureSupervisor();
     }
   }
 
   function bindUi() {
-    ui.prompt = document.getElementById('modTa');
-    ui.send = document.getElementById('debate-run-toggle-btn');
-    ui.modelControls = Array.from(document.querySelectorAll('.llm-button'));
+    ui.prompt = document.getElementById('prompt');
+    ui.send = document.getElementById('send-button');
+    ui.modelControls = Array.from(document.querySelectorAll('input[name="llm"]'));
     ui.status = document.getElementById('automation-status');
     ui.runId = document.getElementById('automation-run-id');
     ui.cancel = document.getElementById('automation-cancel');
@@ -62,7 +56,12 @@
     ui.feed = resolveExistingFeed();
     ui.feedSummary = document.getElementById('automation-feed-summary');
     ui.diagnostics = document.getElementById('automation-diagnostics-log');
-    ui.notice = document.getElementById('automation-notice');
+    ui.modelAName = document.getElementById('automation-model-a-name');
+    ui.modelBName = document.getElementById('automation-model-b-name');
+    ui.modelAFeed = document.getElementById('automation-model-a-feed');
+    ui.modelBFeed = document.getElementById('automation-model-b-feed');
+    ui.modelARequest = document.getElementById('automation-model-a-request');
+    ui.modelBRequest = document.getElementById('automation-model-b-request');
 
     const missing = ['prompt', 'send', 'status', 'runId', 'cancel', 'downloadResult', 'downloadAudit', 'feed', 'diagnostics']
       .filter((name) => !ui[name]);
@@ -71,14 +70,13 @@
 
   function resolveExistingFeed() {
     return document.querySelector(
-      '[data-automation-feed], #automation-feed, #debate-model-cards, .automation-feed, .messages-feed, .message-feed'
+      '[data-automation-feed], #automation-feed, .automation-feed, .messages-feed, .message-feed'
     );
   }
 
   function bindEvents() {
-    // The existing debate page also binds this button. Capture the click here
-    // so Automation owns this page's send action without starting a debate.
-    ui.send.addEventListener('click', onSendClick, true);
+    ui.send.addEventListener('click', onSendClick);
+    ui.modelControls.forEach((control) => control.addEventListener('change', renderModelHeaders));
     ui.cancel.addEventListener('click', () => cancelRun().catch(reportFatal));
     ui.downloadResult.addEventListener('click', () => downloadResult().catch(showError));
     ui.downloadAudit.addEventListener('click', () => downloadAudit().catch(showError));
@@ -86,8 +84,6 @@
 
   async function onSendClick(event) {
     event.preventDefault();
-    event.stopPropagation();
-    event.stopImmediatePropagation();
     if (state && ACTIVE_PHASES.has(state.phase)) {
       showError('Automation run is already active.');
       return;
@@ -104,8 +100,7 @@
     if (!originalPrompt) throw new Error('Enter a prompt.');
 
     const selected = Core.selectedModelsFromValues(
-      ui.modelControls.filter((control) => control.classList.contains('active'))
-        .map((control) => control.id.replace(/^llm-/, ''))
+      ui.modelControls.filter((control) => control.checked).map((control) => control.value)
     );
     if (selected.length !== 2) throw new Error('Select exactly two models.');
 
@@ -116,7 +111,7 @@
 
     const runId = createRunId();
     state = {
-      schemaVersion: 1,
+      schemaVersion: 4,
       controllerVersion: Core.VERSION,
       architecture: 'event-driven-controller-over-existing-myorchestrator-runtime',
       runId,
@@ -125,23 +120,37 @@
       completedAt: null,
       originalPrompt,
       originalPromptHash: await sha256(originalPrompt),
+      ideaRef: Core.makeIdeaRef(runId),
       models: selected,
       synthesisInstruction: Core.DEFAULT_SYNTHESIS_INSTRUCTION,
       rounds: {
-        '1': createRoundState(),
-        '2': createRoundState()
+        '1': { snapshotId: Core.inputSnapshotId(runId, 1), promptHash: null, sessionId: null, dispatchedAt: null, recoveryCount: 0, recoveryRequestedAt: null, answers: {}, terminalKeys: [] },
+        '2': { snapshotId: Core.inputSnapshotId(runId, 2), promptHash: null, sessionId: null, dispatchedAt: null, recoveryCount: 0, recoveryRequestedAt: null, answers: {}, terminalKeys: [] }
       },
       feed: [],
       journal: [],
       exportState: { resultDownloadedAt: null, auditDownloadedAt: null }
     };
 
+    addModeratorMessage(originalPrompt);
     addSystemMessage('Round 1 started', 1);
-    addJournal('RUN_CREATED', { models: selected, originalPromptHash: state.originalPromptHash });
+    addJournal('RUN_CREATED', {
+      models: selected,
+      ideaRef: state.ideaRef,
+      originalPromptHash: state.originalPromptHash
+    });
+    ui.prompt.value = '';
     await persist();
     render();
 
-    await dispatchRound(1, originalPrompt);
+    await dispatchRound(
+      1,
+      Core.buildRoundOnePrompt(
+        originalPrompt,
+        Core.expectedInputRefs(1, selected, state.ideaRef),
+        state.rounds['1'].snapshotId
+      )
+    );
   }
 
   async function dispatchRound(round, prompt) {
@@ -153,7 +162,9 @@
     const phaseRunning = round === 1 ? PHASE.ROUND1_RUNNING : PHASE.ROUND2_RUNNING;
 
     state.phase = phaseDispatch;
+    state.rounds[roundKey].sentPrompt = prompt;
     state.rounds[roundKey].promptHash = await sha256(prompt);
+    showTransientModelRequests(prompt);
     addJournal('ROUND_DISPATCH_INTENT', {
       round,
       promptHash: state.rounds[roundKey].promptHash,
@@ -174,7 +185,9 @@
         pipelineRunId: Core.stageRunId(state.runId, round),
         automationRunId: state.runId,
         automationRound: round,
+        automationSnapshotId: state.rounds[roundKey].snapshotId,
         automationControllerVersion: Core.VERSION,
+        automationIdeaRef: state.ideaRef,
         automationModels: state.models.slice()
       }
     }, 60000);
@@ -184,10 +197,12 @@
     }
 
     state.phase = phaseRunning;
+    state.rounds[roundKey].dispatchedAt = Date.now();
+    clearTransientModelRequestsSoon();
     addJournal('ROUND_DISPATCH_ACCEPTED', { round });
     await persist();
     render();
-    ensureSupervisor();
+    scheduleFinalizationRecovery(round);
 
     await reconcileJobState(await readJobState());
   }
@@ -217,7 +232,6 @@
       const roundState = state.rounds[String(round)];
       if (!roundState.sessionId && jobState?.session?.startTime) {
         roundState.sessionId = jobState.session.startTime;
-        roundState.lastProgressAt = Date.now();
         addJournal('ROUND_SESSION_BOUND', { round, sessionId: roundState.sessionId });
       }
 
@@ -232,35 +246,57 @@
       let terminalFailure = null;
       for (const event of events) {
         roundState.terminalKeys.push(event.key);
-        roundState.lastProgressAt = Date.now();
         if (event.success) {
+          const parsed = Core.validateStructuredAnswer(
+            event.answer,
+            round === 1 ? 'ROUND_1' : 'ROUND_2',
+            Core.expectedInputRefs(round, state.models, state.ideaRef),
+            roundState.snapshotId
+          );
+          if (!parsed.ok) {
+            addFailureMessage({ ...event, status: 'STRUCTURE_INVALID', reason: parsed.reason });
+            addJournal('MODEL_STRUCTURE_REJECTED', {
+              round,
+              model: event.model,
+              reason: parsed.reason,
+              answerHash: await sha256(event.answer)
+            });
+            terminalFailure = { ...event, status: 'STRUCTURE_INVALID', reason: parsed.reason };
+            continue;
+          }
+
+          const answerHash = await sha256(event.answer);
+          const runtimeMeta = {
+            run_id: state.runId,
+            model: event.model,
+            round,
+            prompt_hash: roundState.promptHash,
+            payload_hash: answerHash
+          };
           roundState.answers[event.model] = {
-            text: event.answer,
+            text: parsed.content,
+            raw: event.answer,
+            structure: parsed.structure,
+            runtime: runtimeMeta,
+            structureSummary: parsed.summary,
             acceptedAt: new Date(event.finalizedAt).toISOString(),
             finalizedAt: event.finalizedAt,
             dispatchId: event.dispatchId,
             requestId: event.requestId,
             source: event.source
           };
-          addModelMessage(event);
-          if ((roundState.recoveryRequestedModels || []).includes(event.model)) {
-            addModelStatus(event.model, 'RECOVERY_ACCEPTED', round, 'Existing runtime finalized the recovered answer.');
-            addJournal('RECOVERY_ACCEPTED', { round, model: event.model, finalizedAt: event.finalizedAt });
-            roundState.recoveryRequestedModels = roundState.recoveryRequestedModels.filter((model) => model !== event.model);
-          }
+          addModelMessage(event, parsed, runtimeMeta);
           addJournal('MODEL_ANSWER_ACCEPTED', {
             round,
             model: event.model,
             finalizedAt: event.finalizedAt,
             dispatchId: event.dispatchId,
-            answerHash: await sha256(event.answer)
+            contract: parsed.summary.contract,
+            annotations: parsed.summary.annotations,
+            answerHash
           });
         } else {
           addFailureMessage(event);
-          if ((roundState.recoveryRequestedModels || []).includes(event.model)) {
-            addModelStatus(event.model, 'RECOVERY_FAILED', round, `Runtime finalized recovery as ${event.status}.`, 'error');
-            roundState.recoveryRequestedModels = roundState.recoveryRequestedModels.filter((model) => model !== event.model);
-          }
           addJournal('MODEL_TERMINAL_FAILURE', {
             round,
             model: event.model,
@@ -283,7 +319,7 @@
         return;
       }
 
-      if (state.models.every((model) => Boolean(roundState.answers?.[model]?.text))) {
+      if (state.models.every((model) => Boolean(roundState.answers?.[model]?.structure))) {
         if (round === 1) {
           await completeRoundOne();
         } else {
@@ -309,7 +345,9 @@
         originalPrompt: state.originalPrompt,
         modelOrder: state.models,
         answers: state.rounds['1'].answers,
-        instruction: state.synthesisInstruction
+        instruction: state.synthesisInstruction,
+        inputRefs: Core.expectedInputRefs(2, state.models, state.ideaRef),
+        snapshotId: state.rounds['2'].snapshotId
       });
 
       addSystemMessage('Round 2 started', 2);
@@ -327,7 +365,8 @@
     if (transitionBusy || !state || state.phase === PHASE.COMPLETED) return;
     transitionBusy = true;
     try {
-      state.phase = PHASE.COMPLETED;
+      if (recoveryTimer) clearTimeout(recoveryTimer);
+    state.phase = PHASE.COMPLETED;
       state.completedAt = new Date().toISOString();
       addSystemMessage('Run completed', 2);
       addJournal('RUN_COMPLETED', { completedAt: state.completedAt });
@@ -345,19 +384,20 @@
     }
   }
 
-  async function failRun(reason, terminalPhase = PHASE.ERROR, details = {}) {
+  async function failRun(reason) {
     if (!state) return;
-    state.phase = terminalPhase;
-    state.failureCode = terminalPhase;
+    if (recoveryTimer) clearTimeout(recoveryTimer);
+    state.phase = PHASE.ERROR;
     state.completedAt = new Date().toISOString();
-    addSystemMessage(`${terminalPhase}\n${reason}`, activeRoundNumber(), 'error');
-    addJournal(terminalPhase === PHASE.FINALIZATION_STALLED ? 'FINALIZATION_STALLED' : 'RUN_FAILED', { reason, ...details });
+    addSystemMessage(`Run failed\n${reason}`, activeRoundNumber(), 'error');
+    addJournal('RUN_FAILED', { reason });
     await persist();
     render();
   }
 
   async function cancelRun() {
     if (!state || !ACTIVE_PHASES.has(state.phase)) return;
+    if (recoveryTimer) clearTimeout(recoveryTimer);
     await runtimeMessage({ type: 'STOP_ALL', platforms: state.models }, 10000).catch(() => null);
     state.phase = PHASE.CANCELLED;
     state.completedAt = new Date().toISOString();
@@ -381,7 +421,9 @@
         originalPrompt: state.originalPrompt,
         modelOrder: state.models,
         answers: state.rounds['1'].answers,
-        instruction: state.synthesisInstruction
+        instruction: state.synthesisInstruction,
+        inputRefs: Core.expectedInputRefs(2, state.models, state.ideaRef),
+        snapshotId: state.rounds['2'].snapshotId
       });
       addSystemMessage('Round 2 resumed after page reload', 2);
       await persist();
@@ -412,12 +454,18 @@
 
       if (!active?.active) {
         const prompt = retryRound === 1
-          ? state.originalPrompt
+          ? Core.buildRoundOnePrompt(
+              state.originalPrompt,
+              Core.expectedInputRefs(1, state.models, state.ideaRef),
+              state.rounds['1'].snapshotId
+            )
           : Core.buildRoundTwoPrompt({
               originalPrompt: state.originalPrompt,
               modelOrder: state.models,
               answers: state.rounds['1'].answers,
-              instruction: state.synthesisInstruction
+              instruction: state.synthesisInstruction,
+              inputRefs: Core.expectedInputRefs(2, state.models, state.ideaRef),
+              snapshotId: state.rounds['2'].snapshotId
             });
         addJournal('DISPATCH_RECOVERY_RETRY', { round: retryRound });
         await persist();
@@ -437,151 +485,6 @@
     }
   }
 
-  function createRoundState() {
-    return {
-      promptHash: null,
-      sessionId: null,
-      answers: {},
-      terminalKeys: [],
-      recoveryAttempts: 0,
-      recoveryRequestedModels: [],
-      pendingLoggedModels: [],
-      lastProgressAt: 0,
-      lastRecoveryStartedAt: 0,
-      lastRecoveryCompletedAt: 0
-    };
-  }
-
-  function ensureRoundState(round) {
-    state.rounds = state.rounds && typeof state.rounds === 'object' ? state.rounds : {};
-    const key = String(round);
-    state.rounds[key] = { ...createRoundState(), ...(state.rounds[key] || {}) };
-    const current = state.rounds[key];
-    for (const field of ['terminalKeys', 'recoveryRequestedModels', 'pendingLoggedModels']) {
-      if (!Array.isArray(current[field])) current[field] = [];
-    }
-    if (!Number.isFinite(Number(current.recoveryAttempts))) current.recoveryAttempts = 0;
-    if (!Number(current.lastProgressAt)) current.lastProgressAt = Date.now();
-    return current;
-  }
-
-  function ensureSupervisor() {
-    if (!state || !ACTIVE_PHASES.has(state.phase)) return;
-    const round = activeRoundNumber();
-    if (!round || (round === 1 && state.phase === PHASE.ROUND1_COMPLETE)) return;
-    const key = `${state.runId}:R${round}`;
-    if (supervisorKey === key) return;
-    supervisorKey = key;
-    superviseRound(round, key).catch(reportFatal).finally(() => {
-      if (supervisorKey === key) supervisorKey = null;
-      if (state && ACTIVE_PHASES.has(state.phase) && activeRoundNumber() !== round) ensureSupervisor();
-    });
-  }
-
-  async function superviseRound(round, supervisorRunKey) {
-    const roundState = ensureRoundState(round);
-    const expectedPhase = round === 1 ? PHASE.ROUND1_RUNNING : PHASE.ROUND2_RUNNING;
-
-    while (state && state.runId && `${state.runId}:R${round}` === supervisorRunKey
-      && ACTIVE_PHASES.has(state.phase) && activeRoundNumber() === round) {
-      if (state.phase !== expectedPhase) {
-        await sleep(SUPERVISORY_POLL_MS);
-        continue;
-      }
-      await sleep(SUPERVISORY_POLL_MS);
-      if (!state || !ACTIVE_PHASES.has(state.phase) || activeRoundNumber() !== round) return;
-      if (reconcileBusy) continue;
-
-      let jobState = await readJobState();
-      if (!Core.matchingJobState(jobState, state.runId, round)) continue;
-      await reconcileJobState(jobState);
-      if (!state || !ACTIVE_PHASES.has(state.phase) || activeRoundNumber() !== round) return;
-      if (reconcileBusy) continue;
-
-      let pendingModels = Core.pendingModelsFromJobState(jobState, state.runId, round, state.models);
-      if (!pendingModels.length) continue;
-
-      const lastProgress = Math.max(
-        Number(roundState.lastProgressAt || 0),
-        Number(roundState.lastRecoveryStartedAt || 0),
-        Number(roundState.lastRecoveryCompletedAt || 0)
-      );
-      const idleFor = Date.now() - lastProgress;
-      if (idleFor < SUPERVISORY_IDLE_MS) continue;
-
-      // Refresh once more at the recovery boundary. A terminal write may have
-      // raced with the idle timer or a just-completed storage event.
-      jobState = await readJobState();
-      if (!Core.matchingJobState(jobState, state.runId, round)) continue;
-      await reconcileJobState(jobState);
-      if (!state || !ACTIVE_PHASES.has(state.phase) || activeRoundNumber() !== round) return;
-      if (reconcileBusy) continue;
-      pendingModels = Core.pendingModelsFromJobState(jobState, state.runId, round, state.models);
-      if (!pendingModels.length) continue;
-
-      for (const model of pendingModels) {
-        if (roundState.pendingLoggedModels.includes(model)) continue;
-        roundState.pendingLoggedModels.push(model);
-        addModelStatus(model, 'ANSWER_PENDING_FINALIZATION', round, 'Provider answer is visible; waiting for existing runtime extraction and finalization.');
-        addJournal('ANSWER_PENDING_FINALIZATION', { round, model });
-      }
-
-      if (roundState.recoveryAttempts >= SUPERVISORY_MAX_ATTEMPTS) {
-        const stalled = pendingModels.map((model) => `${model}: no terminal result after recovery`).join('\n');
-        pendingModels.forEach((model) => addModelStatus(model, 'FINALIZATION_STALLED', round, 'No terminal result after recovery.', 'error'));
-        await failRun(stalled, PHASE.FINALIZATION_STALLED, { round, models: pendingModels });
-        return;
-      }
-
-      roundState.recoveryAttempts += 1;
-      roundState.lastRecoveryStartedAt = Date.now();
-      roundState.recoveryRequestedModels = Array.from(new Set([
-        ...roundState.recoveryRequestedModels,
-        ...pendingModels
-      ]));
-      addSystemMessage('RECOVERY_STARTED', round);
-      addSystemMessage(`GET_IT_BATCH → ${pendingModels.join(', ')}`, round);
-      addJournal('RECOVERY_STARTED', {
-        round,
-        attempt: roundState.recoveryAttempts,
-        models: pendingModels.slice(),
-        primitive: 'GET_IT_BATCH'
-      });
-      await persist();
-      render();
-
-      let batchResult;
-      try {
-        batchResult = await runtimeMessage({ type: 'GET_IT_BATCH', llmNames: pendingModels.slice() }, GET_IT_TIMEOUT_MS);
-        addJournal('GET_IT_BATCH_RESULT', {
-          round,
-          attempt: roundState.recoveryAttempts,
-          status: batchResult?.status || 'unknown',
-          results: (batchResult?.results || []).map((result) => ({
-            model: result?.llmName || null,
-            status: result?.status || null,
-            error: result?.error || null
-          }))
-        });
-      } catch (error) {
-        addJournal('GET_IT_BATCH_RESULT', {
-          round,
-          attempt: roundState.recoveryAttempts,
-          status: 'request_error',
-          error: error?.message || String(error)
-        });
-      }
-      roundState.lastRecoveryCompletedAt = Date.now();
-      await persist();
-      render();
-
-      const recoveredState = await readJobState();
-      if (Core.matchingJobState(recoveredState, state.runId, round)) {
-        await reconcileJobState(recoveredState);
-      }
-    }
-  }
-
   function activeRoundNumber() {
     if (!state) return null;
     if ([PHASE.ROUND1_DISPATCHING, PHASE.ROUND1_RUNNING, PHASE.ROUND1_COMPLETE].includes(state.phase)) return 1;
@@ -589,7 +492,32 @@
     return null;
   }
 
-  function addModelMessage(event) {
+  function addModeratorMessage(text) {
+    state.feed.push({
+      id: createEventId('moderator'),
+      type: 'moderator',
+      timestamp: Date.now(),
+      model: 'Moderator',
+      round: null,
+      status: null,
+      text: String(text || '')
+    });
+    sortFeed();
+  }
+
+  function showTransientModelRequests(prompt) {
+    if (ui.modelARequest) ui.modelARequest.value = prompt;
+    if (ui.modelBRequest) ui.modelBRequest.value = prompt;
+  }
+
+  function clearTransientModelRequestsSoon() {
+    setTimeout(() => {
+      if (ui.modelARequest) ui.modelARequest.value = '';
+      if (ui.modelBRequest) ui.modelBRequest.value = '';
+    }, 1800);
+  }
+
+    function addModelMessage(event, parsed, runtimeMeta) {
     state.feed.push({
       id: createEventId('answer'),
       type: 'model',
@@ -597,7 +525,10 @@
       model: event.model,
       round: event.round,
       status: 'ACCEPTED',
-      text: event.answer
+      text: parsed.content || (parsed.structure?.completion?.empty_by_design ? 'Empty by design' : ''),
+      structure: parsed.structure,
+      runtime: runtimeMeta,
+      structureSummary: parsed.summary
     });
     sortFeed();
   }
@@ -630,20 +561,6 @@
     sortFeed();
   }
 
-  function addModelStatus(model, status, round, text, severity) {
-    state.feed.push({
-      id: createEventId('status'),
-      type: 'status',
-      severity: severity || 'info',
-      timestamp: Date.now(),
-      model,
-      round,
-      status,
-      text: String(text || '')
-    });
-    sortFeed();
-  }
-
   function sortFeed() {
     state.feed.sort((a, b) => {
       if (a.timestamp !== b.timestamp) return Number(a.timestamp) - Number(b.timestamp);
@@ -658,6 +575,51 @@
       type,
       payload: payload || {}
     });
+  }
+
+  function scheduleFinalizationRecovery(round, delayMs = 60000) {
+    if (recoveryTimer) clearTimeout(recoveryTimer);
+    recoveryTimer = setTimeout(() => {
+      runFinalizationRecovery(round).catch(reportFatal);
+    }, delayMs);
+  }
+
+  async function runFinalizationRecovery(round) {
+    if (!state) return;
+    const expectedPhase = round === 1 ? PHASE.ROUND1_RUNNING : PHASE.ROUND2_RUNNING;
+    if (state.phase !== expectedPhase) return;
+
+    const roundState = state.rounds[String(round)];
+    const pending = state.models.filter((model) => !roundState.answers?.[model]?.structure);
+    if (!pending.length || Number(roundState.recoveryCount || 0) >= 1) return;
+
+    roundState.recoveryCount = Number(roundState.recoveryCount || 0) + 1;
+    roundState.recoveryRequestedAt = Date.now();
+    addJournal('FINALIZATION_RECOVERY_REQUESTED', { round, models: pending.slice() });
+    addSystemMessage(`Finalization recovery · ${pending.join(', ')}`, round);
+    await persist();
+    render();
+
+    const result = await runtimeMessage({
+      type: 'GET_IT_BATCH',
+      llmNames: pending,
+      failedOnly: true
+    }, 150000).catch((error) => ({ status: 'get_it_failed', error: error?.message || String(error) }));
+
+    addJournal('FINALIZATION_RECOVERY_RESULT', {
+      round,
+      status: result?.status || null,
+      error: result?.error || null
+    });
+    await persist();
+
+    setTimeout(async () => {
+      if (!state || state.phase !== expectedPhase) return;
+      const pendingAfter = state.models.filter((model) => !state.rounds[String(round)].answers?.[model]?.structure);
+      if (pendingAfter.length) {
+        await failRun(`Finalization stalled after recovery: ${pendingAfter.join(', ')}`);
+      }
+    }, 60000);
   }
 
   async function waitForBackgroundIdle(timeoutMs) {
@@ -747,53 +709,146 @@
   function render() {
     const phase = state?.phase || PHASE.IDLE;
     ui.status.textContent = phase;
-    if (ui.notice) ui.notice.textContent = '';
     ui.runId.textContent = state?.runId || 'No active run';
     ui.send.disabled = Boolean(state && ACTIVE_PHASES.has(state.phase));
     ui.cancel.disabled = !(state && ACTIVE_PHASES.has(state.phase));
-    ui.downloadResult.disabled = !state || ![PHASE.COMPLETED, PHASE.ERROR, PHASE.FINALIZATION_STALLED, PHASE.CANCELLED].includes(state.phase);
+    ui.downloadResult.disabled = !state || ![PHASE.COMPLETED, PHASE.ERROR, PHASE.CANCELLED].includes(state.phase);
     ui.downloadAudit.disabled = !state;
 
-    if (state?.originalPrompt && !ui.prompt.value) ui.prompt.value = state.originalPrompt;
-
+    renderModelHeaders();
     renderFeed();
+    renderModelLanes();
     renderDiagnostics();
   }
 
-  function renderFeed() {
+  function selectedOrStateModels() {
+    if (state?.models?.length === 2 && ACTIVE_PHASES.has(state.phase)) return state.models.slice();
+    const selected = Core.selectedModelsFromValues(
+      ui.modelControls.filter((control) => control.checked).map((control) => control.value)
+    ).slice(0, 2);
+    if (selected.length === 2) return selected;
+    return state?.models?.length === 2 ? state.models.slice() : selected;
+  }
+
+  function renderModelHeaders() {
+    const models = selectedOrStateModels();
+    if (ui.modelAName) ui.modelAName.textContent = models[0] || 'Model A';
+    if (ui.modelBName) ui.modelBName.textContent = models[1] || 'Model B';
+  }
+
+  function renderStructureCompact(container, answer) {
+    if (!answer?.structure) return;
+    const s = answer.structure;
+    const box = document.createElement('div');
+    box.className = 'automation-structure-compact';
+    const rows = [
+      ['Snapshot', s.passport?.input_snapshot_id || '—'],
+      ['Inputs', (s.passport?.input_refs || []).map((r) => `${r.id} · ${r.type} · v${r.version}`).join(' · ') || '—'],
+      ['Output', (s.outputs || []).map((o) => `${o.id} · ${o.type} · v${o.version}`).join(', ') || '—'],
+      ['Annotations', (s.annotations || []).map((a) => a.type).join(', ') || '—'],
+      ['Trace', (s.trace || []).flatMap((t) => t.source_ids || []).join(', ') || '—'],
+      ['Input fate', (s.input_fate || []).map((f) => `${f.input_id} → ${f.disposition}`).join(' · ') || '—'],
+      ['Changes', (s.changes || []).map((ch) => {
+        const target = ch.temp_id || ch.target_id || ch.object_type || '';
+        return [ch.op, ch.object_type, target].filter(Boolean).join(' · ');
+      }).join(' · ') || '—'],
+      ['Completion', `${s.completion?.status || '—'} · ${s.completion?.output_count ?? 0} output${Number(s.completion?.output_count || 0) === 1 ? '' : 's'}`]
+    ];
+    rows.forEach(([label, value]) => {
+      const row = document.createElement('div');
+      row.className = 'automation-structure-row';
+      const k = document.createElement('span');
+      k.textContent = label;
+      const v = document.createElement('span');
+      v.textContent = value;
+      row.append(k, v);
+      box.appendChild(row);
+    });
+    container.appendChild(box);
+  }
+
+  function appendLaneMessage(container, role, text, cssClass) {
+    const item = document.createElement('div');
+    item.className = `automation-lane-message ${cssClass || ''}`;
+    const who = document.createElement('div');
+    who.className = 'automation-lane-role';
+    who.textContent = role;
+    const body = document.createElement('div');
+    body.className = 'automation-lane-body';
+    body.textContent = text || '';
+    item.append(who, body);
+    container.appendChild(item);
+    return item;
+  }
+
+  function renderModelLane(container, model) {
+    if (!container) return;
+    container.textContent = '';
+    if (!state || !model) return;
+    [1, 2].forEach((round) => {
+      const roundState = state.rounds?.[String(round)];
+      const answer = roundState?.answers?.[model];
+      if (!roundState?.sentPrompt && !answer) return;
+
+      const section = document.createElement('section');
+      section.className = 'automation-round-section';
+      const title = document.createElement('div');
+      title.className = 'automation-round-title';
+      title.textContent = `Round ${round}`;
+      section.appendChild(title);
+
+      if (roundState?.sentPrompt) {
+        appendLaneMessage(section, 'Moderator', roundState.sentPrompt, 'moderator');
+      }
+      if (answer) {
+        const message = appendLaneMessage(
+          section,
+          model,
+          answer.text || (answer.structure?.completion?.empty_by_design ? 'Empty by design' : ''),
+          'model'
+        );
+        renderStructureCompact(message, answer);
+      }
+      container.appendChild(section);
+    });
+    container.scrollTop = container.scrollHeight;
+  }
+
+  function renderModelLanes() {
+    const models = selectedOrStateModels();
+    renderModelLane(ui.modelAFeed, models[0]);
+    renderModelLane(ui.modelBFeed, models[1]);
+  }
+
+    function renderFeed() {
     ui.feed.textContent = '';
     const feed = state?.feed || [];
-    feed.forEach((item) => {
-      const article = document.createElement('article');
-      article.className = `automation-message ${item.type || 'system'} ${item.severity === 'error' ? 'error' : ''}`;
 
-      const header = document.createElement('div');
-      header.className = 'automation-message-header';
+    const moderator = feed.find((item) => item.type === 'moderator');
+    if (moderator) appendLaneMessage(ui.feed, 'Moderator', moderator.text, 'moderator');
 
-      const model = document.createElement('span');
-      model.className = 'automation-message-model';
-      model.textContent = item.model || 'SYSTEM';
+    [1, 2].forEach((round) => {
+      const roundItems = feed.filter((item) => item.type === 'model' && Number(item.round) === round);
+      if (!roundItems.length) return;
+      const section = document.createElement('section');
+      section.className = 'automation-round-section';
+      const title = document.createElement('div');
+      title.className = 'automation-round-title';
+      title.textContent = `Round ${round}`;
+      section.appendChild(title);
 
-      const meta = document.createElement('span');
-      meta.className = 'automation-message-meta';
-      const parts = [Core.localTime(item.timestamp)];
-      if (item.round) parts.push(`Round ${item.round}`);
-      if (item.status) parts.push(item.status);
-      meta.textContent = parts.join(' · ');
-
-      const body = document.createElement('div');
-      body.className = 'automation-message-body';
-      body.textContent = item.text || '';
-
-      header.append(model, meta);
-      article.append(header, body);
-      ui.feed.appendChild(article);
+      roundItems.forEach((item) => {
+        const message = appendLaneMessage(section, item.model, item.text, item.severity === 'error' ? 'error' : 'model');
+        if (item.structure) {
+          renderStructureCompact(message, { structure: item.structure });
+        }
+      });
+      ui.feed.appendChild(section);
     });
 
     if (ui.feedSummary) {
-      ui.feedSummary.textContent = feed.length
-        ? `${feed.length} message${feed.length === 1 ? '' : 's'}`
-        : 'No messages yet';
+      const accepted = feed.filter((item) => item.type === 'model').length;
+      ui.feedSummary.textContent = state ? `${state.phase} · ${accepted} model result${accepted === 1 ? '' : 's'}` : 'IDLE';
     }
     ui.feed.scrollTop = ui.feed.scrollHeight;
   }
@@ -820,10 +875,7 @@
 
   function showError(message) {
     console.error('[AutomationLayer]', message);
-    if (!state) {
-      if (ui.notice) ui.notice.textContent = String(message || 'Unknown error');
-      return;
-    }
+    if (!state) return;
     addSystemMessage(String(message || 'Unknown error'), activeRoundNumber(), 'error');
     render();
   }
