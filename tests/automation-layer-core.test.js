@@ -10,9 +10,9 @@ function refs(round = 1) {
   ];
 }
 
-function structured(stage, inputRefs, content = 'Answer', changes = []) {
+function structured(stage, inputRefs, content = 'Answer', changes = [], snapshotId = 'SNAP-TEST-R1') {
   return JSON.stringify({
-    passport: { contract: 'AL-STRUCT-1', stage, input_refs: inputRefs },
+    passport: { contract: 'AL-STRUCT-1', stage, input_snapshot_id: snapshotId, input_refs: inputRefs },
     outputs: [{ id: 'OUT-1', type: 'ANSWER', version: 1, content }],
     annotations: [{ type: 'FACT', text: 'example' }],
     trace: [{ output_id: 'OUT-1', source_ids: inputRefs.map((ref) => ref.id) }],
@@ -46,7 +46,7 @@ describe('Automation Layer final structured core', () => {
   });
 
   test('round one prompt includes instruction plus concrete JSON example', () => {
-    const prompt = Core.buildRoundOnePrompt('Question', refs(1));
+    const prompt = Core.buildRoundOnePrompt('Question', refs(1), 'SNAP-TEST-R1');
     expect(prompt).toContain('AL-STRUCT-1');
     expect(prompt).toContain('CONSUMED означает только «вход обработан»');
     expect(prompt).toContain('schema_example');
@@ -59,7 +59,8 @@ describe('Automation Layer final structured core', () => {
     const parsed = Core.validateStructuredAnswer(
       structured('ROUND_1', refs(1), 'R1'),
       'ROUND_1',
-      refs(1)
+      refs(1),
+      'SNAP-TEST-R1'
     );
     expect(parsed.ok).toBe(true);
     expect(parsed.content).toBe('R1');
@@ -71,7 +72,8 @@ describe('Automation Layer final structured core', () => {
     const parsed = Core.validateStructuredAnswer(
       structured('ROUND_1', wrong, 'R1'),
       'ROUND_1',
-      refs(1)
+      refs(1),
+      'SNAP-TEST-R1'
     );
     expect(parsed.ok).toBe(false);
     expect(['STRUCTURE_INPUT_REF_MISMATCH', 'STRUCTURE_INPUT_COVERAGE']).toContain(parsed.reason);
@@ -87,7 +89,8 @@ describe('Automation Layer final structured core', () => {
     const parsed = Core.validateStructuredAnswer(
       structured('ROUND_1', refs(1), 'R1', change),
       'ROUND_1',
-      refs(1)
+      refs(1),
+      'SNAP-TEST-R1'
     );
     expect(parsed.ok).toBe(true);
   });
@@ -103,7 +106,8 @@ describe('Automation Layer final structured core', () => {
     const parsed = Core.validateStructuredAnswer(
       structured('ROUND_1', refs(1), 'R1', change),
       'ROUND_1',
-      refs(1)
+      refs(1),
+      'SNAP-TEST-R1'
     );
     expect(parsed.ok).toBe(false);
     expect(parsed.reason).toBe('STRUCTURE_MODEL_CANONICAL_ID_FORBIDDEN');
@@ -118,7 +122,8 @@ describe('Automation Layer final structured core', () => {
       originalPrompt: 'Question',
       modelOrder: ['GPT', 'Claude'],
       answers,
-      inputRefs: refs(2)
+      inputRefs: refs(2),
+      snapshotId: 'SNAP-TEST-R2'
     });
     expect(prompt).toContain('"role":"prior_output"');
     expect(prompt).toContain('"id":"R1-GPT-OUT-1"');
@@ -128,22 +133,23 @@ describe('Automation Layer final structured core', () => {
 
   test('round two requires provenance and fate for idea plus both prior outputs', () => {
     const parsed = Core.validateStructuredAnswer(
-      structured('ROUND_2', refs(2), 'R2'),
+      structured('ROUND_2', refs(2), 'R2', [], 'SNAP-TEST-R2'),
       'ROUND_2',
-      refs(2)
+      refs(2),
+      'SNAP-TEST-R2'
     );
     expect(parsed.ok).toBe(true);
 
-    const broken = JSON.parse(structured('ROUND_2', refs(2), 'R2'));
+    const broken = JSON.parse(structured('ROUND_2', refs(2), 'R2', [], 'SNAP-TEST-R2'));
     broken.trace[0].source_ids = ['IDEA-001'];
-    const rejected = Core.validateStructuredAnswer(JSON.stringify(broken), 'ROUND_2', refs(2));
+    const rejected = Core.validateStructuredAnswer(JSON.stringify(broken), 'ROUND_2', refs(2), 'SNAP-TEST-R2');
     expect(rejected.ok).toBe(false);
     expect(rejected.reason).toBe('STRUCTURE_TRACE_COVERAGE');
   });
 
   test('accepts explicit empty-by-design result without fake output', () => {
     const value = {
-      passport: { contract: 'AL-STRUCT-1', stage: 'ROUND_1', input_refs: refs(1) },
+      passport: { contract: 'AL-STRUCT-1', stage: 'ROUND_1', input_snapshot_id: 'SNAP-TEST-R1', input_refs: refs(1) },
       outputs: [],
       annotations: [],
       trace: [],
@@ -157,9 +163,16 @@ describe('Automation Layer final structured core', () => {
         anomalies: []
       }
     };
-    const parsed = Core.validateStructuredAnswer(JSON.stringify(value), 'ROUND_1', refs(1));
+    const parsed = Core.validateStructuredAnswer(JSON.stringify(value), 'ROUND_1', refs(1), 'SNAP-TEST-R1');
     expect(parsed.ok).toBe(true);
     expect(parsed.content).toBe('');
+  });
+
+  test('rejects wrong input snapshot identity', () => {
+    const raw = structured('ROUND_1', refs(1), 'R1', [], 'SNAP-WRONG');
+    const parsed = Core.validateStructuredAnswer(raw, 'ROUND_1', refs(1), 'SNAP-TEST-R1');
+    expect(parsed.ok).toBe(false);
+    expect(parsed.reason).toBe('STRUCTURE_BAD_SNAPSHOT_ID');
   });
 
   test('persisted stage correlation survives compaction', () => {
