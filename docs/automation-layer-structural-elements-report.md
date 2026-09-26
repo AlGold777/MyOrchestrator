@@ -1,7 +1,7 @@
 # Automation Layer — final structural protocol
 
 Contract: `AL-STRUCT-1`  
-Controller/Core version: `1.3.0`
+Controller/Core version: `1.4.0`
 
 ## 1. Final response envelope
 
@@ -160,3 +160,12 @@ The normal UI shows:
 - compact projection of Output / Annotations / Trace / Input fate / Completion.
 
 The wire format is not dumped into the primary reading flow.
+
+
+## Automation Layer v2.2
+
+Current product version: **2.2**. Controller/Core version: `1.4.0`.
+
+v2.2 extends the same `AL-STRUCT-1` envelope with machine-owned `input_snapshot_hash`, stage-specific empty-output policy, context/archive separation, idempotency and context-assembly audit. See `docs/automation-layer-v2.2.md`.
+
+All structural elements not explicitly changed remain unchanged.
