@@ -170,7 +170,8 @@
     if (empty && !policy.allowsEmptyByDesign) return { ok: false, reason: 'STRUCTURE_EMPTY_NOT_ALLOWED_FOR_STAGE' };
     if (policy.requiresMaterialOutput && Number(outputCount || 0) === 0) return { ok: false, reason: 'STRUCTURE_MATERIAL_OUTPUT_REQUIRED' };
     if (reason === 'NO_MATERIAL_DELTA' && !empty) return { ok: false, reason: 'STRUCTURE_NO_MATERIAL_DELTA_REQUIRES_EMPTY' };
-    if (empty && reason && reason !== 'NO_MATERIAL_DELTA') return { ok: false, reason: 'STRUCTURE_BAD_COMPLETION_REASON' };
+    if (empty && !reason) return { ok: false, reason: 'STRUCTURE_EMPTY_REASON_REQUIRED' };
+    if (empty && reason !== 'NO_MATERIAL_DELTA') return { ok: false, reason: 'STRUCTURE_BAD_COMPLETION_REASON' };
     return { ok: true };
   }
 
@@ -355,7 +356,7 @@
     return [
       'Верни только один JSON-объект по AL-STRUCT-1; без markdown и текста вне JSON.',
       'Обязательные поля: passport, outputs, annotations, trace, input_fate, changes, completion.',
-      `output.type: ${OUTPUT_TYPES.join('|')}; annotations[].type: ${ANNOTATION_TYPES.join('|')}; input_fate.disposition: ${INPUT_DISPOSITIONS.join('|')}; completion.status: ${COMPLETION_STATUSES.join('|')}; changes[].op: ${CHANGE_OPS.join('|')}.`,
+      `output.type: ${OUTPUT_TYPES.join('|')}; annotations[].type: ${ANNOTATION_TYPES.join('|')}; input_fate.disposition: ${INPUT_DISPOSITIONS.join('|')}; completion.status: ${COMPLETION_STATUSES.join('|')}; completion.reason (если есть): ${COMPLETION_REASONS.join('|')}; changes[].op: ${CHANGE_OPS.join('|')}.`,
       'CONSUMED означает только «вход обработан»; это НЕ означает «решён», «проверен» или «закрыт».',
       'Все существующие IDEA/PD/REQ/CON/FCT/ASM/UNK/RSK/EVD/AD/FND/CHG IDs и версии копируй только из passport.input_refs; canonical IDs не придумывай.',
       'Если создаёшь новый domain object, используй changes[].op="CREATE" и response-local temp_id вида "tmp-pd-1"; canonical ID назначит orchestrator.',
@@ -379,7 +380,11 @@
     const assembly = assemblePrompt({
       rules: structureInstruction('ROUND_1', refs, snapshotId, snapshotHash),
       state: snapshot.state,
-      active: snapshot.active,
+      active: {
+        ...snapshot.active,
+        input_snapshot_id: String(snapshotId || 'SNAP-UNBOUND'),
+        input_snapshot_hash: String(snapshotHash || 'sha256:UNBOUND')
+      },
       delta: snapshot.delta,
       task: 'Выполни исходный запрос пользователя. Верни только response-object AL-STRUCT-1.',
       budgetPolicy
@@ -404,7 +409,11 @@
     const assembly = assemblePrompt({
       rules: structureInstruction('ROUND_2', refs, snapshotId, snapshotHash),
       state: snapshot.state,
-      active: snapshot.active,
+      active: {
+        ...snapshot.active,
+        input_snapshot_id: String(snapshotId || 'SNAP-UNBOUND'),
+        input_snapshot_hash: String(snapshotHash || 'sha256:UNBOUND')
+      },
       delta: snapshot.delta,
       task: String(instruction || DEFAULT_SYNTHESIS_INSTRUCTION).trim(),
       budgetPolicy
