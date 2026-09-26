@@ -404,7 +404,7 @@
             dispatchId: event.dispatchId,
             contract: parsed.summary.contract,
             annotations: parsed.summary.annotations,
-            answerHash
+            answerHash: rawAnswerHash
           });
         } else {
           addFailureMessage(event);
