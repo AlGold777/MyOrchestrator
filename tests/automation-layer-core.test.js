@@ -10,9 +10,9 @@ function refs(round = 1) {
   ];
 }
 
-function structured(stage, inputRefs, content = 'Answer', changes = [], snapshotId = 'SNAP-TEST-R1') {
+function structured(stage, inputRefs, content = 'Answer', changes = [], snapshotId = 'SNAP-TEST-R1', snapshotHash = 'sha256:TEST-R1') {
   return JSON.stringify({
-    passport: { contract: 'AL-STRUCT-1', stage, input_snapshot_id: snapshotId, input_refs: inputRefs },
+    passport: { contract: 'AL-STRUCT-1', stage, input_snapshot_id: snapshotId, input_snapshot_hash: snapshotHash, input_refs: inputRefs },
     outputs: [{ id: 'OUT-1', type: 'ANSWER', version: 1, content }],
     annotations: [{ type: 'FACT', text: 'example' }],
     trace: [{ output_id: 'OUT-1', source_ids: inputRefs.map((ref) => ref.id) }],
@@ -46,13 +46,14 @@ describe('Automation Layer final structured core', () => {
   });
 
   test('round one prompt includes instruction plus concrete JSON example', () => {
-    const prompt = Core.buildRoundOnePrompt('Question', refs(1), 'SNAP-TEST-R1');
+    const prompt = Core.buildRoundOnePrompt('Question', refs(1), 'SNAP-TEST-R1', 'sha256:TEST-R1');
     expect(prompt).toContain('AL-STRUCT-1');
     expect(prompt).toContain('CONSUMED означает только «вход обработан»');
     expect(prompt).toContain('schema_example');
     expect(prompt).toContain('"role":"schema_example"');
     expect(prompt).toContain('"input_refs":[{"id":"IDEA-001","type":"IDEA","version":1}]');
     expect(prompt).toContain('"role":"task_input"');
+    expect(prompt).toContain('"input_snapshot_hash":"sha256:TEST-R1"');
   });
 
   test('accepts valid Round 1 structured answer with exact input ref', () => {
@@ -60,7 +61,8 @@ describe('Automation Layer final structured core', () => {
       structured('ROUND_1', refs(1), 'R1'),
       'ROUND_1',
       refs(1),
-      'SNAP-TEST-R1'
+      'SNAP-TEST-R1',
+      'sha256:TEST-R1'
     );
     expect(parsed.ok).toBe(true);
     expect(parsed.content).toBe('R1');
@@ -73,7 +75,8 @@ describe('Automation Layer final structured core', () => {
       structured('ROUND_1', wrong, 'R1'),
       'ROUND_1',
       refs(1),
-      'SNAP-TEST-R1'
+      'SNAP-TEST-R1',
+      'sha256:TEST-R1'
     );
     expect(parsed.ok).toBe(false);
     expect(['STRUCTURE_INPUT_REF_MISMATCH', 'STRUCTURE_INPUT_COVERAGE']).toContain(parsed.reason);
@@ -90,7 +93,8 @@ describe('Automation Layer final structured core', () => {
       structured('ROUND_1', refs(1), 'R1', change),
       'ROUND_1',
       refs(1),
-      'SNAP-TEST-R1'
+      'SNAP-TEST-R1',
+      'sha256:TEST-R1'
     );
     expect(parsed.ok).toBe(true);
   });
@@ -107,7 +111,8 @@ describe('Automation Layer final structured core', () => {
       structured('ROUND_1', refs(1), 'R1', change),
       'ROUND_1',
       refs(1),
-      'SNAP-TEST-R1'
+      'SNAP-TEST-R1',
+      'sha256:TEST-R1'
     );
     expect(parsed.ok).toBe(false);
     expect(parsed.reason).toBe('STRUCTURE_MODEL_CANONICAL_ID_FORBIDDEN');
@@ -123,7 +128,8 @@ describe('Automation Layer final structured core', () => {
       modelOrder: ['GPT', 'Claude'],
       answers,
       inputRefs: refs(2),
-      snapshotId: 'SNAP-TEST-R2'
+      snapshotId: 'SNAP-TEST-R2',
+      snapshotHash: 'sha256:TEST-R2'
     });
     expect(prompt).toContain('"role":"prior_output"');
     expect(prompt).toContain('"id":"R1-GPT-RESULT"');
@@ -133,23 +139,24 @@ describe('Automation Layer final structured core', () => {
 
   test('round two requires provenance and fate for idea plus both prior outputs', () => {
     const parsed = Core.validateStructuredAnswer(
-      structured('ROUND_2', refs(2), 'R2', [], 'SNAP-TEST-R2'),
+      structured('ROUND_2', refs(2), 'R2', [], 'SNAP-TEST-R2', 'sha256:TEST-R2'),
       'ROUND_2',
       refs(2),
-      'SNAP-TEST-R2'
+      'SNAP-TEST-R2',
+      'sha256:TEST-R2'
     );
     expect(parsed.ok).toBe(true);
 
     const broken = JSON.parse(structured('ROUND_2', refs(2), 'R2', [], 'SNAP-TEST-R2'));
     broken.trace[0].source_ids = ['IDEA-001'];
-    const rejected = Core.validateStructuredAnswer(JSON.stringify(broken), 'ROUND_2', refs(2), 'SNAP-TEST-R2');
+    const rejected = Core.validateStructuredAnswer(JSON.stringify(broken), 'ROUND_2', refs(2), 'SNAP-TEST-R2', 'sha256:TEST-R2');
     expect(rejected.ok).toBe(false);
     expect(rejected.reason).toBe('STRUCTURE_TRACE_COVERAGE');
   });
 
-  test('accepts explicit empty-by-design result without fake output', () => {
+  test('rejects empty-by-design in material-output Round 1', () => {
     const value = {
-      passport: { contract: 'AL-STRUCT-1', stage: 'ROUND_1', input_snapshot_id: 'SNAP-TEST-R1', input_refs: refs(1) },
+      passport: { contract: 'AL-STRUCT-1', stage: 'ROUND_1', input_snapshot_id: 'SNAP-TEST-R1', input_snapshot_hash: 'sha256:TEST-R1', input_refs: refs(1) },
       outputs: [],
       annotations: [],
       trace: [],
@@ -163,16 +170,105 @@ describe('Automation Layer final structured core', () => {
         anomalies: []
       }
     };
-    const parsed = Core.validateStructuredAnswer(JSON.stringify(value), 'ROUND_1', refs(1), 'SNAP-TEST-R1');
-    expect(parsed.ok).toBe(true);
-    expect(parsed.content).toBe('');
+    const parsed = Core.validateStructuredAnswer(JSON.stringify(value), 'ROUND_1', refs(1), 'SNAP-TEST-R1', 'sha256:TEST-R1');
+    expect(parsed.ok).toBe(false);
+    expect(parsed.reason).toBe('STRUCTURE_EMPTY_NOT_ALLOWED_FOR_STAGE');
   });
 
   test('rejects wrong input snapshot identity', () => {
-    const raw = structured('ROUND_1', refs(1), 'R1', [], 'SNAP-WRONG');
-    const parsed = Core.validateStructuredAnswer(raw, 'ROUND_1', refs(1), 'SNAP-TEST-R1');
+    const raw = structured('ROUND_1', refs(1), 'R1', [], 'SNAP-WRONG', 'sha256:TEST-R1');
+    const parsed = Core.validateStructuredAnswer(raw, 'ROUND_1', refs(1), 'SNAP-TEST-R1', 'sha256:TEST-R1');
     expect(parsed.ok).toBe(false);
     expect(parsed.reason).toBe('STRUCTURE_BAD_SNAPSHOT_ID');
+  });
+
+  test('rejects wrong input snapshot hash', () => {
+    const raw = structured('ROUND_1', refs(1), 'R1', [], 'SNAP-TEST-R1', 'sha256:WRONG');
+    const parsed = Core.validateStructuredAnswer(raw, 'ROUND_1', refs(1), 'SNAP-TEST-R1', 'sha256:TEST-R1');
+    expect(parsed.ok).toBe(false);
+    expect(parsed.reason).toBe('STRUCTURE_BAD_SNAPSHOT_HASH');
+  });
+
+  test('allows NO_MATERIAL_DELTA only on an empty-enabled stage', () => {
+    const inputRefs = refs(1);
+    const value = {
+      passport: {
+        contract: 'AL-STRUCT-1',
+        stage: 'DELTA',
+        input_snapshot_id: 'SNAP-DELTA',
+        input_snapshot_hash: 'sha256:DELTA',
+        input_refs: inputRefs
+      },
+      outputs: [],
+      annotations: [],
+      trace: [],
+      input_fate: [{ input_id: 'IDEA-001', disposition: 'CONSUMED', output_ids: [] }],
+      changes: [],
+      completion: {
+        status: 'COMPLETE',
+        output_ids: [],
+        output_count: 0,
+        empty_by_design: true,
+        reason: 'NO_MATERIAL_DELTA',
+        anomalies: []
+      }
+    };
+    const parsed = Core.validateStructuredAnswer(
+      JSON.stringify(value), 'DELTA', inputRefs, 'SNAP-DELTA', 'sha256:DELTA'
+    );
+    expect(parsed.ok).toBe(true);
+  });
+
+  test('stableStringify ignores object-key insertion order', () => {
+    expect(Core.stableStringify({ b: 2, a: { d: 4, c: 3 } }))
+      .toBe(Core.stableStringify({ a: { c: 3, d: 4 }, b: 2 }));
+  });
+
+  test('canonical provider normalization is deterministic and non-semantic', () => {
+    const result = Core.canonicalizeProviderText('\uFEFF  A\r\n\r\n\r\n\r\nB  ');
+    expect(result.text).toBe('A\n\n\nB');
+    expect(result.actions).toEqual(expect.arrayContaining([
+      'REMOVE_BOM','NORMALIZE_LINE_ENDINGS','TRIM_OUTER_WHITESPACE','COLLAPSE_EXCESS_BLANK_LINES'
+    ]));
+  });
+
+  test('safe truncation marks context copy without changing original text', () => {
+    const original = 'First paragraph.\n\n' + 'x'.repeat(200);
+    const result = Core.safeTruncateText(original, 60);
+    expect(result.truncated).toBe(true);
+    expect(result.text).toContain('[OBJ:TRUNC]');
+    expect(original).not.toContain('[OBJ:TRUNC]');
+  });
+
+  test('registry resolves authoritative canonical references', () => {
+    const registry = Core.createRegistry([{ id: 'IDEA-001', type: 'IDEA', version: 1, content: 'Q' }]);
+    const view = Core.buildRegistryView(registry, refs(1));
+    expect(view[0].ref.id).toBe('IDEA-001');
+    expect(view[0].content).toBe('Q');
+    expect(view[0].missing).not.toBe(true);
+  });
+
+  test('layered prompt assembly has deterministic order and budget accounting', () => {
+    const built = Core.assemblePrompt({
+      rules: 'R',
+      state: { registry_objects: [] },
+      active: { input_refs: refs(1) },
+      delta: [],
+      task: 'T',
+      budgetPolicy: { maxPromptChars: 1000 }
+    });
+    expect(built.prompt.indexOf('RULES:')).toBeLessThan(built.prompt.indexOf('STATE:'));
+    expect(built.prompt.indexOf('STATE:')).toBeLessThan(built.prompt.indexOf('ACTIVE:'));
+    expect(built.prompt.indexOf('ACTIVE:')).toBeLessThan(built.prompt.indexOf('DELTA:'));
+    expect(built.prompt.indexOf('DELTA:')).toBeLessThan(built.prompt.indexOf('TASK:'));
+    expect(built.budget.used_chars).toBe(built.prompt.length);
+  });
+
+  test('source message id is stable and provider id wins when present', () => {
+    expect(Core.deriveSourceMessageId({ providerMessageId: 'native-1', model: 'GPT' })).toBe('native-1');
+    const a = Core.deriveSourceMessageId({ pipelineRunId: 'R1', model: 'GPT', dispatchId: 'D1', payloadHash: 'H' });
+    const b = Core.deriveSourceMessageId({ pipelineRunId: 'R1', model: 'GPT', dispatchId: 'D1', payloadHash: 'H' });
+    expect(a).toBe(b);
   });
 
   test('persisted stage correlation survives compaction', () => {
