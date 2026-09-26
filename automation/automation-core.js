@@ -106,17 +106,19 @@
     return next;
   }
 
-  function buildRegistryView(registry, refs) {
+  function buildRegistryView(registry, refs, options) {
     const objects = registry?.objects || {};
+    const includeContent = options?.includeContent !== false;
     return (refs || []).map(normalizeRef).map((ref) => {
       const value = objects[ref.id];
       if (!value) return { ref, missing: true };
-      return {
+      const view = {
         ref,
-        content: value.content,
         content_hash: value.content_hash || null,
         source_refs: Array.isArray(value.source_refs) ? value.source_refs.slice() : []
       };
+      if (includeContent) view.content = value.content;
+      return view;
     });
   }
 
@@ -179,7 +181,7 @@
     const refs = expectedInputRefs(round, models, ideaRef);
     const state = {
       original_request: String(originalPrompt || ''),
-      registry_objects: buildRegistryView(registry, refs)
+      registry_objects: buildRegistryView(registry, refs, { includeContent: false })
     };
     const active = {
       input_refs: refs
