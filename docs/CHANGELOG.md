@@ -1,5 +1,11 @@
 # CHANGELOG — Project
 
+### 2026-09-26 — Keep Automation workspace out of the extension start route, version 2.81.496
+
+- The browser extension action now opens or focuses the main results or pipeline page, not a previously open Automation workspace.
+- Keep the dedicated Automation workspace reachable from its explicit in-app link.
+- Document that separate local checkouts of the repository do not update one another automatically.
+
 ### 2026-09-25 — Supervise Automation finalization recovery, version 2.81.495
 
 - Detect answers that remain non-terminal after the provider has finished and call existing `GET_IT_BATCH` for pending models only.

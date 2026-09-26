@@ -100,15 +100,15 @@ self.__extensionLifecycleReady = new Promise((resolve) => {
   }
 });
 
-// Resolve which panel to open when none is already open: the page the user last
-// opened (recorded by results.js as `lastOpenedPage`), defaulting to the main
-// results page on a fresh install / no stored preference.
+// The toolbar action opens the user's last comparator view. The Automation
+// workspace is entered from its explicit link, so it must not become the
+// extension's general start page.
 const codexResolveStartPage = (callback) => {
   let settled = false;
   const done = (file) => {
     if (settled) return;
     settled = true;
-    callback(['pipeline_panel.html', 'automation.html'].includes(file) ? file : 'result_new.html');
+    callback(file === 'pipeline_panel.html' ? file : 'result_new.html');
   };
   try {
     if (chrome?.storage?.local?.get) {
@@ -140,6 +140,11 @@ const codexExtensionPageUrls = () => [
   chrome.runtime.getURL('result_new.html')
 ];
 
+const codexActionPageUrls = () => [
+  chrome.runtime.getURL('pipeline_panel.html'),
+  chrome.runtime.getURL('result_new.html')
+];
+
 // Re-assert on startup and whenever such a page finishes loading: the flag is
 // per-tab and does not survive a reload or a browser restart.
 try {
@@ -163,7 +168,7 @@ try {
 try {
   if (chrome?.action?.onClicked && chrome?.tabs && chrome?.runtime?.getURL) {
     chrome.action.onClicked.addListener(() => {
-      const urls = codexExtensionPageUrls();
+      const urls = codexActionPageUrls();
       chrome.tabs.query({ url: urls }, (tabs = []) => {
         const existing = Array.isArray(tabs) ? tabs.find((tab) => tab?.id) : null;
         if (existing?.id) {
