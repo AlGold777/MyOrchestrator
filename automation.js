@@ -731,6 +731,10 @@
   }
 
   function renderModelHeaders() {
+    ui.modelControls.forEach((control) => {
+      const visual = control.closest('.model-nav-button');
+      if (visual) visual.classList.toggle('is-active', control.checked);
+    });
     const models = selectedOrStateModels();
     if (ui.modelAName) ui.modelAName.textContent = models[0] || 'Model A';
     if (ui.modelBName) ui.modelBName.textContent = models[1] || 'Model B';
