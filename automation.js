@@ -4,7 +4,7 @@
   const Core = globalThis.AutomationLayerCore;
   if (!Core) throw new Error('AutomationLayerCore is not loaded');
 
-  const STORAGE_KEY = 'automationLayerWebRuntimeTest.v4';
+  const STORAGE_KEY = 'automationLayerWebRuntimeTest.v5';
   const PHASE = Object.freeze({
     IDLE: 'IDLE',
     ROUND1_DISPATCHING: 'ROUND 1 · DISPATCHING',
@@ -123,8 +123,21 @@
     }
 
     const runId = createRunId();
+    const originalPromptHash = await sha256(originalPrompt);
+    const ideaRef = Core.makeIdeaRef(runId);
+    const registry = Core.createRegistry([{
+      id: ideaRef.id,
+      type: ideaRef.type,
+      version: ideaRef.version,
+      content: originalPrompt,
+      content_hash: originalPromptHash,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      source_refs: []
+    }]);
     state = {
-      schemaVersion: 4,
+      schemaVersion: 5,
+      productVersion: Core.PRODUCT_VERSION,
       controllerVersion: Core.VERSION,
       architecture: 'event-driven-controller-over-existing-myorchestrator-runtime',
       runId,
@@ -132,13 +145,15 @@
       startedAt: new Date().toISOString(),
       completedAt: null,
       originalPrompt,
-      originalPromptHash: await sha256(originalPrompt),
-      ideaRef: Core.makeIdeaRef(runId),
+      originalPromptHash,
+      ideaRef,
+      registry,
+      acceptedMessageIds: [],
       models: selected,
       synthesisInstruction: Core.DEFAULT_SYNTHESIS_INSTRUCTION,
       rounds: {
-        '1': { snapshotId: Core.inputSnapshotId(runId, 1), promptHash: null, sessionId: null, dispatchedAt: null, recoveryCount: 0, recoveryRequestedAt: null, answers: {}, terminalKeys: [] },
-        '2': { snapshotId: Core.inputSnapshotId(runId, 2), promptHash: null, sessionId: null, dispatchedAt: null, recoveryCount: 0, recoveryRequestedAt: null, answers: {}, terminalKeys: [] }
+        '1': { snapshotId: Core.inputSnapshotId(runId, 1), snapshotHash: null, contextAudit: [], promptHash: null, sessionId: null, dispatchedAt: null, recoveryCount: 0, recoveryRequestedAt: null, answers: {}, terminalKeys: [] },
+        '2': { snapshotId: Core.inputSnapshotId(runId, 2), snapshotHash: null, contextAudit: [], promptHash: null, sessionId: null, dispatchedAt: null, recoveryCount: 0, recoveryRequestedAt: null, answers: {}, terminalKeys: [] }
       },
       feed: [],
       journal: [],
@@ -156,14 +171,54 @@
     await persist();
     render();
 
-    await dispatchRound(
-      1,
-      Core.buildRoundOnePrompt(
-        originalPrompt,
-        Core.expectedInputRefs(1, selected, state.ideaRef),
-        state.rounds['1'].snapshotId
-      )
-    );
+    await dispatchRound(1, await prepareRoundPrompt(1));
+  }
+
+  async function prepareRoundPrompt(round) {
+    if (!state) throw new Error('missing_automation_state');
+    const roundState = state.rounds[String(round)];
+    const inputRefs = Core.expectedInputRefs(round, state.models, state.ideaRef);
+    const semanticSnapshot = Core.buildRoundSemanticSnapshot({
+      round,
+      originalPrompt: state.originalPrompt,
+      models: state.models,
+      ideaRef: state.ideaRef,
+      registry: state.registry,
+      answers: state.rounds['1'].answers
+    });
+    const snapshotHash = 'sha256:' + await sha256(Core.stableStringify(semanticSnapshot));
+    roundState.snapshotHash = snapshotHash;
+
+    const common = {
+      originalPrompt: state.originalPrompt,
+      inputRefs,
+      snapshotId: roundState.snapshotId,
+      snapshotHash,
+      registry: state.registry,
+      budgetPolicy: Core.CONTEXT_POLICY
+    };
+    const built = round === 1
+      ? Core.buildRoundOnePackage(common)
+      : Core.buildRoundTwoPackage({
+          ...common,
+          modelOrder: state.models,
+          answers: state.rounds['1'].answers,
+          instruction: state.synthesisInstruction
+        });
+
+    if (built.overflow) throw new Error('CONTEXT_BUDGET_EXCEEDED_PROTECTED');
+    roundState.contextAudit = state.models.map((model) => Core.buildContextAssemblyAudit({
+      runId: state.runId,
+      round,
+      model,
+      snapshotId: roundState.snapshotId,
+      snapshotHash,
+      inputRefs,
+      assembly: built,
+      promptHash: null,
+      truncations: built.truncations || []
+    }));
+    return built.prompt;
   }
 
   async function dispatchRound(round, prompt) {
@@ -177,6 +232,9 @@
     state.phase = phaseDispatch;
     state.rounds[roundKey].sentPrompt = prompt;
     state.rounds[roundKey].promptHash = await sha256(prompt);
+    (state.rounds[roundKey].contextAudit || []).forEach((entry) => {
+      entry.prompt_hash = state.rounds[roundKey].promptHash;
+    });
     showTransientModelRequests(prompt);
     addJournal('ROUND_DISPATCH_INTENT', {
       round,
@@ -199,6 +257,7 @@
         automationRunId: state.runId,
         automationRound: round,
         automationSnapshotId: state.rounds[roundKey].snapshotId,
+        automationSnapshotHash: state.rounds[roundKey].snapshotHash,
         automationControllerVersion: Core.VERSION,
         automationIdeaRef: state.ideaRef,
         automationModels: state.models.slice()
@@ -256,11 +315,27 @@
       for (const event of events) {
         roundState.terminalKeys.push(event.key);
         if (event.success) {
+          const normalized = Core.canonicalizeProviderText(event.answer);
+          const rawAnswerHash = await sha256(event.answer);
+          const normalizedAnswerHash = await sha256(normalized.text);
+          const sourceMessageId = Core.deriveSourceMessageId({
+            providerMessageId: event.sourceMessageId,
+            pipelineRunId: Core.stageRunId(state.runId, round),
+            model: event.model,
+            dispatchId: event.dispatchId,
+            payloadHash: normalizedAnswerHash
+          });
+          if ((state.acceptedMessageIds || []).includes(sourceMessageId)) {
+            addJournal('MODEL_DUPLICATE_IGNORED', { round, model: event.model, sourceMessageId });
+            continue;
+          }
+
           const parsed = Core.validateStructuredAnswer(
-            event.answer,
+            normalized.text,
             round === 1 ? 'ROUND_1' : 'ROUND_2',
             Core.expectedInputRefs(round, state.models, state.ideaRef),
-            roundState.snapshotId
+            roundState.snapshotId,
+            roundState.snapshotHash
           );
           if (!parsed.ok) {
             addFailureMessage({ ...event, status: 'STRUCTURE_INVALID', reason: parsed.reason });
@@ -268,24 +343,37 @@
               round,
               model: event.model,
               reason: parsed.reason,
-              answerHash: await sha256(event.answer)
+              answerHash: rawAnswerHash,
+              normalizedAnswerHash,
+              canonicalizationActions: normalized.actions
             });
             terminalFailure = { ...event, status: 'STRUCTURE_INVALID', reason: parsed.reason };
             continue;
           }
 
-          const answerHash = await sha256(event.answer);
+          const contextCopy = Core.compactStructuredForContext(parsed.structure, Core.CONTEXT_POLICY);
           const runtimeMeta = {
             run_id: state.runId,
             model: event.model,
             round,
             prompt_hash: roundState.promptHash,
-            payload_hash: answerHash
+            input_snapshot_id: roundState.snapshotId,
+            input_snapshot_hash: roundState.snapshotHash,
+            payload_hash: rawAnswerHash,
+            normalized_payload_hash: normalizedAnswerHash,
+            source_message_id: sourceMessageId
           };
           roundState.answers[event.model] = {
             text: parsed.content,
             raw: event.answer,
+            raw_provider_response: event.answer,
+            normalized_provider_response: normalized.text,
+            canonicalization_actions: normalized.actions,
             structure: parsed.structure,
+            canonical_structure: parsed.structure,
+            context_structure: contextCopy.structure,
+            truncations: contextCopy.truncations,
+            sourceMessageId,
             runtime: runtimeMeta,
             structureSummary: parsed.summary,
             acceptedAt: new Date(event.finalizedAt).toISOString(),
@@ -294,6 +382,20 @@
             requestId: event.requestId,
             source: event.source
           };
+          state.acceptedMessageIds.push(sourceMessageId);
+          if (round === 1) {
+            const resultRef = Core.priorOutputRef(event.model);
+            Core.registryUpsert(state.registry, {
+              id: resultRef.id,
+              type: resultRef.type,
+              version: resultRef.version,
+              content: parsed.structure,
+              content_hash: normalizedAnswerHash,
+              created_at: new Date(event.finalizedAt).toISOString(),
+              updated_at: new Date(event.finalizedAt).toISOString(),
+              source_refs: Core.expectedInputRefs(round, state.models, state.ideaRef).map((ref) => ref.id)
+            });
+          }
           addModelMessage(event, parsed, runtimeMeta);
           addJournal('MODEL_ANSWER_ACCEPTED', {
             round,
@@ -350,14 +452,7 @@
       await persist();
       render();
 
-      const roundTwoPrompt = Core.buildRoundTwoPrompt({
-        originalPrompt: state.originalPrompt,
-        modelOrder: state.models,
-        answers: state.rounds['1'].answers,
-        instruction: state.synthesisInstruction,
-        inputRefs: Core.expectedInputRefs(2, state.models, state.ideaRef),
-        snapshotId: state.rounds['2'].snapshotId
-      });
+      const roundTwoPrompt = await prepareRoundPrompt(2);
 
       addSystemMessage('Round 2 started', 2);
       await persist();
@@ -421,14 +516,7 @@
     }
 
     if (state.phase === PHASE.ROUND1_COMPLETE) {
-      const roundTwoPrompt = Core.buildRoundTwoPrompt({
-        originalPrompt: state.originalPrompt,
-        modelOrder: state.models,
-        answers: state.rounds['1'].answers,
-        instruction: state.synthesisInstruction,
-        inputRefs: Core.expectedInputRefs(2, state.models, state.ideaRef),
-        snapshotId: state.rounds['2'].snapshotId
-      });
+      const roundTwoPrompt = await prepareRoundPrompt(2);
       addSystemMessage('Round 2 resumed after page reload', 2);
       await persist();
       await dispatchRound(2, roundTwoPrompt);
@@ -457,20 +545,7 @@
       }
 
       if (!active?.active) {
-        const prompt = retryRound === 1
-          ? Core.buildRoundOnePrompt(
-              state.originalPrompt,
-              Core.expectedInputRefs(1, state.models, state.ideaRef),
-              state.rounds['1'].snapshotId
-            )
-          : Core.buildRoundTwoPrompt({
-              originalPrompt: state.originalPrompt,
-              modelOrder: state.models,
-              answers: state.rounds['1'].answers,
-              instruction: state.synthesisInstruction,
-              inputRefs: Core.expectedInputRefs(2, state.models, state.ideaRef),
-              snapshotId: state.rounds['2'].snapshotId
-            });
+        const prompt = await prepareRoundPrompt(retryRound);
         addJournal('DISPATCH_RECOVERY_RETRY', { round: retryRound });
         await persist();
         await dispatchRound(retryRound, prompt);
@@ -521,7 +596,7 @@
     }, 1800);
   }
 
-    function addModelMessage(event, parsed, runtimeMeta) {
+  function addModelMessage(event, parsed, runtimeMeta) {
     state.feed.push({
       id: createEventId('answer'),
       type: 'model',
@@ -661,7 +736,7 @@
     ui.resultsModal.hidden = true;
   }
 
-    async function downloadResult() {
+  async function downloadResult() {
     if (!state) return;
     const text = Core.buildResultText(state);
     await downloadBlob(
@@ -765,6 +840,7 @@
     box.className = 'automation-structure-compact';
     const rows = [
       ['Snapshot', s.passport?.input_snapshot_id || '—'],
+      ['Snapshot hash', s.passport?.input_snapshot_hash || '—'],
       ['Inputs', (s.passport?.input_refs || []).map((r) => `${r.id} · ${r.type} · v${r.version}`).join(' · ') || '—'],
       ['Output', (s.outputs || []).map((o) => `${o.id} · ${o.type} · v${o.version}`).join(', ') || '—'],
       ['Annotations', (s.annotations || []).map((a) => a.type).join(', ') || '—'],
@@ -842,7 +918,7 @@
     renderModelLane(ui.modelBFeed, models[1]);
   }
 
-    function renderFeed() {
+  function renderFeed() {
     ui.feed.textContent = '';
     const feed = state?.feed || [];
 
