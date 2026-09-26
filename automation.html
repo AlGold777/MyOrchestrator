@@ -10,11 +10,6 @@
 <body class="automation-body">
   <div class="automation-page">
     <header class="automation-topbar">
-      <div class="automation-runtime" role="status" aria-live="polite">
-        <strong id="automation-status">IDLE</strong>
-        <span id="automation-run-id">No active run</span>
-      </div>
-
       <nav class="model-navigation" aria-label="Model selection">
         <label class="model-nav-button is-active" title="GPT">
           <input class="model-selector-input" type="checkbox" name="llm" value="chatgpt" checked>
@@ -71,6 +66,7 @@
       <div class="automation-actions">
         <button id="automation-download-result" type="button" disabled>Results</button>
         <button id="automation-download-audit" type="button" disabled>Save</button>
+        <button id="automation-cancel" type="button" disabled>Cansel</button>
       </div>
     </header>
 
@@ -86,14 +82,12 @@
       <section class="automation-lane automation-moderator-lane">
         <header class="automation-lane-header">
           <h2>Automation</h2>
-          <span id="automation-feed-summary" class="automation-feed-summary">IDLE</span>
         </header>
         <div id="automation-feed" class="automation-lane-feed" data-automation-feed aria-live="polite"></div>
         <div class="automation-moderator-composer">
           <textarea id="prompt" class="automation-composer" placeholder=""></textarea>
           <div class="automation-composer-actions">
             <button id="send-button" type="button">Send</button>
-            <button id="automation-cancel" type="button" disabled>Cansel</button>
           </div>
         </div>
       </section>
@@ -106,6 +100,16 @@
         <textarea id="automation-model-b-request" class="automation-composer automation-model-request" readonly></textarea>
       </section>
     </main>
+
+    <div id="automation-results-modal" class="automation-results-modal" hidden>
+      <div class="automation-results-panel" role="dialog" aria-modal="true" aria-labelledby="automation-results-title">
+        <div class="automation-results-head">
+          <h2 id="automation-results-title">Test Results</h2>
+          <button id="automation-results-close" type="button">Close</button>
+        </div>
+        <pre id="automation-results-body"></pre>
+      </div>
+    </div>
 
     <details class="automation-diagnostics">
       <summary>Runtime / Diagnostics</summary>
