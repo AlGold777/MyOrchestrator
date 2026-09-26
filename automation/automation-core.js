@@ -375,7 +375,7 @@
     if (!original) throw new Error('missing_original_prompt');
     const refs = (inputRefs && inputRefs.length ? inputRefs : [{ id: 'IDEA-UNBOUND', type: 'IDEA', version: 1 }]).map(normalizeRef);
     const snapshot = {
-      state: { original_request: original, registry_objects: buildRegistryView(registry, refs) },
+      state: { original_request: original, registry_objects: buildRegistryView(registry, refs, { includeContent: false }) },
       active: { input_refs: refs },
       delta: []
     };
@@ -404,7 +404,7 @@
     const combined = deterministicCombine(modelOrder, answers, { compact: true, policy: budgetPolicy || CONTEXT_POLICY });
     const truncations = combined.flatMap((item) => item.context_meta?.truncations || []);
     const snapshot = {
-      state: { original_request: original, registry_objects: buildRegistryView(registry, refs) },
+      state: { original_request: original, registry_objects: buildRegistryView(registry, refs, { includeContent: false }) },
       active: { input_refs: refs, prior_outputs: combined },
       delta: (modelOrder || []).map(priorOutputRef)
     };
