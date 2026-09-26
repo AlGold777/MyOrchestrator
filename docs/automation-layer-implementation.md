@@ -187,7 +187,7 @@ Already accepted answers remain in the feed and stored state.
 
 Controller state is checkpointed in:
 
-`chrome.storage.local['automationLayerWebRuntimeTest.v4']`
+`chrome.storage.local['automationLayerWebRuntimeTest.v5']`
 
 On page reload:
 
@@ -256,7 +256,7 @@ Verify:
 The current execution environment used to produce this branch cannot authenticate into the user's local Chrome provider sessions, so the real provider run remains the required final field test.
 
 
-## Structured response contract v1.1
+## Structured response contract v1.2
 
 Each model response is now required to satisfy the compact `AL-STRUCT-1` contract:
 
@@ -329,6 +329,13 @@ The final contract adds the following requirements beyond the prototype-visible 
 
 Persistent key:
 
-`chrome.storage.local['automationLayerWebRuntimeTest.v4']`
+`chrome.storage.local['automationLayerWebRuntimeTest.v5']`
 
 The state includes the machine-owned `ideaRef`, exact sent prompts for both rounds, structured answers, runtime integrity metadata, feed and journal.
+
+
+## Automation Layer v2.2
+
+Current product version: **2.2**. Core: `1.4.0`. Persistent controller state: `automationLayerWebRuntimeTest.v5`.
+
+The additive v2.2 implementation details are documented in `docs/automation-layer-v2.2.md`. Existing behavior not explicitly changed there remains preserved.
