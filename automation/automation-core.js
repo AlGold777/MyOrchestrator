@@ -724,7 +724,7 @@
     const r1 = state?.rounds?.['1']?.answers || {};
     const r2 = state?.rounds?.['2']?.answers || {};
     const lines = [
-      'Automation Layer — Web Runtime integration test',
+      `Automation Layer v${PRODUCT_VERSION} — Web Runtime integration test`,
       `Run ID: ${state?.runId || ''}`,
       `Idea: ${state?.ideaRef?.id || ''}@v${state?.ideaRef?.version || 1}`,
       `Models: ${models.join(', ')}`,
