@@ -2,7 +2,7 @@
 
 Branch: `automation-gpt`  
 Semantic contract: `AL-STRUCT-1`  
-Controller/Core: `1.3.0`
+Controller/Core: `1.4.0`
 
 ## Purpose
 
@@ -174,7 +174,7 @@ Failure after bounded recovery is explicit and fail-closed.
 
 Controller key:
 
-`automationLayerWebRuntimeTest.v4`
+`automationLayerWebRuntimeTest.v5`
 
 Persisted state includes:
 
@@ -198,3 +198,10 @@ Persisted state includes:
 - Structure is mandatory and validated.
 - UI reflects actual runtime events instead of explaining hidden internals.
 - One model failure cannot produce false overall success.
+
+
+## Automation Layer v2.2
+
+Current product version: **2.2**. Core: `1.4.0`. Persistent controller state: `automationLayerWebRuntimeTest.v5`.
+
+The additive v2.2 context/payload-control specification is documented in `docs/automation-layer-v2.2.md`. Existing behavior not explicitly changed there remains part of the system.
