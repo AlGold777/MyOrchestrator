@@ -338,6 +338,26 @@ describe('Automation Layer final structured core', () => {
     expect(built.budget.used_chars).toBe(built.prompt.length);
   });
 
+  test('evicts only non-active recoverable registry entries deterministically', () => {
+    const activeRef = { id: 'IDEA-001', type: 'IDEA', version: 1 };
+    const oldRef = { id: 'PD-OLD', type: 'PD', version: 1 };
+    const built = Core.applyContextBudget({
+      rules: 'R',
+      state: {
+        registry_objects: [
+          { ref: activeRef, content_hash: 'h1' },
+          { ref: oldRef, content_hash: 'h2', padding: 'x'.repeat(500) }
+        ]
+      },
+      active: { input_refs: [activeRef] },
+      delta: [],
+      task: 'T'
+    }, { maxPromptChars: 260 });
+    expect(built.omitted_refs).toEqual(['PD-OLD']);
+    expect(built.prompt).toContain('IDEA-001');
+    expect(built.prompt).not.toContain('PD-OLD');
+  });
+
   test('source message id is stable and provider id wins when present', () => {
     expect(Core.deriveSourceMessageId({ providerMessageId: 'native-1', model: 'GPT' })).toBe('native-1');
     const a = Core.deriveSourceMessageId({ pipelineRunId: 'R1', model: 'GPT', dispatchId: 'D1', payloadHash: 'H' });
