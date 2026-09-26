@@ -154,6 +154,37 @@ describe('Automation Layer final structured core', () => {
     expect(rejected.reason).toBe('STRUCTURE_TRACE_COVERAGE');
   });
 
+  test('accepts explicit empty-by-design result without fake output', () => {
+    const inputRefs = refs(1);
+    const value = {
+      passport: {
+        contract: 'AL-STRUCT-1',
+        stage: 'DELTA',
+        input_snapshot_id: 'SNAP-DELTA-COMPAT',
+        input_snapshot_hash: 'sha256:DELTA-COMPAT',
+        input_refs: inputRefs
+      },
+      outputs: [],
+      annotations: [],
+      trace: [],
+      input_fate: [{ input_id: 'IDEA-001', disposition: 'CONSUMED', output_ids: [] }],
+      changes: [],
+      completion: {
+        status: 'COMPLETE',
+        output_ids: [],
+        output_count: 0,
+        empty_by_design: true,
+        reason: 'NO_MATERIAL_DELTA',
+        anomalies: []
+      }
+    };
+    const parsed = Core.validateStructuredAnswer(
+      JSON.stringify(value), 'DELTA', inputRefs, 'SNAP-DELTA-COMPAT', 'sha256:DELTA-COMPAT'
+    );
+    expect(parsed.ok).toBe(true);
+    expect(parsed.content).toBe('');
+  });
+
   test('rejects empty-by-design in material-output Round 1', () => {
     const value = {
       passport: { contract: 'AL-STRUCT-1', stage: 'ROUND_1', input_snapshot_id: 'SNAP-TEST-R1', input_snapshot_hash: 'sha256:TEST-R1', input_refs: refs(1) },
