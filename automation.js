@@ -48,14 +48,14 @@
     ui.prompt = document.getElementById('prompt');
     ui.send = document.getElementById('send-button');
     ui.modelControls = Array.from(document.querySelectorAll('input[name="llm"]'));
-    ui.status = document.getElementById('automation-status');
-    ui.runId = document.getElementById('automation-run-id');
     ui.cancel = document.getElementById('automation-cancel');
     ui.downloadResult = document.getElementById('automation-download-result');
     ui.downloadAudit = document.getElementById('automation-download-audit');
     ui.feed = resolveExistingFeed();
-    ui.feedSummary = document.getElementById('automation-feed-summary');
     ui.diagnostics = document.getElementById('automation-diagnostics-log');
+    ui.resultsModal = document.getElementById('automation-results-modal');
+    ui.resultsBody = document.getElementById('automation-results-body');
+    ui.resultsClose = document.getElementById('automation-results-close');
     ui.modelAName = document.getElementById('automation-model-a-name');
     ui.modelBName = document.getElementById('automation-model-b-name');
     ui.modelAFeed = document.getElementById('automation-model-a-feed');
@@ -63,7 +63,7 @@
     ui.modelARequest = document.getElementById('automation-model-a-request');
     ui.modelBRequest = document.getElementById('automation-model-b-request');
 
-    const missing = ['prompt', 'send', 'status', 'runId', 'cancel', 'downloadResult', 'downloadAudit', 'feed', 'diagnostics']
+    const missing = ['prompt', 'send', 'cancel', 'downloadResult', 'downloadAudit', 'feed', 'diagnostics', 'resultsModal', 'resultsBody', 'resultsClose']
       .filter((name) => !ui[name]);
     if (missing.length) throw new Error(`automation_ui_missing: ${missing.join(', ')}`);
   }
@@ -76,10 +76,23 @@
 
   function bindEvents() {
     ui.send.addEventListener('click', onSendClick);
-    ui.modelControls.forEach((control) => control.addEventListener('change', renderModelHeaders));
+    ui.modelControls.forEach((control) => control.addEventListener('change', () => {
+      if (control.checked) {
+        const checked = ui.modelControls.filter((item) => item.checked);
+        if (checked.length > 2) {
+          const replace = checked.find((item) => item !== control);
+          if (replace) replace.checked = false;
+        }
+      }
+      renderModelHeaders();
+    }));
     ui.cancel.addEventListener('click', () => cancelRun().catch(reportFatal));
-    ui.downloadResult.addEventListener('click', () => downloadResult().catch(showError));
+    ui.downloadResult.addEventListener('click', showResults);
     ui.downloadAudit.addEventListener('click', () => downloadAudit().catch(showError));
+    ui.resultsClose.addEventListener('click', hideResults);
+    ui.resultsModal.addEventListener('click', (event) => {
+      if (event.target === ui.resultsModal) hideResults();
+    });
   }
 
   async function onSendClick(event) {
@@ -215,11 +228,7 @@
   function onRuntimeMessage(message) {
     if (!state || !ACTIVE_PHASES.has(state.phase)) return;
     if (message?.type !== 'GLOBAL_STATE_BROADCAST') return;
-    const entries = message?.state?.llms || {};
-    const statuses = state.models
-      .map((model) => `${model}: ${entries?.[model]?.status || '...'}`)
-      .join(' · ');
-    if (ui.feedSummary) ui.feedSummary.textContent = statuses;
+    void message;
   }
 
   async function reconcileJobState(jobState) {
@@ -370,11 +379,6 @@
       state.completedAt = new Date().toISOString();
       addSystemMessage('Run completed', 2);
       addJournal('RUN_COMPLETED', { completedAt: state.completedAt });
-      await persist();
-      render();
-
-      await downloadResult();
-      await downloadAudit();
       await persist();
       render();
     } catch (error) {
@@ -642,7 +646,22 @@
     throw new Error('Background runtime did not become idle before the next automation stage.');
   }
 
-  async function downloadResult() {
+  function hasResults() {
+    if (!state?.rounds) return false;
+    return ['1', '2'].some((round) => Object.keys(state.rounds?.[round]?.answers || {}).length > 0);
+  }
+
+  function showResults() {
+    if (!state || !hasResults()) return;
+    ui.resultsBody.textContent = Core.buildResultText(state);
+    ui.resultsModal.hidden = false;
+  }
+
+  function hideResults() {
+    ui.resultsModal.hidden = true;
+  }
+
+    async function downloadResult() {
     if (!state) return;
     const text = Core.buildResultText(state);
     await downloadBlob(
@@ -707,13 +726,12 @@
   }
 
   function render() {
-    const phase = state?.phase || PHASE.IDLE;
-    ui.status.textContent = phase;
-    ui.runId.textContent = state?.runId || 'No active run';
-    ui.send.disabled = Boolean(state && ACTIVE_PHASES.has(state.phase));
-    ui.cancel.disabled = !(state && ACTIVE_PHASES.has(state.phase));
-    ui.downloadResult.disabled = !state || ![PHASE.COMPLETED, PHASE.ERROR, PHASE.CANCELLED].includes(state.phase);
+    const active = Boolean(state && ACTIVE_PHASES.has(state.phase));
+    ui.send.disabled = active;
+    ui.cancel.disabled = !active;
+    ui.downloadResult.disabled = !hasResults();
     ui.downloadAudit.disabled = !state;
+    ui.modelControls.forEach((control) => { control.disabled = active; });
 
     renderModelHeaders();
     renderFeed();
@@ -850,10 +868,6 @@
       ui.feed.appendChild(section);
     });
 
-    if (ui.feedSummary) {
-      const accepted = feed.filter((item) => item.type === 'model').length;
-      ui.feedSummary.textContent = state ? `${state.phase} · ${accepted} model result${accepted === 1 ? '' : 's'}` : 'IDLE';
-    }
     ui.feed.scrollTop = ui.feed.scrollHeight;
   }
 
