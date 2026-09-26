@@ -219,6 +219,49 @@ describe('Automation Layer final structured core', () => {
     expect(parsed.ok).toBe(true);
   });
 
+  test('empty-by-design requires an explicit no-material-delta reason', () => {
+    const inputRefs = refs(1);
+    const value = {
+      passport: {
+        contract: 'AL-STRUCT-1',
+        stage: 'DELTA',
+        input_snapshot_id: 'SNAP-DELTA',
+        input_snapshot_hash: 'sha256:DELTA',
+        input_refs: inputRefs
+      },
+      outputs: [],
+      annotations: [],
+      trace: [],
+      input_fate: [{ input_id: 'IDEA-001', disposition: 'CONSUMED', output_ids: [] }],
+      changes: [],
+      completion: {
+        status: 'COMPLETE',
+        output_ids: [],
+        output_count: 0,
+        empty_by_design: true,
+        anomalies: []
+      }
+    };
+    const parsed = Core.validateStructuredAnswer(
+      JSON.stringify(value), 'DELTA', inputRefs, 'SNAP-DELTA', 'sha256:DELTA'
+    );
+    expect(parsed.ok).toBe(false);
+    expect(parsed.reason).toBe('STRUCTURE_EMPTY_REASON_REQUIRED');
+  });
+
+  test('v2.2 package exposes snapshot hash in actual ACTIVE input', () => {
+    const registry = Core.createRegistry([{ id: 'IDEA-001', type: 'IDEA', version: 1, content: 'Question' }]);
+    const built = Core.buildRoundOnePackage({
+      originalPrompt: 'Question',
+      inputRefs: refs(1),
+      snapshotId: 'SNAP-TEST-R1',
+      snapshotHash: 'sha256:TEST-R1',
+      registry
+    });
+    expect(built.prompt).toContain('ACTIVE:');
+    expect(built.prompt).toContain('"input_snapshot_hash":"sha256:TEST-R1"');
+  });
+
   test('stableStringify ignores object-key insertion order', () => {
     expect(Core.stableStringify({ b: 2, a: { d: 4, c: 3 } }))
       .toBe(Core.stableStringify({ a: { c: 3, d: 4 }, b: 2 }));
