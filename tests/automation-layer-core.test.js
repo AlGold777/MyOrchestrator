@@ -147,7 +147,7 @@ describe('Automation Layer final structured core', () => {
     );
     expect(parsed.ok).toBe(true);
 
-    const broken = JSON.parse(structured('ROUND_2', refs(2), 'R2', [], 'SNAP-TEST-R2'));
+    const broken = JSON.parse(structured('ROUND_2', refs(2), 'R2', [], 'SNAP-TEST-R2', 'sha256:TEST-R2'));
     broken.trace[0].source_ids = ['IDEA-001'];
     const rejected = Core.validateStructuredAnswer(JSON.stringify(broken), 'ROUND_2', refs(2), 'SNAP-TEST-R2', 'sha256:TEST-R2');
     expect(rejected.ok).toBe(false);
